@@ -5,8 +5,9 @@ unit main;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
-  tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome, framechats;
+  Classes, SysUtils, Forms, Controls, Dialogs, StdCtrls, ExtCtrls, ComCtrls,
+  Menus, tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome,
+  framechats;
 
 type
 
@@ -17,24 +18,35 @@ type
     содержимое рабочей области целиком в фреймах. }
 
   TFormMain = class(TForm, ITdStateListener)
-    pnlTop:    TPanel;
-    lblState:  TLabel;
-    btnLogout: TButton;
-    btnLog:    TButton;
-    btnWelcome: TButton;
-    pnlLeft:   TPanel;
-    splLeft:   TSplitter;
-    pnlWork:   TPanel;
+    ImageList1: TImageList;
+    MainMenu1:  TMainMenu;
+    MenuItem1:  TMenuItem;
+    MenuItem2:  TMenuItem;
+    MenuItem3:  TMenuItem;
+    MenuItem4:  TMenuItem;
+    MenuItem5:  TMenuItem;
+    MenuItem6:  TMenuItem;
+    MenuItem7:  TMenuItem;
+    MenuItem8:  TMenuItem;
+    MenuItem9:  TMenuItem;
+    pnlTop:     TPanel;
+    lblState:   TLabel;
+    btnLogout:  TButton;
+    pnlLeft:    TPanel;
+    splLeft:    TSplitter;
+    pnlWork:    TPanel;
+    StatusBar1: TStatusBar;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
     procedure btnLogoutClick(Sender: TObject);
-    procedure btnLogClick(Sender: TObject);
-    procedure btnWelcomeClick(Sender: TObject);
+    procedure logScreen(Sender: TObject);
+    procedure welcomeScreen(Sender: TObject);
+    procedure menuQuitClick(Sender: TObject);
   private
     FTdClosed: boolean;
-    FNav: TFrameNavigator;
-    FChats: TFrameChats;
+    FNav:      TFrameNavigator;
+    FChats:    TFrameChats;
     procedure ShutdownDone(Sender: TObject);
     procedure ChatSelected(Sender: TObject; ARow: TChatRow);
   public
@@ -126,14 +138,19 @@ begin
   TdApp.LogOut;
 end;
 
-procedure TFormMain.btnLogClick(Sender: TObject);
+procedure TFormMain.logScreen(Sender: TObject);
 begin
   FNav.ShowFrame(TFrameLog);
 end;
 
-procedure TFormMain.btnWelcomeClick(Sender: TObject);
+procedure TFormMain.welcomeScreen(Sender: TObject);
 begin
   FNav.ShowFrame(TFrameWelcome);
+end;
+
+procedure TFormMain.menuQuitClick(Sender: TObject);
+begin
+  FormCloseQuery(Self, FormMain.FTdClosed);
 end;
 
 { ---------------- ITdStateListener ---------------- }
