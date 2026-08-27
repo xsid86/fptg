@@ -1,0 +1,367 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="12"/>
+    <BuildModes Active="Default"/>
+    <Units>
+      <Unit>
+        <Filename Value="tg.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <TopLine Value="19"/>
+        <CursorPos X="62" Y="41"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="login.lfm"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="80" Y="17"/>
+        <UsageCount Value="35"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
+      </Unit>
+      <Unit>
+        <Filename Value="login.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FormLogin"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <EditorIndex Value="5"/>
+        <TopLine Value="10"/>
+        <CursorPos X="52" Y="45"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="splash.lfm"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <WindowIndex Value="-1"/>
+        <TopLine Value="-1"/>
+        <CursorPos X="-1" Y="-1"/>
+        <UsageCount Value="35"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
+      </Unit>
+      <Unit>
+        <Filename Value="splash.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FormSplash"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <EditorIndex Value="4"/>
+        <CursorPos X="47" Y="15"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="main.lfm"/>
+        <IsPartOfProject Value="True"/>
+        <HasResources Value="True"/>
+        <EditorIndex Value="9"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
+      </Unit>
+      <Unit>
+        <Filename Value="main.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FormMain"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <EditorIndex Value="6"/>
+        <TopLine Value="132"/>
+        <CursorPos X="5" Y="167"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdauth.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="7"/>
+        <TopLine Value="21"/>
+        <CursorPos X="14" Y="21"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdclient.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="8"/>
+        <TopLine Value="13"/>
+        <CursorPos X="20" Y="25"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdcore.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="37"/>
+        <CursorPos Y="61"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdjson.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="3"/>
+        <CursorPos Y="22"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tg.lpi"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <WindowIndex Value="-1"/>
+        <TopLine Value="-1"/>
+        <CursorPos X="-1" Y="-1"/>
+        <UsageCount Value="35"/>
+        <DefaultSyntaxHighlighter Value="XML"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tg.lps"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="35"/>
+        <DefaultSyntaxHighlighter Value="XML"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tg.res"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <WindowIndex Value="-1"/>
+        <TopLine Value="-1"/>
+        <CursorPos X="-1" Y="-1"/>
+        <UsageCount Value="35"/>
+        <DefaultSyntaxHighlighter Value="None"/>
+      </Unit>
+      <Unit>
+        <Filename Value="qrrender.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="16"/>
+        <CursorPos X="95" Y="25"/>
+        <UsageCount Value="35"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdreq.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="17"/>
+        <CursorPos X="27" Y="27"/>
+        <UsageCount Value="23"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uiframe.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="1"/>
+        <CursorPos X="26" Y="28"/>
+        <UsageCount Value="23"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="framelog.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FrameLog"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+        <EditorIndex Value="10"/>
+        <TopLine Value="44"/>
+        <CursorPos X="27" Y="79"/>
+        <UsageCount Value="23"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="framewelcome.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FrameWelcome"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+        <EditorIndex Value="11"/>
+        <CursorPos X="15" Y="22"/>
+        <UsageCount Value="23"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdchats.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="12"/>
+        <TopLine Value="322"/>
+        <CursorPos X="11" Y="384"/>
+        <UsageCount Value="22"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="framechats.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FrameChats"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+        <EditorIndex Value="13"/>
+        <TopLine Value="336"/>
+        <CursorPos X="5" Y="371"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="framechats.lfm"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="14"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
+      </Unit>
+      <Unit>
+        <Filename Value="avatarcache.pas"/>
+        <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="15"/>
+        <TopLine Value="378"/>
+        <CursorPos X="5" Y="414"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="C:\lazarus\lcl\grids.pas"/>
+        <UnitName Value="Grids"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="2245"/>
+        <CursorPos Y="2263"/>
+        <UsageCount Value="10"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="29">
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="104" Column="27" TopLine="87"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="111" Column="40" TopLine="87"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="38" Column="25" TopLine="30"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="162" Column="6" TopLine="144"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="185" Column="64" TopLine="167"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="208" Column="16" TopLine="191"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="260" Column="31" TopLine="242"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="275" Column="36" TopLine="243"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="322" Column="11" TopLine="287"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="35" Column="21" TopLine="21"/>
+      </Position>
+      <Position>
+        <Filename Value="login.pas"/>
+        <Caret Line="322" Column="16" TopLine="287"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="64" Column="63" TopLine="50"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="112" Column="3" TopLine="110"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="113" Column="3" TopLine="111"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="114" Column="3" TopLine="112"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="113" Column="3" TopLine="111"/>
+      </Position>
+      <Position>
+        <Filename Value="tdcore.pas"/>
+        <Caret Line="102" Column="18" TopLine="79"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="22" Column="97"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="5" Column="10"/>
+      </Position>
+      <Position>
+        <Filename Value="avatarcache.pas"/>
+        <Caret Line="375" Column="5" TopLine="339"/>
+      </Position>
+      <Position>
+        <Filename Value="tdchats.pas"/>
+        <Caret Line="83" Column="73" TopLine="75"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="19" Column="65"/>
+      </Position>
+      <Position>
+        <Filename Value="main.lfm"/>
+        <Caret Line="30" Column="91" TopLine="8"/>
+      </Position>
+      <Position>
+        <Filename Value="tg.lpr"/>
+        <Caret Line="19" Column="90"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.lfm"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="23" Column="88"/>
+      </Position>
+      <Position>
+        <Filename Value="avatarcache.pas"/>
+        <Caret Line="364" Column="80" TopLine="340"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="351" Column="65" TopLine="333"/>
+      </Position>
+      <Position>
+        <Filename Value="avatarcache.pas"/>
+        <Caret Line="28" Column="66"/>
+      </Position>
+      <Position>
+        <Filename Value="avatarcache.pas"/>
+        <Caret Line="403" Column="69" TopLine="376"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>

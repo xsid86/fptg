@@ -1,0 +1,32 @@
+object FrameWelcome: TFrameWelcome
+  Left = 0
+  Height = 480
+  Top = 0
+  Width = 640
+  ClientHeight = 480
+  ClientWidth = 640
+  LCLVersion = '4.8.0.0'
+  TabOrder = 0
+  object lblTitle: TLabel
+    Left = 0
+    Height = 26
+    Top = 200
+    Width = 640
+    Alignment = taCenter
+    Anchors = [akTop, akLeft, akRight]
+    AutoSize = False
+    Caption = 'Выберите чат'
+    Font.Height = -19
+    ParentFont = False
+  end
+  object lblHint: TLabel
+    Left = 0
+    Height = 20
+    Top = 234
+    Width = 640
+    Alignment = taCenter
+    Anchors = [akTop, akLeft, akRight]
+    AutoSize = False
+    Caption = 'Список слева'
+  end
+end
