@@ -11,6 +11,12 @@ uses
 type
   TChatKind = (ckUnknown, ckPrivate, ckBasicGroup, ckSupergroup, ckChannel, ckSecret);
 
+  { Состояние отправки последнего сообщения. }
+  TMsgSendState = (mssDelivered, mssPending, mssFailed);
+
+  { Что показывать справа от времени. Только для исходящих. }
+  TChatReceipt = (crNone, crPending, crFailed, crSent, crRead);
+
   { TChatRow
 
     Чистые данные, без единой ссылки на LCL. Мини-превью хранится сырыми
@@ -29,6 +35,9 @@ type
     LastText:           utf8string;
     LastDate:           Int64;
     LastIsOutgoing:     boolean;
+    LastMessageId:      Int64;
+    LastSending:        TMsgSendState;
+    LastReadOutbox:     Int64;   { id последнего прочитанного собеседником }
     UnreadCount:        integer;
     UnreadMentionCount: integer;
     IsMarkedAsUnread:   boolean;
@@ -112,6 +121,9 @@ type
 function TdChatList: TTdChats;
 
 function ChatKindToStr(AKind: TChatKind): string;
+{ Отметка о прочтении. «Прочитано» — когда id последнего сообщения
+  не больше last_read_outbox_message_id. }
+function ChatReceipt(ARow: TChatRow): TChatReceipt;
 { Короткое превью содержимого сообщения для второй строки элемента. }
 function MessagePreview(AContent: TJSONObject): utf8string;
 
@@ -141,6 +153,24 @@ begin
     ckSecret:     Result := 'секретный';
   else
     Result := 'неизвестно';
+  end;
+end;
+
+function ChatReceipt(ARow: TChatRow): TChatReceipt;
+begin
+  Result := crNone;
+  if (ARow = nil) or (not ARow.LastIsOutgoing) or (ARow.LastMessageId = 0) then begin
+    Exit;
+  end;
+  case ARow.LastSending of
+    mssPending: Result := crPending;
+    mssFailed:  Result := crFailed;
+  else
+    if ARow.LastMessageId <= ARow.LastReadOutbox then begin
+      Result := crRead;
+    end else begin
+      Result := crSent;
+    end;
   end;
 end;
 
@@ -568,6 +598,8 @@ begin
 end;
 
 procedure TTdChats.ApplyLastMessage(ARow: TChatRow; AMsg: TJSONObject);
+var
+  St: utf8string;
 begin
   if ARow = nil then begin
     Exit;
@@ -576,11 +608,24 @@ begin
     ARow.LastText := '';
     ARow.LastDate := 0;
     ARow.LastIsOutgoing := False;
+    ARow.LastMessageId := 0;
+    ARow.LastSending := mssDelivered;
     Exit;
   end;
   ARow.LastText := MessagePreview(JGetObj(AMsg, 'content'));
   ARow.LastDate := JGetInt64(AMsg, 'date');
   ARow.LastIsOutgoing := JGetBool(AMsg, 'is_outgoing');
+  ARow.LastMessageId := JGetInt64(AMsg, 'id');
+
+  { sending_state отсутствует у уже отправленных сообщений. }
+  St := JGetStr(JGetObj(AMsg, 'sending_state'), '@type');
+  if St = 'messageSendingStatePending' then begin
+    ARow.LastSending := mssPending;
+  end else if St = 'messageSendingStateFailed' then begin
+    ARow.LastSending := mssFailed;
+  end else begin
+    ARow.LastSending := mssDelivered;
+  end;
 end;
 
 procedure TTdChats.ApplyChat(AChat: TJSONObject);
@@ -596,6 +641,7 @@ begin
   R.UnreadCount := JGetInt(AChat, 'unread_count');
   R.UnreadMentionCount := JGetInt(AChat, 'unread_mention_count');
   R.IsMarkedAsUnread := JGetBool(AChat, 'is_marked_as_unread');
+  R.LastReadOutbox := JGetInt64(AChat, 'last_read_outbox_message_id');
   ApplyPhoto(R, JGetObj(AChat, 'photo'));
   ApplyLastMessage(R, JGetObj(AChat, 'last_message'));
   ApplyPositions(R, JGetArr(AChat, 'positions'));
@@ -622,6 +668,7 @@ begin
      (Pos('"updateChatTitle"', S) = 0) and
      (Pos('"updateChatPhoto"', S) = 0) and
      (Pos('"updateChatReadInbox"', S) = 0) and
+     (Pos('"updateChatReadOutbox"', S) = 0) and
      (Pos('"updateFile"', S) = 0) then begin
     Exit;
   end;
@@ -675,6 +722,12 @@ begin
       end;
     end else if T = 'updateFile' then begin
       ApplyFile(JGetObj(Obj, 'file'));
+    end else if T = 'updateChatReadOutbox' then begin
+      R := Lookup(JGetInt64(Obj, 'chat_id'));
+      if R <> nil then begin
+        R.LastReadOutbox := JGetInt64(Obj, 'last_read_outbox_message_id');
+        Touch;
+      end;
     end else if T = 'updateChatReadInbox' then begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));
       if R <> nil then begin

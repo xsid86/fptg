@@ -104,10 +104,8 @@ begin
     CanClose := True;
     Exit;
   end;
-
   CanClose  := TdApp.BeginShutdown(@ShutdownDone);
   FTdClosed := CanClose;
-
   if not CanClose then begin
     lblState.Caption := 'Закрываю TDLib, жду подтверждения...';
   end;
@@ -130,9 +128,7 @@ end;
 
 procedure TFormMain.btnLogoutClick(Sender: TObject);
 begin
-  if MessageDlg('Выход из аккаунта',
-    'Завершить сеанс и вернуться к экрану входа?',
-    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then begin
+  if MessageDlg('Выход из аккаунта', 'Завершить сеанс и вернуться к экрану входа?', mtConfirmation, [mbYes, mbNo], 0) <> mrYes then begin
     Exit;
   end;
   TdApp.LogOut;
@@ -150,7 +146,7 @@ end;
 
 procedure TFormMain.menuQuitClick(Sender: TObject);
 begin
-  FormCloseQuery(Self, FormMain.FTdClosed);
+  Close;
 end;
 
 { ---------------- ITdStateListener ---------------- }
