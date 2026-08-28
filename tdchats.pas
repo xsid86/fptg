@@ -1,12 +1,12 @@
 unit tdchats;
 
-{$mode objfpc}{$H+}{$codepage utf8}
+{$mode objfpc}{$H+}
 
 interface
 
 uses
   Classes, SysUtils, base64, fgl, ExtCtrls, fpjson, jsonparser,
-  tdauth, tdcore, tdreq;
+  tdauth, tdsession, tdreq;
 
 type
   TChatKind = (ckUnknown, ckPrivate, ckBasicGroup, ckSupergroup, ckChannel, ckSecret);
@@ -30,6 +30,8 @@ type
     Order:              Int64;
     IsPinned:           boolean;
     InList:             boolean;   { есть позиция в chatListMain }
+    InArchive:          boolean;   { есть позиция в chatListArchive }
+    ArchiveOrder:       Int64;
     Kind:               TChatKind;
     Title:              utf8string;
     LastText:           utf8string;
@@ -41,16 +43,29 @@ type
     UnreadCount:        integer;
     UnreadMentionCount: integer;
     IsMarkedAsUnread:   boolean;
+    IsMuted:            boolean;   { mute_for > 0 }
+    UserId:             Int64;        { собеседник, только для личных чатов }
     PhotoFileId:        integer;      { small.id, 0 — фото нет }
     PhotoPath:          utf8string;   { локальный путь, если уже скачан }
     Minithumb:          RawByteString;{ сырой JPEG из minithumbnail }
     AvatarRequested:    boolean;      { downloadFile уже отправлен }
   end;
 
+  { Сводка по архиву для псевдостроки в начале списка. }
+  TArchiveInfo = record
+    KnownChats:  integer;    { сколько архивных чатов загружено }
+    TotalChats:  integer;    { сколько их всего, по данным TDLib }
+    UnreadChats: integer;    { чатов с непрочитанным }
+    Preview:     utf8string; { названия через запятую }
+  end;
+
   TChatMap = specialize TFPGMap<Int64, TChatRow>;
   TFileMap = specialize TFPGMap<integer, TChatRow>;
+  TBotMap = specialize TFPGMap<Int64, boolean>;
 
   TTdChatsEvent = procedure(Sender: TObject) of object;
+  TTdChatsErrorEvent = procedure(Sender: TObject; ACode: integer;
+    const AMessage, AAction: utf8string) of object;
 
   { TTdChats
 
@@ -60,16 +75,24 @@ type
 
   TTdChats = class(TComponent, ITdUpdateListener, ITdStateListener)
   private
+    FSession: ITdSession;
+    FReq:     TTdRequests;
     FAll:   TChatMap;     { все известные чаты по id }
     FByFile: TFileMap;    { file_id аватарки -> чат }
+    { Боты определяются не по чату, а по пользователю: у чата тип
+      всегда chatTypePrivate. Апдейты updateUser приходят сами. }
+    FBots:   TBotMap;
     FRows:  TFPList;      { отображаемые, отсортированные }
     FTimer: TTimer;
     FDirty: boolean;
     FLoading: boolean;
     FAllLoaded: boolean;
     FLoadLimit: integer;
+    FArchive: TArchiveInfo;
+    FArchiveAsked: boolean;
     FOnChanged: TTdChatsEvent;
     FOnLoadingChanged: TTdChatsEvent;
+    FOnActionError: TTdChatsErrorEvent;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TChatRow;
@@ -86,13 +109,36 @@ type
     procedure Rebuild(Sender: TObject);
     procedure SetLoading(AValue: boolean);
     procedure LoadChatsDone(Sender: TObject; const AResp: TTdResponse);
+    procedure LoadArchive;
+    procedure ArchiveDone(Sender: TObject; const AResp: TTdResponse);
+    procedure RebuildArchive;
+    procedure ApplyUnreadCount(AObj: TJSONObject);
+    procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
     procedure DownloadDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyFile(AFile: TJSONObject);
+    procedure ApplyUser(AUser: TJSONObject);
+    procedure ApplyNotifySettings(ARow: TChatRow; ASettings: TJSONObject);
   public
-    constructor Create(AOwner: TComponent); override;
+    { Модель принадлежит аккаунту. Резолвер передаётся снаружи, а не
+      берётся синглтоном: у каждого аккаунта он свой. }
+    constructor Create(AOwner: TComponent; const ASession: ITdSession;
+      AReq: TTdRequests); reintroduce;
     destructor Destroy; override;
 
     procedure Clear;
+    { --- действия над чатом ---
+      Результат приходит апдейтами (updateChatReadInbox, updateChatPosition
+      и прочими), которые модель и так разбирает, поэтому список
+      обновится сам. Здесь только отправка. }
+    procedure MarkAsRead(ARow: TChatRow);
+    procedure MarkAsUnread(ARow: TChatRow);
+    procedure SetPinned(ARow: TChatRow; APinned: boolean);
+    procedure SetArchived(ARow: TChatRow; AArchived: boolean);
+    procedure LeaveChat(ARow: TChatRow);
+
+    { Является ли собеседник ботом. Для не-личных чатов всегда False. }
+    function IsBotChat(ARow: TChatRow): boolean;
+
     { Запросить настоящую аватарку. Зовётся фреймом только для видимых
       строк — качать все подряд незачем. Повторные вызовы безвредны. }
     procedure EnsureAvatar(ARow: TChatRow);
@@ -109,16 +155,17 @@ type
 
     property Count: integer read GetCount;
     property Rows[AIndex: integer]: TChatRow read GetRow; default;
+    { Сводка по архиву. Обновляется вместе со списком. }
+    property Archive: TArchiveInfo read FArchive;
     property Loading: boolean read FLoading;
     property AllLoaded: boolean read FAllLoaded;
     property LoadLimit: integer read FLoadLimit write FLoadLimit;
 
+    property Session: ITdSession read FSession;
     property OnChanged: TTdChatsEvent read FOnChanged write FOnChanged;
+    property OnActionError: TTdChatsErrorEvent read FOnActionError write FOnActionError;
     property OnLoadingChanged: TTdChatsEvent read FOnLoadingChanged write FOnLoadingChanged;
   end;
-
-{ Синглтон. Имя отличается от имени юнита сознательно. }
-function TdChatList: TTdChats;
 
 function ChatKindToStr(AKind: TChatKind): string;
 { Отметка о прочтении. «Прочитано» — когда id последнего сообщения
@@ -132,27 +179,16 @@ implementation
 const
   COALESCE_MS = 50;
 
-var
-  GChats: TTdChats = nil;
-
-function TdChatList: TTdChats;
-begin
-  if GChats = nil then begin
-    GChats := TTdChats.Create(nil);
-  end;
-  Result := GChats;
-end;
-
 function ChatKindToStr(AKind: TChatKind): string;
 begin
   case AKind of
-    ckPrivate:    Result := 'личный';
-    ckBasicGroup: Result := 'группа';
-    ckSupergroup: Result := 'супергруппа';
-    ckChannel:    Result := 'канал';
-    ckSecret:     Result := 'секретный';
+    ckPrivate:    Result := 'private';
+    ckBasicGroup: Result := 'group';
+    ckSupergroup: Result := 'supergroup';
+    ckChannel:    Result := 'channel';
+    ckSecret:     Result := 'secret';
   else
-    Result := 'неизвестно';
+    Result := 'unknown';
   end;
 end;
 
@@ -171,6 +207,14 @@ begin
     end else begin
       Result := crSent;
     end;
+  end;
+end;
+
+function ChatUserId(AType: TJSONObject): Int64;
+begin
+  Result := 0;
+  if (AType <> nil) and (JGetStr(AType, '@type') = 'chatTypePrivate') then begin
+    Result := JGetInt64(AType, 'user_id');
   end;
 end;
 
@@ -222,31 +266,31 @@ begin
   if T = 'messageText' then begin
     Result := JGetStr(JGetObj(AContent, 'text'), 'text');
   end else if T = 'messagePhoto' then begin
-    Result := CaptionOr('Фото');
+    Result := CaptionOr('Photo');
   end else if T = 'messageVideo' then begin
-    Result := CaptionOr('Видео');
+    Result := CaptionOr('Video');
   end else if T = 'messageAnimation' then begin
     Result := CaptionOr('GIF');
   end else if T = 'messageDocument' then begin
-    Result := CaptionOr('Файл');
+    Result := CaptionOr('File');
   end else if T = 'messageAudio' then begin
-    Result := CaptionOr('Аудио');
+    Result := CaptionOr('Audio');
   end else if T = 'messageVoiceNote' then begin
-    Result := CaptionOr('Голосовое сообщение');
+    Result := CaptionOr('Voice message');
   end else if T = 'messageVideoNote' then begin
-    Result := 'Видеосообщение';
+    Result := 'Video message';
   end else if T = 'messageSticker' then begin
-    Result := 'Стикер';
+    Result := 'Sticker';
   end else if T = 'messageAnimatedEmoji' then begin
     Result := JGetStr(AContent, 'emoji');
   end else if T = 'messageLocation' then begin
-    Result := 'Геопозиция';
+    Result := 'Location';
   end else if T = 'messageContact' then begin
-    Result := 'Контакт';
+    Result := 'Contact';
   end else if T = 'messagePoll' then begin
-    Result := 'Опрос';
+    Result := 'Poll';
   end else if T = 'messageCall' then begin
-    Result := 'Звонок';
+    Result := 'Call';
   end else begin
     { Неизвестный вид — показываем сам тип, это полезнее пустоты. }
     Result := T;
@@ -279,15 +323,39 @@ begin
   end;
 end;
 
+function CompareArchive(P1, P2: Pointer): integer;
+var
+  A, B: TChatRow;
+begin
+  A := TChatRow(P1);
+  B := TChatRow(P2);
+  if A.ArchiveOrder > B.ArchiveOrder then begin
+    Result := -1;
+  end else if A.ArchiveOrder < B.ArchiveOrder then begin
+    Result := 1;
+  end else if A.Id > B.Id then begin
+    Result := -1;
+  end else if A.Id < B.Id then begin
+    Result := 1;
+  end else begin
+    Result := 0;
+  end;
+end;
+
 { ---------------- TTdChats ---------------- }
 
-constructor TTdChats.Create(AOwner: TComponent);
+constructor TTdChats.Create(AOwner: TComponent; const ASession: ITdSession;
+  AReq: TTdRequests);
 begin
   inherited Create(AOwner);
+  FSession := ASession;
+  FReq := AReq;
   FAll := TChatMap.Create;
   FAll.Sorted := True;
   FByFile := TFileMap.Create;
   FByFile.Sorted := True;
+  FBots := TBotMap.Create;
+  FBots.Sorted := True;
   FRows := TFPList.Create;
   FLoadLimit := 30;
 
@@ -296,15 +364,19 @@ begin
   FTimer.OnTimer := @Rebuild;
   FTimer.Enabled := False;
 
-  TdApp.Subscribe(Self);
+  if FSession <> nil then begin
+    FSession.Subscribe(Self);
+  end;
 end;
 
 destructor TTdChats.Destroy;
 begin
   FTimer.Enabled := False;
-  TdUnsubscribe(Self);
+  TdSessionUnsubscribe(FSession, Self);
+  FSession := nil;
   Clear;
   FRows.Free;
+  FBots.Free;
   FByFile.Free;
   FAll.Free;
   inherited Destroy;
@@ -320,7 +392,13 @@ begin
   end;
   FAll.Clear;
   FByFile.Clear;
+  FBots.Clear;
   FAllLoaded := False;
+  FArchiveAsked := False;
+  FArchive.KnownChats := 0;
+  FArchive.TotalChats := 0;
+  FArchive.UnreadChats := 0;
+  FArchive.Preview := '';
   FDirty := False;
   FTimer.Enabled := False;
 end;
@@ -388,6 +466,7 @@ begin
     end;
   end;
   FRows.Sort(@CompareRows);
+  RebuildArchive;
 
   if Assigned(FOnChanged) then begin
     FOnChanged(Self);
@@ -410,11 +489,15 @@ begin
   if FLoading or FAllLoaded then begin
     Exit;
   end;
-  if TdApp.State <> tasReady then begin
+  if (FSession = nil) or (FSession.State <> tasReady) then begin
     Exit;
   end;
   SetLoading(True);
-  TdRequests.SendRequest('loadChats',
+  if FReq = nil then begin
+    SetLoading(False);
+    Exit;
+  end;
+  FReq.SendRequest('loadChats',
     '"chat_list":{"@type":"chatListMain"},"limit":' + utf8string(IntToStr(FLoadLimit)),
     @LoadChatsDone);
 end;
@@ -434,7 +517,11 @@ begin
   end;
   { priority 1 — низший: аватарки не должны мешать загрузке сообщений.
     synchronous=false, результат придёт апдейтом updateFile. }
-  TdRequests.SendRequest('downloadFile',
+  if FReq = nil then begin
+    ARow.AvatarRequested := False;
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
     '"file_id":' + utf8string(IntToStr(ARow.PhotoFileId)) +
     ',"priority":1,"offset":0,"limit":0,"synchronous":false',
     @DownloadDone, ARow.PhotoFileId);
@@ -490,6 +577,75 @@ begin
   Touch;
 end;
 
+procedure TTdChats.LoadArchive;
+begin
+  { Разовая подгрузка: строке архива нужны только верхние названия
+    для превью, весь список тянуть незачем. }
+  if FArchiveAsked or (FReq = nil) then begin
+    Exit;
+  end;
+  if (FSession = nil) or (FSession.State <> tasReady) then begin
+    Exit;
+  end;
+  FArchiveAsked := True;
+  FReq.SendRequest('loadChats',
+    '"chat_list":{"@type":"chatListArchive"},"limit":20', @ArchiveDone);
+end;
+
+procedure TTdChats.ArchiveDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  { 404 значит «архив пуст или уже весь загружен» — это не ошибка. }
+end;
+
+procedure TTdChats.ApplyUnreadCount(AObj: TJSONObject);
+begin
+  if AObj = nil then begin
+    Exit;
+  end;
+  if JGetStr(JGetObj(AObj, 'chat_list'), '@type') <> 'chatListArchive' then begin
+    Exit;
+  end;
+  FArchive.TotalChats := JGetInt(AObj, 'total_count');
+  FArchive.UnreadChats := JGetInt(AObj, 'unread_count');
+  Touch;
+end;
+
+procedure TTdChats.RebuildArchive;
+var
+  L: TFPList;
+  I: integer;
+  R: TChatRow;
+  S: utf8string;
+begin
+  L := TFPList.Create;
+  try
+    for I := 0 to FAll.Count - 1 do begin
+      R := FAll.Data[I];
+      if R.InArchive and (R.ArchiveOrder <> 0) then begin
+        L.Add(R);
+      end;
+    end;
+    L.Sort(@CompareArchive);
+    FArchive.KnownChats := L.Count;
+
+    { Превью — названия верхних чатов через запятую, как в Telegram.
+      Обрываем по длине, а не по количеству: названия разной длины. }
+    S := '';
+    for I := 0 to L.Count - 1 do begin
+      if Length(S) > 60 then begin
+        Break;
+      end;
+      if S <> '' then begin
+        S := S + ', ';
+      end;
+      S := S + TChatRow(L[I]).Title;
+    end;
+    FArchive.Preview := S;
+  finally
+    L.Free;
+  end;
+end;
+
 procedure TTdChats.LoadChatsDone(Sender: TObject; const AResp: TTdResponse);
 begin
   SetLoading(False);
@@ -500,38 +656,205 @@ begin
   end;
 end;
 
+procedure TTdChats.ApplyNotifySettings(ARow: TChatRow; ASettings: TJSONObject);
+begin
+  if (ARow = nil) or (ASettings = nil) then begin
+    Exit;
+  end;
+  { use_default_mute_for означает «как настроено для всей категории».
+    Значение категории приходит отдельным updateScopeNotificationSettings;
+    пока считаем такие чаты незаглушёнными — по умолчанию так и есть. }
+  if JGetBool(ASettings, 'use_default_mute_for') then begin
+    ARow.IsMuted := False;
+  end else begin
+    ARow.IsMuted := JGetInt(ASettings, 'mute_for') > 0;
+  end;
+end;
+
+procedure TTdChats.ApplyUser(AUser: TJSONObject);
+var
+  Id: Int64;
+  IsBot, Was: boolean;
+  Idx: integer;
+begin
+  if AUser = nil then begin
+    Exit;
+  end;
+  Id := JGetInt64(AUser, 'id');
+  if Id = 0 then begin
+    Exit;
+  end;
+  IsBot := JGetStr(JGetObj(AUser, 'type'), '@type') = 'userTypeBot';
+
+  Idx := FBots.IndexOf(Id);
+  if Idx >= 0 then begin
+    if FBots.Data[Idx] = IsBot then begin
+      Exit;
+    end;
+    Was := FBots.Data[Idx];
+    FBots.Data[Idx] := IsBot;
+  end else begin
+    Was := False;
+    FBots.Add(Id, IsBot);
+  end;
+
+  { updateUser приходит на КАЖДОГО известного пользователя, а их
+    тысячи. Перерисовку просим только когда значок мог измениться,
+    то есть когда речь о боте. }
+  if IsBot or Was then begin
+    Touch;
+  end;
+end;
+
+function TTdChats.IsBotChat(ARow: TChatRow): boolean;
+var
+  Idx: integer;
+begin
+  Result := False;
+  if (ARow = nil) or (ARow.Kind <> ckPrivate) or (ARow.UserId = 0) then begin
+    Exit;
+  end;
+  Idx := FBots.IndexOf(ARow.UserId);
+  if Idx >= 0 then begin
+    Result := FBots.Data[Idx];
+  end;
+end;
+
+{ ---------------- действия над чатом ---------------- }
+
+procedure TTdChats.ActionDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if AResp.Success then begin
+    Exit;
+  end;
+  if Assigned(FOnActionError) then begin
+    FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, '');
+  end;
+end;
+
+procedure TTdChats.MarkAsRead(ARow: TChatRow);
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+
+  if ARow.LastMessageId <> 0 then begin
+    { force_read = true: чат закрыт, но пометить прочитанным надо.
+      source указываем явно — из списка чатов. }
+    FReq.SendRequest('viewMessages',
+      '"chat_id":' + utf8string(IntToStr(ARow.Id)) +
+      ',"message_ids":[' + utf8string(IntToStr(ARow.LastMessageId)) + ']' +
+      ',"source":{"@type":"messageSourceChatList"},"force_read":true',
+      @ActionDone);
+  end;
+
+  { Чат мог быть помечен непрочитанным вручную — снимаем и это,
+    иначе точка останется висеть. }
+  if ARow.IsMarkedAsUnread then begin
+    FReq.SendRequest('toggleChatIsMarkedAsUnread',
+      '"chat_id":' + utf8string(IntToStr(ARow.Id)) +
+      ',"is_marked_as_unread":false', @ActionDone);
+  end;
+end;
+
+procedure TTdChats.MarkAsUnread(ARow: TChatRow);
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+  FReq.SendRequest('toggleChatIsMarkedAsUnread',
+    '"chat_id":' + utf8string(IntToStr(ARow.Id)) +
+    ',"is_marked_as_unread":true', @ActionDone);
+end;
+
+procedure TTdChats.SetPinned(ARow: TChatRow; APinned: boolean);
+var
+  Flag: utf8string;
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+  if APinned then begin
+    Flag := 'true';
+  end else begin
+    Flag := 'false';
+  end;
+  { Внимание: у toggleChatIsPinned chat_list идёт ПЕРВЫМ параметром,
+    закрепление относится к конкретному списку. }
+  FReq.SendRequest('toggleChatIsPinned',
+    '"chat_list":{"@type":"chatListMain"},"chat_id":' +
+    utf8string(IntToStr(ARow.Id)) + ',"is_pinned":' + Flag, @ActionDone);
+end;
+
+procedure TTdChats.SetArchived(ARow: TChatRow; AArchived: boolean);
+var
+  List: utf8string;
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+  if AArchived then begin
+    List := 'chatListArchive';
+  end else begin
+    List := 'chatListMain';
+  end;
+  FReq.SendRequest('addChatToList',
+    '"chat_id":' + utf8string(IntToStr(ARow.Id)) +
+    ',"chat_list":{"@type":"' + List + '"}', @ActionDone);
+end;
+
+procedure TTdChats.LeaveChat(ARow: TChatRow);
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+  FReq.SendRequest('leaveChat',
+    '"chat_id":' + utf8string(IntToStr(ARow.Id)), @ActionDone);
+end;
+
 { ---------------- разбор апдейтов ---------------- }
 
 procedure TTdChats.ApplyPosition(ARow: TChatRow; APos: TJSONObject);
 var
   Ord: Int64;
+  Kind: utf8string;
 begin
   if (ARow = nil) or (APos = nil) then begin
     Exit;
   end;
-  { Интересует только основной список. }
-  if JGetStr(JGetObj(APos, 'list'), '@type') <> 'chatListMain' then begin
-    Exit;
-  end;
 
+  Kind := JGetStr(JGetObj(APos, 'list'), '@type');
   Ord := JGetInt64(APos, 'order');
-  if Ord = 0 then begin
-    { Схема прямо говорит: order = 0 значит убрать из списка. }
-    ARow.InList := False;
-    ARow.Order := 0;
-    ARow.IsPinned := False;
-  end else begin
-    ARow.InList := True;
-    ARow.Order := Ord;
-    ARow.IsPinned := JGetBool(APos, 'is_pinned');
+
+  { Схема прямо говорит: order = 0 значит убрать из списка. }
+  if Kind = 'chatListMain' then begin
+    if Ord = 0 then begin
+      ARow.InList := False;
+      ARow.Order := 0;
+      ARow.IsPinned := False;
+    end else begin
+      ARow.InList := True;
+      ARow.Order := Ord;
+      ARow.IsPinned := JGetBool(APos, 'is_pinned');
+    end;
+  end else if Kind = 'chatListArchive' then begin
+    if Ord = 0 then begin
+      ARow.InArchive := False;
+      ARow.ArchiveOrder := 0;
+    end else begin
+      ARow.InArchive := True;
+      ARow.ArchiveOrder := Ord;
+    end;
   end;
+  { Папки (chatListFolder) пока не поддерживаем. }
 end;
 
 procedure TTdChats.ApplyPositions(ARow: TChatRow; APositions: TJSONArray);
 var
   I: integer;
   P: TJSONObject;
-  SawMain: boolean;
+  SawMain, SawArchive: boolean;
+  Kind: utf8string;
 begin
   if ARow = nil then begin
     Exit;
@@ -541,23 +864,32 @@ begin
   end;
 
   SawMain := False;
+  SawArchive := False;
   for I := 0 to APositions.Count - 1 do begin
     if APositions.Items[I].JSONType <> jtObject then begin
       Continue;
     end;
     P := TJSONObject(APositions.Items[I]);
-    if JGetStr(JGetObj(P, 'list'), '@type') = 'chatListMain' then begin
+    Kind := JGetStr(JGetObj(P, 'list'), '@type');
+    if Kind = 'chatListMain' then begin
       SawMain := True;
+      ApplyPosition(ARow, P);
+    end else if Kind = 'chatListArchive' then begin
+      SawArchive := True;
       ApplyPosition(ARow, P);
     end;
   end;
 
-  { Массив positions полный. Если основного списка в нём нет —
-    значит чата в нём нет вообще. }
+  { Массив positions полный: отсутствие списка означает, что чата
+    в нём нет вообще. }
   if not SawMain then begin
     ARow.InList := False;
     ARow.Order := 0;
     ARow.IsPinned := False;
+  end;
+  if not SawArchive then begin
+    ARow.InArchive := False;
+    ARow.ArchiveOrder := 0;
   end;
 end;
 
@@ -638,10 +970,12 @@ begin
   R := Obtain(JGetInt64(AChat, 'id'));
   R.Title := JGetStr(AChat, 'title');
   R.Kind := KindFromType(JGetObj(AChat, 'type'));
+  R.UserId := ChatUserId(JGetObj(AChat, 'type'));
   R.UnreadCount := JGetInt(AChat, 'unread_count');
   R.UnreadMentionCount := JGetInt(AChat, 'unread_mention_count');
   R.IsMarkedAsUnread := JGetBool(AChat, 'is_marked_as_unread');
   R.LastReadOutbox := JGetInt64(AChat, 'last_read_outbox_message_id');
+  ApplyNotifySettings(R, JGetObj(AChat, 'notification_settings'));
   ApplyPhoto(R, JGetObj(AChat, 'photo'));
   ApplyLastMessage(R, JGetObj(AChat, 'last_message'));
   ApplyPositions(R, JGetArr(AChat, 'positions'));
@@ -669,7 +1003,10 @@ begin
      (Pos('"updateChatPhoto"', S) = 0) and
      (Pos('"updateChatReadInbox"', S) = 0) and
      (Pos('"updateChatReadOutbox"', S) = 0) and
-     (Pos('"updateFile"', S) = 0) then begin
+     (Pos('"updateFile"', S) = 0) and
+     (Pos('"updateUnreadChatCount"', S) = 0) and
+     (Pos('"updateUser"', S) = 0) and
+     (Pos('"updateChatNotificationSettings"', S) = 0) then begin
     Exit;
   end;
 
@@ -720,6 +1057,16 @@ begin
         ApplyPhoto(R, JGetObj(Obj, 'photo'));
         Touch;
       end;
+    end else if T = 'updateChatNotificationSettings' then begin
+      R := Lookup(JGetInt64(Obj, 'chat_id'));
+      if R <> nil then begin
+        ApplyNotifySettings(R, JGetObj(Obj, 'notification_settings'));
+        Touch;
+      end;
+    end else if T = 'updateUser' then begin
+      ApplyUser(JGetObj(Obj, 'user'));
+    end else if T = 'updateUnreadChatCount' then begin
+      ApplyUnreadCount(Obj);
     end else if T = 'updateFile' then begin
       ApplyFile(JGetObj(Obj, 'file'));
     end else if T = 'updateChatReadOutbox' then begin
@@ -745,6 +1092,7 @@ begin
   if AState = tasReady then begin
     Clear;
     LoadMore;
+    LoadArchive;
   end else if TdIsShuttingState(AState) then begin
     Clear;
     SetLoading(False);
@@ -755,10 +1103,5 @@ procedure TTdChats.TdError(ACode: integer; const AMessage, AContext: utf8string)
 begin
   { Ошибки авторизации модели не касаются. }
 end;
-
-initialization
-
-finalization
-  FreeAndNil(GChats);
 
 end.

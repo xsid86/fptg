@@ -5,132 +5,145 @@ unit tdcore;
 interface
 
 uses
-  Classes, SysUtils, IniFiles, ExtCtrls, tdclient, tdauth;
+  Classes, SysUtils, IniFiles, ExtCtrls,
+  tdauth, tdrecv, tdsession, tdreq, tdchats, tdaccount;
 
 type
-  { Сырой поток JSON. Для отладочного лога. }
-  ITdUpdateListener = interface
-    ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1101}']
-    procedure TdUpdate(const AJson: utf8string);
+  { Псевдонимы, чтобы формам не пришлось добавлять tdsession в uses.
+    Указывают на те же типы — GUID и совместимость сохраняются. }
+  ITdUpdateListener = tdsession.ITdUpdateListener;
+  ITdStateListener  = tdsession.ITdStateListener;
+  ITdAuthListener   = tdsession.ITdAuthListener;
+  ITdSession        = tdsession.ITdSession;
+  TTdAccount        = tdaccount.TTdAccount;
+
+  TTdCoreEvent = procedure(Sender: TObject) of object;
+
+  { Смена активного аккаунта и изменение состава/имён.
+    Многоадресный: слушателей будет несколько — главная форма,
+    фрейм списка чатов, дальше фрейм чата. }
+  ITdActiveListener = interface
+    ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1301}']
+    procedure TdActiveChanged(ANew: TTdAccount);
+    procedure TdAccountsChanged;
   end;
 
-  { Состояние авторизации и ошибки. Реализуют все формы. }
-  ITdStateListener = interface
-    ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1102}']
-    procedure TdStateChanged(AState: TTdAuthState);
-    procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
-  end;
+  { TTdCore
 
-  { Полный флоу авторизации. Реализует только форма входа. }
-  ITdAuthListener = interface(ITdStateListener)
-    ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1103}']
-    procedure TdNeedPhoneOrQr;
-    procedure TdQrLink(const ALink: utf8string);
-    procedure TdNeedCode(const AInfo: TTdCodeInfo);
-    procedure TdNeedEmailAddress(AAllowApple, AAllowGoogle: boolean);
-    procedure TdNeedEmailCode(const APattern: utf8string; ALength: integer);
-    procedure TdNeedPassword(const AHint, ARecoveryPattern: utf8string; AHasRecovery: boolean);
-    procedure TdPasswordRecovery(const AEmailPattern: utf8string);
-    procedure TdNeedRegistration(const ATosText: utf8string; AShowPopup: boolean; AMinAge: integer);
-  end;
+    Реестр аккаунтов. Сам ничего про TDLib не знает — вся работа
+    в TTdAccount. Здесь: список, активный аккаунт, его сохранение
+    между запусками и групповое закрытие. }
 
-  { Ядро. Единственный владелец клиента и автомата авторизации. }
   TTdCore = class
   private
-    FClient: TTdClient;
-    FAuth:   TTdAuth;
-
-    FUpdateL: array of ITdUpdateListener;
-    FStateL:  array of ITdStateListener;
-    FAuthL:   array of ITdAuthListener;
-
-    FCloseTimer:   TTimer;
-    FRestartTimer: TTimer;
-
-    FApiId:       integer;
-    FApiHash:     utf8string;
-    FBaseDir:     string;
+    FAccounts: TFPList;         { of TTdAccount }
+    FActive: integer;
+    FBaseDir: string;
+    FApiId: integer;
+    FApiHash: utf8string;
     FConfigError: string;
-    FStarted:     boolean;
+    FStarted: boolean;
 
-    FState:              TTdAuthState;
-    FLoggingOut:         boolean;
-    FShuttingDown:       boolean;
-    FClosed:             boolean;
+    FShuttingDown: boolean;
+    FClosed: boolean;
+    FCloseTimer: TTimer;
     FOnShutdownComplete: TNotifyEvent;
+    FOnActiveChanged: TTdCoreEvent;
+    FActiveL: array of ITdActiveListener;
 
-    procedure CreateEngine;
-    procedure DestroyEngine;
+    FPendingRemove: TFPList;
+    FRemoveTimer: TTimer;
 
-    { приёмники событий TTdAuth }
-    procedure HandleUpdate(Sender: TObject; const AJson: utf8string);
-    procedure HandleStateChanged(Sender: TObject; AState: TTdAuthState);
-    procedure HandleError(Sender: TObject; ACode: integer; const AMessage, AContext: utf8string);
-    procedure HandleNeedPhoneOrQr(Sender: TObject);
-    procedure HandleQrLink(Sender: TObject; const ALink: utf8string);
-    procedure HandleNeedCode(Sender: TObject; const AInfo: TTdCodeInfo);
-    procedure HandleNeedEmailAddress(Sender: TObject; AAllowApple, AAllowGoogle: boolean);
-    procedure HandleNeedEmailCode(Sender: TObject; const APattern: utf8string; ALength: integer);
-    procedure HandleNeedPassword(Sender: TObject; const AHint, ARecoveryPattern: utf8string; AHasRecovery: boolean);
-    procedure HandlePasswordRecovery(Sender: TObject; const AEmailPattern: utf8string);
-    procedure HandleNeedRegistration(Sender: TObject; const ATosText: utf8string; AShowPopup: boolean; AMinAge: integer);
+    procedure AccountInfoChanged(Sender: TObject);
+    procedure AccountStateNotify(Sender: TObject);
+    procedure RemoveTick(Sender: TObject);
+    procedure NotifyActiveChanged;
+    procedure NotifyAccountsChanged;
 
+    function GetCount: integer;
+    function GetAccount(AIndex: integer): TTdAccount;
+    function GetActive: TTdAccount;
+    procedure SetActiveIndex(AValue: integer);
     procedure CloseTimeout(Sender: TObject);
-    procedure RestartTick(Sender: TObject);
-
     procedure FinishShutdown;
+    function AllClosed: boolean;
+    function ManifestPath: string;
   public
     constructor Create;
     destructor Destroy; override;
 
-    { Читает config.ini рядом с exe. False — параметры не заданы,
-      текст причины в ConfigError. }
+    { config.ini — api_id/api_hash, общие для всех аккаунтов:
+      они принадлежат приложению, а не пользователю. }
     function LoadConfig: boolean;
 
+    { accounts.ini — список аккаунтов и какой был активен. }
+    procedure LoadAccounts;
+    procedure SaveAccounts;
+
+    function AddAccount(const ATitle: string): TTdAccount;
+    { Убрать аккаунт из реестра НЕМЕДЛЕННО. Клиент при этом должен
+      быть уже закрыт — иначе используй DiscardAccount. }
+    procedure RemoveAccount(AAccount: TTdAccount);
+
+    { Отменить аккаунт: закрыть клиента TDLib и убрать его, когда
+      закрытие подтвердится. Без close клиент остаётся жив внутри
+      TDLib и держит каталог базы заблокированным. }
+    procedure DiscardAccount(AAccount: TTdAccount);
     procedure Start;
 
-    { Подписка. Ядро само определит, какие интерфейсы поддерживает объект.
-      Отписка ОБЯЗАТЕЛЬНА в FormDestroy каждой формы. }
+    procedure SubscribeActive(const AListener: ITdActiveListener);
+    procedure UnsubscribeActive(const AListener: ITdActiveListener);
+
+    { --- совместимость: всё это адресует АКТИВНЫЙ аккаунт --- }
     procedure Subscribe(const AListener: IUnknown);
     procedure Unsubscribe(const AListener: IUnknown);
-
-    { Отправка произвольного запроса. Идёт через ядро, а не напрямую
-      в TTdClient, потому что после logOut клиент пересоздаётся. }
     procedure Send(const ARequest: utf8string);
-
-    { Выход из аккаунта. Клиент будет пересоздан автоматически,
-      флоу вернётся к вводу номера. }
     procedure LogOut;
+    function GetState: TTdAuthState;
+    function GetAuth: TTdAuth;
 
-    { Корректное завершение. True — закрывать можно прямо сейчас.
-      False — ждать вызова AOnComplete. }
+    { Закрывает ВСЕ клиенты: документация TDLib требует этого перед
+      завершением приложения. True — можно выходить прямо сейчас. }
     function BeginShutdown(AOnComplete: TNotifyEvent): boolean;
 
-    property Auth: TTdAuth read FAuth;
-    property State: TTdAuthState read FState;
+    property Count: integer read GetCount;
+    property Accounts[AIndex: integer]: TTdAccount read GetAccount;
+    property Active: TTdAccount read GetActive;
+    property ActiveIndex: integer read FActive write SetActiveIndex;
+
+    property State: TTdAuthState read GetState;
+    property Auth: TTdAuth read GetAuth;
     property Started: boolean read FStarted;
     property Closed: boolean read FClosed;
     property ShuttingDown: boolean read FShuttingDown;
     property ConfigError: string read FConfigError;
     property BaseDir: string read FBaseDir;
+
+    property OnActiveChanged: TTdCoreEvent read FOnActiveChanged write FOnActiveChanged;
   end;
 
-{ Отписка, безопасная даже если ядро уже уничтожено. }
-procedure TdUnsubscribe(const AListener: IUnknown);
-
-{ Синглтон. }
+{ Синглтон реестра. }
 function TdApp: TTdCore;
 
-{ Состояние требует ввода от пользователя. }
-function TdIsPromptState(AState: TTdAuthState): boolean;
+{ --- совместимость: модели АКТИВНОГО аккаунта --- }
+function TdChatList: TTdChats;
+function TdRequests: TTdRequests;
 
-{ Состояние — процесс выхода/закрытия. }
+{ Отписка от всех аккаунтов сразу. Форма могла подписаться на один,
+  а к моменту уничтожения активным быть другой. }
+procedure TdUnsubscribe(const AListener: IUnknown);
+
+function TdIsPromptState(AState: TTdAuthState): boolean;
 function TdIsShuttingState(AState: TTdAuthState): boolean;
+
+{ Обёртка, чтобы формам хватало одного tdcore в uses. }
+procedure TdSessionUnsubscribe(const ASession: ITdSession; const AListener: IUnknown);
 
 implementation
 
 const
   SHUTDOWN_TIMEOUT = 5000;
+  MANIFEST = 'accounts.ini';
 
 var
   GCore: TTdCore = nil;
@@ -143,55 +156,102 @@ begin
   Result := GCore;
 end;
 
-procedure TdUnsubscribe(const AListener: IUnknown);
+function TdChatList: TTdChats;
+var
+  A: TTdAccount;
 begin
-  if GCore <> nil then begin
-    GCore.Unsubscribe(AListener);
+  A := TdApp.Active;
+  if A <> nil then begin
+    Result := A.Chats;
+  end else begin
+    Result := nil;
+  end;
+end;
+
+function TdRequests: TTdRequests;
+var
+  A: TTdAccount;
+begin
+  A := TdApp.Active;
+  if A <> nil then begin
+    Result := A.Requests;
+  end else begin
+    Result := nil;
+  end;
+end;
+
+procedure TdUnsubscribe(const AListener: IUnknown);
+var
+  I: integer;
+begin
+  if GCore = nil then begin
+    Exit;
+  end;
+  for I := 0 to GCore.Count - 1 do begin
+    GCore.Accounts[I].Unsubscribe(AListener);
   end;
 end;
 
 function TdIsPromptState(AState: TTdAuthState): boolean;
 begin
-  Result := AState in [tasWaitPhoneNumber, tasWaitOtherDeviceConfirmation,
-    tasWaitEmailAddress, tasWaitEmailCode, tasWaitCode,
-    tasWaitRegistration, tasWaitPassword];
+  Result := tdsession.TdIsPromptState(AState);
 end;
 
 function TdIsShuttingState(AState: TTdAuthState): boolean;
 begin
-  Result := AState in [tasLoggingOut, tasClosing, tasClosed];
+  Result := tdsession.TdIsShuttingState(AState);
 end;
 
-{ ---------------- жизненный цикл ---------------- }
+procedure TdSessionUnsubscribe(const ASession: ITdSession; const AListener: IUnknown);
+begin
+  tdsession.TdSessionUnsubscribe(ASession, AListener);
+end;
+
+{ ---------------- TTdCore ---------------- }
 
 constructor TTdCore.Create;
 begin
   inherited Create;
+  FAccounts := TFPList.Create;
+  FActive := -1;
   FBaseDir := ExtractFilePath(ParamStr(0));
-  FState := tasNone;
+
+  FPendingRemove := TFPList.Create;
+  FRemoveTimer := TTimer.Create(nil);
+  FRemoveTimer.Interval := 1;
+  FRemoveTimer.OnTimer := @RemoveTick;
+  FRemoveTimer.Enabled := False;
 
   FCloseTimer := TTimer.Create(nil);
   FCloseTimer.Enabled := False;
   FCloseTimer.Interval := SHUTDOWN_TIMEOUT;
   FCloseTimer.OnTimer := @CloseTimeout;
-
-  FRestartTimer := TTimer.Create(nil);
-  FRestartTimer.Enabled := False;
-  FRestartTimer.Interval := 1;
-  FRestartTimer.OnTimer := @RestartTick;
 end;
 
 destructor TTdCore.Destroy;
+var
+  I: integer;
 begin
   FCloseTimer.Enabled := False;
-  FRestartTimer.Enabled := False;
-  DestroyEngine;
+  FRemoveTimer.Enabled := False;
+  FPendingRemove.Free;
+  FRemoveTimer.Free;
+  for I := FAccounts.Count - 1 downto 0 do begin
+    TTdAccount(FAccounts[I]).Free;
+  end;
+  FAccounts.Free;
+  SetLength(FActiveL, 0);
   FCloseTimer.Free;
-  FRestartTimer.Free;
-  SetLength(FUpdateL, 0);
-  SetLength(FStateL, 0);
-  SetLength(FAuthL, 0);
+  { Приёмник гасим последним: он общий для всех клиентов. }
+  if TdReceiverExists then begin
+    TdReceiver.Stop;
+  end;
   inherited Destroy;
+end;
+
+function TTdCore.ManifestPath: string;
+begin
+  Result := FBaseDir + MANIFEST;
 end;
 
 function TTdCore.LoadConfig: boolean;
@@ -201,344 +261,387 @@ begin
   FConfigError := '';
   Ini := TIniFile.Create(FBaseDir + 'config.ini');
   try
-    FApiId := Ini.ReadInteger('telegram', 'api_id', 0);
+    FApiId   := Ini.ReadInteger('telegram', 'api_id', 0);
     FApiHash := utf8string(Ini.ReadString('telegram', 'api_hash', ''));
   finally
     Ini.Free;
   end;
 
   if FApiId = 0 then begin
-    FConfigError := 'В config.ini не задан api_id (секция [telegram]).';
-  end else
-  if FApiHash = '' then begin
-    FConfigError := 'В config.ini не задан api_hash (секция [telegram]).';
+    FConfigError := 'api_id is not set in config.ini (section [telegram]).';
+  end else if FApiHash = '' then begin
+    FConfigError := 'api_hash is not set in config.ini (section [telegram]).';
   end;
 
   Result := FConfigError = '';
 end;
 
-procedure TTdCore.CreateEngine;
+procedure TTdCore.LoadAccounts;
+var
+  Ini: TIniFile;
+  N, I, Act: integer;
+  Sect, Title: string;
+  Slot: integer;
+  A: TTdAccount;
 begin
-  FClient := TTdClient.Create;
-  { Порядок важен: TTdAuth в конструкторе встраивается в цепочку OnUpdate. }
-  FClient.OnUpdate := @HandleUpdate;
+  Ini := TIniFile.Create(ManifestPath);
+  try
+    N := Ini.ReadInteger('general', 'count', 0);
+    Act := Ini.ReadInteger('general', 'active', 0);
+    for I := 0 to N - 1 do begin
+      Sect := 'acc' + IntToStr(I);
+      Slot := Ini.ReadInteger(Sect, 'slot', I);
+      Title := Ini.ReadString(Sect, 'title', 'Account ' + IntToStr(I + 1));
+      A := TTdAccount.Create(nil, Slot, FBaseDir, Title, FApiId, FApiHash);
+      A.OnInfoChanged := @AccountInfoChanged;
+      A.OnStateNotify := @AccountStateNotify;
+      FAccounts.Add(A);
+    end;
+  finally
+    Ini.Free;
+  end;
 
-  FAuth := TTdAuth.Create(FClient);
-  FAuth.ApiId := FApiId;
-  FAuth.ApiHash := FApiHash;
-  FAuth.DatabaseDir := utf8string(FBaseDir + 'tdlib');
-  FAuth.FilesDir := utf8string(FBaseDir + 'tdlib' + PathDelim + 'files');
-  FAuth.DeviceModel := 'FPC Desktop';
-  FAuth.ApplicationVersion := '1.0';
-  FAuth.SystemLanguageCode := 'ru';
+  { Первый запуск — заводим один аккаунт. }
+  if FAccounts.Count = 0 then begin
+    AddAccount('Account 1');
+    Act := 0;
+  end;
 
-  FAuth.OnStateChanged := @HandleStateChanged;
-  FAuth.OnError  := @HandleError;
-  FAuth.OnNeedPhoneOrQr := @HandleNeedPhoneOrQr;
-  FAuth.OnQrLink := @HandleQrLink;
-  FAuth.OnNeedCode := @HandleNeedCode;
-  FAuth.OnNeedEmailAddress := @HandleNeedEmailAddress;
-  FAuth.OnNeedEmailCode := @HandleNeedEmailCode;
-  FAuth.OnNeedPassword := @HandleNeedPassword;
-  FAuth.OnPasswordRecovery := @HandlePasswordRecovery;
-  FAuth.OnNeedRegistration := @HandleNeedRegistration;
-
-  FClient.Start;
+  if (Act < 0) or (Act >= FAccounts.Count) then begin
+    Act := 0;
+  end;
+  FActive := Act;
 end;
 
-procedure TTdCore.DestroyEngine;
+procedure TTdCore.SaveAccounts;
+var
+  Ini: TIniFile;
+  I: integer;
+  A: TTdAccount;
 begin
-  FreeAndNil(FAuth);
-  if FClient <> nil then begin
-    FClient.Stop;
-    FreeAndNil(FClient);
+  Ini := TIniFile.Create(ManifestPath);
+  try
+    Ini.WriteInteger('general', 'count', FAccounts.Count);
+    Ini.WriteInteger('general', 'active', FActive);
+    for I := 0 to FAccounts.Count - 1 do begin
+      A := TTdAccount(FAccounts[I]);
+      Ini.WriteInteger('acc' + IntToStr(I), 'slot', A.Slot);
+      Ini.WriteString('acc' + IntToStr(I), 'title', A.Title);
+    end;
+
+    { Подчищаем секции от удалённых аккаунтов: без этого в файле
+      копится мусор от прежних записей. }
+    I := FAccounts.Count;
+    while Ini.SectionExists('acc' + IntToStr(I)) do begin
+      Ini.EraseSection('acc' + IntToStr(I));
+      Inc(I);
+    end;
+
+    Ini.UpdateFile;
+  finally
+    Ini.Free;
+  end;
+end;
+
+function TTdCore.AddAccount(const ATitle: string): TTdAccount;
+var
+  I, Slot: integer;
+  Used: boolean;
+begin
+  { Номер слота — имя каталога. Ищем первый свободный, чтобы после
+    удаления аккаунта его каталог мог переиспользоваться. }
+  Slot := 0;
+  repeat
+    Used := False;
+    for I := 0 to FAccounts.Count - 1 do begin
+      if TTdAccount(FAccounts[I]).Slot = Slot then begin
+        Used := True;
+        Break;
+      end;
+    end;
+    if Used then begin
+      Inc(Slot);
+    end;
+  until not Used;
+
+  Result := TTdAccount.Create(nil, Slot, FBaseDir, ATitle, FApiId, FApiHash);
+  Result.OnInfoChanged := @AccountInfoChanged;
+  Result.OnStateNotify := @AccountStateNotify;
+  FAccounts.Add(Result);
+  if FActive < 0 then begin
+    FActive := 0;
+  end;
+  NotifyAccountsChanged;
+end;
+
+procedure TTdCore.RemoveAccount(AAccount: TTdAccount);
+var
+  Idx: integer;
+begin
+  if AAccount = nil then begin
+    Exit;
+  end;
+  Idx := FAccounts.IndexOf(AAccount);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  FAccounts.Delete(Idx);
+  AAccount.Free;
+
+  if FActive >= FAccounts.Count then begin
+    FActive := FAccounts.Count - 1;
+  end;
+  SaveAccounts;
+  NotifyAccountsChanged;
+  NotifyActiveChanged;
+end;
+
+procedure TTdCore.DiscardAccount(AAccount: TTdAccount);
+begin
+  if AAccount = nil then begin
+    Exit;
+  end;
+  { Удаление произойдёт по AccountStateNotify, когда придёт Closed. }
+  AAccount.CloseAndForget;
+end;
+
+procedure TTdCore.SubscribeActive(const AListener: ITdActiveListener);
+var
+  I: integer;
+begin
+  if AListener = nil then begin
+    Exit;
+  end;
+  for I := 0 to High(FActiveL) do begin
+    if FActiveL[I] = AListener then begin
+      Exit;
+    end;
+  end;
+  SetLength(FActiveL, Length(FActiveL) + 1);
+  FActiveL[High(FActiveL)] := AListener;
+end;
+
+procedure TTdCore.UnsubscribeActive(const AListener: ITdActiveListener);
+var
+  I, J: integer;
+begin
+  for I := High(FActiveL) downto 0 do begin
+    if FActiveL[I] = AListener then begin
+      for J := I to High(FActiveL) - 1 do begin
+        FActiveL[J] := FActiveL[J + 1];
+      end;
+      SetLength(FActiveL, Length(FActiveL) - 1);
+    end;
+  end;
+end;
+
+procedure TTdCore.NotifyActiveChanged;
+var
+  Snap: array of ITdActiveListener;
+  I: integer;
+  A: TTdAccount;
+begin
+  A := GetActive;
+  Snap := Copy(FActiveL);
+  for I := 0 to High(Snap) do begin
+    Snap[I].TdActiveChanged(A);
+  end;
+  if Assigned(FOnActiveChanged) then begin
+    FOnActiveChanged(Self);
+  end;
+end;
+
+procedure TTdCore.NotifyAccountsChanged;
+var
+  Snap: array of ITdActiveListener;
+  I: integer;
+begin
+  Snap := Copy(FActiveL);
+  for I := 0 to High(Snap) do begin
+    Snap[I].TdAccountsChanged;
+  end;
+end;
+
+procedure TTdCore.AccountInfoChanged(Sender: TObject);
+begin
+  { Имя пришло из getMe — сохраняем и обновляем меню. }
+  SaveAccounts;
+  NotifyAccountsChanged;
+end;
+
+procedure TTdCore.AccountStateNotify(Sender: TObject);
+var
+  A: TTdAccount;
+begin
+  A := TTdAccount(Sender);
+
+  { Аккаунт вышел и подлежит удалению. Удаляем отложенно: сюда мы
+    попали из его собственного обработчика, освобождать объект
+    прямо отсюда нельзя. }
+  if A.Forget and (A.State = tasNone) then begin
+    if FPendingRemove.IndexOf(A) < 0 then begin
+      FPendingRemove.Add(A);
+      FRemoveTimer.Enabled := True;
+    end;
+    Exit;
+  end;
+
+  { Смена состояния влияет на пометку «нужен вход» в меню. }
+  NotifyAccountsChanged;
+end;
+
+procedure TTdCore.RemoveTick(Sender: TObject);
+var
+  I: integer;
+  A: TTdAccount;
+begin
+  FRemoveTimer.Enabled := False;
+  for I := FPendingRemove.Count - 1 downto 0 do begin
+    A := TTdAccount(FPendingRemove[I]);
+    FPendingRemove.Delete(I);
+    RemoveAccount(A);
   end;
 end;
 
 procedure TTdCore.Start;
+var
+  I: integer;
 begin
   if FStarted then begin
     Exit;
   end;
   FStarted := True;
-  CreateEngine;
+
+  if FAccounts.Count = 0 then begin
+    LoadAccounts;
+  end;
+
+  { Запускаем все: неактивные аккаунты тоже должны получать
+    сообщения, иначе переключение будет каждый раз с нуля. }
+  for I := 0 to FAccounts.Count - 1 do begin
+    TTdAccount(FAccounts[I]).Start;
+  end;
 end;
 
-{ ---------------- подписка ---------------- }
+function TTdCore.GetCount: integer;
+begin
+  Result := FAccounts.Count;
+end;
+
+function TTdCore.GetAccount(AIndex: integer): TTdAccount;
+begin
+  if (AIndex < 0) or (AIndex >= FAccounts.Count) then begin
+    Result := nil;
+  end else begin
+    Result := TTdAccount(FAccounts[AIndex]);
+  end;
+end;
+
+function TTdCore.GetActive: TTdAccount;
+begin
+  Result := GetAccount(FActive);
+end;
+
+procedure TTdCore.SetActiveIndex(AValue: integer);
+begin
+  if (AValue = FActive) or (AValue < 0) or (AValue >= FAccounts.Count) then begin
+    Exit;
+  end;
+  FActive := AValue;
+  { Сохраняем сразу: при следующем запуске откроется тот же аккаунт. }
+  SaveAccounts;
+  NotifyActiveChanged;
+end;
+
+{ ---------------- проброс на активный аккаунт ---------------- }
 
 procedure TTdCore.Subscribe(const AListener: IUnknown);
 var
-  U: ITdUpdateListener;
-  S: ITdStateListener;
-  A: ITdAuthListener;
-  I: integer;
-  Found: boolean;
+  A: TTdAccount;
 begin
-  if AListener = nil then begin
-    Exit;
-  end;
-
-  if Supports(AListener, ITdUpdateListener, U) then begin
-    Found := False;
-    for I := 0 to High(FUpdateL) do begin
-      if FUpdateL[I] = U then begin
-        Found := True;
-        Break;
-      end;
-    end;
-    if not Found then begin
-      SetLength(FUpdateL, Length(FUpdateL) + 1);
-      FUpdateL[High(FUpdateL)] := U;
-    end;
-  end;
-
-  if Supports(AListener, ITdStateListener, S) then begin
-    Found := False;
-    for I := 0 to High(FStateL) do begin
-      if FStateL[I] = S then begin
-        Found := True;
-        Break;
-      end;
-    end;
-    if not Found then begin
-      SetLength(FStateL, Length(FStateL) + 1);
-      FStateL[High(FStateL)] := S;
-    end;
-  end;
-
-  if Supports(AListener, ITdAuthListener, A) then begin
-    Found := False;
-    for I := 0 to High(FAuthL) do begin
-      if FAuthL[I] = A then begin
-        Found := True;
-        Break;
-      end;
-    end;
-    if not Found then begin
-      SetLength(FAuthL, Length(FAuthL) + 1);
-      FAuthL[High(FAuthL)] := A;
-    end;
+  A := GetActive;
+  if A <> nil then begin
+    A.Subscribe(AListener);
   end;
 end;
 
 procedure TTdCore.Unsubscribe(const AListener: IUnknown);
-var
-  U: ITdUpdateListener;
-  S: ITdStateListener;
-  A: ITdAuthListener;
-  I, J: integer;
 begin
-  if AListener = nil then begin
-    Exit;
-  end;
-
-  if Supports(AListener, ITdUpdateListener, U) then begin
-    for I := High(FUpdateL) downto 0 do begin
-      if FUpdateL[I] = U then begin
-        for J := I to High(FUpdateL) - 1 do begin
-          FUpdateL[J] := FUpdateL[J + 1];
-        end;
-        SetLength(FUpdateL, Length(FUpdateL) - 1);
-      end;
-    end;
-  end;
-
-  if Supports(AListener, ITdStateListener, S) then begin
-    for I := High(FStateL) downto 0 do begin
-      if FStateL[I] = S then begin
-        for J := I to High(FStateL) - 1 do begin
-          FStateL[J] := FStateL[J + 1];
-        end;
-        SetLength(FStateL, Length(FStateL) - 1);
-      end;
-    end;
-  end;
-
-  if Supports(AListener, ITdAuthListener, A) then begin
-    for I := High(FAuthL) downto 0 do begin
-      if FAuthL[I] = A then begin
-        for J := I to High(FAuthL) - 1 do begin
-          FAuthL[J] := FAuthL[J + 1];
-        end;
-        SetLength(FAuthL, Length(FAuthL) - 1);
-      end;
-    end;
-  end;
+  TdUnsubscribe(AListener);
 end;
-
-{ ---------------- раздача событий ----------------
-  Списки копируются перед обходом: подписчик вправе отписаться
-  прямо в обработчике. }
-
-procedure TTdCore.HandleUpdate(Sender: TObject; const AJson: utf8string);
-var
-  Snap: array of ITdUpdateListener;
-  I: integer;
-begin
-  Snap := Copy(FUpdateL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdUpdate(AJson);
-  end;
-end;
-
-procedure TTdCore.HandleStateChanged(Sender: TObject; AState: TTdAuthState);
-var
-  Snap: array of ITdStateListener;
-  I: integer;
-begin
-  FState := AState;
-
-  Snap := Copy(FStateL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdStateChanged(AState);
-  end;
-
-  if AState = tasClosed then begin
-    if FLoggingOut then begin
-      { Пересоздание отложено: сейчас мы внутри разбора пачки апдейтов. }
-      FRestartTimer.Enabled := True;
-    end else
-    if FShuttingDown then begin
-      FinishShutdown;
-    end;
-  end;
-end;
-
-procedure TTdCore.HandleError(Sender: TObject; ACode: integer; const AMessage, AContext: utf8string);
-var
-  Snap: array of ITdStateListener;
-  I: integer;
-begin
-  Snap := Copy(FStateL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdError(ACode, AMessage, AContext);
-  end;
-end;
-
-procedure TTdCore.HandleNeedPhoneOrQr(Sender: TObject);
-var
-  Snap: array of ITdAuthListener;
-  I: integer;
-begin
-  Snap := Copy(FAuthL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdNeedPhoneOrQr;
-  end;
-end;
-
-procedure TTdCore.HandleQrLink(Sender: TObject; const ALink: utf8string);
-var
-  Snap: array of ITdAuthListener;
-  I: integer;
-begin
-  Snap := Copy(FAuthL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdQrLink(ALink);
-  end;
-end;
-
-procedure TTdCore.HandleNeedCode(Sender: TObject; const AInfo: TTdCodeInfo);
-var
-  Snap: array of ITdAuthListener;
-  I: integer;
-begin
-  Snap := Copy(FAuthL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdNeedCode(AInfo);
-  end;
-end;
-
-procedure TTdCore.HandleNeedEmailAddress(Sender: TObject; AAllowApple, AAllowGoogle: boolean);
-var
-  Snap: array of ITdAuthListener;
-  I: integer;
-begin
-  Snap := Copy(FAuthL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdNeedEmailAddress(AAllowApple, AAllowGoogle);
-  end;
-end;
-
-procedure TTdCore.HandleNeedEmailCode(Sender: TObject; const APattern: utf8string; ALength: integer);
-var
-  Snap: array of ITdAuthListener;
-  I: integer;
-begin
-  Snap := Copy(FAuthL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdNeedEmailCode(APattern, ALength);
-  end;
-end;
-
-procedure TTdCore.HandleNeedPassword(Sender: TObject; const AHint, ARecoveryPattern: utf8string; AHasRecovery: boolean);
-var
-  Snap: array of ITdAuthListener;
-  I: integer;
-begin
-  Snap := Copy(FAuthL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdNeedPassword(AHint, ARecoveryPattern, AHasRecovery);
-  end;
-end;
-
-procedure TTdCore.HandlePasswordRecovery(Sender: TObject; const AEmailPattern: utf8string);
-var
-  Snap: array of ITdAuthListener;
-  I: integer;
-begin
-  Snap := Copy(FAuthL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdPasswordRecovery(AEmailPattern);
-  end;
-end;
-
-procedure TTdCore.HandleNeedRegistration(Sender: TObject; const ATosText: utf8string; AShowPopup: boolean; AMinAge: integer);
-var
-  Snap: array of ITdAuthListener;
-  I: integer;
-begin
-  Snap := Copy(FAuthL);
-  for I := 0 to High(Snap) do begin
-    Snap[I].TdNeedRegistration(ATosText, AShowPopup, AMinAge);
-  end;
-end;
-
-{ ---------------- выход из аккаунта ---------------- }
 
 procedure TTdCore.Send(const ARequest: utf8string);
+var
+  A: TTdAccount;
 begin
-  if FClient <> nil then begin
-    FClient.Send(ARequest);
+  A := GetActive;
+  if A <> nil then begin
+    A.Send(ARequest);
   end;
 end;
 
 procedure TTdCore.LogOut;
+var
+  A: TTdAccount;
 begin
-  if (FAuth = nil) or FShuttingDown then begin
+  A := GetActive;
+  if A = nil then begin
     Exit;
   end;
-  FLoggingOut := True;
-  FAuth.LogOut;
+  { Как в Telegram: выход убирает аккаунт из списка. Но если он
+    последний — убирать некуда, просто возвращаемся к экрану входа. }
+  if FAccounts.Count > 1 then begin
+    A.LogOutAndForget;
+  end else begin
+    A.LogOut;
+  end;
 end;
 
-procedure TTdCore.RestartTick(Sender: TObject);
+function TTdCore.GetState: TTdAuthState;
+var
+  A: TTdAccount;
 begin
-  FRestartTimer.Enabled := False;
-  if not FLoggingOut then begin
-    Exit;
+  A := GetActive;
+  if A <> nil then begin
+    Result := A.State;
+  end else begin
+    Result := tasNone;
   end;
-  FLoggingOut := False;
+end;
 
-  DestroyEngine;
-  FState := tasNone;
-  CreateEngine;
+function TTdCore.GetAuth: TTdAuth;
+var
+  A: TTdAccount;
+begin
+  A := GetActive;
+  if A <> nil then begin
+    Result := A.Auth;
+  end else begin
+    Result := nil;
+  end;
 end;
 
 { ---------------- завершение ---------------- }
 
-function TTdCore.BeginShutdown(AOnComplete: TNotifyEvent): boolean;
+function TTdCore.AllClosed: boolean;
+var
+  I: integer;
 begin
-  if FClosed or (FAuth = nil) then begin
+  Result := True;
+  for I := 0 to FAccounts.Count - 1 do begin
+    if not TTdAccount(FAccounts[I]).Closed then begin
+      Result := False;
+      Exit;
+    end;
+  end;
+end;
+
+function TTdCore.BeginShutdown(AOnComplete: TNotifyEvent): boolean;
+var
+  I: integer;
+begin
+  if FClosed or (FAccounts.Count = 0) then begin
     Result := True;
     Exit;
   end;
@@ -547,11 +650,19 @@ begin
 
   if not FShuttingDown then begin
     FShuttingDown := True;
-    FLoggingOut := False;
-    FRestartTimer.Enabled := False;
-    FAuth.Close;
-    FCloseTimer.Interval := SHUTDOWN_TIMEOUT;
-    FCloseTimer.Enabled  := True;
+    for I := 0 to FAccounts.Count - 1 do begin
+      TTdAccount(FAccounts[I]).RequestClose;
+    end;
+    { Таймер и опрашивает готовность, и служит страховкой:
+      если TDLib не ответит, выйдем по истечении срока. }
+    FCloseTimer.Interval := 200;
+    FCloseTimer.Enabled := True;
+  end;
+
+  if AllClosed then begin
+    FinishShutdown;
+    Result := True;
+    Exit;
   end;
 
   Result := False;
@@ -559,11 +670,15 @@ end;
 
 procedure TTdCore.CloseTimeout(Sender: TObject);
 begin
-  FCloseTimer.Enabled := False;
   if not FShuttingDown then begin
+    FCloseTimer.Enabled := False;
     Exit;
   end;
-  FinishShutdown;
+
+  FCloseTimer.Tag := FCloseTimer.Tag + FCloseTimer.Interval;
+  if AllClosed or (FCloseTimer.Tag >= SHUTDOWN_TIMEOUT) then begin
+    FinishShutdown;
+  end;
 end;
 
 procedure TTdCore.FinishShutdown;

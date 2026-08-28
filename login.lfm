@@ -3490,7 +3490,7 @@ object FormLogin: TFormLogin
     TabOrder = 2
     OnClick = btnOkClick
   end
-  object btnAlt: TButton
+  object btnAlt: TBitBtn
     Left = 20
     Height = 25
     Top = 416
@@ -3498,6 +3498,7 @@ object FormLogin: TFormLogin
     Caption = 'btnAlt'
     Constraints.MaxWidth = 180
     Constraints.MinWidth = 180
+    Images = FormMain.ImageList1
     TabOrder = 3
     OnClick = btnAltClick
   end

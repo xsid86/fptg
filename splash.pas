@@ -54,7 +54,7 @@ begin
     при переводе часов или смене летнего времени. }
   FStartTick := GetTickCount64;
 
-  lblStatus.Caption := 'Подключение к Telegram...';
+  lblStatus.Caption := 'Connecting to Telegram...';
   btnCancel.Visible := False;
 
   FTimer := TTimer.Create(Self);
@@ -123,7 +123,7 @@ begin
   end;
   { Типовой случай — неверный api_id/api_hash: состояние застревает
     на WaitTdlibParameters, и без этого окно висело бы молча. }
-  lblStatus.Caption := 'Ошибка ' + IntToStr(ACode) + ': ' + string(AMessage);
+  lblStatus.Caption := 'Error ' + IntToStr(ACode) + ': ' + string(AMessage);
   btnCancel.Visible := True;
 end;
 

@@ -41,11 +41,11 @@ type
 
   TTdCodeInfo = record
     PhonePattern: utf8string;      // маска номера, например +7 *** *** 12 34
-    Delivery:     TTdCodeDelivery;
-    CodeLength:   integer;
-    Hint:         utf8string;           // first_word / first_phrase / префикс номера
-    NextDelivery: TTdCodeDelivery;      // чем повторить, tcdUnknown = повтор недоступен
-    Timeout:      integer;              // секунд до разрешённого resend
+    Delivery: TTdCodeDelivery;
+    CodeLength: integer;
+    Hint:    utf8string;           // first_word / first_phrase / префикс номера
+    NextDelivery: TTdCodeDelivery; // чем повторить, tcdUnknown = повтор недоступен
+    Timeout: integer;              // секунд до разрешённого resend
   end;
 
   TTdAuthStateEvent = procedure(Sender: TObject; AState: TTdAuthState) of object;
@@ -60,38 +60,38 @@ type
 
   TTdAuth = class
   private
-    FClient:      TTdClient;
-    FState:       TTdAuthState;
-    FExtraSeq:    integer;
-    FPending:     TStringList;          // '<extra>' = '<method>'
+    FClient:   TTdClient;
+    FState:    TTdAuthState;
+    FExtraSeq: integer;
+    FPending:  TStringList;          // '<extra>' = '<method>'
     FSavedUpdate: TTdUpdateEvent;
 
-    FApiId:               integer;
-    FApiHash:             utf8string;
-    FDatabaseDir:         utf8string;
-    FFilesDir:            utf8string;
-    FSystemLanguageCode:  utf8string;
-    FDeviceModel:         utf8string;
-    FSystemVersion:       utf8string;
-    FApplicationVersion:  utf8string;
-    FUseTestDc:           boolean;
-    FUseMessageDatabase:  boolean;
+    FApiId:     integer;
+    FApiHash:   utf8string;
+    FDatabaseDir: utf8string;
+    FFilesDir:  utf8string;
+    FSystemLanguageCode: utf8string;
+    FDeviceModel: utf8string;
+    FSystemVersion: utf8string;
+    FApplicationVersion: utf8string;
+    FUseTestDc: boolean;
+    FUseMessageDatabase: boolean;
     FUseChatInfoDatabase: boolean;
-    FUseFileDatabase:     boolean;
-    FUseSecretChats:      boolean;
+    FUseFileDatabase: boolean;
+    FUseSecretChats: boolean;
 
-    FOnStateChanged:     TTdAuthStateEvent;
-    FOnNeedPhoneOrQr:    TNotifyEvent;
-    FOnQrLink:           TTdQrLinkEvent;
-    FOnNeedCode:         TTdCodeEvent;
+    FOnStateChanged: TTdAuthStateEvent;
+    FOnNeedPhoneOrQr: TNotifyEvent;
+    FOnQrLink:   TTdQrLinkEvent;
+    FOnNeedCode: TTdCodeEvent;
     FOnNeedEmailAddress: TTdEmailAddrEvent;
-    FOnNeedEmailCode:    TTdEmailCodeEvent;
-    FOnNeedPassword:     TTdPasswordEvent;
+    FOnNeedEmailCode: TTdEmailCodeEvent;
+    FOnNeedPassword: TTdPasswordEvent;
     FOnPasswordRecovery: TTdRecoveryEvent;
     FOnNeedRegistration: TTdRegistrationEvent;
-    FOnReady:            TNotifyEvent;
-    FOnClosed:           TNotifyEvent;
-    FOnError:            TTdAuthErrorEvent;
+    FOnReady:    TNotifyEvent;
+    FOnClosed:   TNotifyEvent;
+    FOnError:    TTdAuthErrorEvent;
 
     procedure ClientUpdate(Sender: TObject; const AJson: utf8string);
     procedure ProcessAuthState(AObj: TJSONObject);
@@ -349,44 +349,44 @@ function AuthStateToStr(AState: TTdAuthState): string;
 begin
   case AState of
     tasWaitTdlibParameters: begin
-      Result := 'ожидание параметров';
+      Result := 'waiting for parameters';
     end;
     tasWaitPhoneNumber: begin
-      Result := 'нужен номер телефона или QR';
+      Result := 'phone number or QR required';
     end;
     tasWaitOtherDeviceConfirmation: begin
-      Result := 'подтвердите вход на другом устройстве';
+      Result := 'confirm login on another device';
     end;
     tasWaitEmailAddress: begin
-      Result := 'нужен адрес e-mail';
+      Result := 'e-mail address required';
     end;
     tasWaitEmailCode: begin
-      Result := 'нужен код из e-mail';
+      Result := 'e-mail code required';
     end;
     tasWaitCode: begin
-      Result := 'нужен код подтверждения';
+      Result := 'confirmation code required';
     end;
     tasWaitRegistration: begin
-      Result := 'требуется регистрация';
+      Result := 'registration required';
     end;
     tasWaitPassword: begin
-      Result := 'нужен пароль (2FA)';
+      Result := 'password required (2FA)';
     end;
     tasReady: begin
-      Result := 'авторизован';
+      Result := 'authorized';
     end;
     tasLoggingOut: begin
-      Result := 'выход из аккаунта';
+      Result := 'logging out';
     end;
     tasClosing: begin
-      Result := 'закрытие';
+      Result := 'closing';
     end;
     tasClosed: begin
-      Result := 'закрыт';
+      Result := 'closed';
     end;
     else
     begin
-      Result := 'неопределено';
+      Result := 'undefined';
     end;
   end;
 end;
@@ -395,25 +395,25 @@ function CodeDeliveryToStr(ADelivery: TTdCodeDelivery): string;
 begin
   case ADelivery of
     tcdTelegramMessage: begin
-      Result := 'сообщение в Telegram на другом устройстве';
+      Result := 'Telegram message on another device';
     end;
     tcdSms: begin
       Result := 'SMS';
     end;
     tcdSmsWord: begin
-      Result := 'SMS, код — первое слово';
+      Result := 'SMS, code is the first word';
     end;
     tcdSmsPhrase: begin
-      Result := 'SMS, код — первая фраза';
+      Result := 'SMS, code is the first phrase';
     end;
     tcdCall: begin
-      Result := 'входящий звонок с диктовкой кода';
+      Result := 'incoming call dictating the code';
     end;
     tcdFlashCall: begin
-      Result := 'сброшенный звонок, код в номере';
+      Result := 'flash call, code in the number';
     end;
     tcdMissedCall: begin
-      Result := 'пропущенный звонок, код в последних цифрах';
+      Result := 'missed call, code in last digits';
     end;
     tcdFragment: begin
       Result := 'Fragment';
@@ -426,7 +426,7 @@ begin
     end;
     else
     begin
-      Result := 'неизвестно';
+      Result := 'unknown';
     end;
   end;
 end;
@@ -436,24 +436,24 @@ end;
 constructor TTdAuth.Create(AClient: TTdClient);
 begin
   inherited Create;
-  FClient := AClient;
-  FPending := TStringList.Create;
-  FState := tasNone;
+  FClient   := AClient;
+  FPending  := TStringList.Create;
+  FState    := tasNone;
   FExtraSeq := 0;
 
-  FDatabaseDir := 'tdlib';
-  FFilesDir  := 'tdlib/files';
-  FSystemLanguageCode := 'ru';
-  FDeviceModel := 'Desktop';
-  FSystemVersion := '';
-  FApplicationVersion := '1.0';
-  FUseTestDc := False;
-  FUseMessageDatabase := True;
+  FDatabaseDir         := 'tdlib';
+  FFilesDir            := 'tdlib/files';
+  FSystemLanguageCode  := 'ru';
+  FDeviceModel         := 'Desktop';
+  FSystemVersion       := '';
+  FApplicationVersion  := '1.0';
+  FUseTestDc           := False;
+  FUseMessageDatabase  := True;
   FUseChatInfoDatabase := True;
-  FUseFileDatabase := True;
-  FUseSecretChats := False;
+  FUseFileDatabase     := True;
+  FUseSecretChats      := False;
 
-  FSavedUpdate := FClient.OnUpdate;
+  FSavedUpdate     := FClient.OnUpdate;
   FClient.OnUpdate := @ClientUpdate;
 end;
 
@@ -538,8 +538,8 @@ end;
 procedure TTdAuth.ClientUpdate(Sender: TObject; const AJson: utf8string);
 var
   Data: TJSONData;
-  Obj: TJSONObject;
-  T: utf8string;
+  Obj:  TJSONObject;
+  T:    utf8string;
 begin
   if Assigned(FSavedUpdate) then begin
     FSavedUpdate(Sender, AJson);
@@ -556,7 +556,7 @@ begin
       Exit;
     end;
     Obj := TJSONObject(Data);
-    T := ObjStr(Obj, '@type');
+    T   := ObjStr(Obj, '@type');
 
     if T = 'updateAuthorizationState' then begin
       ProcessAuthState(ObjObj(Obj, 'authorization_state'));
@@ -579,10 +579,10 @@ end;
 
 procedure TTdAuth.ProcessAuthState(AObj: TJSONObject);
 var
-  StateType: utf8string;
-  NewState: TTdAuthState;
+  StateType:                                utf8string;
+  NewState:                                 TTdAuthState;
   CodeInfo, TypeObj, NextObj, Tos, TosText: TJSONObject;
-  Info: TTdCodeInfo;
+  Info:                                     TTdCodeInfo;
 begin
   if AObj = nil then begin
     Exit;
@@ -635,15 +635,15 @@ begin
     begin
       FillChar(Info, SizeOf(Info), 0);
       Info.PhonePattern := '';
-      Info.Hint := '';
-      CodeInfo  := ObjObj(AObj, 'code_info');
+      Info.Hint         := '';
+      CodeInfo          := ObjObj(AObj, 'code_info');
       if CodeInfo <> nil then begin
         Info.PhonePattern := ObjStr(CodeInfo, 'phone_number');
-        Info.Timeout := ObjInt(CodeInfo, 'timeout');
+        Info.Timeout      := ObjInt(CodeInfo, 'timeout');
 
         TypeObj := ObjObj(CodeInfo, 'type');
         if TypeObj <> nil then begin
-          Info.Delivery := DeliveryFromString(ObjStr(TypeObj, '@type'));
+          Info.Delivery   := DeliveryFromString(ObjStr(TypeObj, '@type'));
           Info.CodeLength := ObjInt(TypeObj, 'length');
           case Info.Delivery of
             tcdSmsWord: begin
@@ -675,7 +675,7 @@ begin
 
     tasWaitRegistration:
     begin
-      Tos := ObjObj(AObj, 'terms_of_service');
+      Tos     := ObjObj(AObj, 'terms_of_service');
       TosText := ObjObj(Tos, 'text');
       if Assigned(FOnNeedRegistration) then begin
         FOnNeedRegistration(Self,

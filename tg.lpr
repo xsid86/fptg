@@ -11,16 +11,16 @@ uses
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
   Forms, Dialogs,
-  tdjson, tdclient, tdauth, tdcore,
-  main, splash, login, qrrender
+  tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdaccount, tdcore,
+  uiframe, avatarcache, qrrender,
+  main, splash, login, framelog, framewelcome, framechats
   { you can add units after this };
 
 {$R *.res}
 
 begin
   RequireDerivedFormResource := True;
-  Application.Title:='TG Orchestrator';
-  Application.Scaled:=True;
+  Application.Scaled := True;
   {$PUSH}{$WARN 5044 OFF}
   Application.MainFormOnTaskbar := True;
   {$POP}
@@ -30,19 +30,30 @@ begin
     решают сами формы по состоянию авторизации. }
   Application.ShowMainForm := False;
 
+  { Конфиг и список аккаунтов читаются ДО создания форм: формы
+    в FormCreate подписываются на активный аккаунт и обращаются
+    к его модели чатов, значит аккаунт к тому моменту должен
+    существовать. Клиенты TDLib при этом ещё не запущены. }
+  if not TdApp.LoadConfig then begin
+    MessageDlg('Ошибка конфигурации', TdApp.ConfigError, mtError, [mbOK], 0);
+    Application.Terminate;
+    Exit;
+  end;
+
+  TdApp.LoadAccounts;
+
   { Первой создаётся главная — она становится Application.MainForm,
     и её закрытие завершает приложение. }
   Application.CreateForm(TFormMain, FormMain);
   Application.CreateForm(TFormSplash, FormSplash);
   Application.CreateForm(TFormLogin, FormLogin);
 
-  if TdApp.LoadConfig then begin
-    FormSplash.Show;
-    TdApp.Start;
-  end else begin
-    MessageDlg('Ошибка конфигурации', TdApp.ConfigError, mtError, [mbOK], 0);
-    Application.Terminate;
-  end;
+  { Стартовая форма входа нацеливается на активный аккаунт.
+    При переключении она перепривяжется сама (ITdActiveListener). }
+  FormLogin.AttachTo(TdApp.Active, False);
+
+  FormSplash.Show;
+  TdApp.Start;
 
   Application.Run;
 end.

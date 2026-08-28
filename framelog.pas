@@ -17,14 +17,14 @@ type
     дыра в логе. }
 
   TFrameLog = class(TFrameBase, ITdUpdateListener)
-    pnlTop:   TPanel;
+    pnlTop: TPanel;
     btnClear: TButton;
     chkPause: TCheckBox;
     lblCount: TLabel;
-    Memo1:    TMemo;
+    Memo1: TMemo;
     procedure btnClearClick(Sender: TObject);
   private
-    FTotal: int64;
+    FTotal: Int64;
     procedure UpdateCounter;
   public
     constructor Create(TheOwner: TComponent); override;
@@ -59,7 +59,7 @@ end;
 
 procedure TFrameLog.UpdateCounter;
 begin
-  lblCount.Caption := Format('получено: %d, показано: %d', [FTotal, Memo1.Lines.Count]);
+  lblCount.Caption := Format('received: %d, shown: %d', [FTotal, Memo1.Lines.Count]);
 end;
 
 procedure TFrameLog.btnClearClick(Sender: TObject);
@@ -82,7 +82,6 @@ begin
       Memo1.Lines.Delete(0);
     end;
     Memo1.Lines.Add(string(AJson));
-    Memo1.Lines.Add('');
   finally
     Memo1.Lines.EndUpdate;
   end;

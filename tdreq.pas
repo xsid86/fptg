@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, DateUtils, ExtCtrls, fpjson, jsonparser,
-  tdauth, tdcore;
+  tdauth, tdsession;
 
 const
   { Свой префикс @extra. У TTdAuth собственный ('auth:'), и пересекаться
@@ -20,15 +20,15 @@ const
 
 type
   TTdResponse = record
-    Success:      boolean;
+    Success: boolean;
     { ВАЖНО: объект живёт только внутри колбэка. Всё нужное копировать
       сразу, указатель наружу не сохранять. }
-    Obj:          TJSONObject;
-    ErrorCode:    integer;
+    Obj: TJSONObject;
+    ErrorCode: integer;
     ErrorMessage: utf8string;
     { Произвольное значение, переданное при отправке. В FPC 3.2 нет
       анонимных функций, поэтому контекст запроса передаём так. }
-    Tag:          PtrInt;
+    Tag: PtrInt;
   end;
 
   TTdResponseEvent = procedure(Sender: TObject; const AResp: TTdResponse) of object;
@@ -36,10 +36,10 @@ type
   { Одна запись об ожидающем ответа запросе. }
   TTdPending = class
   public
-    Extra:    string;
-    Method:   utf8string;
+    Extra: string;
+    Method: utf8string;
     Callback: TTdResponseEvent;
-    Tag:      PtrInt;
+    Tag: PtrInt;
     Deadline: TDateTime;
   end;
 
@@ -52,22 +52,27 @@ type
 
   TTdRequests = class(TComponent, ITdUpdateListener, ITdStateListener)
   private
-    FSeq:            integer;
-    FPending:        TStringList;
-    FTimer:          TTimer;
+    FSession: ITdSession;
+    FSeq: integer;
+    FPending: TStringList;
+    FTimer: TTimer;
     FDefaultTimeout: integer;
     procedure CheckTimeouts(Sender: TObject);
     procedure Resolve(const AExtra: string; const AResp: TTdResponse);
     procedure FailAll(ACode: integer; const AMessage: utf8string);
     function TakePending(const AExtra: string): TTdPending;
   public
-    constructor Create(AOwner: TComponent); override;
+    { Резолвер принадлежит аккаунту: свой счётчик @extra, свои
+      ожидающие запросы. Ответы чужих клиентов сюда не доходят —
+      их отсекает приёмник по @client_id. }
+    constructor Create(AOwner: TComponent; const ASession: ITdSession); reintroduce;
     destructor Destroy; override;
 
     { AMethod — имя метода TDLib, ABody — уже готовый кусок JSON без
       обрамляющих скобок, например '"chat_id":123,"limit":20'.
       ATimeoutMs = 0 берёт значение DefaultTimeout. }
-    procedure SendRequest(const AMethod, ABody: utf8string; ACallback: TTdResponseEvent; ATag: PtrInt = 0; ATimeoutMs: integer = 0);
+    procedure SendRequest(const AMethod, ABody: utf8string;
+      ACallback: TTdResponseEvent; ATag: PtrInt = 0; ATimeoutMs: integer = 0);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string);
@@ -77,33 +82,18 @@ type
 
     property DefaultTimeout: integer read FDefaultTimeout write FDefaultTimeout;
     property PendingCount: integer read FSeq;
+    property Session: ITdSession read FSession;
   end;
-
-{ Синглтон. Имя обязано отличаться от имени юнита (tdreq):
-  Паскаль нечувствителен к регистру, и TdReq.X компилятор принял бы
-  за обращение к символу модуля. }
-function TdRequests: TTdRequests;
 
 { Хелперы чтения полей — те же, что в tdauth, но нужны и здесь. }
 function JGetStr(AObj: TJSONObject; const AName: string): utf8string;
 function JGetInt(AObj: TJSONObject; const AName: string): integer;
-function JGetInt64(AObj: TJSONObject; const AName: string): int64;
+function JGetInt64(AObj: TJSONObject; const AName: string): Int64;
 function JGetBool(AObj: TJSONObject; const AName: string): boolean;
 function JGetObj(AObj: TJSONObject; const AName: string): TJSONObject;
 function JGetArr(AObj: TJSONObject; const AName: string): TJSONArray;
 
 implementation
-
-var
-  GReq: TTdRequests = nil;
-
-function TdRequests: TTdRequests;
-begin
-  if GReq = nil then begin
-    GReq := TTdRequests.Create(nil);
-  end;
-  Result := GReq;
-end;
 
 { ---------------- хелперы ---------------- }
 
@@ -135,7 +125,7 @@ begin
   end;
 end;
 
-function JGetInt64(AObj: TJSONObject; const AName: string): int64;
+function JGetInt64(AObj: TJSONObject; const AName: string): Int64;
 var
   D: TJSONData;
 begin
@@ -150,14 +140,10 @@ begin
     Exit;
   end;
   case D.JSONType of
-    jtNumber: begin
-      Result := D.AsInt64;
-    end;
-    jtString: begin
-      if not TryStrToInt64(D.AsString, Result) then begin
-        Result := 0;
-      end;
-    end;
+    jtNumber: Result := D.AsInt64;
+    jtString: if not TryStrToInt64(D.AsString, Result) then begin
+                Result := 0;
+              end;
   end;
 end;
 
@@ -205,9 +191,10 @@ end;
 
 { ---------------- TTdRequests ---------------- }
 
-constructor TTdRequests.Create(AOwner: TComponent);
+constructor TTdRequests.Create(AOwner: TComponent; const ASession: ITdSession);
 begin
   inherited Create(AOwner);
+  FSession := ASession;
   FSeq := 0;
   FDefaultTimeout := 30000;
 
@@ -221,7 +208,9 @@ begin
   FTimer.OnTimer := @CheckTimeouts;
   FTimer.Enabled := True;
 
-  TdApp.Subscribe(Self);
+  if FSession <> nil then begin
+    FSession.Subscribe(Self);
+  end;
 end;
 
 destructor TTdRequests.Destroy;
@@ -229,7 +218,8 @@ var
   I: integer;
 begin
   FTimer.Enabled := False;
-  TdUnsubscribe(Self);
+  TdSessionUnsubscribe(FSession, Self);
+  FSession := nil;
   for I := 0 to FPending.Count - 1 do begin
     FPending.Objects[I].Free;
   end;
@@ -237,9 +227,10 @@ begin
   inherited Destroy;
 end;
 
-procedure TTdRequests.SendRequest(const AMethod, ABody: utf8string; ACallback: TTdResponseEvent; ATag: PtrInt; ATimeoutMs: integer);
+procedure TTdRequests.SendRequest(const AMethod, ABody: utf8string;
+  ACallback: TTdResponseEvent; ATag: PtrInt; ATimeoutMs: integer);
 var
-  P:  TTdPending;
+  P: TTdPending;
   Req: utf8string;
   Ms: integer;
 begin
@@ -264,7 +255,9 @@ begin
   end;
   Req := Req + ',"@extra":"' + utf8string(P.Extra) + '"}';
 
-  TdApp.Send(Req);
+  if FSession <> nil then begin
+    FSession.Send(Req);
+  end;
 end;
 
 function TTdRequests.TakePending(const AExtra: string): TTdPending;
@@ -302,7 +295,7 @@ end;
 procedure TTdRequests.TdUpdate(const AJson: utf8string);
 var
   Data: TJSONData;
-  Obj:  TJSONObject;
+  Obj: TJSONObject;
   Extra: string;
   Resp: TTdResponse;
 begin
@@ -399,7 +392,7 @@ var
   Expired: array of TTdPending;
   I, N: integer;
   Nw: TDateTime;
-  R:  TTdResponse;
+  R: TTdResponse;
 begin
   if FPending.Count = 0 then begin
     Exit;
@@ -431,10 +424,5 @@ begin
     Expired[I].Free;
   end;
 end;
-
-initialization
-
-finalization
-  FreeAndNil(GReq);
 
 end.

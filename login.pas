@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Dialogs, StdCtrls, ExtCtrls, Graphics,
-  Clipbrd, tdauth, tdcore, qrrender, main;
+  Clipbrd, Buttons, tdauth, tdcore, qrrender, main;
 
 type
   TUiMode = (umNone, umPhone, umQr, umCode, umEmailAddr, umEmailCode,
@@ -19,13 +19,13 @@ type
     класса, — интерфейсы-предки туда автоматически не попадают. }
 
   TFormLogin = class(TForm, ITdStateListener, ITdAuthListener)
+    btnAlt:     TBitBtn;
     lblState:   TLabel;
     lblPrompt:  TLabel;
     lblPrompt2: TLabel;
     edtInput:   TEdit;
     edtInput2:  TEdit;
     btnOk:      TButton;
-    btnAlt:     TButton;
     imgQr:      TImage;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
@@ -34,13 +34,31 @@ type
     procedure btnAltClick(Sender: TObject);
     procedure FormResize(Sender: TObject);
   private
+    { Форма нацелена на КОНКРЕТНЫЙ аккаунт, а не на «активный».
+      При добавлении второго активным остаётся первый, и привязка
+      к активному была бы неверной. }
+    FSession: ITdSession;
+    FAddMode: boolean;   { режим добавления: модальное окно }
+    FSucceeded: boolean; { вход завершился успешно }
     FMode:   TUiMode;
     FQrLink: utf8string;
     procedure SetMode(AMode: TUiMode; const APrompt: string; const APrompt2: string = ''; const AAlt: string = '');
+    function  Auth: TTdAuth;
     procedure RecenterOnScreen;
   public
-    { ITdUpdateListener }
-    procedure TdUpdate(const AJson: utf8string);
+    { ITdActiveListener }
+    procedure TdActiveChanged(ANew: TTdAccount);
+    procedure TdAccountsChanged;
+
+    { Привязка к аккаунту. AAddMode = True — окно добавления:
+      закрытие не завершает приложение, а отменяет добавление. }
+    procedure AttachTo(const ASession: ITdSession; AAddMode: boolean);
+    procedure Detach;
+
+    property Session: ITdSession read FSession;
+    property AddMode: boolean read FAddMode;
+    property Succeeded: boolean read FSucceeded;
+
     { ITdStateListener }
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
@@ -67,20 +85,73 @@ implementation
 procedure TFormLogin.FormCreate(Sender: TObject);
 begin
   SetMode(umNone, '');
-  TdApp.Subscribe(Self);
+  { Подписка не здесь: цель назначается извне через AttachTo. }
   Position := poScreenCenter;
 end;
 
 procedure TFormLogin.FormDestroy(Sender: TObject);
 begin
-  TdUnsubscribe(Self);
+  Detach;
+end;
+
+procedure TFormLogin.TdActiveChanged(ANew: TTdAccount);
+begin
+  { Стартовая форма следует за активным аккаунтом. Окно добавления
+    нацелено жёстко и переключение игнорирует. }
+  if not FAddMode then begin
+    AttachTo(ANew, False);
+  end;
+end;
+
+procedure TFormLogin.TdAccountsChanged;
+begin
+  { состав аккаунтов форме входа не важен }
+end;
+
+procedure TFormLogin.AttachTo(const ASession: ITdSession; AAddMode: boolean);
+begin
+  if FSession = ASession then begin
+    FAddMode := AAddMode;
+    Exit;
+  end;
+  Detach;
+  FSession := ASession;
+  FAddMode := AAddMode;
+  FSucceeded := False;
+  if FSession <> nil then begin
+    FSession.Subscribe(Self);
+    { Состояние могло наступить до привязки — подтягиваем текущее. }
+    TdStateChanged(FSession.State);
+  end;
+end;
+
+procedure TFormLogin.Detach;
+begin
+  TdSessionUnsubscribe(FSession, Self);
+  FSession := nil;
+end;
+
+function TFormLogin.Auth: TTdAuth;
+begin
+  if FSession <> nil then begin
+    Result := FSession.Auth;
+  end else begin
+    Result := nil;
+  end;
 end;
 
 procedure TFormLogin.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
+  if FAddMode then begin
+    { Окно добавления: закрытие отменяет добавление, а не приложение.
+      Успешный вход закрывает окно сам, выставив FSucceeded. }
+    CanClose := True;
+    Exit;
+  end;
+
   CanClose := False;
-  { Закрытие формы входа до авторизации = выход из приложения.
-    Рукопожатие с TDLib целиком живёт в главной форме. }
+  { Закрытие стартовой формы входа до авторизации = выход из
+    приложения. Рукопожатие с TDLib целиком живёт в главной форме. }
   FormMain.RequestAppClose;
 end;
 
@@ -106,6 +177,11 @@ begin
 
   { QR показывается только в umQr — рисуется отдельно в TdQrLink }
   imgQr.Visible := False;
+  if (FMode = umQr) or (FMode = umPhone) then begin
+    btnAlt.ImageIndex := 6;
+  end else begin
+    btnAlt.ImageIndex := -1;
+  end;
 
   if edtInput.Visible and edtInput.CanFocus then begin
     edtInput.SetFocus;
@@ -126,34 +202,36 @@ begin
   FormLogin.AutoSize := True;
 end;
 
-{ ---------------- ITdUpdateListener ---------------- }
-
-procedure TFormLogin.TdUpdate(const AJson: utf8string);
-begin
-
-end;
-
 { ---------------- ITdStateListener ---------------- }
 
 procedure TFormLogin.TdStateChanged(AState: TTdAuthState);
 begin
-  lblState.Caption := 'Состояние: ' + AuthStateToStr(AState);
+  lblState.Caption := 'State: ' + AuthStateToStr(AState);
+
+  if AState = tasReady then begin
+    FSucceeded := True;
+    if FAddMode then begin
+      { Вход добавляемого аккаунта завершён — закрываем модальное окно. }
+      ModalResult := mrOk;
+    end else if Visible then begin
+      Hide;
+    end;
+    Exit;
+  end;
 
   if TdIsPromptState(AState) then begin
     if not Visible then begin
       Show;
     end;
   end else
-  if AState = tasReady then begin
-    if Visible then begin
-      Hide;
-    end;
+  if FAddMode then begin
+    { В окне добавления промежуточные состояния просто показываем. }
   end else
   if TdIsShuttingState(AState) and not TdApp.ShuttingDown then begin
     { Выход из аккаунта: держим окно, иначе на пару секунд
       на экране не останется ни одной формы и это выглядит как вылет. }
     SetMode(umNone, '');
-    lblState.Caption := 'Выход из аккаунта...';
+    lblState.Caption := 'Logging out...';
     if not Visible then begin
       Show;
     end;
@@ -162,6 +240,11 @@ end;
 
 procedure TFormLogin.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
+  { Мемо с форматы убрано, поэтому ошибки показываем в строке
+    состояния — иначе застревание (например, заблокированная база
+    при setTdlibParameters) выглядит как молчаливое зависание. }
+  lblState.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
+
   { Состояние при ошибке ввода не меняется — TDLib просто ждёт
     корректное значение. Поле оставляем активным. }
   if edtInput.Visible then begin
@@ -176,7 +259,7 @@ end;
 
 procedure TFormLogin.TdNeedPhoneOrQr;
 begin
-  SetMode(umPhone, 'Номер телефона (в формате +71234567890):', '', 'Войти по QR');
+  SetMode(umPhone, 'Phone number (e.g. +71234567890):', '', 'Sign in with QR');
 end;
 
 procedure TFormLogin.TdQrLink(const ALink: utf8string);
@@ -184,7 +267,7 @@ var
   Bmp: TBitmap;
 begin
   FQrLink := ALink;
-  SetMode(umQr, '', '', 'Скопировать ссылку');
+  SetMode(umQr, '', '', 'Copy link');
 
   { TDLib перевыдаёт токен по таймеру и вызывает этот обработчик
     повторно — картинку надо перерисовывать каждый раз. }
@@ -203,14 +286,14 @@ procedure TFormLogin.TdNeedCode(const AInfo: TTdCodeInfo);
 var
   S, Alt: string;
 begin
-  S := 'Код подтверждения';
+  S := 'Confirmation code';
   if AInfo.CodeLength > 0 then begin
-    S := S + ' (' + IntToStr(AInfo.CodeLength) + ' знаков)';
+    S := S + ' (' + IntToStr(AInfo.CodeLength) + ' digits)';
   end;
   S := S + ':';
 
   if AInfo.NextDelivery <> tcdUnknown then begin
-    Alt := 'Повторить (' + CodeDeliveryToStr(AInfo.NextDelivery) + ')';
+    Alt := 'Resend (' + CodeDeliveryToStr(AInfo.NextDelivery) + ')';
   end else begin
     Alt := '';
   end;
@@ -221,26 +304,26 @@ end;
 
 procedure TFormLogin.TdNeedEmailAddress(AAllowApple, AAllowGoogle: boolean);
 begin
-  SetMode(umEmailAddr, 'Адрес e-mail:');
+  SetMode(umEmailAddr, 'E-mail address:');
 end;
 
 procedure TFormLogin.TdNeedEmailCode(const APattern: utf8string; ALength: integer);
 begin
-  SetMode(umEmailCode, 'Код из письма (' + string(APattern) + '):');
+  SetMode(umEmailCode, 'Code from e-mail (' + string(APattern) + '):');
 end;
 
 procedure TFormLogin.TdNeedPassword(const AHint, ARecoveryPattern: utf8string; AHasRecovery: boolean);
 var
   S, Alt: string;
 begin
-  S := 'Пароль двухфакторной защиты';
+  S := 'Two-factor password';
   if AHint <> '' then begin
-    S := S + ' (подсказка: ' + string(AHint) + ')';
+    S := S + ' (hint: ' + string(AHint) + ')';
   end;
   S := S + ':';
 
   if AHasRecovery then begin
-    Alt := 'Забыли пароль?';
+    Alt := 'Forgot password?';
   end else begin
     Alt := '';
   end;
@@ -252,8 +335,8 @@ end;
 procedure TFormLogin.TdPasswordRecovery(const AEmailPattern: utf8string);
 begin
   SetMode(umRecovery,
-    'Код восстановления из письма (' + string(AEmailPattern) + '):',
-    'Новый пароль:');
+    'Recovery code from e-mail (' + string(AEmailPattern) + '):',
+    'New password:');
   edtInput2.PasswordChar := '*';
 end;
 
@@ -261,10 +344,10 @@ procedure TFormLogin.TdNeedRegistration(const ATosText: utf8string; AShowPopup: 
 begin
   if ATosText <> '' then begin
     if AShowPopup then begin
-      MessageDlg('Условия использования', string(ATosText), mtInformation, [mbOK], 0);
+      MessageDlg('Terms of Service', string(ATosText), mtInformation, [mbOK], 0);
     end;
   end;
-  SetMode(umRegister, 'Имя:', 'Фамилия:');
+  SetMode(umRegister, 'First name:', 'Last name:');
 end;
 
 { ---------------- кнопки ---------------- }
@@ -276,45 +359,53 @@ begin
   V1 := utf8string(edtInput.Text);
   V2 := utf8string(edtInput2.Text);
 
+  if Auth = nil then begin
+    Exit;
+  end;
+
   case FMode of
     umPhone: begin
-      TdApp.Auth.SubmitPhone(V1);
+      Auth.SubmitPhone(V1);
     end;
     umCode: begin
-      TdApp.Auth.SubmitCode(V1);
+      Auth.SubmitCode(V1);
     end;
     umEmailAddr: begin
-      TdApp.Auth.SubmitEmailAddress(V1);
+      Auth.SubmitEmailAddress(V1);
     end;
     umEmailCode: begin
-      TdApp.Auth.SubmitEmailCode(V1);
+      Auth.SubmitEmailCode(V1);
     end;
     umPassword: begin
-      TdApp.Auth.SubmitPassword(V1);
+      Auth.SubmitPassword(V1);
     end;
     umRecovery: begin
-      TdApp.Auth.SubmitRecoveryCode(V1, V2, '');
+      Auth.SubmitRecoveryCode(V1, V2, '');
     end;
     umRegister: begin
-      TdApp.Auth.SubmitRegistration(V1, V2);
+      Auth.SubmitRegistration(V1, V2);
     end;
   end;
 end;
 
 procedure TFormLogin.btnAltClick(Sender: TObject);
 begin
+  if Auth = nil then begin
+    Exit;
+  end;
+
   case FMode of
     umPhone: begin
-      TdApp.Auth.RequestQr;
+      Auth.RequestQr;
     end;
     umQr: begin
       Clipboard.AsText := string(FQrLink);
     end;
     umCode: begin
-      TdApp.Auth.ResendCode;
+      Auth.ResendCode;
     end;
     umPassword: begin
-      TdApp.Auth.RequestPasswordRecovery;
+      Auth.RequestPasswordRecovery;
     end;
   end;
 end;

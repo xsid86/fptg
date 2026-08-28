@@ -49,9 +49,6 @@ type
     FCapacity: integer;
     FRound: boolean;
     function Render(ARow: TChatRow; out AKind: TAvatarKind): TBGRABitmap;
-    function RenderInitials(ARow: TChatRow): TBGRABitmap;
-    function LoadScaled(ASrc: TBGRABitmap): TBGRABitmap;
-    procedure ApplyRoundMask(ABmp: TBGRABitmap);
     procedure Evict;
   public
     constructor Create;
@@ -77,6 +74,16 @@ type
 function AvatarColor(AId: Int64): TColor;
 { До двух заглавных букв из заголовка, с учётом UTF-8. }
 function AvatarInitials(const ATitle: utf8string): utf8string;
+
+{ Отрисовка аватарки без всякого кэша — нужна и списку чатов,
+  и меню аккаунтов. Порядок предпочтения: скачанный файл,
+  мини-превью из апдейта, инициалы на цветном круге.
+  Результат принадлежит вызывающему. }
+function RenderAvatarBmp(const APath: utf8string; const AThumb: RawByteString;
+  const ATitle: utf8string; AId: Int64; ASize: integer; ARound: boolean): TBGRABitmap;
+
+{ Круглая альфа-маска указанного размера. }
+procedure ApplyRoundMaskTo(ABmp: TBGRABitmap; ASize: integer);
 
 implementation
 
@@ -161,6 +168,153 @@ begin
   end;
 end;
 
+
+{ ---------------- отрисовка без кэша ---------------- }
+
+procedure ApplyRoundMaskTo(ABmp: TBGRABitmap; ASize: integer);
+var
+  Mask: TBGRABitmap;
+  C, R: single;
+begin
+  if ABmp = nil then begin
+    Exit;
+  end;
+  { Координаты центрированы по пикселю: центр — (N-1)/2, радиус — N/2.
+    Иначе круг вылезает за правый и нижний край и срезается. }
+  C := (ASize - 1) / 2;
+  R := ASize / 2;
+  Mask := TBGRABitmap.Create(ASize, ASize, BGRABlack);
+  try
+    Mask.FillEllipseAntialias(C, C, R, R, BGRAWhite);
+    ABmp.ApplyMask(Mask);
+  finally
+    Mask.Free;
+  end;
+end;
+
+function ScaleSquare(ASrc: TBGRABitmap; ASize: integer): TBGRABitmap;
+var
+  Side, X, Y: integer;
+  Sq: TBGRABitmap;
+begin
+  Result := nil;
+  if (ASrc = nil) or (ASrc.Width = 0) or (ASrc.Height = 0) then begin
+    Exit;
+  end;
+
+  if ASrc.Width <> ASrc.Height then begin
+    Side := ASrc.Width;
+    if ASrc.Height < Side then begin
+      Side := ASrc.Height;
+    end;
+    X := (ASrc.Width - Side) div 2;
+    Y := (ASrc.Height - Side) div 2;
+    Sq := ASrc.GetPart(Rect(X, Y, X + Side, Y + Side));
+  end else begin
+    Sq := nil;
+  end;
+
+  try
+    if Sq <> nil then begin
+      Sq.ResampleFilter := rfBestQuality;
+      Result := Sq.Resample(ASize, ASize, rmFineResample);
+    end else begin
+      ASrc.ResampleFilter := rfBestQuality;
+      Result := ASrc.Resample(ASize, ASize, rmFineResample);
+    end;
+  finally
+    Sq.Free;
+  end;
+end;
+
+function RenderInitialsBmp(const ATitle: utf8string; AId: Int64;
+  ASize: integer; ARound: boolean): TBGRABitmap;
+var
+  Ini: string;
+  Sz: TSize;
+  C, R: single;
+begin
+  Result := TBGRABitmap.Create(ASize, ASize, BGRAPixelTransparent);
+  C := (ASize - 1) / 2;
+  R := ASize / 2;
+
+  if ARound then begin
+    Result.FillEllipseAntialias(C, C, R, R, ColorToBGRA(AvatarColor(AId)));
+  end else begin
+    Result.Fill(ColorToBGRA(AvatarColor(AId)));
+  end;
+
+  Ini := string(AvatarInitials(ATitle));
+  if Ini = '' then begin
+    Exit;
+  end;
+
+  Result.FontName := 'default';
+  Result.FontHeight := Round(ASize * 0.45);
+  Result.FontStyle := [fsBold];
+  Result.FontQuality := fqFineAntialiasing;
+  Sz := Result.TextSize(Ini);
+  Result.TextOut((ASize - Sz.cx) / 2, (ASize - Sz.cy) / 2, Ini, BGRAWhite);
+end;
+
+function RenderAvatarBmp(const APath: utf8string; const AThumb: RawByteString;
+  const ATitle: utf8string; AId: Int64; ASize: integer; ARound: boolean): TBGRABitmap;
+var
+  Src: TBGRABitmap;
+  Ms: TMemoryStream;
+begin
+  Result := nil;
+
+  { 1. Настоящая аватарка, если уже скачана. }
+  if (APath <> '') and FileExists(string(APath)) then begin
+    Src := nil;
+    try
+      try
+        Src := TBGRABitmap.Create(string(APath));
+        Result := ScaleSquare(Src, ASize);
+      except
+        FreeAndNil(Result);
+      end;
+    finally
+      Src.Free;
+    end;
+    if Result <> nil then begin
+      if ARound then begin
+        ApplyRoundMaskTo(Result, ASize);
+      end;
+      Exit;
+    end;
+  end;
+
+  { 2. Мини-превью — приходит прямо в апдейте, качать нечего. }
+  if AThumb <> '' then begin
+    Ms := TMemoryStream.Create;
+    Src := nil;
+    try
+      try
+        Ms.WriteBuffer(AThumb[1], Length(AThumb));
+        Ms.Position := 0;
+        Src := TBGRABitmap.Create(Ms);
+        Result := ScaleSquare(Src, ASize);
+      except
+        FreeAndNil(Result);
+      end;
+    finally
+      Src.Free;
+      Ms.Free;
+    end;
+    if Result <> nil then begin
+      if ARound then begin
+        ApplyRoundMaskTo(Result, ASize);
+      end;
+      Exit;
+    end;
+  end;
+
+  { 3. Инициалы на цветном круге. }
+  Result := RenderInitialsBmp(ATitle, AId, ASize, ARound);
+end;
+
 { ---------------- TAvatarCache ---------------- }
 
 constructor TAvatarCache.Create;
@@ -220,150 +374,19 @@ begin
   end;
 end;
 
-function TAvatarCache.RenderInitials(ARow: TChatRow): TBGRABitmap;
-var
-  Ini: string;
-  Sz: TSize;
-begin
-  Result := TBGRABitmap.Create(AVATAR_SIZE, AVATAR_SIZE, BGRAPixelTransparent);
-
-  if FRound then begin
-    { Круг рисуется сразу сглаженным — маска не нужна. }
-    Result.FillEllipseAntialias(AV_CENTER, AV_CENTER, AV_RADIUS, AV_RADIUS,
-      ColorToBGRA(AvatarColor(ARow.Id)));
-  end else begin
-    Result.Fill(ColorToBGRA(AvatarColor(ARow.Id)));
-  end;
-
-  Ini := string(AvatarInitials(ARow.Title));
-  if Ini = '' then begin
-    Exit;
-  end;
-
-  Result.FontName := 'default';
-  Result.FontHeight := 20;
-  Result.FontStyle := [fsBold];
-  Result.FontQuality := fqFineAntialiasing;
-  Sz := Result.TextSize(Ini);
-  Result.TextOut((AVATAR_SIZE - Sz.cx) / 2, (AVATAR_SIZE - Sz.cy) / 2,
-                 Ini, BGRAWhite);
-end;
-
-function TAvatarCache.LoadScaled(ASrc: TBGRABitmap): TBGRABitmap;
-var
-  Side, X, Y: integer;
-  Sq: TBGRABitmap;
-begin
-  Result := nil;
-  if (ASrc = nil) or (ASrc.Width = 0) or (ASrc.Height = 0) then begin
-    Exit;
-  end;
-
-  { Неквадратный источник обрезаем по центру, иначе Resample его
-    сплющит. Аватарки Telegram обычно квадратные, но не гарантированно. }
-  if ASrc.Width <> ASrc.Height then begin
-    Side := ASrc.Width;
-    if ASrc.Height < Side then begin
-      Side := ASrc.Height;
-    end;
-    X := (ASrc.Width - Side) div 2;
-    Y := (ASrc.Height - Side) div 2;
-    Sq := ASrc.GetPart(Rect(X, Y, X + Side, Y + Side));
-  end else begin
-    Sq := nil;
-  end;
-
-  try
-    if Sq <> nil then begin
-      Sq.ResampleFilter := rfBestQuality;
-      Result := Sq.Resample(AVATAR_SIZE, AVATAR_SIZE, rmFineResample);
-    end else begin
-      ASrc.ResampleFilter := rfBestQuality;
-      Result := ASrc.Resample(AVATAR_SIZE, AVATAR_SIZE, rmFineResample);
-    end;
-  finally
-    Sq.Free;
-  end;
-end;
-
 function TAvatarCache.Render(ARow: TChatRow; out AKind: TAvatarKind): TBGRABitmap;
-var
-  Src: TBGRABitmap;
-  Ms: TMemoryStream;
 begin
-  Result := nil;
-  AKind := akNone;
+  { Вся отрисовка вынесена в RenderAvatarBmp — её же использует
+    меню аккаунтов для своих глифов. }
+  Result := RenderAvatarBmp(ARow.PhotoPath, ARow.Minithumb, ARow.Title,
+    ARow.Id, AVATAR_SIZE, FRound);
 
-  { 1. Настоящая аватарка, если уже скачана. }
   if (ARow.PhotoPath <> '') and FileExists(string(ARow.PhotoPath)) then begin
-    Src := nil;
-    try
-      try
-        Src := TBGRABitmap.Create(string(ARow.PhotoPath));
-        Result := LoadScaled(Src);
-        if Result <> nil then begin
-          AKind := akReal;
-        end;
-      except
-        FreeAndNil(Result);
-      end;
-    finally
-      Src.Free;
-    end;
-    if Result <> nil then begin
-      ApplyRoundMask(Result);
-      Exit;
-    end;
-  end;
-
-  { 2. Мини-превью — приходит прямо в апдейте, качать нечего. }
-  if ARow.Minithumb <> '' then begin
-    Ms := TMemoryStream.Create;
-    Src := nil;
-    try
-      try
-        Ms.WriteBuffer(ARow.Minithumb[1], Length(ARow.Minithumb));
-        Ms.Position := 0;
-        Src := TBGRABitmap.Create(Ms);
-        Result := LoadScaled(Src);
-        if Result <> nil then begin
-          AKind := akThumb;
-        end;
-      except
-        FreeAndNil(Result);
-      end;
-    finally
-      Src.Free;
-      Ms.Free;
-    end;
-    if Result <> nil then begin
-      ApplyRoundMask(Result);
-      Exit;
-    end;
-  end;
-
-  { 3. Инициалы на цветном круге. Маска здесь не нужна: круг уже
-    нарисован сглаженным. }
-  Result := RenderInitials(ARow);
-  AKind := akNone;
-end;
-
-procedure TAvatarCache.ApplyRoundMask(ABmp: TBGRABitmap);
-var
-  Mask: TBGRABitmap;
-begin
-  if (ABmp = nil) or (not FRound) then begin
-    Exit;
-  end;
-  { Маска: чёрное — прозрачно, белое — непрозрачно. Край эллипса
-    сглажен, поэтому в альфе появляются промежуточные значения —
-    именно то, чего не давал двоичный TransparentColor. }
-  Mask := TBGRABitmap.Create(AVATAR_SIZE, AVATAR_SIZE, BGRABlack);
-  try
-    Mask.FillEllipseAntialias(AV_CENTER, AV_CENTER, AV_RADIUS, AV_RADIUS, BGRAWhite);
-    ABmp.ApplyMask(Mask);
-  finally
-    Mask.Free;
+    AKind := akReal;
+  end else if ARow.Minithumb <> '' then begin
+    AKind := akThumb;
+  end else begin
+    AKind := akNone;
   end;
 end;
 

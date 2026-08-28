@@ -5,12 +5,14 @@ unit framechats;
 interface
 
 uses
-  Classes, SysUtils, Types, DateUtils, Controls, Forms, Graphics, Grids, Menus, StdCtrls, ExtCtrls,
+  Classes, SysUtils, Types, DateUtils, Controls, Forms, Dialogs, Graphics, Grids,
+  Menus, StdCtrls, ExtCtrls, Clipbrd,
   BGRABitmap, BGRABitmapTypes,
   tdauth, tdcore, tdchats, uiframe, avatarcache;
 
 type
   TChatSelectEvent = procedure(Sender: TObject; ARow: TChatRow) of object;
+  TArchiveClickEvent = procedure(Sender: TObject) of object;
 
   { TFrameChats
 
@@ -18,11 +20,14 @@ type
     поэтому модель остаётся единственным хранилищем данных, а
     перестановка чата — это просто Invalidate. }
 
-  TFrameChats = class(TFrameBase)
+  TFrameChats = class(TFrameBase, ITdActiveListener)
     Grid:      TDrawGrid;
     pnlBottom: TPanel;
     lblStatus: TLabel;
     mnuChat:   TPopupMenu;
+    { Значки типов чата. Компонент положен на фрейм в дизайнере;
+      имя должно совпадать с тем, что в .lfm. }
+    ImageList1: TImageList;
     procedure GridDrawCell(Sender: TObject; ACol, ARow: integer; ARect: TRect; AState: TGridDrawState);
     procedure GridSelectCell(Sender: TObject; ACol, ARow: integer; var CanSelect: boolean);
     procedure GridTopLeftChanged(Sender: TObject);
@@ -35,14 +40,29 @@ type
   private
     FCache:    TAvatarCache;
     FReady:    boolean;
+    FModel:    TTdChats;      { модель активного аккаунта }
     FBadges:   TStringList;   { кэш значков: ключ -> TBGRABitmap }
     FMeasure:  TBGRABitmap;   { 1x1 для замера текста тем же шрифтом }
     FReceipts: array[TChatReceipt, boolean] of TBGRABitmap;
     FMenuRow:  TChatRow;
     FOnSelect: TChatSelectEvent;
+    FOnArchive: TArchiveClickEvent;
+    FArchiveIcon: TBGRABitmap;
+    procedure BindModel;
+    procedure UnbindModel;
+    { Архив — не чат: индекс 0 отдан ему, чаты сдвинуты на единицу.
+      Фальшивый TChatRow завёл бы его в контекстное меню и в открытие
+      чата, чего быть не должно. }
+    function ChatAt(AGridRow: integer): TChatRow;
+    function ArchiveIcon: TBGRABitmap;
+    function TypeIconIndex(ARow: TChatRow): integer;
+    procedure DrawColIcon(ACX, ACY, AIndex: integer);
+    procedure DrawArchiveRow(ARect: TRect; ASelected: boolean);
     function BadgeBitmap(const AText: string; ASelected: boolean): TBGRABitmap;
     function ReceiptBitmap(AKind: TChatReceipt; ASelected: boolean): TBGRABitmap;
     procedure ModelChanged(Sender: TObject);
+    procedure ActionError(Sender: TObject; ACode: integer;
+      const AMessage, AAction: utf8string);
     procedure LoadingChanged(Sender: TObject);
     procedure MaybeLoadMore;
     procedure BuildMenu(ARow: TChatRow);
@@ -51,8 +71,13 @@ type
   public
     constructor Create(TheOwner: TComponent); override;
     destructor Destroy; override;
+
+    { ITdActiveListener }
+    procedure TdActiveChanged(ANew: TTdAccount);
+    procedure TdAccountsChanged;
     property Selected: TChatRow read CurrentRow;
     property OnSelect: TChatSelectEvent read FOnSelect write FOnSelect;
+    property OnArchive: TArchiveClickEvent read FOnArchive write FOnArchive;
   end;
 
 implementation
@@ -62,7 +87,13 @@ implementation
 const
   ROW_HEIGHT = 56;
   PAD = 8;
-  AV_LEFT = 8;
+  { Слева от аватарки — колонка под значки типа и уведомлений.
+    Белой подложки нет, но значки центруются по тем же виртуальным
+    кругам 24x24, что и раньше. }
+  ICON_COL_L = 6;
+  ICON_COL_W = 24;
+  ICON_COL_R = ICON_COL_W div 2;
+  AV_LEFT = ICON_COL_L + ICON_COL_W + 6;
   TEXT_LEFT = AV_LEFT + AVATAR_SIZE + 10;
   BADGE_H = 18;
   BADGE_PAD = 7;
@@ -82,6 +113,30 @@ const
   GAP = 6;
   { За сколько строк до конца просить следующую порцию. }
   PREFETCH_ROWS = 6;
+  { Архив всегда занимает нулевую строку, как в оригинальном клиенте. }
+  ARCHIVE_ROWS = 1;
+
+  { Индексы в ImageList на фрейме. Порядок задан самим списком:
+    0 — рупор, 1 — двое, 2 — робот, 3 — человек. }
+  ICON_CHANNEL  = 0;
+  ICON_GROUP    = 1;
+  ICON_BOT      = 2;
+  ICON_PRIVATE  = 3;
+  ICON_NOTIFY_ON  = 4;
+  ICON_NOTIFY_OFF = 5;
+
+
+
+  { Коды пунктов контекстного меню. }
+  MI_NONE       = 0;
+  MI_READ       = 1;
+  MI_UNREAD     = 2;
+  MI_PIN        = 3;
+  MI_UNPIN      = 4;
+  MI_COPY_ID    = 5;
+  MI_LEAVE      = 6;
+  MI_ARCHIVE    = 7;
+  MI_UNARCHIVE  = 8;
 
 { Отметка времени в стиле Telegram: сегодня — часы, вчера — словом,
   на этой неделе — день недели, дальше — дата. }
@@ -106,7 +161,7 @@ begin
     Result := FormatDateTime('hh:nn', Dt);   { 24 часа: hh, не ampm }
   end else
   if Days = 1 then begin
-    Result := 'Yesterday';
+    Result := 'yesterday';
   end else
   if Days < 7 then begin
     Result := WD[DayOfWeek(Dt)];
@@ -141,14 +196,11 @@ begin
   Grid.MouseWheelOption := mwGrid;
   Grid.FocusRectVisible := False;
 
-  TdChatList.OnChanged := @ModelChanged;
-  TdChatList.OnLoadingChanged := @LoadingChanged;
-
   { Флаг ставится последним: до него любой ранний вызов
     (Resize во время чтения .lfm) обязан ничего не делать. }
   FReady := True;
-  ModelChanged(nil);
-  LoadingChanged(nil);
+  BindModel;
+  TdApp.SubscribeActive(Self);
 end;
 
 destructor TFrameChats.Destroy;
@@ -157,16 +209,8 @@ var
   K: TChatReceipt;
 begin
   FReady := False;
-  { Модель живёт дольше фрейма — обязательно отцепиться, но только
-    от своих обработчиков: чужие затирать нельзя. }
-  if TdChatList <> nil then begin
-    if TMethod(TdChatList.OnChanged).Data = Pointer(Self) then begin
-      TdChatList.OnChanged := nil;
-    end;
-    if TMethod(TdChatList.OnLoadingChanged).Data = Pointer(Self) then begin
-      TdChatList.OnLoadingChanged := nil;
-    end;
-  end;
+  TdApp.UnsubscribeActive(Self);
+  UnbindModel;
   FCache.Free;
   if FBadges <> nil then begin
     for I := 0 to FBadges.Count - 1 do begin
@@ -175,6 +219,7 @@ begin
     FBadges.Free;
   end;
   FMeasure.Free;
+  FArchiveIcon.Free;
   for K := Low(TChatReceipt) to High(TChatReceipt) do begin
     FReceipts[K, False].Free;
     FReceipts[K, True].Free;
@@ -316,14 +361,68 @@ begin
   Result := B;
 end;
 
+{ ---------------- привязка к модели активного аккаунта ---------------- }
+
+procedure TFrameChats.BindModel;
+var
+  M: TTdChats;
+begin
+  FModel := TdChatList;
+  M := FModel;
+  if M = nil then begin
+    Exit;
+  end;
+  M.OnChanged := @ModelChanged;
+  M.OnLoadingChanged := @LoadingChanged;
+  M.OnActionError := @ActionError;
+  ModelChanged(nil);
+  LoadingChanged(nil);
+end;
+
+procedure TFrameChats.UnbindModel;
+begin
+  { Отцепляем только СВОИ обработчики: чужие затирать нельзя. }
+  if FModel <> nil then begin
+    if TMethod(FModel.OnChanged).Data = Pointer(Self) then begin
+      FModel.OnChanged := nil;
+    end;
+    if TMethod(FModel.OnLoadingChanged).Data = Pointer(Self) then begin
+      FModel.OnLoadingChanged := nil;
+    end;
+    if TMethod(FModel.OnActionError).Data = Pointer(Self) then begin
+      FModel.OnActionError := nil;
+    end;
+    FModel := nil;
+  end;
+end;
+
+procedure TFrameChats.TdActiveChanged(ANew: TTdAccount);
+begin
+  if not FReady then begin
+    Exit;
+  end;
+  UnbindModel;
+  { Аватарки и значки принадлежат прежнему аккаунту — сбрасываем,
+    иначе в списке нового мелькнут чужие картинки. }
+  FCache.Clear;
+  Grid.Row := 0;
+  Grid.TopRow := 0;
+  BindModel;
+end;
+
+procedure TFrameChats.TdAccountsChanged;
+begin
+  { состав аккаунтов фрейму списка не важен }
+end;
+
 { ---------------- связь с моделью ---------------- }
 
 procedure TFrameChats.ModelChanged(Sender: TObject);
 begin
-  if (not FReady) or (Grid = nil) then begin
+  if (not FReady) or (Grid = nil) or (FModel = nil) then begin
     Exit;
   end;
-  Grid.RowCount := TdChatList.Count;
+  Grid.RowCount := FModel.Count + ARCHIVE_ROWS;
   Grid.Invalidate;
   { Если чатов меньше, чем помещается в окно, докачиваем сразу:
     прокрутки, которая обычно это запускает, не будет. }
@@ -332,16 +431,26 @@ end;
 
 procedure TFrameChats.LoadingChanged(Sender: TObject);
 begin
-  if (not FReady) or (lblStatus = nil) then begin
+  if (not FReady) or (lblStatus = nil) or (FModel = nil) then begin
     Exit;
   end;
-  if TdChatList.Loading then begin
+  if FModel.Loading then begin
     lblStatus.Caption := 'Loading...';
   end else
-  if TdChatList.AllLoaded then begin
-    lblStatus.Caption := Format('Chats: %d', [TdChatList.Count]);
+  if FModel.AllLoaded then begin
+    lblStatus.Caption := Format('%d chats', [FModel.Count]);
   end else begin
-    lblStatus.Caption := Format('Chats: %d (there are more)', [TdChatList.Count]);
+    lblStatus.Caption := Format('%d chats (more)', [FModel.Count]);
+  end;
+end;
+
+procedure TFrameChats.ActionError(Sender: TObject; ACode: integer;
+  const AMessage, AAction: utf8string);
+begin
+  { Отказ TDLib на действие из меню не должен быть молчаливым:
+    без этого «Pin» на переполненном списке просто ничего не делает. }
+  if lblStatus <> nil then begin
+    lblStatus.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
   end;
 end;
 
@@ -351,15 +460,15 @@ var
 begin
   { Resize срабатывает ещё во время чтения .lfm, когда Grid — nil.
     Любой перекрытый виртуальный метод обязан это учитывать. }
-  if (not FReady) or (Grid = nil) then begin
+  if (not FReady) or (Grid = nil) or (FModel = nil) then begin
     Exit;
   end;
-  if TdChatList.AllLoaded or TdChatList.Loading then begin
+  if FModel.AllLoaded or FModel.Loading then begin
     Exit;
   end;
-  LastVisible := Grid.TopRow + (Grid.ClientHeight div ROW_HEIGHT);
-  if LastVisible >= TdChatList.Count - PREFETCH_ROWS then begin
-    TdChatList.LoadMore;
+  LastVisible := Grid.TopRow + (Grid.ClientHeight div ROW_HEIGHT) - ARCHIVE_ROWS;
+  if LastVisible >= FModel.Count - PREFETCH_ROWS then begin
+    FModel.LoadMore;
   end;
 end;
 
@@ -376,6 +485,143 @@ begin
   MaybeLoadMore;
 end;
 
+function TFrameChats.ChatAt(AGridRow: integer): TChatRow;
+begin
+  { Нулевая строка — архив, чата за ней нет. }
+  if (FModel = nil) or (AGridRow < ARCHIVE_ROWS) then begin
+    Result := nil;
+  end else begin
+    Result := FModel[AGridRow - ARCHIVE_ROWS];
+  end;
+end;
+
+function TFrameChats.TypeIconIndex(ARow: TChatRow): integer;
+begin
+  Result := -1;
+  if (ARow = nil) or (FModel = nil) then begin
+    Exit;
+  end;
+
+  case ARow.Kind of
+    ckChannel:
+      Result := ICON_CHANNEL;
+    ckBasicGroup, ckSupergroup:
+      Result := ICON_GROUP;
+    ckPrivate, ckSecret:
+      begin
+        { Бот — это свойство собеседника, а не чата: тип чата у него
+          такой же личный. Признак приходит отдельным updateUser. }
+        if FModel.IsBotChat(ARow) then begin
+          Result := ICON_BOT;
+        end else begin
+          Result := ICON_PRIVATE;
+        end;
+      end;
+  end;
+end;
+
+procedure TFrameChats.DrawColIcon(ACX, ACY, AIndex: integer);
+begin
+  if (AIndex < 0) or (ImageList1 = nil) or (AIndex >= ImageList1.Count) then begin
+    Exit;
+  end;
+  { Центрируем по заданной точке — центру виртуального круга,
+    который сам не рисуется. }
+  ImageList1.Draw(Grid.Canvas,
+    ACX - ImageList1.Width div 2,
+    ACY - ImageList1.Height div 2, AIndex, True);
+end;
+
+function TFrameChats.ArchiveIcon: TBGRABitmap;
+var
+  C, R: single;
+  Col: TBGRAPixel;
+begin
+  Result := FArchiveIcon;
+  if Result <> nil then begin
+    Exit;
+  end;
+
+  C := (AVATAR_SIZE - 1) / 2;
+  R := AVATAR_SIZE / 2;
+  Col := ColorToBGRA(clGrayText);
+
+  Result := TBGRABitmap.Create(AVATAR_SIZE, AVATAR_SIZE, BGRAPixelTransparent);
+  Result.LineCap := pecRound;
+  Result.JoinStyle := pjsRound;
+  Result.FillEllipseAntialias(C, C, R, R, ColorToBGRA(clBtnFace));
+
+  { Схематичная коробка со стрелкой вниз — узнаваемый значок архива. }
+  Result.FillRoundRectAntialias(C - 10, C - 8, C + 10, C - 3, 1.5, 1.5, Col, [], True);
+  Result.FillRoundRectAntialias(C - 8, C - 2, C + 8, C + 9, 1.5, 1.5, Col, [], True);
+  Result.DrawPolyLineAntialias(
+    [PointF(C - 3.5, C + 1), PointF(C, C + 4.5), PointF(C + 3.5, C + 1)],
+    ColorToBGRA(clBtnFace), 1.8);
+
+  FArchiveIcon := Result;
+end;
+
+procedure TFrameChats.DrawArchiveRow(ARect: TRect; ASelected: boolean);
+var
+  Cv: TCanvas;
+  Ico, Badge: TBGRABitmap;
+  A: TArchiveInfo;
+  TextRight, Y: integer;
+  S: string;
+begin
+  Cv := Grid.Canvas;
+  A := FModel.Archive;
+
+  Ico := ArchiveIcon;
+  if Ico <> nil then begin
+    Ico.Draw(Cv, ARect.Left + AV_LEFT,
+      ARect.Top + (ROW_HEIGHT - AVATAR_SIZE) div 2, False);
+  end;
+
+  Cv.Brush.Style := bsClear;
+  TextRight := ARect.Right - PAD;
+
+  { Счётчик — число непрочитанных ЧАТОВ в архиве, как в Telegram. }
+  if A.UnreadChats > 0 then begin
+    Badge := BadgeBitmap(IntToStr(A.UnreadChats), ASelected);
+    if Badge <> nil then begin
+      Y := ARect.Top + PREVIEW_TOP;
+      Badge.Draw(Cv, TextRight - Badge.Width, Y, False);
+      Dec(TextRight, Badge.Width + GAP);
+    end;
+  end;
+
+  Cv.Font.Style := [fsBold];
+  Cv.Font.Height := -13;
+  if ASelected then begin
+    Cv.Font.Color := clHighlightText;
+  end else begin
+    Cv.Font.Color := clWindowText;
+  end;
+  Cv.TextRect(Rect(ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP,
+                   ARect.Right - PAD, ARect.Top + TITLE_TOP + 18),
+              ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP, 'Archive');
+
+  Cv.Font.Style := [];
+  Cv.Font.Height := -12;
+  if ASelected then begin
+    Cv.Font.Color := clHighlightText;
+  end else begin
+    Cv.Font.Color := clGrayText;
+  end;
+  S := string(A.Preview);
+  if S = '' then begin
+    if A.TotalChats > 0 then begin
+      S := Format('%d chats', [A.TotalChats]);
+    end else begin
+      S := 'Empty';
+    end;
+  end;
+  Cv.TextRect(Rect(ARect.Left + TEXT_LEFT, ARect.Top + PREVIEW_TOP,
+                   TextRight, ARect.Top + PREVIEW_TOP + 19),
+              ARect.Left + TEXT_LEFT, ARect.Top + PREVIEW_TOP, S);
+end;
+
 { ---------------- отрисовка ---------------- }
 
 procedure TFrameChats.GridDrawCell(Sender: TObject; ACol, ARow: integer; ARect: TRect; AState: TGridDrawState);
@@ -383,16 +629,16 @@ var
   R:  TChatRow;
   Cv: TCanvas;
   Bmp, Badge, Rec: TBGRABitmap;
-  Y, W, TitleRight, PrevRight: integer;
+  Y, W, TitleRight, PrevRight, AvTop, Ico, IcoX: integer;
   Sel: boolean;
   S:  string;
 begin
   { FCache создаётся в теле конструктора, то есть уже после стриминга.
     Если сетка успеет запросить отрисовку раньше — здесь nil. }
-  if (not FReady) or (FCache = nil) then begin
+  if (not FReady) or (FCache = nil) or (FModel = nil) then begin
     Exit;
   end;
-  R  := TdChatList[ARow];
+  R  := ChatAt(ARow);
   Cv := Grid.Canvas;
 
   Sel := gdSelected in AState;
@@ -404,20 +650,38 @@ begin
   Cv.Brush.Style := bsSolid;
   Cv.FillRect(ARect);
 
+  if ARow < ARCHIVE_ROWS then begin
+    DrawArchiveRow(ARect, Sel);
+    Exit;
+  end;
+
   if R = nil then begin
     Exit;
   end;
 
   { Аватарку просим только для строк, которые реально рисуются, —
     это и есть ленивость: качается лишь видимое. }
-  TdChatList.EnsureAvatar(R);
+  FModel.EnsureAvatar(R);
+  AvTop := ARect.Top + (ROW_HEIGHT - AVATAR_SIZE) div 2;
   Bmp := FCache.Get(R);
   if Bmp <> nil then begin
     { Opaque=False — смешивание по альфе поверх уже залитого фона.
       Именно это даёт мягкий край на любом фоне, включая выделение. }
-    Bmp.Draw(Cv, ARect.Left + AV_LEFT,
-      ARect.Top + (ROW_HEIGHT - AVATAR_SIZE) div 2, False);
+    Bmp.Draw(Cv, ARect.Left + AV_LEFT, AvTop, False);
   end;
+
+  { Колонка значков слева: уведомления сверху, тип чата снизу.
+    Центры — те же, что были у круглых подложек. }
+  IcoX := ARect.Left + ICON_COL_L + ICON_COL_R;
+
+  if R.IsMuted then begin
+    Ico := ICON_NOTIFY_OFF;
+  end else begin
+    Ico := ICON_NOTIFY_ON;
+  end;
+  DrawColIcon(IcoX, AvTop + ICON_COL_R, Ico);
+
+  DrawColIcon(IcoX, AvTop + AVATAR_SIZE - ICON_COL_R, TypeIconIndex(R));
 
   Cv.Brush.Style := bsClear;
 
@@ -486,7 +750,7 @@ begin
   end;
   S := string(R.LastText);
   if R.LastIsOutgoing and (S <> '') then begin
-    S := 'Вы: ' + S;
+    S := 'You: ' + S;
   end;
   Cv.TextRect(Rect(ARect.Left + TEXT_LEFT, ARect.Top + PREVIEW_TOP,
     PrevRight, ARect.Top + PREVIEW_TOP + 19),
@@ -497,17 +761,23 @@ end;
 
 function TFrameChats.CurrentRow: TChatRow;
 begin
-  Result := TdChatList[Grid.Row];
+  Result := ChatAt(Grid.Row);
 end;
 
 procedure TFrameChats.GridSelectCell(Sender: TObject; ACol, ARow: integer; var CanSelect: boolean);
 begin
   CanSelect := True;
-  if not FReady then begin
+  if (not FReady) or (FModel = nil) then begin
+    Exit;
+  end;
+  if ARow < ARCHIVE_ROWS then begin
+    if Assigned(FOnArchive) then begin
+      FOnArchive(Self);
+    end;
     Exit;
   end;
   if Assigned(FOnSelect) then begin
-    FOnSelect(Self, TdChatList[ARow]);
+    FOnSelect(Self, ChatAt(ARow));
   end;
 end;
 
@@ -515,17 +785,18 @@ procedure TFrameChats.GridContextPopup(Sender: TObject; MousePos: TPoint; var Ha
 var
   C, R: integer;
 begin
-  if (not FReady) or (Grid = nil) then begin
+  if (not FReady) or (Grid = nil) or (FModel = nil) then begin
     Handled := True;
     Exit;
   end;
   Grid.MouseToCell(MousePos.X, MousePos.Y, C, R);
-  if (R < 0) or (R >= TdChatList.Count) then begin
+  { У архива своего меню пока нет. }
+  if (R < ARCHIVE_ROWS) or (R >= FModel.Count + ARCHIVE_ROWS) then begin
     Handled := True;
     Exit;
   end;
   Grid.Row := R;
-  FMenuRow := TdChatList[R];
+  FMenuRow := ChatAt(R);
   BuildMenu(FMenuRow);
 end;
 
@@ -550,50 +821,71 @@ begin
     Exit;
   end;
 
-  Add(string(ARow.Title), 0);
+  Add(string(ARow.Title), MI_NONE);
   mnuChat.Items[0].Enabled := False;
-  Add('-', 0);
+  Add('-', MI_NONE);
 
-  if ARow.UnreadCount > 0 then begin
-    Add('Mark as read', 1);
+  if (ARow.UnreadCount > 0) or ARow.IsMarkedAsUnread then begin
+    Add('Mark as read', MI_READ);
   end else begin
-    Add('Mark as unread', 2);
+    Add('Mark as unread', MI_UNREAD);
   end;
 
   if ARow.IsPinned then begin
-    Add('Unpin', 4);
+    Add('Unpin', MI_UNPIN);
   end else begin
-    Add('Pin', 3);
+    Add('Pin', MI_PIN);
   end;
 
-  Add('-', 0);
-  Add('Copy id (' + IntToStr(ARow.Id) + ')', 5);
+  if ARow.InArchive then begin
+    Add('Move to main list', MI_UNARCHIVE);
+  end else begin
+    Add('Archive', MI_ARCHIVE);
+  end;
 
-  if ARow.Kind in [ckSupergroup, ckChannel] then begin
-    Add('-', 0);
-    Add('Leave', 6);
+  Add('-', MI_NONE);
+  Add('Copy id (' + IntToStr(ARow.Id) + ')', MI_COPY_ID);
+
+  if ARow.Kind in [ckSupergroup, ckChannel, ckBasicGroup] then begin
+    Add('-', MI_NONE);
+    Add('Leave', MI_LEAVE);
   end;
 end;
 
 procedure TFrameChats.MenuItemClick(Sender: TObject);
+var
+  R: TChatRow;
 begin
-  if FMenuRow = nil then begin
+  { Строку запоминаем локально: пока висит подтверждение, модель
+    могла перестроиться и FMenuRow указывать уже не туда. }
+  R := FMenuRow;
+  if (R = nil) or (FModel = nil) then begin
     Exit;
   end;
-  { Действия появятся следующим шагом — сейчас каркас меню. }
+
   case TMenuItem(Sender).Tag of
-    1: begin
-    end;
-    2: begin
-    end;
-    3: begin
-    end;
-    4: begin
-    end;
-    5: begin
-    end;
-    6: begin
-    end;
+    MI_READ:
+      FModel.MarkAsRead(R);
+    MI_UNREAD:
+      FModel.MarkAsUnread(R);
+    MI_PIN:
+      FModel.SetPinned(R, True);
+    MI_UNPIN:
+      FModel.SetPinned(R, False);
+    MI_ARCHIVE:
+      FModel.SetArchived(R, True);
+    MI_UNARCHIVE:
+      FModel.SetArchived(R, False);
+    MI_COPY_ID:
+      Clipboard.AsText := IntToStr(R.Id);
+    MI_LEAVE:
+      begin
+        if MessageDlg('Leave chat',
+          Format('Leave "%s"?', [string(R.Title)]),
+          mtConfirmation, [mbYes, mbNo], 0) = mrYes then begin
+          FModel.LeaveChat(R);
+        end;
+      end;
   end;
 end;
 
