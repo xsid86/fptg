@@ -10,7 +10,7 @@
         <IsPartOfProject Value="True"/>
         <TopLine Value="16"/>
         <CursorPos X="62" Y="42"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -18,7 +18,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <CursorPos X="80" Y="17"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
@@ -30,7 +30,7 @@
         <EditorIndex Value="5"/>
         <TopLine Value="89"/>
         <CursorPos X="41" Y="109"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -41,7 +41,7 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
@@ -53,7 +53,7 @@
         <EditorIndex Value="4"/>
         <TopLine Value="92"/>
         <CursorPos X="5" Y="130"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -62,7 +62,7 @@
         <IsPartOfProject Value="True"/>
         <HasResources Value="True"/>
         <EditorIndex Value="9"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
@@ -72,11 +72,10 @@
         <ComponentName Value="FormMain"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="6"/>
-        <TopLine Value="350"/>
-        <CursorPos X="5" Y="388"/>
-        <UsageCount Value="65"/>
+        <TopLine Value="379"/>
+        <CursorPos X="40" Y="404"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -86,7 +85,7 @@
         <EditorIndex Value="7"/>
         <TopLine Value="21"/>
         <CursorPos X="14" Y="21"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -94,7 +93,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="8"/>
         <CursorPos X="10" Y="21"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -103,7 +102,7 @@
         <EditorIndex Value="2"/>
         <TopLine Value="37"/>
         <CursorPos X="61" Y="74"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -111,7 +110,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="3"/>
         <CursorPos Y="22"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -121,14 +120,14 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="tg.lps"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
@@ -138,7 +137,7 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <DefaultSyntaxHighlighter Value="None"/>
       </Unit>
       <Unit>
@@ -146,7 +145,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="16"/>
         <CursorPos X="95" Y="25"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -154,7 +153,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="17"/>
         <CursorPos X="27" Y="27"/>
-        <UsageCount Value="53"/>
+        <UsageCount Value="57"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -162,7 +161,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="1"/>
         <CursorPos X="26" Y="28"/>
-        <UsageCount Value="53"/>
+        <UsageCount Value="57"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -174,7 +173,7 @@
         <EditorIndex Value="10"/>
         <TopLine Value="44"/>
         <CursorPos X="27" Y="79"/>
-        <UsageCount Value="53"/>
+        <UsageCount Value="57"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -186,7 +185,7 @@
         <ResourceBaseClass Value="Frame"/>
         <EditorIndex Value="11"/>
         <CursorPos X="15" Y="22"/>
-        <UsageCount Value="53"/>
+        <UsageCount Value="57"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -194,9 +193,9 @@
         <Filename Value="tdchats.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="12"/>
-        <TopLine Value="73"/>
-        <CursorPos X="72" Y="91"/>
-        <UsageCount Value="52"/>
+        <TopLine Value="1137"/>
+        <CursorPos X="5" Y="1167"/>
+        <UsageCount Value="56"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -205,10 +204,11 @@
         <ComponentName Value="FrameChats"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="13"/>
-        <TopLine Value="646"/>
-        <CursorPos X="50" Y="662"/>
-        <UsageCount Value="51"/>
+        <TopLine Value="229"/>
+        <CursorPos X="9" Y="240"/>
+        <UsageCount Value="55"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -216,7 +216,7 @@
         <Filename Value="framechats.lfm"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="14"/>
-        <UsageCount Value="51"/>
+        <UsageCount Value="55"/>
         <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
@@ -226,8 +226,17 @@
         <EditorIndex Value="15"/>
         <TopLine Value="366"/>
         <CursorPos X="7" Y="401"/>
-        <UsageCount Value="51"/>
+        <UsageCount Value="55"/>
         <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdrecv.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <WindowIndex Value="-1"/>
+        <TopLine Value="-1"/>
+        <CursorPos X="-1" Y="-1"/>
+        <UsageCount Value="41"/>
       </Unit>
       <Unit>
         <Filename Value="C:\lazarus\lcl\grids.pas"/>
@@ -238,52 +247,15 @@
         <UsageCount Value="6"/>
       </Unit>
       <Unit>
-        <Filename Value="tdrecv.pas"/>
-        <IsPartOfProject Value="True"/>
+        <Filename Value="C:\lazarus\lcl\forms.pp"/>
+        <UnitName Value="Forms"/>
         <EditorIndex Value="-1"/>
-        <WindowIndex Value="-1"/>
-        <TopLine Value="-1"/>
-        <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="37"/>
+        <TopLine Value="339"/>
+        <CursorPos X="17" Y="353"/>
+        <UsageCount Value="10"/>
       </Unit>
     </Units>
     <JumpHistory HistoryIndex="29">
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="157" Column="30" TopLine="133"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="103" Column="38" TopLine="82"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="152" Column="66" TopLine="134"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="108" Column="25" TopLine="91"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="356" Column="56" TopLine="332"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="436" Column="129" TopLine="409"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="139" Column="110" TopLine="111"/>
-      </Position>
-      <Position>
-        <Filename Value="tdchats.pas"/>
-        <Caret Line="368" Column="77" TopLine="345"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="140" Column="56" TopLine="117"/>
-      </Position>
       <Position>
         <Filename Value="login.pas"/>
         <Caret Line="23" Column="54" TopLine="10"/>
@@ -326,10 +298,6 @@
       </Position>
       <Position>
         <Filename Value="login.pas"/>
-        <Caret Line="21" Column="63" TopLine="135"/>
-      </Position>
-      <Position>
-        <Filename Value="login.pas"/>
         <Caret Line="22" Column="25" TopLine="13"/>
       </Position>
       <Position>
@@ -350,10 +318,6 @@
       </Position>
       <Position>
         <Filename Value="framechats.pas"/>
-        <Caret Line="34" Column="26" TopLine="133"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
         <Caret Line="32" Column="15" TopLine="13"/>
       </Position>
       <Position>
@@ -367,6 +331,50 @@
       <Position>
         <Filename Value="framechats.pas"/>
         <Caret Line="646" Column="26" TopLine="620"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="654" Column="37" TopLine="646"/>
+      </Position>
+      <Position>
+        <Filename Value="tdchats.pas"/>
+        <Caret Line="101" Column="60" TopLine="73"/>
+      </Position>
+      <Position>
+        <Filename Value="main.pas"/>
+        <Caret Line="371" Column="39" TopLine="351"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="912" Column="51" TopLine="900"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="913" Column="51" TopLine="901"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="36" Column="77" TopLine="19"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="12" Column="77"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="548" Column="45" TopLine="523"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="577" Column="43" TopLine="554"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="578" Column="32" TopLine="554"/>
+      </Position>
+      <Position>
+        <Filename Value="framechats.pas"/>
+        <Caret Line="86" Column="20" TopLine="77"/>
       </Position>
     </JumpHistory>
     <RunParams>

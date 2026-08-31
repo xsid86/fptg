@@ -11,8 +11,15 @@ uses
   tdauth, tdcore, tdchats, uiframe, avatarcache;
 
 type
+  { Кликабельные области внутри строки. }
+  TChatHitArea = (chaNone, chaBell, chaAvatar, chaHeader);
+
+  { Какой список показан. }
+  TChatListMode = (clmMain, clmArchive);
+
   TChatSelectEvent = procedure(Sender: TObject; ARow: TChatRow) of object;
-  TArchiveClickEvent = procedure(Sender: TObject) of object;
+  TAvatarClickEvent = procedure(Sender: TObject; ARow: TChatRow) of object;
+  TListModeEvent = procedure(Sender: TObject; AMode: TChatListMode) of object;
 
   { TFrameChats
 
@@ -28,10 +35,16 @@ type
     { Значки типов чата. Компонент положен на фрейм в дизайнере;
       имя должно совпадать с тем, что в .lfm. }
     ImageList1: TImageList;
+    { Крупные картинки размером с аватарку (44x44).
+      Индекс 0 — архив. }
+    ImageListBig: TImageList;
     procedure GridDrawCell(Sender: TObject; ACol, ARow: integer; ARect: TRect; AState: TGridDrawState);
     procedure GridSelectCell(Sender: TObject; ACol, ARow: integer; var CanSelect: boolean);
     procedure GridTopLeftChanged(Sender: TObject);
     procedure GridContextPopup(Sender: TObject; MousePos: TPoint; var Handled: boolean);
+    procedure GridMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
+    procedure GridMouseMove(Sender: TObject; Shift: TShiftState; X, Y: integer);
   protected
     { Resize — виртуальный метод TControl, доступен всегда и не зависит
       от того, опубликовано ли одноимённое событие у потомка.
@@ -46,18 +59,25 @@ type
     FReceipts: array[TChatReceipt, boolean] of TBGRABitmap;
     FMenuRow:  TChatRow;
     FOnSelect: TChatSelectEvent;
-    FOnArchive: TArchiveClickEvent;
-    FArchiveIcon: TBGRABitmap;
+    FOnListMode: TListModeEvent;
+    FMode: TChatListMode;
+    FOnAvatar: TAvatarClickEvent;
+    FSuppressSelect: boolean;
     procedure BindModel;
     procedure UnbindModel;
     { Архив — не чат: индекс 0 отдан ему, чаты сдвинуты на единицу.
       Фальшивый TChatRow завёл бы его в контекстное меню и в открытие
       чата, чего быть не должно. }
     function ChatAt(AGridRow: integer): TChatRow;
-    function ArchiveIcon: TBGRABitmap;
     function TypeIconIndex(ARow: TChatRow): integer;
     procedure DrawColIcon(ACX, ACY, AIndex: integer);
-    procedure DrawArchiveRow(ARect: TRect; ASelected: boolean);
+    { Одна проверка попадания на всех: и для нажатия, и для курсора.
+      Дублировать геометрию в двух местах — верный способ развести
+      их со временем. }
+    function HitArea(X, Y: integer; out ARow: TChatRow): TChatHitArea;
+    procedure SetMode(AMode: TChatListMode);
+    function RowsCount: integer;
+    procedure DrawHeaderRow(ARect: TRect; ASelected: boolean);
     function BadgeBitmap(const AText: string; ASelected: boolean): TBGRABitmap;
     function ReceiptBitmap(AKind: TChatReceipt; ASelected: boolean): TBGRABitmap;
     procedure ModelChanged(Sender: TObject);
@@ -77,7 +97,9 @@ type
     procedure TdAccountsChanged;
     property Selected: TChatRow read CurrentRow;
     property OnSelect: TChatSelectEvent read FOnSelect write FOnSelect;
-    property OnArchive: TArchiveClickEvent read FOnArchive write FOnArchive;
+    property Mode: TChatListMode read FMode write SetMode;
+    property OnListMode: TListModeEvent read FOnListMode write FOnListMode;
+    property OnAvatar: TAvatarClickEvent read FOnAvatar write FOnAvatar;
   end;
 
 implementation
@@ -124,6 +146,9 @@ const
   ICON_PRIVATE  = 3;
   ICON_NOTIFY_ON  = 4;
   ICON_NOTIFY_OFF = 5;
+  { Индекс в ImageListBig. }
+  BIG_ARCHIVE  = 0;   { значок архива в основном списке }
+  BIG_ALLCHATS = 1;   { значок возврата в архивном списке }
 
 
 
@@ -219,7 +244,6 @@ begin
     FBadges.Free;
   end;
   FMeasure.Free;
-  FArchiveIcon.Free;
   for K := Low(TChatReceipt) to High(TChatReceipt) do begin
     FReceipts[K, False].Free;
     FReceipts[K, True].Free;
@@ -422,7 +446,7 @@ begin
   if (not FReady) or (Grid = nil) or (FModel = nil) then begin
     Exit;
   end;
-  Grid.RowCount := FModel.Count + ARCHIVE_ROWS;
+  Grid.RowCount := RowsCount + ARCHIVE_ROWS;
   Grid.Invalidate;
   { Если чатов меньше, чем помещается в окно, докачиваем сразу:
     прокрутки, которая обычно это запускает, не будет. }
@@ -430,17 +454,27 @@ begin
 end;
 
 procedure TFrameChats.LoadingChanged(Sender: TObject);
+var
+  Busy, Done: boolean;
 begin
   if (not FReady) or (lblStatus = nil) or (FModel = nil) then begin
     Exit;
   end;
-  if FModel.Loading then begin
-    lblStatus.Caption := 'Loading...';
-  end else
-  if FModel.AllLoaded then begin
-    lblStatus.Caption := Format('%d chats', [FModel.Count]);
+
+  if FMode = clmArchive then begin
+    Busy := FModel.ArchiveLoading;
+    Done := FModel.ArchiveAllLoaded;
   end else begin
-    lblStatus.Caption := Format('%d chats (more)', [FModel.Count]);
+    Busy := FModel.Loading;
+    Done := FModel.AllLoaded;
+  end;
+
+  if Busy then begin
+    lblStatus.Caption := 'Loading...';
+  end else if Done then begin
+    lblStatus.Caption := Format('%d chats', [RowsCount]);
+  end else begin
+    lblStatus.Caption := Format('%d chats (more)', [RowsCount]);
   end;
 end;
 
@@ -457,18 +491,31 @@ end;
 procedure TFrameChats.MaybeLoadMore;
 var
   LastVisible: integer;
+  Busy, Done: boolean;
 begin
-  { Resize срабатывает ещё во время чтения .lfm, когда Grid — nil.
-    Любой перекрытый виртуальный метод обязан это учитывать. }
+  { Resize срабатывает ещё во время чтения .lfm, когда Grid — nil. }
   if (not FReady) or (Grid = nil) or (FModel = nil) then begin
     Exit;
   end;
-  if FModel.AllLoaded or FModel.Loading then begin
+
+  if FMode = clmArchive then begin
+    Busy := FModel.ArchiveLoading;
+    Done := FModel.ArchiveAllLoaded;
+  end else begin
+    Busy := FModel.Loading;
+    Done := FModel.AllLoaded;
+  end;
+  if Busy or Done then begin
     Exit;
   end;
+
   LastVisible := Grid.TopRow + (Grid.ClientHeight div ROW_HEIGHT) - ARCHIVE_ROWS;
-  if LastVisible >= FModel.Count - PREFETCH_ROWS then begin
-    FModel.LoadMore;
+  if LastVisible >= RowsCount - PREFETCH_ROWS then begin
+    if FMode = clmArchive then begin
+      FModel.LoadMoreArchive;
+    end else begin
+      FModel.LoadMore;
+    end;
   end;
 end;
 
@@ -485,13 +532,45 @@ begin
   MaybeLoadMore;
 end;
 
+function TFrameChats.RowsCount: integer;
+begin
+  if FModel = nil then begin
+    Result := 0;
+  end else if FMode = clmArchive then begin
+    Result := FModel.ArchiveCount;
+  end else begin
+    Result := FModel.Count;
+  end;
+end;
+
 function TFrameChats.ChatAt(AGridRow: integer): TChatRow;
 begin
-  { Нулевая строка — архив, чата за ней нет. }
+  { Нулевая строка — заголовок, чата за ней нет. }
+  Result := nil;
   if (FModel = nil) or (AGridRow < ARCHIVE_ROWS) then begin
-    Result := nil;
+    Exit;
+  end;
+  if FMode = clmArchive then begin
+    Result := FModel.ArchiveRows[AGridRow - ARCHIVE_ROWS];
   end else begin
     Result := FModel[AGridRow - ARCHIVE_ROWS];
+  end;
+end;
+
+procedure TFrameChats.SetMode(AMode: TChatListMode);
+begin
+  if FMode = AMode then begin
+    Exit;
+  end;
+  FMode := AMode;
+  if Grid <> nil then begin
+    Grid.TopRow := 0;
+    Grid.Row := 0;
+  end;
+  ModelChanged(nil);
+  LoadingChanged(nil);
+  if Assigned(FOnListMode) then begin
+    FOnListMode(Self, FMode);
   end;
 end;
 
@@ -532,50 +611,32 @@ begin
     ACY - ImageList1.Height div 2, AIndex, True);
 end;
 
-function TFrameChats.ArchiveIcon: TBGRABitmap;
-var
-  C, R: single;
-  Col: TBGRAPixel;
-begin
-  Result := FArchiveIcon;
-  if Result <> nil then begin
-    Exit;
-  end;
 
-  C := (AVATAR_SIZE - 1) / 2;
-  R := AVATAR_SIZE / 2;
-  Col := ColorToBGRA(clGrayText);
-
-  Result := TBGRABitmap.Create(AVATAR_SIZE, AVATAR_SIZE, BGRAPixelTransparent);
-  Result.LineCap := pecRound;
-  Result.JoinStyle := pjsRound;
-  Result.FillEllipseAntialias(C, C, R, R, ColorToBGRA(clBtnFace));
-
-  { Схематичная коробка со стрелкой вниз — узнаваемый значок архива. }
-  Result.FillRoundRectAntialias(C - 10, C - 8, C + 10, C - 3, 1.5, 1.5, Col, [], True);
-  Result.FillRoundRectAntialias(C - 8, C - 2, C + 8, C + 9, 1.5, 1.5, Col, [], True);
-  Result.DrawPolyLineAntialias(
-    [PointF(C - 3.5, C + 1), PointF(C, C + 4.5), PointF(C + 3.5, C + 1)],
-    ColorToBGRA(clBtnFace), 1.8);
-
-  FArchiveIcon := Result;
-end;
-
-procedure TFrameChats.DrawArchiveRow(ARect: TRect; ASelected: boolean);
+procedure TFrameChats.DrawHeaderRow(ARect: TRect; ASelected: boolean);
 var
   Cv: TCanvas;
-  Ico, Badge: TBGRABitmap;
+  Badge: TBGRABitmap;
   A: TArchiveInfo;
-  TextRight, Y: integer;
-  S: string;
+  TextRight, Y, Big: integer;
+  S, Title: string;
 begin
   Cv := Grid.Canvas;
-  A := FModel.Archive;
 
-  Ico := ArchiveIcon;
-  if Ico <> nil then begin
-    Ico.Draw(Cv, ARect.Left + AV_LEFT,
-      ARect.Top + (ROW_HEIGHT - AVATAR_SIZE) div 2, False);
+  { В основном списке заголовок ведёт в архив, в архиве — обратно.
+    Сводка берётся по тому списку, КУДА он ведёт. }
+  if FMode = clmArchive then begin
+    A := FModel.MainInfo;
+    Big := BIG_ALLCHATS;
+    Title := 'All chats';
+  end else begin
+    A := FModel.Archive;
+    Big := BIG_ARCHIVE;
+    Title := 'Archive';
+  end;
+
+  if (ImageListBig <> nil) and (Big < ImageListBig.Count) then begin
+    ImageListBig.Draw(Cv, ARect.Left + AV_LEFT,
+      ARect.Top + (ROW_HEIGHT - AVATAR_SIZE) div 2, Big, True);
   end;
 
   Cv.Brush.Style := bsClear;
@@ -600,7 +661,7 @@ begin
   end;
   Cv.TextRect(Rect(ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP,
                    ARect.Right - PAD, ARect.Top + TITLE_TOP + 18),
-              ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP, 'Archive');
+              ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP, Title);
 
   Cv.Font.Style := [];
   Cv.Font.Height := -12;
@@ -651,7 +712,7 @@ begin
   Cv.FillRect(ARect);
 
   if ARow < ARCHIVE_ROWS then begin
-    DrawArchiveRow(ARect, Sel);
+    DrawHeaderRow(ARect, Sel);
     Exit;
   end;
 
@@ -767,17 +828,126 @@ end;
 procedure TFrameChats.GridSelectCell(Sender: TObject; ACol, ARow: integer; var CanSelect: boolean);
 begin
   CanSelect := True;
+  { Клик пришёлся по значку или аватарке — выделение не двигаем
+    и чат не открываем. }
+  if FSuppressSelect then begin
+    FSuppressSelect := False;
+    CanSelect := False;
+    Exit;
+  end;
   if (not FReady) or (FModel = nil) then begin
     Exit;
   end;
   if ARow < ARCHIVE_ROWS then begin
-    if Assigned(FOnArchive) then begin
-      FOnArchive(Self);
-    end;
+    { Заголовок обрабатывается в GridMouseDown — сюда попадаем
+      только при выборе с клавиатуры. }
     Exit;
   end;
   if Assigned(FOnSelect) then begin
     FOnSelect(Self, ChatAt(ARow));
+  end;
+end;
+
+function TFrameChats.HitArea(X, Y: integer; out ARow: TChatRow): TChatHitArea;
+var
+  C, Row: integer;
+  Cell: TRect;
+  AvTop, LocX, LocY, DX, DY, CX, CY: integer;
+begin
+  Result := chaNone;
+  ARow := nil;
+  if (not FReady) or (Grid = nil) or (FModel = nil) then begin
+    Exit;
+  end;
+
+  Grid.MouseToCell(X, Y, C, Row);
+  if (Row >= 0) and (Row < ARCHIVE_ROWS) then begin
+    { Заголовок кликается целиком, а не отдельными зонами. }
+    Result := chaHeader;
+    Exit;
+  end;
+  ARow := ChatAt(Row);
+  if ARow = nil then begin
+    Exit;
+  end;
+
+  { Координаты внутри строки. }
+  Cell := Grid.CellRect(C, Row);
+  LocX := X - Cell.Left;
+  LocY := Y - Cell.Top;
+  AvTop := (ROW_HEIGHT - AVATAR_SIZE) div 2;
+
+  { Колокольчик ловим по кругу, а не по квадрату. }
+  CX := ICON_COL_L + ICON_COL_R;
+  CY := AvTop + ICON_COL_R;
+  DX := LocX - CX;
+  DY := LocY - CY;
+  if (DX * DX + DY * DY) <= (ICON_COL_R * ICON_COL_R) then begin
+    Result := chaBell;
+    Exit;
+  end;
+
+  if (LocX >= AV_LEFT) and (LocX < AV_LEFT + AVATAR_SIZE) and
+     (LocY >= AvTop) and (LocY < AvTop + AVATAR_SIZE) then begin
+    Result := chaAvatar;
+  end;
+end;
+
+procedure TFrameChats.GridMouseMove(Sender: TObject; Shift: TShiftState;
+  X, Y: integer);
+var
+  R: TChatRow;
+  Want: TCursor;
+begin
+  if (not FReady) or (Grid = nil) then begin
+    Exit;
+  end;
+  if HitArea(X, Y, R) = chaNone then begin
+    Want := crDefault;
+  end else begin
+    Want := crHandPoint;
+  end;
+  { Присваиваем только при смене: OnMouseMove срабатывает густо,
+    а установка курсора дёргает виджетсет. }
+  if Grid.Cursor <> Want then begin
+    Grid.Cursor := Want;
+  end;
+end;
+
+procedure TFrameChats.GridMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: integer);
+var
+  R: TChatRow;
+begin
+  FSuppressSelect := False;
+  if Button <> mbLeft then begin
+    Exit;
+  end;
+
+  { Важно, что LCL вызывает inherited MouseDown ПЕРВОЙ строкой:
+    наш обработчик успевает отработать до смены выделения. }
+  case HitArea(X, Y, R) of
+    chaHeader:
+      begin
+        FSuppressSelect := True;
+        if FMode = clmArchive then begin
+          SetMode(clmMain);
+        end else begin
+          SetMode(clmArchive);
+        end;
+      end;
+    chaBell:
+      begin
+        FSuppressSelect := True;
+        FModel.SetMuted(R, not R.IsMuted);
+      end;
+    chaAvatar:
+      begin
+        FSuppressSelect := True;
+        if Assigned(FOnAvatar) then begin
+          FOnAvatar(Self, R);
+        end;
+      end;
   end;
 end;
 
@@ -791,7 +961,7 @@ begin
   end;
   Grid.MouseToCell(MousePos.X, MousePos.Y, C, R);
   { У архива своего меню пока нет. }
-  if (R < ARCHIVE_ROWS) or (R >= FModel.Count + ARCHIVE_ROWS) then begin
+  if (R < ARCHIVE_ROWS) or (R >= RowsCount + ARCHIVE_ROWS) then begin
     Handled := True;
     Exit;
   end;

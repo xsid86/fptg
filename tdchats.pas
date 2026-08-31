@@ -44,6 +44,10 @@ type
     UnreadMentionCount: integer;
     IsMarkedAsUnread:   boolean;
     IsMuted:            boolean;   { mute_for > 0 }
+    { Сырые настройки уведомлений. Хранятся целиком, потому что
+      setChatNotificationSettings принимает объект ЦЕЛИКОМ: собрав
+      его из двух полей, мы бы затёрли звук, превью и всё прочее. }
+    NotifyRaw:          utf8string;
     UserId:             Int64;        { собеседник, только для личных чатов }
     PhotoFileId:        integer;      { small.id, 0 — фото нет }
     PhotoPath:          utf8string;   { локальный путь, если уже скачан }
@@ -88,8 +92,11 @@ type
     FLoading: boolean;
     FAllLoaded: boolean;
     FLoadLimit: integer;
-    FArchive: TArchiveInfo;
-    FArchiveAsked: boolean;
+    FArchive: TArchiveInfo;     { сводка по архиву }
+    FMainInfo: TArchiveInfo;    { сводка по основному списку }
+    FArchiveRows: TFPList;      { архивные чаты, отсортированные }
+    FArchiveLoading: boolean;
+    FArchiveAllLoaded: boolean;
     FOnChanged: TTdChatsEvent;
     FOnLoadingChanged: TTdChatsEvent;
     FOnActionError: TTdChatsErrorEvent;
@@ -109,8 +116,9 @@ type
     procedure Rebuild(Sender: TObject);
     procedure SetLoading(AValue: boolean);
     procedure LoadChatsDone(Sender: TObject; const AResp: TTdResponse);
-    procedure LoadArchive;
     procedure ArchiveDone(Sender: TObject; const AResp: TTdResponse);
+    function GetArchiveCount: integer;
+    function GetArchiveRow(AIndex: integer): TChatRow;
     procedure RebuildArchive;
     procedure ApplyUnreadCount(AObj: TJSONObject);
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
@@ -130,6 +138,9 @@ type
       Результат приходит апдейтами (updateChatReadInbox, updateChatPosition
       и прочими), которые модель и так разбирает, поэтому список
       обновится сам. Здесь только отправка. }
+    { Включить или выключить уведомления. Периоды mute пока не
+      поддерживаем: выключение — навсегда. }
+    procedure SetMuted(ARow: TChatRow; AMuted: boolean);
     procedure MarkAsRead(ARow: TChatRow);
     procedure MarkAsUnread(ARow: TChatRow);
     procedure SetPinned(ARow: TChatRow; APinned: boolean);
@@ -146,6 +157,9 @@ type
     { Попросить TDLib подгрузить следующую порцию. Сами чаты придут
       апдейтами, а не в ответе на этот запрос. }
     procedure LoadMore;
+    { То же для архивного списка: у него свой курсор и свой признак
+      «всё загружено». }
+    procedure LoadMoreArchive;
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string);
@@ -155,8 +169,15 @@ type
 
     property Count: integer read GetCount;
     property Rows[AIndex: integer]: TChatRow read GetRow; default;
-    { Сводка по архиву. Обновляется вместе со списком. }
+    { Сводки по спискам. Обновляются вместе с перестройкой. }
     property Archive: TArchiveInfo read FArchive;
+    property MainInfo: TArchiveInfo read FMainInfo;
+
+    { Архивные чаты — второй список, живёт параллельно основному. }
+    property ArchiveCount: integer read GetArchiveCount;
+    property ArchiveRows[AIndex: integer]: TChatRow read GetArchiveRow;
+    property ArchiveLoading: boolean read FArchiveLoading;
+    property ArchiveAllLoaded: boolean read FArchiveAllLoaded;
     property Loading: boolean read FLoading;
     property AllLoaded: boolean read FAllLoaded;
     property LoadLimit: integer read FLoadLimit write FLoadLimit;
@@ -357,6 +378,7 @@ begin
   FBots := TBotMap.Create;
   FBots.Sorted := True;
   FRows := TFPList.Create;
+  FArchiveRows := TFPList.Create;
   FLoadLimit := 30;
 
   FTimer := TTimer.Create(Self);
@@ -376,6 +398,7 @@ begin
   FSession := nil;
   Clear;
   FRows.Free;
+  FArchiveRows.Free;
   FBots.Free;
   FByFile.Free;
   FAll.Free;
@@ -387,6 +410,7 @@ var
   I: integer;
 begin
   FRows.Clear;
+  FArchiveRows.Clear;
   for I := 0 to FAll.Count - 1 do begin
     FAll.Data[I].Free;
   end;
@@ -394,13 +418,28 @@ begin
   FByFile.Clear;
   FBots.Clear;
   FAllLoaded := False;
-  FArchiveAsked := False;
-  FArchive.KnownChats := 0;
-  FArchive.TotalChats := 0;
-  FArchive.UnreadChats := 0;
+  FArchiveLoading := False;
+  FArchiveAllLoaded := False;
+  FillChar(FArchive, SizeOf(FArchive), 0);
   FArchive.Preview := '';
+  FillChar(FMainInfo, SizeOf(FMainInfo), 0);
+  FMainInfo.Preview := '';
   FDirty := False;
   FTimer.Enabled := False;
+end;
+
+function TTdChats.GetArchiveCount: integer;
+begin
+  Result := FArchiveRows.Count;
+end;
+
+function TTdChats.GetArchiveRow(AIndex: integer): TChatRow;
+begin
+  if (AIndex < 0) or (AIndex >= FArchiveRows.Count) then begin
+    Result := nil;
+  end else begin
+    Result := TChatRow(FArchiveRows[AIndex]);
+  end;
 end;
 
 function TTdChats.GetCount: integer;
@@ -577,73 +616,87 @@ begin
   Touch;
 end;
 
-procedure TTdChats.LoadArchive;
+procedure TTdChats.LoadMoreArchive;
 begin
-  { Разовая подгрузка: строке архива нужны только верхние названия
-    для превью, весь список тянуть незачем. }
-  if FArchiveAsked or (FReq = nil) then begin
+  if FArchiveLoading or FArchiveAllLoaded or (FReq = nil) then begin
     Exit;
   end;
   if (FSession = nil) or (FSession.State <> tasReady) then begin
     Exit;
   end;
-  FArchiveAsked := True;
+  FArchiveLoading := True;
   FReq.SendRequest('loadChats',
-    '"chat_list":{"@type":"chatListArchive"},"limit":20', @ArchiveDone);
+    '"chat_list":{"@type":"chatListArchive"},"limit":' +
+    utf8string(IntToStr(FLoadLimit)), @ArchiveDone);
 end;
 
 procedure TTdChats.ArchiveDone(Sender: TObject; const AResp: TTdResponse);
 begin
-  { 404 значит «архив пуст или уже весь загружен» — это не ошибка. }
+  FArchiveLoading := False;
+  { 404 — единственный признак того, что архив кончился. }
+  if (not AResp.Success) and (AResp.ErrorCode = 404) then begin
+    FArchiveAllLoaded := True;
+    Touch;
+  end;
 end;
 
 procedure TTdChats.ApplyUnreadCount(AObj: TJSONObject);
+var
+  Kind: utf8string;
 begin
   if AObj = nil then begin
     Exit;
   end;
-  if JGetStr(JGetObj(AObj, 'chat_list'), '@type') <> 'chatListArchive' then begin
+  Kind := JGetStr(JGetObj(AObj, 'chat_list'), '@type');
+  if Kind = 'chatListArchive' then begin
+    FArchive.TotalChats := JGetInt(AObj, 'total_count');
+    FArchive.UnreadChats := JGetInt(AObj, 'unread_count');
+  end else if Kind = 'chatListMain' then begin
+    FMainInfo.TotalChats := JGetInt(AObj, 'total_count');
+    FMainInfo.UnreadChats := JGetInt(AObj, 'unread_count');
+  end else begin
     Exit;
   end;
-  FArchive.TotalChats := JGetInt(AObj, 'total_count');
-  FArchive.UnreadChats := JGetInt(AObj, 'unread_count');
   Touch;
+end;
+
+function PreviewOf(AList: TFPList): utf8string;
+var
+  I: integer;
+begin
+  { Названия верхних чатов через запятую, как в Telegram.
+    Обрываем по длине, а не по количеству: названия разной длины. }
+  Result := '';
+  for I := 0 to AList.Count - 1 do begin
+    if Length(Result) > 60 then begin
+      Break;
+    end;
+    if Result <> '' then begin
+      Result := Result + ', ';
+    end;
+    Result := Result + TChatRow(AList[I]).Title;
+  end;
 end;
 
 procedure TTdChats.RebuildArchive;
 var
-  L: TFPList;
   I: integer;
   R: TChatRow;
-  S: utf8string;
 begin
-  L := TFPList.Create;
-  try
-    for I := 0 to FAll.Count - 1 do begin
-      R := FAll.Data[I];
-      if R.InArchive and (R.ArchiveOrder <> 0) then begin
-        L.Add(R);
-      end;
+  FArchiveRows.Clear;
+  for I := 0 to FAll.Count - 1 do begin
+    R := FAll.Data[I];
+    if R.InArchive and (R.ArchiveOrder <> 0) then begin
+      FArchiveRows.Add(R);
     end;
-    L.Sort(@CompareArchive);
-    FArchive.KnownChats := L.Count;
-
-    { Превью — названия верхних чатов через запятую, как в Telegram.
-      Обрываем по длине, а не по количеству: названия разной длины. }
-    S := '';
-    for I := 0 to L.Count - 1 do begin
-      if Length(S) > 60 then begin
-        Break;
-      end;
-      if S <> '' then begin
-        S := S + ', ';
-      end;
-      S := S + TChatRow(L[I]).Title;
-    end;
-    FArchive.Preview := S;
-  finally
-    L.Free;
   end;
+  FArchiveRows.Sort(@CompareArchive);
+
+  FArchive.KnownChats := FArchiveRows.Count;
+  FArchive.Preview := PreviewOf(FArchiveRows);
+
+  FMainInfo.KnownChats := FRows.Count;
+  FMainInfo.Preview := PreviewOf(FRows);
 end;
 
 procedure TTdChats.LoadChatsDone(Sender: TObject; const AResp: TTdResponse);
@@ -669,6 +722,7 @@ begin
   end else begin
     ARow.IsMuted := JGetInt(ASettings, 'mute_for') > 0;
   end;
+  ARow.NotifyRaw := utf8string(ASettings.AsJSON);
 end;
 
 procedure TTdChats.ApplyUser(AUser: TJSONObject);
@@ -730,6 +784,58 @@ begin
   if Assigned(FOnActionError) then begin
     FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, '');
   end;
+end;
+
+procedure TTdChats.SetMuted(ARow: TChatRow; AMuted: boolean);
+const
+  { Схема: чат, заглушённый больше чем на 366 дней, считается
+    заглушённым навсегда. Отдельной константы в API нет. }
+  MUTE_FOREVER = 367 * 24 * 60 * 60;
+var
+  Data: TJSONData;
+  Obj: TJSONObject;
+  Body: utf8string;
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+
+  Obj := nil;
+  Data := nil;
+  try
+    { Берём существующие настройки и меняем только заглушение —
+      остальные поля должны уцелеть. }
+    if ARow.NotifyRaw <> '' then begin
+      try
+        Data := GetJSON(string(ARow.NotifyRaw));
+        if (Data <> nil) and (Data.JSONType = jtObject) then begin
+          Obj := TJSONObject(Data);
+        end;
+      except
+        FreeAndNil(Data);
+      end;
+    end;
+
+    if Obj = nil then begin
+      Data := TJSONObject.Create;
+      Obj := TJSONObject(Data);
+    end;
+
+    Obj.Strings['@type'] := 'chatNotificationSettings';
+    Obj.Booleans['use_default_mute_for'] := False;
+    if AMuted then begin
+      Obj.Integers['mute_for'] := MUTE_FOREVER;
+    end else begin
+      Obj.Integers['mute_for'] := 0;
+    end;
+
+    Body := '"chat_id":' + utf8string(IntToStr(ARow.Id)) +
+            ',"notification_settings":' + utf8string(Obj.AsJSON);
+  finally
+    Data.Free;
+  end;
+
+  FReq.SendRequest('setChatNotificationSettings', Body, @ActionDone);
 end;
 
 procedure TTdChats.MarkAsRead(ARow: TChatRow);
@@ -1092,7 +1198,7 @@ begin
   if AState = tasReady then begin
     Clear;
     LoadMore;
-    LoadArchive;
+    LoadMoreArchive;
   end else if TdIsShuttingState(AState) then begin
     Clear;
     SetLoading(False);

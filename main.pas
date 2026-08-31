@@ -61,7 +61,8 @@ type
     procedure AddAccountClick(Sender: TObject);
     procedure ShutdownDone(Sender: TObject);
     procedure ChatSelected(Sender: TObject; ARow: TChatRow);
-    procedure ArchiveClicked(Sender: TObject);
+    procedure ListModeChanged(Sender: TObject; AMode: TChatListMode);
+    procedure AvatarClicked(Sender: TObject; ARow: TChatRow);
   public
     { ITdActiveListener }
     procedure TdActiveChanged(ANew: TTdAccount);
@@ -100,7 +101,8 @@ begin
   FChats.Parent := pnlLeft;
   FChats.Align := alClient;
   FChats.OnSelect := @ChatSelected;
-  FChats.OnArchive := @ArchiveClicked;
+  FChats.OnListMode := @ListModeChanged;
+  FChats.OnAvatar := @AvatarClicked;
 
   { Резолвер создаётся здесь, чтобы он успел подписаться на ядро
     до первых запросов. Обращение к синглтону его и конструирует. }
@@ -168,10 +170,22 @@ begin
   Caption := 'Telegram - ' + string(ARow.Title);
 end;
 
-procedure TFormMain.ArchiveClicked(Sender: TObject);
+procedure TFormMain.AvatarClicked(Sender: TObject; ARow: TChatRow);
 begin
-  { Экран архива появится позже: переключит список на chatListArchive. }
-  Caption := 'Telegram - Archive';
+  if ARow = nil then begin
+    Exit;
+  end;
+  { Заглушка: здесь откроется панель сведений о контакте. }
+  lblState.Caption := Format('Info: %s (id %d)', [string(ARow.Title), ARow.Id]);
+end;
+
+procedure TFormMain.ListModeChanged(Sender: TObject; AMode: TChatListMode);
+begin
+  if AMode = clmArchive then begin
+    Caption := 'Telegram - Archive';
+  end else begin
+    Caption := 'Telegram';
+  end;
 end;
 
 procedure TFormMain.ShutdownDone(Sender: TObject);
@@ -315,7 +329,13 @@ begin
     NeedLogin := A.State <> tasReady;
 
     MI := TMenuItem.Create(MenuItem10);
-    MI.Caption := A.Title;
+    { Имя и аватарка у разных аккаунтов могут совпадать, поэтому
+      в подписи всегда есть id — иначе их не различить. }
+    if A.UserId <> 0 then begin
+      MI.Caption := Format('%s  (%d)', [A.Title, A.UserId]);
+    end else begin
+      MI.Caption := A.Title;
+    end;
     if NeedLogin then begin
       MI.Caption := MI.Caption + '  (sign-in required)';
     end;
