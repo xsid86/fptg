@@ -7,8 +7,8 @@ interface
 uses
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
-  tdauth, tdcore, tdchats, tdmessages, tdusers, msglayout, uiframe,
-  framechats;
+  tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
+  uiframe, framechats;
 
 type
   { TAudioWidget
@@ -41,6 +41,17 @@ type
   private
     FModel:   TTdMessages;
     FOffsets: array of integer;   { длина Count+1, накопленная высота }
+    { id сообщения на каждой позиции FOffsets — снимок ТОГО ЖЕ момента,
+      что и сам FOffsets (заполняется в том же цикле RebuildOffsets).
+      Нужен ModelChanged: к моменту его вызова FModel уже отражает
+      НОВОЕ состояние (TTdMessages.Rebuild отработал до FOnChanged), а
+      FOffsets — ещё СТАРОЕ. Если якорь верхней видимой строки читать
+      через FModel[индекс из старых FOffsets], после LoadOlder (который
+      добавляет сообщения В НАЧАЛО, сдвигая индексы всех остальных)
+      получится id случайного другого сообщения — отсюда и "вставляются
+      вразнобой". FRowIds всегда того же винтажа, что и FOffsets,
+      поэтому такого смешения нет. }
+    FRowIds:  array of Int64;
     FTotalHeight: integer;
     FScrollTop:   integer;
 
@@ -55,6 +66,11 @@ type
     FOnNearTop: TNotifyEvent;
 
     procedure RebuildOffsets;
+    { Левая/правая граница центрированной колонки сообщений — не шире
+      MAX_MSG_W. Один источник правды для RebuildOffsets (ширина
+      переноса текста), BlockRect и ContentRect — иначе разъедутся при
+      малейшей правке одного из них. }
+    procedure ColumnBounds(out ALeft, ARight: integer);
     function IndexAtY(AY: integer): integer;
     function FirstVisible: integer;
     function LastVisible: integer;
@@ -108,6 +124,9 @@ type
       смену чата, поэтому у него собственная лёгкая привязка внутри
       BindModel/UnbindModel, а не полноценный Bind/Unbind как у FModel. }
     FUsers: TTdUsers;
+    { Тот же принцип, что у FUsers — один на аккаунт, лёгкая привязка,
+      без офсетов. }
+    FAccentColors: TTdAccentColors;
     FScroller:  TMsgScroller;
     FScrollbar: TScrollBar;
     pnlStatus:  TPanel;
@@ -154,17 +173,25 @@ uses
 const
   MSG_PAD_H      = 12;
   MSG_PAD_V      = 6;
-  MSG_GAP        = 4;
+  MSG_GAP        = 16;
+  { Колонка сообщений не шире этого — при широком окне не растягиваем
+    текст во всю ширину (нечитаемо), а центрируем узкую колонку.
+    0 — без ограничения, во всю ширину фрейма (см. ColumnBounds). }
+  MAX_MSG_W      = 600;
   { HEADER_H — высота самого значка/текста заголовка (для центрирования
-    внутри неё). HEADER_BAR_H — сколько места заголовок реально
-    занимает в блоке: та же высота плюс отступ MSG_GAP сверху и снизу
-    внутри цветной подложки заголовка — тот же отступ, что между
-    сообщениями (MSG_GAP), не отдельное магическое число. }
+    внутри неё). HEADER_PAD_V — свой отступ сверху/снизу внутри цветной
+    подложки заголовка, НЕ завязан на MSG_GAP (расстояние между
+    сообщениями) — это два разных с виду похожих отступа, которые
+    раньше были одним числом по случайности, не по смыслу.
+    HEADER_BAR_H — сколько места заголовок реально занимает в блоке. }
   HEADER_H       = 16;
-  HEADER_BAR_H   = HEADER_H + 2 * MSG_GAP;
+  HEADER_PAD_V   = 6;
+  HEADER_BAR_H   = HEADER_H + 2 * HEADER_PAD_V;
   NEAR_TOP_PX    = 400;
   WHEEL_LINE_PX  = 60;
   LINE_SCROLL_PX = 24;
+  { Радиус скругления углов у подложки блока/заголовка сообщения. }
+  MSG_CORNER_RADIUS = 16;
   { Слот под значок статуса в заголовке блока — зарезервирован даже у
     входящих сообщений (там значка нет, crNone), чтобы имя отправителя
     не "прыгало" по горизонтали от строки к строке. }
@@ -194,6 +221,9 @@ const
   { Подложка именно строки заголовка (значок+имя) — заметнее, чем фон
     всего блока: свой, более высокий уровень прозрачности. }
   SENDER_HEADER_OPACITY = 0.2;
+  { Контур блока — цвет отправителя поверх фона, заметно сильнее заливок
+    выше (0.5): не тонировка, а именно очерчивающая рамка блока. }
+  SENDER_BORDER_OPACITY = 0.5;
 
 { Цвет по кругу, детерминированно по id отправителя — свой SenderUserId
   просто обычное значение в этом же хэше, поэтому исходящие сообщения
@@ -203,7 +233,40 @@ const
 function SenderColor(ARow: TMsgRow): TColor;
 var
   Id: Int64;
+  AccId: integer;
+  C: TChatRow;
+  L: TTdChats;
+  AC: TTdAccentColors;
 begin
+  { У Telegram уже есть свой закреплённый за контактом/чатом цвет
+    (accent_color_id, из updateUser/updateChatAccentColors — см.
+    tdaccentcolors.pas) — используем его вместо хэша по id, когда он
+    известен. Хэш по SENDER_PALETTE остаётся запасным вариантом: пока
+    accent_color_id ещё не резолвился (первая прорисовка нового
+    отправителя) или для совсем неожиданного случая, когда ни один
+    источник его не даёт. }
+  AccId := -1;
+  if ARow.SenderUserId <> 0 then begin
+    if TdUserList <> nil then begin
+      AccId := TdUserList.AccentColorId(ARow.SenderUserId);
+    end;
+  end else if ARow.SenderChatId <> 0 then begin
+    L := TdChatList;
+    if L <> nil then begin
+      C := L.Lookup(ARow.SenderChatId);
+      if C <> nil then begin
+        AccId := C.AccentColorId;
+      end;
+    end;
+  end;
+
+  if AccId >= 0 then begin
+    AC := TdAccentColorList;
+    if (AC <> nil) and AC.TryGetColor(AccId, Result) then begin
+      Exit;
+    end;
+  end;
+
   if ARow.SenderUserId <> 0 then begin
     Id := ARow.SenderUserId;
   end else begin
@@ -349,7 +412,7 @@ end;
 
 procedure TMsgScroller.RebuildOffsets;
 var
-  I, AvailW, H, Cnt: integer;
+  I, AvailW, H, Cnt, ColL, ColR: integer;
   Ctx: TMsgLayoutCtx;
 begin
   { Align/Resize может дёрнуть это ещё в конструкторе TFrameHistory,
@@ -360,6 +423,7 @@ begin
     гарантируют. }
   if not HandleAllocated then begin
     SetLength(FOffsets, 1);
+    SetLength(FRowIds, 0);
     FOffsets[0] := 0;
     FTotalHeight := 0;
     Exit;
@@ -370,7 +434,8 @@ begin
     Cnt := FModel.Count;
   end;
 
-  AvailW := ClientWidth - 2 * MSG_PAD_H;
+  ColumnBounds(ColL, ColR);
+  AvailW := (ColR - ColL) - 2 * MSG_PAD_H;
   if AvailW < 20 then begin
     AvailW := 20;
   end;
@@ -382,17 +447,28 @@ begin
   Canvas.Font.Style := [];
 
   SetLength(FOffsets, Cnt + 1);
+  SetLength(FRowIds, Cnt);
   FOffsets[0] := 0;
   for I := 0 to Cnt - 1 do begin
+    FRowIds[I] := FModel[I].Id;
     H := HEADER_BAR_H + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + 2 * MSG_PAD_V;
     FOffsets[I + 1] := FOffsets[I] + H + MSG_GAP;
   end;
 
-  if Cnt > 0 then begin
-    FTotalHeight := FOffsets[Cnt] - MSG_GAP;
-  end else begin
-    FTotalHeight := 0;
+  FTotalHeight := FOffsets[Cnt];
+end;
+
+procedure TMsgScroller.ColumnBounds(out ALeft, ARight: integer);
+var
+  W: integer;
+begin
+  { MAX_MSG_W = 0 — колонка во всю ширину фрейма, без ограничения. }
+  W := ClientWidth;
+  if (MAX_MSG_W > 0) and (W > MAX_MSG_W) then begin
+    W := MAX_MSG_W;
   end;
+  ALeft := (ClientWidth - W) div 2;
+  ARight := ALeft + W;
 end;
 
 function TMsgScroller.IndexAtY(AY: integer): integer;
@@ -436,19 +512,23 @@ begin
 end;
 
 function TMsgScroller.BlockRect(AIndex: integer): TRect;
+var
+  ColL, ColR: integer;
 begin
-  Result := Rect(0, FOffsets[AIndex] - FScrollTop, ClientWidth,
+  ColumnBounds(ColL, ColR);
+  Result := Rect(ColL, FOffsets[AIndex] - FScrollTop, ColR,
     FOffsets[AIndex] - FScrollTop + (FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP));
 end;
 
 function TMsgScroller.ContentRect(AIndex: integer): TRect;
 var
-  BlockH, ContentH, TopY: integer;
+  BlockH, ContentH, TopY, ColL, ColR: integer;
 begin
+  ColumnBounds(ColL, ColR);
   BlockH := FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP;
   ContentH := BlockH - HEADER_BAR_H - 2 * MSG_PAD_V;
   TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + MSG_PAD_V;
-  Result := Rect(MSG_PAD_H, TopY, ClientWidth - MSG_PAD_H, TopY + ContentH);
+  Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + ContentH);
 end;
 
 { Зажимает и применяет позицию без уведомления "около верха — догрузи
@@ -512,27 +592,45 @@ end;
 procedure TMsgScroller.ModelChanged;
 var
   WasAtBottom: boolean;
-  OldMax: integer;
+  OldMax, OldCount: integer;
   AnchorId: Int64;
   AnchorIdx, AnchorOldOffset, AnchorNewOffset: integer;
 begin
+  OldCount := Length(FRowIds);
   OldMax := FTotalHeight - ClientHeight;
-  WasAtBottom := (OldMax <= 0) or (FScrollTop >= OldMax - 4);
+  { "Была внизу" — только когда реально существовала прокручиваемая
+    область и мы были у её конца. OldMax<=0 (весь список помещался на
+    экране) раньше ЛЮБОЙ такой случай засчитывал как "внизу" — из-за
+    этого короткий, ещё догружаемый чат (MaybeLoadMore подгружает
+    историю сам, пока контента не хватает на экран) на каждую подгрузку
+    прыгал к низу, забивая попытку пользователя проскроллить вверх ДО
+    того, как список вырастет больше экрана. Для OldCount=0 (самое
+    первое открытие чата) низ всё равно нужен явно — якорить не к чему. }
+  WasAtBottom := (OldCount > 0) and (OldMax > 0) and (FScrollTop >= OldMax - 4);
 
   { Запоминаем сообщение в верхней видимой строке — после подгрузки
     истории (LoadOlder добавляет контент ВЫШЕ) вернём его на то же
-    место в окне, иначе список визуально прыгнет. }
+    место в окне, иначе список визуально прыгнет.
+
+    ВАЖНО: id берём из FRowIds, СВОЕГО снимка того же винтажа, что и
+    FOffsets/AnchorIdx — НЕ из FModel[AnchorIdx]. К моменту вызова
+    ModelChanged модель (TTdMessages) уже перестроена (Rebuild отработал
+    до FOnChanged), а FOffsets/FRowIds — ещё старые. LoadOlder вставляет
+    новые сообщения В НАЧАЛО списка, сдвигая индексы всех остальных;
+    FModel[тот же индекс] после такой вставки — уже СОВСЕМ ДРУГОЕ
+    сообщение. Отсюда и "вставляются вразнобой" при подгрузке во время
+    скролла вверх — старый индекс молча читался из уже сдвинутых данных. }
   AnchorId := 0;
   AnchorOldOffset := 0;
   AnchorIdx := IndexAtY(FScrollTop);
-  if (AnchorIdx >= 0) and (FModel <> nil) and (AnchorIdx < FModel.Count) then begin
-    AnchorId := FModel[AnchorIdx].Id;
+  if (AnchorIdx >= 0) and (AnchorIdx < Length(FRowIds)) then begin
+    AnchorId := FRowIds[AnchorIdx];
     AnchorOldOffset := FScrollTop - FOffsets[AnchorIdx];
   end;
 
   RebuildOffsets;
 
-  if WasAtBottom then begin
+  if (OldCount = 0) or WasAtBottom then begin
     ScrollToBottom;
   end else if AnchorId <> 0 then begin
     AnchorIdx := FModel.IndexOfId(AnchorId);
@@ -626,14 +724,14 @@ procedure TMsgScroller.Paint;
 var
   I, Lo, Hi: integer;
   R: TMsgRow;
-  BR, CR: TRect;
+  BR, CR, HeaderRect: TRect;
   S: string;
   SelStart, SelEnd, LowIdx, HighIdx, LowChar, HighChar: integer;
   HasSel: boolean;
   ChatRow: TChatRow;
   LastReadOutbox: Int64;
   IconList: TImageList;
-  HeaderX, HeaderY, IconIdx: integer;
+  HeaderX, HeaderY, IconIdx, HeaderRadius: integer;
   LocalDT: TDateTime;
   TimeStr, NameStr, SuffixStr: string;
 begin
@@ -686,19 +784,40 @@ begin
 
       { Подложка блока — цвет отправителя приглушённо поверх фона,
         SENDER_BG_OPACITY. Заливаем ПЕРЕД заголовком/контентом, чтобы
-        текст и разделительная линия легли поверх, не под. }
+        текст и разделительная линия легли поверх, не под. Скруглённые
+        углы — RoundRect рисует и заливкой (Brush), и обводкой (Pen);
+        обводка не нужна вовсе, иначе кисть предыдущей строки
+        (разделительная линия, ниже по циклу) проступила бы рамкой. }
       Canvas.Brush.Style := bsSolid;
+      Canvas.Pen.Style := psClear;
       Canvas.Brush.Color := BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow);
-      Canvas.FillRect(BR);
+      Canvas.RoundRect(BR, MSG_CORNER_RADIUS, MSG_CORNER_RADIUS);
 
       { Подложка самой строки заголовка (значок+имя) — заметнее фона
         блока (SENDER_HEADER_OPACITY > SENDER_BG_OPACITY), поверх уже
         закрашенного фона блока. Отступ значка/текста от верхнего и
-        нижнего края этой полосы — MSG_GAP, тот же, что между
-        сообщениями (HeaderY, а не BR.Top напрямую). }
+        нижнего края этой полосы — свой, HEADER_PAD_V, не MSG_GAP
+        (HeaderY, а не BR.Top напрямую). Скруглены только ВЕРХНИЕ углы —
+        те же, что у блока снаружи; нижние скруглённые превращали бы
+        короткую полосу в подобие таблетки, отдельной от блока под ней.
+        RoundRect умеет только все 4 угла разом, per-corner в чистом
+        TCanvas нет — рисуем со всеми скруглёнными, затем перекрываем
+        низ обычным прямоугольником того же цвета, "спрямляя" его.
+        Радиус для этой полосы — свой, HeaderRadius, не MSG_CORNER_RADIUS
+        напрямую: полоса всего HEADER_BAR_H пикселей высотой, и если
+        радиус блока больше её половины, RoundRect вместо скруглённых
+        углов рисует растянутую "таблетку" (оба конца — полукруги,
+        сходящиеся у середины) — источник и "овального" вида, и
+        артефактов на стыке с FillRect ниже (тот исходит из
+        предположения, что дуга не выходит за свои MSG_CORNER_RADIUS
+        нижних пикселей, что при слишком большом радиусе неверно). }
+      HeaderRect := Rect(BR.Left, BR.Top, BR.Right, BR.Top + HEADER_BAR_H);
+      HeaderRadius := Min(MSG_CORNER_RADIUS, HEADER_BAR_H div 2);
       Canvas.Brush.Color := BlendWithBackground(SenderColor(R), SENDER_HEADER_OPACITY, clWindow);
-      Canvas.FillRect(Rect(BR.Left, BR.Top, BR.Right, BR.Top + HEADER_BAR_H));
-      HeaderY := BR.Top + MSG_GAP;
+      Canvas.RoundRect(HeaderRect, HeaderRadius, HeaderRadius);
+      Canvas.FillRect(Rect(HeaderRect.Left, HeaderRect.Bottom - HeaderRadius,
+        HeaderRect.Right, HeaderRect.Bottom));
+      HeaderY := BR.Top + HEADER_PAD_V;
 
       Canvas.Brush.Style := bsClear;
       Canvas.Font.Name := 'default';
@@ -762,12 +881,14 @@ begin
 
       RendererFor(R.Kind).Paint(R, Canvas, CR, SelStart, SelEnd);
 
-      { Тонкая разделительная линия под блоком — визуально ближе к
-        плотной ленте QIP, чем голый MSG_GAP. }
-      Canvas.Pen.Color := clBtnFace;
+      { Контур блока — рисуется последним, поверх содержимого: только
+        обводка (Brush.Style := bsClear), сам текст на MSG_PAD_H от края
+        и краем не задевается. }
+      Canvas.Brush.Style := bsClear;
       Canvas.Pen.Style := psSolid;
-      Canvas.MoveTo(0, BR.Bottom - 1);
-      Canvas.LineTo(ClientWidth, BR.Bottom - 1);
+      Canvas.Pen.Width := 1;
+      Canvas.Pen.Color := BlendWithBackground(SenderColor(R), SENDER_BORDER_OPACITY, clWindow);
+      Canvas.RoundRect(BR, MSG_CORNER_RADIUS, MSG_CORNER_RADIUS);
     except
       { Молча пропускаем эту строку: статус-строка обновляется из
         ModelChanged, а не отсюда — Paint может вызываться десятками
@@ -1099,11 +1220,15 @@ begin
   FModel := TdMsgList;
   FScroller.BindModel(FModel);
 
-  { Кэш имён — не смотрим на nil-раннюю Exit ниже: он привязывается
-    независимо от того, есть ли уже открытый чат. }
+  { Кэш имён и кэш акцентных цветов — не смотрим на nil-раннюю Exit
+    ниже: привязываются независимо от того, есть ли уже открытый чат. }
   FUsers := TdUserList;
   if FUsers <> nil then begin
     FUsers.OnChanged := @UsersChanged;
+  end;
+  FAccentColors := TdAccentColorList;
+  if FAccentColors <> nil then begin
+    FAccentColors.OnChanged := @UsersChanged;
   end;
 
   if FModel = nil then begin
@@ -1135,6 +1260,12 @@ begin
       FUsers.OnChanged := nil;
     end;
     FUsers := nil;
+  end;
+  if FAccentColors <> nil then begin
+    if TMethod(FAccentColors.OnChanged).Data = Pointer(Self) then begin
+      FAccentColors.OnChanged := nil;
+    end;
+    FAccentColors := nil;
   end;
   FScroller.BindModel(nil);
 end;

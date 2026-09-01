@@ -402,8 +402,21 @@ begin
   if FChatId = AChatId then begin
     Exit;
   end;
+  { closeChat/openChat — не для данных (те идут апдейтами и RPC-ответами
+    независимо), а чтобы СКАЗАТЬ TDLib, какой чат сейчас реально
+    показан пользователю. Без этого TDLib считает себя вправе вытеснять
+    кэш сообщений давно не "открытого" явно чата и присылает
+    updateDeleteMessages с from_cache:true — раньше это принималось за
+    настоящее удаление (см. TdUpdate), и открытый часами чат мог
+    свестись к одному сообщению. }
+  if (FChatId <> 0) and (FReq <> nil) then begin
+    FReq.SendRequest('closeChat', '"chat_id":' + utf8string(IntToStr(FChatId)), @ActionDone);
+  end;
   Clear;
   FChatId := AChatId;
+  if (FChatId <> 0) and (FReq <> nil) then begin
+    FReq.SendRequest('openChat', '"chat_id":' + utf8string(IntToStr(FChatId)), @ActionDone);
+  end;
   if Assigned(FOnChanged) then begin
     FOnChanged(Self);
   end;
@@ -414,6 +427,9 @@ end;
 
 procedure TTdMessages.CloseChat;
 begin
+  if (FChatId <> 0) and (FReq <> nil) then begin
+    FReq.SendRequest('closeChat', '"chat_id":' + utf8string(IntToStr(FChatId)), @ActionDone);
+  end;
   Clear;
   FChatId := 0;
 end;
@@ -1003,7 +1019,16 @@ begin
         Touch;
       end;
     end else if T = 'updateDeleteMessages' then begin
-      if JGetInt64(Obj, 'chat_id') = FChatId then begin
+      { from_cache:true — TDLib вытеснило сообщение из СВОЕГО кэша
+        (обычно из-за того, что openChat для чата не был отправлен
+        достаточно давно/своевременно), не удалило его на самом деле.
+        FAll — наша собственная, уже загруженная копия; выкидывать её
+        из-за постороннего кэша нечем оправдать — и раньше делали
+        именно так, отчего часами открытый чат мог свестись к одному
+        сообщению. Теперь openChat/closeChat зовутся из OpenChat, так
+        что для АКТИВНОГО чата этого вообще быть не должно — но
+        проверка остаётся: дешёвая и на будущее. }
+      if (JGetInt64(Obj, 'chat_id') = FChatId) and (not JGetBool(Obj, 'from_cache')) then begin
         Arr := JGetArr(Obj, 'message_ids');
         if Arr <> nil then begin
           for I := 0 to Arr.Count - 1 do begin

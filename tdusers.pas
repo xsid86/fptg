@@ -17,6 +17,9 @@ type
   public
     Id: Int64;
     FirstName, LastName: utf8string;
+    { 0..6 — зарезервированные "базовые" цвета, 7+ — резолвятся через
+      TTdAccentColors (tdaccentcolors.pas) из updateAccentColors. }
+    AccentColorId: integer;
     function DisplayName: utf8string;
   end;
 
@@ -60,6 +63,11 @@ type
       getUser, если пользователь ещё не известен и запрос на него ещё
       не в полёте. Результат придёт позже через OnChanged. }
     function DisplayName(AUserId: Int64): utf8string;
+    { То же самое, но accent_color_id пользователя; -1, если ещё не
+      известен (в т.ч. запускает getUser на промах — независимо и
+      достаточно само по себе, не полагается на то, что DisplayName
+      для этого же id уже был вызван раньше). }
+    function AccentColorId(AUserId: Int64): integer;
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -187,6 +195,7 @@ begin
   end;
   R.FirstName := JGetStr(AUser, 'first_name');
   R.LastName := JGetStr(AUser, 'last_name');
+  R.AccentColorId := JGetInt(AUser, 'accent_color_id');
 
   if Assigned(FOnChanged) then begin
     FOnChanged(Self);
@@ -226,6 +235,22 @@ begin
   R := Lookup(AUserId);
   if R <> nil then begin
     Result := R.DisplayName;
+    Exit;
+  end;
+  RequestUser(AUserId);
+end;
+
+function TTdUsers.AccentColorId(AUserId: Int64): integer;
+var
+  R: TUserRow;
+begin
+  Result := -1;
+  if AUserId = 0 then begin
+    Exit;
+  end;
+  R := Lookup(AUserId);
+  if R <> nil then begin
+    Result := R.AccentColorId;
     Exit;
   end;
   RequestUser(AUserId);

@@ -166,6 +166,10 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
+        <Filename Value="tdaccentcolors.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="msglayout.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>

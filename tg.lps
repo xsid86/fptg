@@ -10,7 +10,7 @@
         <IsPartOfProject Value="True"/>
         <TopLine Value="16"/>
         <CursorPos X="7" Y="43"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -18,7 +18,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <CursorPos X="80" Y="17"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
@@ -30,7 +30,7 @@
         <EditorIndex Value="6"/>
         <TopLine Value="89"/>
         <CursorPos X="5" Y="109"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -41,7 +41,7 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
@@ -53,7 +53,7 @@
         <EditorIndex Value="5"/>
         <TopLine Value="92"/>
         <CursorPos X="5" Y="130"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -62,7 +62,7 @@
         <IsPartOfProject Value="True"/>
         <HasResources Value="True"/>
         <EditorIndex Value="10"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
@@ -75,7 +75,7 @@
         <EditorIndex Value="7"/>
         <TopLine Value="379"/>
         <CursorPos X="32" Y="404"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -85,7 +85,7 @@
         <EditorIndex Value="8"/>
         <TopLine Value="21"/>
         <CursorPos X="14" Y="21"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -93,7 +93,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="9"/>
         <CursorPos X="10" Y="21"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -102,7 +102,7 @@
         <EditorIndex Value="2"/>
         <TopLine Value="50"/>
         <CursorPos Y="74"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -111,7 +111,7 @@
         <EditorIndex Value="4"/>
         <TopLine Value="7"/>
         <CursorPos X="43" Y="17"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -121,14 +121,14 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="tg.lps"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
@@ -138,23 +138,23 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <DefaultSyntaxHighlighter Value="None"/>
       </Unit>
       <Unit>
         <Filename Value="qrrender.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="16"/>
+        <EditorIndex Value="17"/>
         <CursorPos X="95" Y="25"/>
-        <UsageCount Value="79"/>
+        <UsageCount Value="81"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdreq.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="17"/>
+        <EditorIndex Value="18"/>
         <CursorPos X="24" Y="27"/>
-        <UsageCount Value="67"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -162,7 +162,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="1"/>
         <CursorPos X="26" Y="28"/>
-        <UsageCount Value="67"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -174,7 +174,7 @@
         <EditorIndex Value="11"/>
         <TopLine Value="44"/>
         <CursorPos X="27" Y="79"/>
-        <UsageCount Value="67"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -186,7 +186,7 @@
         <ResourceBaseClass Value="Frame"/>
         <EditorIndex Value="12"/>
         <CursorPos X="15" Y="22"/>
-        <UsageCount Value="67"/>
+        <UsageCount Value="69"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -194,9 +194,9 @@
         <Filename Value="tdchats.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="13"/>
-        <TopLine Value="1137"/>
+        <TopLine Value="202"/>
         <CursorPos X="5" Y="1167"/>
-        <UsageCount Value="66"/>
+        <UsageCount Value="68"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -205,9 +205,9 @@
         <ComponentName Value="FrameChats"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <EditorIndex Value="14"/>
+        <EditorIndex Value="15"/>
         <CursorPos X="26" Y="13"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="67"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -216,16 +216,16 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <TopLine Value="181"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="67"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="avatarcache.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="15"/>
+        <EditorIndex Value="16"/>
         <TopLine Value="366"/>
         <CursorPos X="7" Y="401"/>
-        <UsageCount Value="65"/>
+        <UsageCount Value="67"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -235,22 +235,30 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="51"/>
+        <UsageCount Value="53"/>
       </Unit>
       <Unit>
         <Filename Value="tdmessages.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="28"/>
+        <EditorIndex Value="14"/>
+        <TopLine Value="196"/>
+        <UsageCount Value="30"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdusers.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="24"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdaccentcolors.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="22"/>
       </Unit>
       <Unit>
         <Filename Value="msglayout.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="28"/>
+        <UsageCount Value="30"/>
       </Unit>
       <Unit>
         <Filename Value="framehistory.pas"/>
@@ -260,16 +268,16 @@
         <ResourceBaseClass Value="Frame"/>
         <IsVisibleTab Value="True"/>
         <EditorIndex Value="3"/>
-        <TopLine Value="184"/>
-        <CursorPos X="30" Y="196"/>
-        <UsageCount Value="28"/>
+        <TopLine Value="185"/>
+        <CursorPos X="21" Y="199"/>
+        <UsageCount Value="30"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="framehistory.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="28"/>
+        <UsageCount Value="30"/>
         <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
@@ -297,10 +305,6 @@
       </Unit>
     </Units>
     <JumpHistory HistoryIndex="29">
-      <Position>
-        <Filename Value="splash.pas"/>
-        <Caret Line="21" Column="71"/>
-      </Position>
       <Position>
         <Filename Value="tdclient.pas"/>
         <Caret Line="38" Column="86" TopLine="13"/>
@@ -416,6 +420,10 @@
       <Position>
         <Filename Value="framehistory.pas"/>
         <Caret Line="375" TopLine="363"/>
+      </Position>
+      <Position>
+        <Filename Value="framehistory.pas"/>
+        <Caret Line="187" Column="42" TopLine="172"/>
       </Position>
     </JumpHistory>
     <RunParams>

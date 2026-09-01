@@ -53,6 +53,11 @@ type
     PhotoPath:          utf8string;   { локальный путь, если уже скачан }
     Minithumb:          RawByteString;{ сырой JPEG из minithumbnail }
     AvatarRequested:    boolean;      { downloadFile уже отправлен }
+    { -1, если ещё не пришёл. 0..6 — зарезервированные "базовые" цвета
+      (red/orange/violet/green/cyan/blue/pink), 7+ — резолвятся через
+      TTdAccentColors (tdaccentcolors.pas) из updateAccentColors. Нужен
+      framehistory.pas для анонимных постов от лица чата/канала. }
+    AccentColorId:      integer;
   end;
 
   { Сводка по архиву для псевдостроки в начале списка. }
@@ -1085,6 +1090,7 @@ begin
   R.UnreadMentionCount := JGetInt(AChat, 'unread_mention_count');
   R.IsMarkedAsUnread := JGetBool(AChat, 'is_marked_as_unread');
   R.LastReadOutbox := JGetInt64(AChat, 'last_read_outbox_message_id');
+  R.AccentColorId := JGetInt(AChat, 'accent_color_id');
   ApplyNotifySettings(R, JGetObj(AChat, 'notification_settings'));
   ApplyPhoto(R, JGetObj(AChat, 'photo'));
   ApplyLastMessage(R, JGetObj(AChat, 'last_message'));
@@ -1162,6 +1168,12 @@ begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));
       if R <> nil then begin
         R.UnreadCount := JGetInt(Obj, 'unread_count');
+        Touch;
+      end;
+    end else if T = 'updateChatAccentColors' then begin
+      R := Lookup(JGetInt64(Obj, 'chat_id'));
+      if R <> nil then begin
+        R.AccentColorId := JGetInt(Obj, 'accent_color_id');
         Touch;
       end;
     end;
