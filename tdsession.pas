@@ -5,7 +5,7 @@ unit tdsession;
 interface
 
 uses
-  Classes, SysUtils, tdauth;
+  Classes, SysUtils, fpjson, tdauth;
 
 type
 
@@ -15,10 +15,15 @@ type
     tdcore оказывается НАД моделями: tdreq и tdchats должны знать про
     подписку, но не про реестр аккаунтов. Иначе получается цикл. }
 
-  { Сырой поток JSON. Для отладочного лога. }
+  { Сырой поток JSON. AData — уже разобранный объект (парсинг теперь
+    выполняется один раз в приёмном потоке, tdrecv.pas), а не заново
+    каждым подписчиком на главном потоке. AData = nil, если строка не
+    распарсилась или оказалась не объектом — подписчик обязан это
+    проверять. Объект живёт только до конца вызова TdUpdate: подписчик
+    не должен сохранять указатель, освобождает его tdrecv. }
   ITdUpdateListener = interface
     ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1101}']
-    procedure TdUpdate(const AJson: utf8string);
+    procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
   end;
 
   { Состояние авторизации и ошибки. Реализуют все формы. }

@@ -5,10 +5,10 @@ unit tdclient;
 interface
 
 uses
-  Classes, SysUtils, tdjson, tdrecv;
+  Classes, SysUtils, fpjson, tdjson, tdrecv;
 
 type
-  TTdUpdateEvent = procedure(Sender: TObject; const AJson: utf8string) of object;
+  TTdUpdateEvent = procedure(Sender: TObject; const AJson: utf8string; AData: TJSONObject) of object;
 
   { TTdClient
 
@@ -22,7 +22,7 @@ type
     FClientId: integer;
     FActive: boolean;
     FOnUpdate: TTdUpdateEvent;
-    procedure RawUpdate(Sender: TObject; const AJson: utf8string);
+    procedure RawUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
   public
     constructor Create;
     destructor Destroy; override;
@@ -80,10 +80,10 @@ begin
   FActive := False;
 end;
 
-procedure TTdClient.RawUpdate(Sender: TObject; const AJson: utf8string);
+procedure TTdClient.RawUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
 begin
   if Assigned(FOnUpdate) then begin
-    FOnUpdate(Self, AJson);
+    FOnUpdate(Self, AJson, AData);
   end;
 end;
 

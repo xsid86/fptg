@@ -5,7 +5,7 @@ unit tdjson;
 interface
 
 uses
-  SysUtils, ctypes;
+  Classes, SysUtils, ctypes, SyncObjs;
 
 const
   TDJSON_LIB = 'tdjson.dll';
@@ -39,6 +39,48 @@ procedure TdSend(AClientId: integer; const ARequest: utf8string);
 
 implementation
 
+var
+  { Полный сырой лог всего, что уходит в TDLib и приходит от него —
+    на уровне td_send/td_receive, ниже tdrecv.pas и любых подписчиков.
+    Не зависит от того, открыт ли отладочный экран (TFrameLog), какие
+    объекты на что подписаны, и не режется по числу строк, как Memo
+    там (MAX_LOG_LINES=500) — этого хватало не на всякую диагностику.
+    Файл создаётся заново при каждом запуске (fmCreate), путь — рядом
+    с exe. }
+  GLogFile: TFileStream = nil;
+  GLogLock: TCriticalSection = nil;
+
+procedure TdLogLine(const APrefix, ALine: utf8string);
+var
+  S: utf8string;
+begin
+  if GLogLock = nil then begin
+    Exit; { финализация уже началась }
+  end;
+  GLogLock.Enter;
+  try
+    if GLogFile = nil then begin
+      try
+        GLogFile := TFileStream.Create(
+          ExtractFilePath(ParamStr(0)) + 'tdlib_raw.log', fmCreate or fmShareDenyWrite);
+      except
+        GLogFile := nil;
+      end;
+      if GLogFile = nil then begin
+        Exit;
+      end;
+    end;
+    S := utf8string(FormatDateTime('hh:nn:ss.zzz', Now)) + ' ' + APrefix + ' ' + ALine + LineEnding;
+    try
+      GLogFile.WriteBuffer(S[1], Length(S));
+    except
+      { Диск переполнен/файл занят и т.п. — лог не должен уронить TDLib. }
+    end;
+  finally
+    GLogLock.Leave;
+  end;
+end;
+
 function TdCopyToUtf8(P: pansichar): utf8string;
 var
   Len: SizeInt;
@@ -62,6 +104,9 @@ end;
 function TdReceive(Timeout: double): utf8string;
 begin
   Result := TdCopyToUtf8(td_receive(Timeout));
+  if Result <> '' then begin
+    TdLogLine('<<', Result);
+  end;
 end;
 
 function TdExecute(const ARequest: utf8string): utf8string;
@@ -71,7 +116,15 @@ end;
 
 procedure TdSend(AClientId: integer; const ARequest: utf8string);
 begin
+  TdLogLine('>>', utf8string('[' + IntToStr(AClientId) + '] ') + ARequest);
   td_send(AClientId, pansichar(ARequest));
 end;
+
+initialization
+  GLogLock := TCriticalSection.Create;
+
+finalization
+  FreeAndNil(GLogFile);
+  FreeAndNil(GLogLock);
 
 end.

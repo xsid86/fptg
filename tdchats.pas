@@ -162,7 +162,7 @@ type
     procedure LoadMoreArchive;
 
     { ITdUpdateListener }
-    procedure TdUpdate(const AJson: utf8string);
+    procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
     { ITdStateListener }
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
@@ -1087,49 +1087,22 @@ begin
   ApplyPositions(R, JGetArr(AChat, 'positions'));
 end;
 
-procedure TTdChats.TdUpdate(const AJson: utf8string);
+procedure TTdChats.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
-  S: string;
-  Data: TJSONData;
   Obj: TJSONObject;
   T: utf8string;
   R: TChatRow;
 begin
-  S := string(AJson);
-
-  { Дешёвая отсечка до разбора. Апдейтов приходят тысячи, а нас
-    касается меньше десятка видов.
-    (Если понадобится, парсинг можно поднять в tdcore и делать один
-    раз на всех подписчиков — сейчас каждый парсит сам.) }
-  if (Pos('"updateNewChat"', S) = 0) and
-     (Pos('"updateChatPosition"', S) = 0) and
-     (Pos('"updateChatLastMessage"', S) = 0) and
-     (Pos('"updateChatDraftMessage"', S) = 0) and
-     (Pos('"updateChatTitle"', S) = 0) and
-     (Pos('"updateChatPhoto"', S) = 0) and
-     (Pos('"updateChatReadInbox"', S) = 0) and
-     (Pos('"updateChatReadOutbox"', S) = 0) and
-     (Pos('"updateFile"', S) = 0) and
-     (Pos('"updateUnreadChatCount"', S) = 0) and
-     (Pos('"updateUser"', S) = 0) and
-     (Pos('"updateChatNotificationSettings"', S) = 0) then begin
+  { AData уже разобран приёмным потоком (tdrecv.pas) — раньше здесь
+    был свой GetJSON за отдельной дешёвой Pos-отсечкой по сырой
+    строке; теперь парсинг один на всех подписчиков, отсечка не нужна. }
+  if AData = nil then begin
     Exit;
   end;
+  Obj := AData;
+  T := JGetStr(Obj, '@type');
 
-  Data := nil;
-  try
-    try
-      Data := GetJSON(S);
-    except
-      Exit;
-    end;
-    if (Data = nil) or (Data.JSONType <> jtObject) then begin
-      Exit;
-    end;
-    Obj := TJSONObject(Data);
-    T := JGetStr(Obj, '@type');
-
-    if T = 'updateNewChat' then begin
+  if T = 'updateNewChat' then begin
       ApplyChat(JGetObj(Obj, 'chat'));
       Touch;
     end else if T = 'updateChatPosition' then begin
@@ -1188,9 +1161,6 @@ begin
         Touch;
       end;
     end;
-  finally
-    Data.Free;
-  end;
 end;
 
 procedure TTdChats.TdStateChanged(AState: TTdAuthState);

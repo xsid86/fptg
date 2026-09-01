@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, IniFiles, ExtCtrls,
-  tdauth, tdrecv, tdsession, tdreq, tdchats, tdaccount;
+  tdauth, tdrecv, tdsession, tdreq, tdchats, tdmessages, tdaccount;
 
 type
   { Псевдонимы, чтобы формам не пришлось добавлять tdsession в uses.
@@ -127,6 +127,10 @@ function TdApp: TTdCore;
 
 { --- совместимость: модели АКТИВНОГО аккаунта --- }
 function TdChatList: TTdChats;
+{ Имя не TdMessages: так называется юнит tdmessages, и обращение
+  совпало бы с ним по идентификатору (Паскаль нечувствителен к
+  регистру) — та же ловушка, что у TdApp/tdcore, см. ARCHITECTURE.md. }
+function TdMsgList: TTdMessages;
 function TdRequests: TTdRequests;
 
 { Отписка от всех аккаунтов сразу. Форма могла подписаться на один,
@@ -163,6 +167,18 @@ begin
   A := TdApp.Active;
   if A <> nil then begin
     Result := A.Chats;
+  end else begin
+    Result := nil;
+  end;
+end;
+
+function TdMsgList: TTdMessages;
+var
+  A: TTdAccount;
+begin
+  A := TdApp.Active;
+  if A <> nil then begin
+    Result := A.Messages;
   end else begin
     Result := nil;
   end;

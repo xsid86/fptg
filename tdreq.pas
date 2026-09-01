@@ -75,7 +75,7 @@ type
       ACallback: TTdResponseEvent; ATag: PtrInt = 0; ATimeoutMs: integer = 0);
 
     { ITdUpdateListener }
-    procedure TdUpdate(const AJson: utf8string);
+    procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
     { ITdStateListener }
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
@@ -292,53 +292,42 @@ begin
   end;
 end;
 
-procedure TTdRequests.TdUpdate(const AJson: utf8string);
+procedure TTdRequests.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
-  Data: TJSONData;
   Obj: TJSONObject;
   Extra: string;
   Resp: TTdResponse;
 begin
-  { Дешёвая отсечка до разбора: подавляющее большинство апдейтов
-    к нам отношения не имеет, а парсить каждый — дорого. }
-  if Pos('"@extra":"' + REQ_PREFIX, string(AJson)) = 0 then begin
+  { AData уже разобран приёмным потоком (tdrecv.pas) — раньше здесь
+    был отдельный GetJSON именно этого ответа, и это была самая
+    дорогая точка: getChatHistory возвращает пачки по полсотни
+    сообщений с base64-превью, сотни КБ на ответ, а резолвер
+    вызывался на главном потоке (см. HandleUpdate/DrainQueue). Теперь
+    парсинг сделан один раз, до постановки в очередь на главный поток. }
+  if AData = nil then begin
+    Exit;
+  end;
+  Obj := AData;
+
+  Extra := string(JGetStr(Obj, '@extra'));
+  if Pos(REQ_PREFIX, Extra) <> 1 then begin
     Exit;
   end;
 
-  Data := nil;
-  try
-    try
-      Data := GetJSON(string(AJson));
-    except
-      Exit;
-    end;
-    if (Data = nil) or (Data.JSONType <> jtObject) then begin
-      Exit;
-    end;
-    Obj := TJSONObject(Data);
+  FillChar(Resp, SizeOf(Resp), 0);
+  Resp.ErrorMessage := '';
 
-    Extra := string(JGetStr(Obj, '@extra'));
-    if Pos(REQ_PREFIX, Extra) <> 1 then begin
-      Exit;
-    end;
-
-    FillChar(Resp, SizeOf(Resp), 0);
-    Resp.ErrorMessage := '';
-
-    if JGetStr(Obj, '@type') = 'error' then begin
-      Resp.Success := False;
-      Resp.Obj := Obj;
-      Resp.ErrorCode := JGetInt(Obj, 'code');
-      Resp.ErrorMessage := JGetStr(Obj, 'message');
-    end else begin
-      Resp.Success := True;
-      Resp.Obj := Obj;
-    end;
-
-    Resolve(Extra, Resp);
-  finally
-    Data.Free;
+  if JGetStr(Obj, '@type') = 'error' then begin
+    Resp.Success := False;
+    Resp.Obj := Obj;
+    Resp.ErrorCode := JGetInt(Obj, 'code');
+    Resp.ErrorMessage := JGetStr(Obj, 'message');
+  end else begin
+    Resp.Success := True;
+    Resp.Obj := Obj;
   end;
+
+  Resolve(Extra, Resp);
 end;
 
 procedure TTdRequests.TdStateChanged(AState: TTdAuthState);

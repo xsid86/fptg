@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, Forms, Controls, Dialogs, StdCtrls, ExtCtrls, Graphics,
   Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome,
-  framechats;
+  framechats, framehistory;
 
 type
 
@@ -162,12 +162,15 @@ begin
 end;
 
 procedure TFormMain.ChatSelected(Sender: TObject; ARow: TChatRow);
+var
+  F: TFrameHistory;
 begin
   if ARow = nil then begin
     Exit;
   end;
-  { Экран чата появится следующим шагом. }
   Caption := 'Telegram - ' + string(ARow.Title);
+  F := TFrameHistory(FNav.ShowFrame(TFrameHistory));
+  F.OpenChat(ARow.Id);
 end;
 
 procedure TFormMain.AvatarClicked(Sender: TObject; ARow: TChatRow);

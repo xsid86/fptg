@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, ExtCtrls, fpjson, jsonparser, base64,
-  tdauth, tdclient, tdsession, tdreq, tdchats;
+  tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages;
 
 type
 
@@ -40,10 +40,11 @@ type
     FOnStateNotify: TNotifyEvent;
     FForget: boolean;   { после logOut аккаунт не пересоздавать, а убрать }
 
-    FClient: TTdClient;
-    FAuth:   TTdAuth;
-    FReq:    TTdRequests;
-    FChats:  TTdChats;
+    FClient:   TTdClient;
+    FAuth:     TTdAuth;
+    FReq:      TTdRequests;
+    FChats:    TTdChats;
+    FMessages: TTdMessages;
 
     FUpdateL: array of ITdUpdateListener;
     FStateL:  array of ITdStateListener;
@@ -66,7 +67,7 @@ type
     procedure ApplyPhotoFile(AFile: TJSONObject);
 
     { приёмники событий TTdAuth }
-    procedure HandleUpdate(Sender: TObject; const AJson: utf8string);
+    procedure HandleUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
     procedure HandleStateChanged(Sender: TObject; AState: TTdAuthState);
     procedure HandleError(Sender: TObject; ACode: integer;
       const AMessage, AContext: utf8string);
@@ -133,6 +134,7 @@ type
     property Forget: boolean read FForget;
     property Title: string read FTitle write FTitle;
     property Chats: TTdChats read FChats;
+    property Messages: TTdMessages read FMessages;
     property Requests: TTdRequests read FReq;
     property Auth: TTdAuth read FAuth;
     property State: TTdAuthState read FState;
@@ -211,10 +213,12 @@ begin
     при пересоздании клиента они переживают смену. }
   FReq := TTdRequests.Create(Self, Self);
   FChats := TTdChats.Create(Self, Self, FReq);
+  FMessages := TTdMessages.Create(Self, Self, FReq);
 end;
 
 procedure TTdAccount.DestroyEngine;
 begin
+  FreeAndNil(FMessages);
   FreeAndNil(FChats);
   FreeAndNil(FReq);
   FreeAndNil(FAuth);
@@ -377,33 +381,21 @@ end;
   Списки копируются перед обходом: подписчик вправе отписаться
   прямо в обработчике. }
 
-procedure TTdAccount.HandleUpdate(Sender: TObject; const AJson: utf8string);
+procedure TTdAccount.HandleUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
 var
   Snap: array of ITdUpdateListener;
   I: integer;
-  Data: TJSONData;
 begin
-  { Своя аватарка докачалась. Дешёвая отсечка по строке — парсить
-    каждый апдейт ради этого было бы расточительно. }
-  if (FPhotoFileId <> 0) and (FPhotoPath = '')
-     and (Pos('"updateFile"', string(AJson)) > 0) then begin
-    Data := nil;
-    try
-      try
-        Data := GetJSON(string(AJson));
-        if (Data <> nil) and (Data.JSONType = jtObject) then begin
-          ApplyPhotoFile(JGetObj(TJSONObject(Data), 'file'));
-        end;
-      except
-      end;
-    finally
-      Data.Free;
-    end;
+  { Своя аватарка докачалась. AData уже разобран приёмным потоком
+    (tdrecv.pas) — раньше здесь был свой отдельный GetJSON. }
+  if (FPhotoFileId <> 0) and (FPhotoPath = '') and (AData <> nil)
+     and (JGetStr(AData, '@type') = 'updateFile') then begin
+    ApplyPhotoFile(JGetObj(AData, 'file'));
   end;
 
   Snap := Copy(FUpdateL);
   for I := 0 to High(Snap) do begin
-    Snap[I].TdUpdate(AJson);
+    Snap[I].TdUpdate(AJson, AData);
   end;
 end;
 

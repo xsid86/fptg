@@ -93,7 +93,7 @@ type
     FOnClosed:   TNotifyEvent;
     FOnError:    TTdAuthErrorEvent;
 
-    procedure ClientUpdate(Sender: TObject; const AJson: utf8string);
+    procedure ClientUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
     procedure ProcessAuthState(AObj: TJSONObject);
     procedure ProcessError(AObj: TJSONObject);
     procedure SetState(AState: TTdAuthState);
@@ -535,45 +535,36 @@ begin
   SendAuth('setTdlibParameters', Body);
 end;
 
-procedure TTdAuth.ClientUpdate(Sender: TObject; const AJson: utf8string);
+procedure TTdAuth.ClientUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
 var
-  Data: TJSONData;
-  Obj:  TJSONObject;
-  T:    utf8string;
+  Obj: TJSONObject;
+  T:   utf8string;
 begin
   if Assigned(FSavedUpdate) then begin
-    FSavedUpdate(Sender, AJson);
+    FSavedUpdate(Sender, AJson, AData);
   end;
 
-  Data := nil;
-  try
-    try
-      Data := GetJSON(string(AJson));
-    except
-      Exit;
-    end;
-    if (Data = nil) or (Data.JSONType <> jtObject) then begin
-      Exit;
-    end;
-    Obj := TJSONObject(Data);
-    T   := ObjStr(Obj, '@type');
+  { AData уже разобран приёмным потоком (tdrecv.pas) — раньше здесь
+    был свой отдельный GetJSON той же строки. }
+  if AData = nil then begin
+    Exit;
+  end;
+  Obj := AData;
+  T   := ObjStr(Obj, '@type');
 
-    if T = 'updateAuthorizationState' then begin
-      ProcessAuthState(ObjObj(Obj, 'authorization_state'));
-    end else
-    if T = 'authorizationState' then begin
-      ProcessAuthState(Obj);
-    end else
-    if T = 'error' then begin
-      ProcessError(Obj);
-    end else
-    if T = 'passwordRecoveryEmailAddressInfo' then begin
-      if Assigned(FOnPasswordRecovery) then begin
-        FOnPasswordRecovery(Self, ObjStr(Obj, 'email_address_pattern'));
-      end;
+  if T = 'updateAuthorizationState' then begin
+    ProcessAuthState(ObjObj(Obj, 'authorization_state'));
+  end else
+  if T = 'authorizationState' then begin
+    ProcessAuthState(Obj);
+  end else
+  if T = 'error' then begin
+    ProcessError(Obj);
+  end else
+  if T = 'passwordRecoveryEmailAddressInfo' then begin
+    if Assigned(FOnPasswordRecovery) then begin
+      FOnPasswordRecovery(Self, ObjStr(Obj, 'email_address_pattern'));
     end;
-  finally
-    Data.Free;
   end;
 end;
 

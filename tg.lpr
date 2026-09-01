@@ -11,16 +11,18 @@ uses
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
   Forms, Dialogs,
-  tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdaccount, tdcore,
-  uiframe, avatarcache, qrrender,
-  main, splash, login, framelog, framewelcome, framechats
+  tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
+  tdaccount, tdcore,
+  uiframe, avatarcache, qrrender, msglayout,
+  main, splash, login, framelog, framewelcome, framechats, framehistory
   { you can add units after this };
 
 {$R *.res}
 
 begin
   RequireDerivedFormResource := True;
-  Application.Scaled := True;
+  Application.Title:='TG Orchestrator';
+  Application.Scaled:=True;
   {$PUSH}{$WARN 5044 OFF}
   Application.MainFormOnTaskbar := True;
   {$POP}

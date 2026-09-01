@@ -5,10 +5,17 @@ unit tdrecv;
 interface
 
 uses
-  Classes, SysUtils, SyncObjs, tdjson;
+  Classes, SysUtils, SyncObjs, fpjson, jsonparser, tdjson;
 
 type
-  TTdRawEvent = procedure(Sender: TObject; const AJson: utf8string) of object;
+  { AData — результат разбора AJson, сделанного ЗДЕСЬ, в приёмном
+    потоке (см. TTdReceiveThread.Execute), а не на главном потоке
+    каждым подписчиком по отдельности, как было раньше. Владеет
+    объектом tdrecv: он освобождается в DrainQueue сразу после вызова
+    обработчика, поэтому AData за пределами TTdRawEvent невалиден —
+    сохранять указатель нельзя. AData = nil, если строка не
+    распарсилась или разобралась не в объект. }
+  TTdRawEvent = procedure(Sender: TObject; const AJson: utf8string; AData: TJSONObject) of object;
 
   TTdReceiver = class;
 
@@ -26,19 +33,29 @@ type
     Один на процесс. Документация TDLib прямо запрещает вызывать
     td_receive одновременно из двух потоков, а апдейты всех клиентов
     приходят единым потоком и различаются полем @client_id.
-    Поэтому поток здесь ровно один, а раздачей занимается диспетчер. }
+    Поэтому поток здесь ровно один, а раздачей занимается диспетчер.
+
+    Полный разбор JSON (GetJSON) тоже выполняется в этом потоке — он
+    простаивает почти всё время внутри td_receive с таймаутом, так что
+    лишней нагрузки на отзывчивость UI это не создаёт. Раньше каждый
+    подписчик (TTdChats/TTdMessages/TTdRequests/...) парсил сырую
+    строку заново уже на главном потоке — для мелких апдейтов
+    незаметно, но getChatHistory с полусотней сообщений и base64
+    мини-превью в каждом — это сотни КБ JSON, и синхронный парс такого
+    на главном потоке ощутимо подвешивал интерфейс. }
 
   TTdReceiver = class
   private
     FThread: TTdReceiveThread;
     FLock: TCriticalSection;
     FQueueJson: array of utf8string;
+    FQueueData: array of TJSONObject;
     FQueueId: array of integer;
     FQueueCount: integer;
     FHandlerId: array of integer;
     FHandler: array of TTdRawEvent;
     FActive: boolean;
-    procedure PushUpdate(AClientId: integer; const AJson: utf8string);
+    procedure PushUpdate(AClientId: integer; const AJson: utf8string; AData: TJSONObject);
     procedure DrainQueue;              { выполняется в главном потоке }
     function FindHandler(AClientId: integer; out AEvent: TTdRawEvent): boolean;
   public
@@ -136,6 +153,7 @@ end;
 procedure TTdReceiveThread.Execute;
 var
   S: utf8string;
+  Data: TJSONData;
 begin
   while not Terminated do begin
     S := TdReceive(RECEIVE_TIMEOUT);
@@ -143,7 +161,20 @@ begin
       Break;
     end;
     if S <> '' then begin
-      FOwner.PushUpdate(ExtractClientId(S), S);
+      { Разбор — здесь, не на главном потоке. Ошибка парсинга или
+        JSON не-объект — не наша забота, подписчики уже умеют
+        обрабатывать AData = nil (см. комментарий у TTdRawEvent). }
+      Data := nil;
+      try
+        Data := GetJSON(string(S));
+      except
+        Data := nil;
+      end;
+      if (Data <> nil) and (Data.JSONType <> jtObject) then begin
+        Data.Free;
+        Data := nil;
+      end;
+      FOwner.PushUpdate(ExtractClientId(S), S, TJSONObject(Data));
     end;
   end;
 end;
@@ -156,6 +187,7 @@ begin
   FLock := TCriticalSection.Create;
   FQueueCount := 0;
   SetLength(FQueueJson, 32);
+  SetLength(FQueueData, 32);
   SetLength(FQueueId, 32);
   FActive := False;
 end;
@@ -180,6 +212,8 @@ begin
 end;
 
 procedure TTdReceiver.Stop;
+var
+  I: integer;
 begin
   if FThread <> nil then begin
     FThread.Terminate;
@@ -189,6 +223,12 @@ begin
   end;
   FLock.Enter;
   try
+    { RemoveQueuedEvents отменил DrainQueue, если он ещё не выполнился
+      — разобранные объекты в очереди остались бы без хозяина. }
+    for I := 0 to FQueueCount - 1 do begin
+      FQueueData[I].Free;
+      FQueueData[I] := nil;
+    end;
     FQueueCount := 0;
   finally
     FLock.Leave;
@@ -258,9 +298,12 @@ begin
   end;
 end;
 
-procedure TTdReceiver.PushUpdate(AClientId: integer; const AJson: utf8string);
+procedure TTdReceiver.PushUpdate(AClientId: integer; const AJson: utf8string;
+  AData: TJSONObject);
 begin
   if (FThread = nil) or FThread.Terminated then begin
+    { Обработчиков уже не будет — объект достался бы никому. }
+    AData.Free;
     Exit;
   end;
 
@@ -268,9 +311,11 @@ begin
   try
     if FQueueCount >= Length(FQueueJson) then begin
       SetLength(FQueueJson, Length(FQueueJson) * 2);
+      SetLength(FQueueData, Length(FQueueData) * 2);
       SetLength(FQueueId, Length(FQueueId) * 2);
     end;
     FQueueJson[FQueueCount] := AJson;
+    FQueueData[FQueueCount] := AData;
     FQueueId[FQueueCount] := AClientId;
     Inc(FQueueCount);
   finally
@@ -283,6 +328,7 @@ end;
 procedure TTdReceiver.DrainQueue;
 var
   BatchJson: array of utf8string;
+  BatchData: array of TJSONObject;
   BatchId: array of integer;
   I, N: integer;
   H: TTdRawEvent;
@@ -294,11 +340,14 @@ begin
       Exit;
     end;
     SetLength(BatchJson, N);
+    SetLength(BatchData, N);
     SetLength(BatchId, N);
     for I := 0 to N - 1 do begin
       BatchJson[I] := FQueueJson[I];
+      BatchData[I] := FQueueData[I];
       BatchId[I] := FQueueId[I];
       FQueueJson[I] := '';
+      FQueueData[I] := nil;
     end;
     FQueueCount := 0;
   finally
@@ -306,11 +355,16 @@ begin
   end;
 
   { Секция отпущена до вызова обработчиков: иначе приёмный поток
-    вставал бы на ней всё время разбора апдейта. }
+    вставал бы на ней всё время разбора апдейта. Разобранный объект —
+    общий для всех подписчиков этого client_id (см. TTdAccount.
+    HandleUpdate), владеет им tdrecv: освобождаем сразу после вызова
+    обработчика, подписчикам сохранять указатель за пределы вызова
+    нельзя (см. комментарий у TTdRawEvent). }
   for I := 0 to N - 1 do begin
     if FindHandler(BatchId[I], H) then begin
-      H(Self, BatchJson[I]);
+      H(Self, BatchJson[I], BatchData[I]);
     end;
+    BatchData[I].Free;
   end;
 end;
 

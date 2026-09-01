@@ -5,7 +5,7 @@ unit framelog;
 interface
 
 uses
-  Classes, SysUtils, Controls, Forms, StdCtrls, ExtCtrls,
+  Classes, SysUtils, Controls, Forms, StdCtrls, ExtCtrls, fpjson,
   tdauth, tdcore, uiframe;
 
 type
@@ -30,7 +30,7 @@ type
     constructor Create(TheOwner: TComponent); override;
     destructor Destroy; override;
     { ITdUpdateListener }
-    procedure TdUpdate(const AJson: utf8string);
+    procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
   end;
 
 implementation
@@ -68,7 +68,7 @@ begin
   UpdateCounter;
 end;
 
-procedure TFrameLog.TdUpdate(const AJson: utf8string);
+procedure TFrameLog.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 begin
   Inc(FTotal);
   if chkPause.Checked then begin
