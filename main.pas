@@ -72,6 +72,11 @@ type
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
     property Nav: TFrameNavigator read FNav;
+    { Список чатов не сменный экран навигатора (см. FormCreate) — свой
+      собственный публичный доступ, а не через Nav.Find. Нужен
+      framehistory.pas, чтобы взять ImageList1 со значками статуса
+      сообщений, не заводя вторую копию тех же иконок. }
+    property Chats: TFrameChats read FChats;
   end;
 
 var

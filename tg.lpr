@@ -12,7 +12,7 @@ uses
   Interfaces, // this includes the LCL widgetset
   Forms, Dialogs,
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
-  tdaccount, tdcore,
+  tdusers, tdaccount, tdcore,
   uiframe, avatarcache, qrrender, msglayout,
   main, splash, login, framelog, framewelcome, framechats, framehistory
   { you can add units after this };

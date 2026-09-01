@@ -162,6 +162,10 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
+        <Filename Value="tdusers.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="msglayout.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>

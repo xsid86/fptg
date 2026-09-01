@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, ExtCtrls, fpjson, jsonparser, base64,
-  tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages;
+  tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages, tdusers;
 
 type
 
@@ -45,6 +45,7 @@ type
     FReq:      TTdRequests;
     FChats:    TTdChats;
     FMessages: TTdMessages;
+    FUsers:    TTdUsers;
 
     FUpdateL: array of ITdUpdateListener;
     FStateL:  array of ITdStateListener;
@@ -135,6 +136,7 @@ type
     property Title: string read FTitle write FTitle;
     property Chats: TTdChats read FChats;
     property Messages: TTdMessages read FMessages;
+    property Users: TTdUsers read FUsers;
     property Requests: TTdRequests read FReq;
     property Auth: TTdAuth read FAuth;
     property State: TTdAuthState read FState;
@@ -214,10 +216,12 @@ begin
   FReq := TTdRequests.Create(Self, Self);
   FChats := TTdChats.Create(Self, Self, FReq);
   FMessages := TTdMessages.Create(Self, Self, FReq);
+  FUsers := TTdUsers.Create(Self, Self, FReq);
 end;
 
 procedure TTdAccount.DestroyEngine;
 begin
+  FreeAndNil(FUsers);
   FreeAndNil(FMessages);
   FreeAndNil(FChats);
   FreeAndNil(FReq);

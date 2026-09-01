@@ -7,7 +7,8 @@ interface
 uses
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
-  tdauth, tdcore, tdmessages, msglayout, uiframe;
+  tdauth, tdcore, tdchats, tdmessages, tdusers, msglayout, uiframe,
+  framechats;
 
 type
   { TAudioWidget
@@ -102,6 +103,11 @@ type
   private
     FReady: boolean;
     FModel: TTdMessages;
+    { Кэш имён — не "модель этого фрейма" в том же смысле, что FModel
+      (история одного открытого чата): один на аккаунт, переживает
+      смену чата, поэтому у него собственная лёгкая привязка внутри
+      BindModel/UnbindModel, а не полноценный Bind/Unbind как у FModel. }
+    FUsers: TTdUsers;
     FScroller:  TMsgScroller;
     FScrollbar: TScrollBar;
     pnlStatus:  TPanel;
@@ -110,6 +116,10 @@ type
     procedure UnbindModel;
     procedure ModelChanged(Sender: TObject);
     procedure LoadingChanged(Sender: TObject);
+    { Кэшу имён/аватарке отправителя пришёл ответ на getUser — просто
+      перерисовать: высота блока не меняется от того, что имя
+      дорезолвилось, полная пересборка офсетов не нужна. }
+    procedure UsersChanged(Sender: TObject);
     procedure ActionError(Sender: TObject; ACode: integer;
       const AMessage, AAction: utf8string);
     procedure ScrollerRangeChanged(Sender: TObject);
@@ -132,16 +142,137 @@ type
 
 implementation
 
+{ main в реализации, а не в интерфейсе: main сам использует
+  framehistory (навигатор рабочей области), и в интерфейсе это дало бы
+  цикл — тот же приём, что у main/login (см. main.pas). Нужен только
+  ради FormMain.Chats.ImageList1 (значки статуса сообщения, §3 плана). }
+uses
+  main;
+
 {$R *.lfm}
 
 const
   MSG_PAD_H      = 12;
   MSG_PAD_V      = 6;
   MSG_GAP        = 4;
+  { HEADER_H — высота самого значка/текста заголовка (для центрирования
+    внутри неё). HEADER_BAR_H — сколько места заголовок реально
+    занимает в блоке: та же высота плюс отступ MSG_GAP сверху и снизу
+    внутри цветной подложки заголовка — тот же отступ, что между
+    сообщениями (MSG_GAP), не отдельное магическое число. }
   HEADER_H       = 16;
+  HEADER_BAR_H   = HEADER_H + 2 * MSG_GAP;
   NEAR_TOP_PX    = 400;
   WHEEL_LINE_PX  = 60;
   LINE_SCROLL_PX = 24;
+  { Слот под значок статуса в заголовке блока — зарезервирован даже у
+    входящих сообщений (там значка нет, crNone), чтобы имя отправителя
+    не "прыгало" по горизонтали от строки к строке. }
+  MSG_ICON_W     = 16;
+  MSG_ICON_GAP   = 4;
+
+  { Цвет отправителя по кругу — единственное место в файле, которое
+    придётся тронуть под тёмную тему (см. план: полноценную
+    инфраструктуру тем сейчас не строим, только не закапываем цвета
+    россыпью литералов по коду отрисовки). TColor — $00BBGGRR, поэтому
+    у каждого значения рядом RGB для читаемости при будущей правке. }
+  SENDER_PALETTE: array[0..7] of TColor = (
+    $2222B2,  { RGB(178, 34, 34)  firebrick }
+    $228B22,  { RGB( 34,139, 34)  forest green }
+    $A0501E,  { RGB( 30, 80,160)  steel blue }
+    $800080,  { RGB(128,  0,128)  purple }
+    $005AB4,  { RGB(180, 90,  0)  dark orange }
+    $808000,  { RGB(  0,128,128)  teal }
+    $8515C7,  { RGB(199, 21,133)  medium violet red }
+    $008080   { RGB(128,128,  0)  olive }
+  );
+  { Насколько сильно цвет отправителя проступает в подложке блока —
+    0.1 = 10% цвета поверх фона, остальное клBackground. Тоже
+    вынесено, а не зашито внутрь BlendWithBackground, по той же причине,
+    что и SENDER_PALETTE — легко подправить под тёмную тему/на вкус. }
+  SENDER_BG_OPACITY = 0.1;
+  { Подложка именно строки заголовка (значок+имя) — заметнее, чем фон
+    всего блока: свой, более высокий уровень прозрачности. }
+  SENDER_HEADER_OPACITY = 0.2;
+
+{ Цвет по кругу, детерминированно по id отправителя — свой SenderUserId
+  просто обычное значение в этом же хэше, поэтому исходящие сообщения
+  получают стабильный цвет автоматически, без отдельной ветки на
+  IsOutgoing. SenderChatId у каналов/супергрупп бывает отрицательным
+  (см. tdlib_raw.log) — Abs, чтобы не уйти за границу массива. }
+function SenderColor(ARow: TMsgRow): TColor;
+var
+  Id: Int64;
+begin
+  if ARow.SenderUserId <> 0 then begin
+    Id := ARow.SenderUserId;
+  end else begin
+    Id := ARow.SenderChatId;
+  end;
+  Result := SENDER_PALETTE[Abs(Id) mod Length(SENDER_PALETTE)];
+end;
+
+{ Смешивает AColor с ABackground в пропорции AOpacity (0..1) —
+  подложка блока сообщения, "цвет отправителя приглушённо поверх фона",
+  без настоящей альфа-композиции (BGRABitmap) — она была бы избыточна
+  для сплошной заливки прямоугольника, а Paint дёргается на каждый
+  скролл. ColorToRGB разворачивает системные цвета (напр. clWindow)
+  в реальные RGB — без этого блендинг псевдо-цвета дал бы мусор. }
+function BlendWithBackground(AColor: TColor; AOpacity: double; ABackground: TColor): TColor;
+var
+  Fg, Bg: longint;
+begin
+  Fg := ColorToRGB(AColor);
+  Bg := ColorToRGB(ABackground);
+  Result := RGBToColor(
+    Round((Bg and $FF) + AOpacity * ((Fg and $FF) - (Bg and $FF))),
+    Round(((Bg shr 8) and $FF) + AOpacity * (((Fg shr 8) and $FF) - ((Bg shr 8) and $FF))),
+    Round(((Bg shr 16) and $FF) + AOpacity * (((Fg shr 16) and $FF) - ((Bg shr 16) and $FF)))
+  );
+end;
+
+{ Имя отправителя. SenderChatId (анонимный админ/пост от имени канала)
+  резолвится через уже загруженный список чатов, не через TTdUsers —
+  это не пользователь. }
+function SenderDisplayName(ARow: TMsgRow): utf8string;
+var
+  C: TChatRow;
+  U: TTdUsers;
+  L: TTdChats;
+begin
+  Result := '';
+  if ARow.SenderUserId <> 0 then begin
+    U := TdUserList;
+    if U <> nil then begin
+      Result := U.DisplayName(ARow.SenderUserId);
+    end;
+  end else if ARow.SenderChatId <> 0 then begin
+    L := TdChatList;
+    C := nil;
+    if L <> nil then begin
+      C := L.Lookup(ARow.SenderChatId);
+    end;
+    if C <> nil then begin
+      Result := C.Title;
+    end else begin
+      Result := 'Channel';
+    end;
+  end;
+end;
+
+{ Индекс кадра в ImageList1 (framechats.pas) под значок статуса
+  исходящего сообщения; -1 — не рисовать (crNone, входящее). }
+function ReceiptIconIndex(AKind: TChatReceipt): integer;
+begin
+  case AKind of
+    crSent:    Result := ICON_MSG_SENT;
+    crRead:    Result := ICON_MSG_READ;
+    crPending: Result := ICON_MSG_PENDING;
+    crFailed:  Result := ICON_MSG_FAILED;
+  else
+    Result := -1;
+  end;
+end;
 
 { ---------------- TAudioWidget ---------------- }
 
@@ -253,7 +384,7 @@ begin
   SetLength(FOffsets, Cnt + 1);
   FOffsets[0] := 0;
   for I := 0 to Cnt - 1 do begin
-    H := HEADER_H + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + 2 * MSG_PAD_V;
+    H := HEADER_BAR_H + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + 2 * MSG_PAD_V;
     FOffsets[I + 1] := FOffsets[I] + H + MSG_GAP;
   end;
 
@@ -315,8 +446,8 @@ var
   BlockH, ContentH, TopY: integer;
 begin
   BlockH := FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP;
-  ContentH := BlockH - HEADER_H - 2 * MSG_PAD_V;
-  TopY := FOffsets[AIndex] - FScrollTop + HEADER_H + MSG_PAD_V;
+  ContentH := BlockH - HEADER_BAR_H - 2 * MSG_PAD_V;
+  TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + MSG_PAD_V;
   Result := Rect(MSG_PAD_H, TopY, ClientWidth - MSG_PAD_H, TopY + ContentH);
 end;
 
@@ -499,6 +630,12 @@ var
   S: string;
   SelStart, SelEnd, LowIdx, HighIdx, LowChar, HighChar: integer;
   HasSel: boolean;
+  ChatRow: TChatRow;
+  LastReadOutbox: Int64;
+  IconList: TImageList;
+  HeaderX, HeaderY, IconIdx: integer;
+  LocalDT: TDateTime;
+  TimeStr, NameStr, SuffixStr: string;
 begin
   Canvas.Brush.Style := bsSolid;
   Canvas.Brush.Color := clWindow;
@@ -516,6 +653,23 @@ begin
 
   HasSel := ResolveSelection(LowIdx, HighIdx, LowChar, HighChar);
 
+  { Значок статуса — по чату целиком, не по строке: LastReadOutbox
+    одинаков для всех сообщений текущего чата, доставать его на
+    каждую строку внутри цикла ниже незачем. }
+  ChatRow := nil;
+  if TdChatList <> nil then begin
+    ChatRow := TdChatList.Lookup(FModel.ChatId);
+  end;
+  if ChatRow <> nil then begin
+    LastReadOutbox := ChatRow.LastReadOutbox;
+  end else begin
+    LastReadOutbox := 0;
+  end;
+  IconList := nil;
+  if (FormMain <> nil) and (FormMain.Chats <> nil) then begin
+    IconList := FormMain.Chats.ImageList1;
+  end;
+
   { Единственный путь исполнения из всей смены чата, где раньше не
     было try/except: Paint вызывается напрямую системой отрисовки
     (WM_PAINT), а не через ModelChanged, поэтому туда не долетала
@@ -530,19 +684,73 @@ begin
       BR := BlockRect(I);
       CR := ContentRect(I);
 
+      { Подложка блока — цвет отправителя приглушённо поверх фона,
+        SENDER_BG_OPACITY. Заливаем ПЕРЕД заголовком/контентом, чтобы
+        текст и разделительная линия легли поверх, не под. }
+      Canvas.Brush.Style := bsSolid;
+      Canvas.Brush.Color := BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow);
+      Canvas.FillRect(BR);
+
+      { Подложка самой строки заголовка (значок+имя) — заметнее фона
+        блока (SENDER_HEADER_OPACITY > SENDER_BG_OPACITY), поверх уже
+        закрашенного фона блока. Отступ значка/текста от верхнего и
+        нижнего края этой полосы — MSG_GAP, тот же, что между
+        сообщениями (HeaderY, а не BR.Top напрямую). }
+      Canvas.Brush.Color := BlendWithBackground(SenderColor(R), SENDER_HEADER_OPACITY, clWindow);
+      Canvas.FillRect(Rect(BR.Left, BR.Top, BR.Right, BR.Top + HEADER_BAR_H));
+      HeaderY := BR.Top + MSG_GAP;
+
       Canvas.Brush.Style := bsClear;
       Canvas.Font.Name := 'default';
       Canvas.Font.Height := -11;
-      Canvas.Font.Style := [];
-      Canvas.Font.Color := clGrayText;
-      S := FormatDateTime('hh:nn', UniversalTimeToLocal(UnixToDateTime(R.Date)));
+      HeaderX := BR.Left + MSG_PAD_H;
+
+      { У исходящих — статус доставки, у входящих — просто маркер
+        направления (ICON_MSG_INCOMING, не статус: у чужого сообщения
+        "доставлено/прочитано" с нашей стороны не бывает). Слот
+        зарезервирован в любом случае, чтобы имя не "прыгало" по
+        горизонтали от строки к строке. }
       if R.IsOutgoing then begin
-        case R.Delivery of
-          mdsPending: S := S + '  (sending)';
-          mdsFailed:  S := S + '  (failed)';
+        IconIdx := ReceiptIconIndex(MessageReceipt(R, LastReadOutbox));
+      end else begin
+        IconIdx := ICON_MSG_INCOMING;
+      end;
+      if IconList <> nil then begin
+        if (IconIdx >= 0) and (IconIdx < IconList.Count) then begin
+          IconList.Draw(Canvas, HeaderX, HeaderY + (HEADER_H - IconList.Height) div 2, IconIdx, True);
         end;
       end;
-      Canvas.TextOut(BR.Left + MSG_PAD_H, BR.Top + 2, S);
+      Inc(HeaderX, MSG_ICON_W + MSG_ICON_GAP);
+
+      LocalDT := UniversalTimeToLocal(UnixToDateTime(R.Date));
+      if SameDate(LocalDT, Date) then begin
+        TimeStr := FormatDateTime('hh:nn', LocalDT);
+      end else begin
+        TimeStr := FormatDateTime('hh:nn dd.mm.yy', LocalDT);
+      end;
+      NameStr := string(SenderDisplayName(R));
+      if NameStr = '' then begin
+        S := '(' + TimeStr + ')';
+      end else begin
+        S := NameStr + ' (' + TimeStr + ')';
+      end;
+
+      Canvas.Font.Style := [fsBold];
+      Canvas.Font.Color := SenderColor(R);
+      Canvas.TextOut(HeaderX, HeaderY, S);
+
+      SuffixStr := '';
+      if R.IsOutgoing then begin
+        case R.Delivery of
+          mdsPending: SuffixStr := '  sending...';
+          mdsFailed:  SuffixStr := '  failed';
+        end;
+      end;
+      if SuffixStr <> '' then begin
+        Canvas.Font.Style := [];
+        Canvas.Font.Color := clGrayText;
+        Canvas.TextOut(HeaderX + Canvas.TextWidth(S), HeaderY, SuffixStr);
+      end;
 
       Canvas.Font.Height := -13;
       if HasSel and (I >= LowIdx) and (I <= HighIdx) then begin
@@ -553,6 +761,13 @@ begin
       end;
 
       RendererFor(R.Kind).Paint(R, Canvas, CR, SelStart, SelEnd);
+
+      { Тонкая разделительная линия под блоком — визуально ближе к
+        плотной ленте QIP, чем голый MSG_GAP. }
+      Canvas.Pen.Color := clBtnFace;
+      Canvas.Pen.Style := psSolid;
+      Canvas.MoveTo(0, BR.Bottom - 1);
+      Canvas.LineTo(ClientWidth, BR.Bottom - 1);
     except
       { Молча пропускаем эту строку: статус-строка обновляется из
         ModelChanged, а не отсюда — Paint может вызываться десятками
@@ -883,6 +1098,14 @@ procedure TFrameHistory.BindModel;
 begin
   FModel := TdMsgList;
   FScroller.BindModel(FModel);
+
+  { Кэш имён — не смотрим на nil-раннюю Exit ниже: он привязывается
+    независимо от того, есть ли уже открытый чат. }
+  FUsers := TdUserList;
+  if FUsers <> nil then begin
+    FUsers.OnChanged := @UsersChanged;
+  end;
+
   if FModel = nil then begin
     Exit;
   end;
@@ -906,6 +1129,12 @@ begin
       FModel.OnActionError := nil;
     end;
     FModel := nil;
+  end;
+  if FUsers <> nil then begin
+    if TMethod(FUsers.OnChanged).Data = Pointer(Self) then begin
+      FUsers.OnChanged := nil;
+    end;
+    FUsers := nil;
   end;
   FScroller.BindModel(nil);
 end;
@@ -994,6 +1223,16 @@ begin
     RPC был бы совсем незаметен: пустой список и тишина. }
   if lblStatus <> nil then begin
     lblStatus.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
+  end;
+end;
+
+procedure TFrameHistory.UsersChanged(Sender: TObject);
+begin
+  { Дорезолвилось (или обновилось) чьё-то имя — высота блоков от этого
+    не меняется, полная FScroller.ModelChanged (пересчёт офсетов) не
+    нужна, только перерисовать. }
+  if FReady and (FScroller <> nil) then begin
+    FScroller.Invalidate;
   end;
 end;
 

@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, fgl, ExtCtrls, fpjson, jsonparser,
-  tdauth, tdsession, tdreq;
+  tdauth, tdsession, tdreq, tdchats;
 
 type
   TMsgContentKind = (mckText, mckAudio, mckPhoto, mckAnimation, mckSticker,
@@ -158,6 +158,12 @@ type
     property OnLoadingChanged: TTdMessagesEvent read FOnLoadingChanged write FOnLoadingChanged;
   end;
 
+{ Значок статуса ИСХОДЯЩЕГО сообщения — то же понятие, что ChatReceipt в
+  tdchats.pas (переиспользуем его TChatReceipt, второй enum не заводим).
+  ALastReadOutbox — TChatRow.LastReadOutbox чата, которому принадлежит
+  ARow; framehistory.pas достаёт его через TdChatList.Lookup(ARow.ChatId). }
+function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
+
 implementation
 
 const
@@ -179,6 +185,24 @@ const
     попытка передавать "якорь минус 1" вместо "якорь минус эта
     константа" уронила почти каждый запрос в этот код ошибки). }
   TD_MESSAGE_ID_STEP = 1048576;
+
+function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
+begin
+  Result := crNone;
+  if (ARow = nil) or (not ARow.IsOutgoing) then begin
+    Exit;
+  end;
+  case ARow.Delivery of
+    mdsPending: Result := crPending;
+    mdsFailed:  Result := crFailed;
+  else
+    if ARow.Id <= ALastReadOutbox then begin
+      Result := crRead;
+    end else begin
+      Result := crSent;
+    end;
+  end;
+end;
 
 { Длина UTF-8 символа по ведущему байту — тот же приём, что в
   avatarcache.Utf8CharLen. Не переиспользуем сам юнит: avatarcache

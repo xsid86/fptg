@@ -104,7 +104,6 @@ type
     function GetCount: integer;
     function GetRow(AIndex: integer): TChatRow;
     function Obtain(AId: Int64): TChatRow;
-    function Lookup(AId: Int64): TChatRow;
 
     procedure ApplyChat(AChat: TJSONObject);
     procedure ApplyPositions(ARow: TChatRow; APositions: TJSONArray);
@@ -134,6 +133,11 @@ type
     destructor Destroy; override;
 
     procedure Clear;
+    { Чат по id, nil если неизвестен. Публичный — framehistory.pas
+      использует его, чтобы достать LastReadOutbox текущего чата
+      (значок статуса сообщения) и Title чата-отправителя (анонимные
+      посты от имени канала/группы). }
+    function Lookup(AId: Int64): TChatRow;
     { --- действия над чатом ---
       Результат приходит апдейтами (updateChatReadInbox, updateChatPosition
       и прочими), которые модель и так разбирает, поэтому список

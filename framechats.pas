@@ -10,6 +10,35 @@ uses
   Controls, DateUtils, Dialogs, ExtCtrls, Forms, Graphics, Grids,
   Menus, StdCtrls, SysUtils, tdauth, tdchats, tdcore, Types, uiframe;
 
+const
+  { Все индексы в ImageList1 — одним блоком здесь, в интерфейсной
+    части, а не раскиданы по интерфейсу/реализации: ICON_CHANNEL и
+    соседи нужны только этому юниту (собственная отрисовка строки
+    чата), а ICON_MSG_* — ещё и framehistory.pas (значок статуса
+    сообщения через FormMain.Chats.ImageList1, своей копии списка не
+    заводит) — но это один и тот же список с одной сквозной нумерацией
+    кадров, дробить его по видимости бессмысленно.
+
+    0..5 — значки типа чата и уведомлений, кадры уже в списке. }
+  ICON_CHANNEL    = 0;   { рупор }
+  ICON_GROUP      = 1;   { двое }
+  ICON_BOT        = 2;   { робот }
+  ICON_PRIVATE    = 3;   { человек }
+  ICON_NOTIFY_ON  = 4;
+  ICON_NOTIFY_OFF = 5;
+  { 6..10 — статус/направление сообщения в framehistory.pas.
+    TODO: значения ниже — временная договорённость, подтвердить и
+    поправить при добавлении реальных кадров в дизайнере, если
+    разложены иначе. }
+  ICON_MSG_SENT     = 6;
+  ICON_MSG_READ     = 7;
+  ICON_MSG_PENDING  = 8;
+  ICON_MSG_FAILED   = 9;
+  { Входящее сообщение — не статус доставки (его у чужих сообщений не
+    бывает), просто маркер направления, чтобы слот перед именем не
+    пустовал у половины строк, как в исходном скриншоте QIP. }
+  ICON_MSG_INCOMING = 10;
+
 type
   { Кликабельные области внутри строки. }
   TChatHitArea = (chaNone, chaBell, chaAvatar, chaHeader);
@@ -136,15 +165,8 @@ const
   { Архив всегда занимает нулевую строку, как в оригинальном клиенте. }
   ARCHIVE_ROWS = 1;
 
-  { Индексы в ImageList на фрейме. Порядок задан самим списком:
-    0 — рупор, 1 — двое, 2 — робот, 3 — человек. }
-  ICON_CHANNEL = 0;
-  ICON_GROUP   = 1;
-  ICON_BOT     = 2;
-  ICON_PRIVATE = 3;
-  ICON_NOTIFY_ON = 4;
-  ICON_NOTIFY_OFF = 5;
-  { Индекс в ImageListBig. }
+  { Индекс в ImageListBig (не ImageList1 — тот со всеми индексами
+    ICON_* собран в интерфейсной части, см. начало файла). }
   BIG_ARCHIVE  = 0;   { значок архива в основном списке }
   BIG_ALLCHATS = 1;   { значок возврата в архивном списке }
 
