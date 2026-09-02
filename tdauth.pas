@@ -5,7 +5,7 @@ unit tdauth;
 interface
 
 uses
-  Classes, SysUtils, fpjson, jsonparser, tdclient;
+  Classes, SysUtils, fpjson, jsonparser, constants, tdclient;
 
 type
   TTdAuthState = (
@@ -155,10 +155,7 @@ function CodeDeliveryToStr(ADelivery: TTdCodeDelivery): string;
 
 implementation
 
-const
-  MAX_PENDING = 32;
-
-  { ---------------- утилиты ---------------- }
+{ ---------------- утилиты ---------------- }
 
 function JsonEsc(const S: utf8string): utf8string;
 var

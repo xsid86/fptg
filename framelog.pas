@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Controls, Forms, StdCtrls, ExtCtrls, fpjson,
-  tdauth, tdcore, uiframe;
+  constants, tdauth, tdcore, uiframe;
 
 type
 
@@ -36,11 +36,6 @@ type
 implementation
 
 {$R *.lfm}
-
-const
-  { Лог не должен расти бесконечно: мемо с сотнями тысяч строк
-    съедает память и начинает тормозить при перерисовке. }
-  MAX_LOG_LINES = 500;
 
 constructor TFrameLog.Create(TheOwner: TComponent);
 begin

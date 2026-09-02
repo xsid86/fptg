@@ -7,42 +7,8 @@ interface
 uses
   avatarcache, BGRABitmap, BGRABitmapTypes,
   Classes, Clipbrd,
-  Controls, DateUtils, Dialogs, ExtCtrls, Forms, Graphics, Grids,
+  Controls, constants, DateUtils, Dialogs, ExtCtrls, Forms, Graphics, Grids,
   Menus, StdCtrls, SysUtils, tdauth, tdchats, tdcore, Types, uiframe;
-
-const
-  { Все индексы в ImageList1 — одним блоком здесь, в интерфейсной
-    части, а не раскиданы по интерфейсу/реализации: ICON_CHANNEL и
-    соседи нужны только этому юниту (собственная отрисовка строки
-    чата), а ICON_MSG_* — ещё и framehistory.pas (значок статуса
-    сообщения через FormMain.Chats.ImageList1, своей копии списка не
-    заводит) — но это один и тот же список с одной сквозной нумерацией
-    кадров, дробить его по видимости бессмысленно.
-
-    0..5 — значки типа чата и уведомлений, кадры уже в списке. }
-  ICON_CHANNEL    = 0;   { рупор }
-  ICON_GROUP      = 1;   { двое }
-  ICON_BOT        = 2;   { робот }
-  ICON_PRIVATE    = 3;   { человек }
-  ICON_NOTIFY_ON  = 4;
-  ICON_NOTIFY_OFF = 5;
-  { 6..10 — статус/направление сообщения в framehistory.pas.
-    TODO: значения ниже — временная договорённость, подтвердить и
-    поправить при добавлении реальных кадров в дизайнере, если
-    разложены иначе. }
-  ICON_MSG_SENT     = 6;
-  ICON_MSG_READ     = 7;
-  ICON_MSG_PENDING  = 8;
-  ICON_MSG_FAILED   = 9;
-  { Входящее сообщение — не статус доставки (его у чужих сообщений не
-    бывает), просто маркер направления, чтобы слот перед именем не
-    пустовал у половины строк, как в исходном скриншоте QIP. }
-  ICON_MSG_INCOMING = 10;
-  { Значок цитаты ответа (reply_to) в framehistory.pas —
-    TMsgScroller.PaintReplyBox. Индекс — временная договорённость до
-    добавления реального кадра в дизайнере (тот же приём, что и у
-    ICON_MSG_* выше). }
-  ICON_QUOTE        = 11;
 
 type
   { Кликабельные области внутри строки. }
@@ -137,55 +103,6 @@ type
 implementation
 
 {$R *.lfm}
-
-const
-  ROW_HEIGHT = 56;
-  PAD      = 8;
-  { Слева от аватарки — колонка под значки типа и уведомлений.
-    Белой подложки нет, но значки центруются по тем же виртуальным
-    кругам 24x24, что и раньше. }
-  ICON_COL_L = 6;
-  ICON_COL_W = 24;
-  ICON_COL_R = ICON_COL_W div 2;
-  AV_LEFT  = ICON_COL_L + ICON_COL_W + 6;
-  TEXT_LEFT = AV_LEFT + AVATAR_SIZE + 10;
-  BADGE_H  = 18;
-  BADGE_PAD = 7;
-  BADGE_FONT_H = 12;
-  BADGE_CACHE_MAX = 64;
-  { Вертикальная разметка правой колонки: время на уровне заголовка,
-    значок — на уровне превью, как в Telegram. }
-  { Отметка о прочтении. }
-  TICK_W   = 12;   { ширина одной галочки }
-  TICK_H   = 11;
-  TICK_SHIFT = 5;    { сдвиг второй галочки у «прочитано» }
-  TICK_PEN = 1.6;
-  RECEIPT_TOP = 11;
-  TITLE_TOP = 8;
-  PREVIEW_TOP = 29;
-  TIME_TOP = 10;
-  GAP      = 6;
-  { За сколько строк до конца просить следующую порцию. }
-  PREFETCH_ROWS = 6;
-  { Архив всегда занимает нулевую строку, как в оригинальном клиенте. }
-  ARCHIVE_ROWS = 1;
-
-  { Индекс в ImageListBig (не ImageList1 — тот со всеми индексами
-    ICON_* собран в интерфейсной части, см. начало файла). }
-  BIG_ARCHIVE  = 0;   { значок архива в основном списке }
-  BIG_ALLCHATS = 1;   { значок возврата в архивном списке }
-
-
-  { Коды пунктов контекстного меню. }
-  MI_NONE    = 0;
-  MI_READ    = 1;
-  MI_UNREAD  = 2;
-  MI_PIN     = 3;
-  MI_UNPIN   = 4;
-  MI_COPY_ID = 5;
-  MI_LEAVE   = 6;
-  MI_ARCHIVE = 7;
-  MI_UNARCHIVE = 8;
 
 { Отметка времени в стиле Telegram: сегодня — часы, вчера — словом,
   на этой неделе — день недели, дальше — дата. }

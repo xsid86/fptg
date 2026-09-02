@@ -5,7 +5,7 @@ unit tdrecv;
 interface
 
 uses
-  Classes, SysUtils, SyncObjs, fpjson, jsonparser, tdjson;
+  Classes, SysUtils, SyncObjs, fpjson, jsonparser, constants, tdjson;
 
 type
   { AData — результат разбора AJson, сделанного ЗДЕСЬ, в приёмном
@@ -82,10 +82,6 @@ function TdReceiverExists: boolean;
 function ExtractClientId(const AJson: utf8string): integer;
 
 implementation
-
-const
-  RECEIVE_TIMEOUT = 1.0;
-  CLIENT_ID_TAG = '"@client_id":';
 
 var
   GRecv: TTdReceiver = nil;

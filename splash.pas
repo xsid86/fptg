@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls,
-  tdauth, tdcore;
+  constants, tdauth, tdcore;
 
 type
 
@@ -38,11 +38,6 @@ var
 implementation
 
 {$R *.lfm}
-
-const
-  { Минимальное время показа сплэша. Если TDLib ответит быстрее,
-    окно всё равно повисит столько — иначе оно мигает. }
-  MIN_SPLASH_MS = 2000;
 
 { TFormSplash }
 

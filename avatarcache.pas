@@ -7,19 +7,7 @@ interface
 uses
   Classes, SysUtils, Types, Graphics, fgl,
   BGRABitmap, BGRABitmapTypes,
-  tdchats;
-
-const
-  AVATAR_SIZE = 44;
-  { Ключ кэша — id чата. Потолок держит память в узде: битмапы, а не
-    записи списка, и есть настоящая цена прокрутки длинного списка. }
-  DEFAULT_CAPACITY = 200;
-  { Координаты в BGRABitmap центрированы по пикселю: центр пикселя 0
-    находится в 0, поэтому рисовать можно от -0.5 до SIZE-0.5.
-    Круг с центром SIZE/2 и радиусом SIZE/2 вылез бы за правый и нижний
-    край и оказался срезан. }
-  AV_CENTER = (AVATAR_SIZE - 1) / 2;
-  AV_RADIUS = AVATAR_SIZE / 2;
+  constants, tdchats;
 
 type
   TAvatarKind = (akNone, akThumb, akReal);
@@ -86,11 +74,6 @@ function RenderAvatarBmp(const APath: utf8string; const AThumb: RawByteString;
 procedure ApplyRoundMaskTo(ABmp: TBGRABitmap; ASize: integer);
 
 implementation
-
-const
-  PALETTE: array[0..6] of TColor = (
-    TColor($5B8BE3), TColor($5FBF6B), TColor($4B5FE8),
-    TColor($C77BD8), TColor($D8B24B), TColor($5BC2D8), TColor($6B6BE8));
 
 destructor TAvatarEntry.Destroy;
 begin

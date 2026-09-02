@@ -17,7 +17,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="18"/>
+      <BuildNr Value="19"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -90,6 +90,10 @@
       </Unit>
       <Unit>
         <Filename Value="tdcore.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="constants.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

@@ -6,12 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Graphics,
-  QlpQrCode, QlpIQrCode;
-
-const
-  { Тихая зона по стандарту — 4 модуля с каждой стороны.
-    Без неё заметная часть сканеров код не видит. }
-  QR_QUIET_ZONE = 4;
+  constants, QlpQrCode, QlpIQrCode;
 
 { Рисует QR-код для AText в ABitmap.
 

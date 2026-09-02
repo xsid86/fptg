@@ -5,10 +5,7 @@ unit tdjson;
 interface
 
 uses
-  Classes, SysUtils, ctypes, SyncObjs;
-
-const
-  TDJSON_LIB = 'tdjson.dll';
+  Classes, SysUtils, ctypes, SyncObjs, constants;
 
 type
   { Вызывается из внутренних потоков TDLib. LCL отсюда трогать нельзя. }

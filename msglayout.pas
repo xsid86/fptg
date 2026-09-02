@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Types, Graphics,
-  tdmessages;
+  constants, tdmessages;
 
 type
   TRunKind = (rkText, rkLink);
@@ -76,14 +76,6 @@ type
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
 
 implementation
-
-const
-  { Небольшой межстрочный запас поверх TextHeight. }
-  LINE_LEADING = 4;
-  PLACEHOLDER_BOX   = 160;
-  PLACEHOLDER_BOX_H = 120;
-  CAPTION_GAP       = 6;
-  AUDIO_WIDGET_H    = 56;
 
 { ---------------- разбор текста в runs ---------------- }
 

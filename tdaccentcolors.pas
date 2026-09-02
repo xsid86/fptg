@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Graphics, fpjson,
-  tdauth, tdsession, tdreq;
+  constants, tdauth, tdsession, tdreq;
 
 type
   TAccentColorEntry = record
@@ -57,20 +57,6 @@ type
   end;
 
 implementation
-
-const
-  { TColor — $00BBGGRR. Комментарий у каждого значения — RGB и
-    название по core.telegram.org/api/colors, не официальный hex
-    (нигде не опубликован). }
-  BUILT_IN_COLORS: array[0..6] of TColor = (
-    $3C3CE6,  { RGB(230, 60, 60)   red }
-    $1E8CE6,  { RGB(230,140, 30)   orange }
-    $D25096,  { RGB(150, 80,210)   violet }
-    $5AAA3C,  { RGB( 60,170, 90)   green }
-    $AFA028,  { RGB( 40,160,175)   cyan }
-    $DC7832,  { RGB( 50,120,220)   blue }
-    $9650DC   { RGB(220, 80,150)   pink }
-  );
 
 constructor TTdAccentColors.Create(AOwner: TComponent; const ASession: ITdSession);
 begin

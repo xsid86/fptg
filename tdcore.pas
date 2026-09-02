@@ -6,8 +6,8 @@ interface
 
 uses
   Classes, SysUtils, IniFiles, ExtCtrls,
-  tdauth, tdrecv, tdsession, tdreq, tdchats, tdmessages, tdusers, tdaccentcolors,
-  tdaccount;
+  constants, tdauth, tdrecv, tdsession, tdreq, tdchats, tdmessages, tdusers,
+  tdaccentcolors, tdaccount;
 
 type
   { Псевдонимы, чтобы формам не пришлось добавлять tdsession в uses.
@@ -149,10 +149,6 @@ function TdIsShuttingState(AState: TTdAuthState): boolean;
 procedure TdSessionUnsubscribe(const ASession: ITdSession; const AListener: IUnknown);
 
 implementation
-
-const
-  SHUTDOWN_TIMEOUT = 5000;
-  MANIFEST = 'accounts.ini';
 
 var
   GCore: TTdCore = nil;

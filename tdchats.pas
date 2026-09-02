@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, base64, fgl, ExtCtrls, fpjson, jsonparser,
-  tdauth, tdsession, tdreq;
+  constants, tdauth, tdsession, tdreq;
 
 type
   TChatKind = (ckUnknown, ckPrivate, ckBasicGroup, ckSupergroup, ckChannel, ckSecret);
@@ -206,9 +206,6 @@ function MessagePreview(AContent: TJSONObject): utf8string;
 
 implementation
 
-const
-  COALESCE_MS = 50;
-
 function ChatKindToStr(AKind: TChatKind): string;
 begin
   case AKind of
@@ -391,7 +388,7 @@ begin
   FLoadLimit := 30;
 
   FTimer := TTimer.Create(Self);
-  FTimer.Interval := COALESCE_MS;
+  FTimer.Interval := CHATS_COALESCE_MS;
   FTimer.OnTimer := @Rebuild;
   FTimer.Enabled := False;
 

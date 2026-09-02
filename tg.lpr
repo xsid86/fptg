@@ -11,6 +11,7 @@ uses
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
   Forms, Dialogs,
+  constants,
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
   tdusers, tdaccentcolors, tdaccount, tdcore,
   uiframe, avatarcache, qrrender, msglayout,

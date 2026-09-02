@@ -50,7 +50,7 @@
         <ResourceBaseClass Value="Form"/>
         <EditorIndex Value="5"/>
         <TopLine Value="92"/>
-        <CursorPos X="5" Y="130"/>
+        <CursorPos X="5" Y="125"/>
         <UsageCount Value="81"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
@@ -102,6 +102,11 @@
         <CursorPos Y="74"/>
         <UsageCount Value="81"/>
         <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="constants.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
       </Unit>
       <Unit>
         <Filename Value="tdjson.pas"/>
@@ -263,7 +268,7 @@
         <ResourceBaseClass Value="Frame"/>
         <IsVisibleTab Value="True"/>
         <EditorIndex Value="3"/>
-        <TopLine Value="198"/>
+        <TopLine Value="199"/>
         <CursorPos X="21" Y="199"/>
         <UsageCount Value="30"/>
         <Loaded Value="True"/>

@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, fgl, ExtCtrls, fpjson, jsonparser,
-  tdauth, tdsession, tdreq, tdchats;
+  constants, tdauth, tdsession, tdreq, tdchats;
 
 type
   TMsgContentKind = (mckText, mckAudio, mckPhoto, mckAnimation, mckSticker,
@@ -249,26 +249,6 @@ function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
 
 implementation
 
-const
-  COALESCE_MS = 50;
-  { getChatHistory может честно вернуть меньше сообщений, чем limit
-    (или вовсе один дубликат якоря), даже если история не кончилась —
-    см. HistoryDone. Даём несколько попыток тем же якорем с реальной
-    задержкой между ними (НЕ синхронно — синхронный повтор внутри
-    того же колбэка — ровно то, что однажды подвесило приложение
-    плотным циклом запрос/ответ). }
-  MAX_NO_PROGRESS_RETRIES = 5;
-  RETRY_DELAY_MS = 400;
-  { Гранулярность id сообщений TDLib: id = server_message_id shl 20 —
-    подтверждено по логу (tdlib_raw.log), у каждого id из реальных
-    сообщений младшие 20 бит нулевые, соседние сообщения отличаются
-    ровно на эту константу. from_message_id ОБЯЗАН быть кратен ей —
-    TDLib отклоняет что угодно другое с "code":400 "Invalid value of
-    parameter from_message_id specified" (тоже подтверждено логом:
-    попытка передавать "якорь минус 1" вместо "якорь минус эта
-    константа" уронила почти каждый запрос в этот код ошибки). }
-  TD_MESSAGE_ID_STEP = 1048576;
-
 function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
 begin
   Result := crNone;
@@ -439,7 +419,7 @@ begin
   FLoadLimit := 50;
 
   FTimer := TTimer.Create(Self);
-  FTimer.Interval := COALESCE_MS;
+  FTimer.Interval := MESSAGES_COALESCE_MS;
   FTimer.OnTimer := @Rebuild;
   FTimer.Enabled := False;
 

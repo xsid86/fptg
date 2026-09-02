@@ -6,17 +6,7 @@ interface
 
 uses
   Classes, SysUtils, DateUtils, ExtCtrls, fpjson, jsonparser,
-  tdauth, tdsession;
-
-const
-  { Свой префикс @extra. У TTdAuth собственный ('auth:'), и пересекаться
-    им нельзя — иначе два владельца будут драться за одни и те же ответы. }
-  REQ_PREFIX = 'req:';
-
-  { Синтетический код ошибки для запросов, оставшихся без ответа. }
-  TD_ERR_TIMEOUT = -1;
-  { Синтетический код для запросов, отменённых закрытием клиента. }
-  TD_ERR_CLOSED  = -2;
+  constants, tdauth, tdsession;
 
 type
   TTdResponse = record
