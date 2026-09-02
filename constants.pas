@@ -249,6 +249,13 @@ const
     REPLY_LINE_H + HEADER_PAD_V + AUDIO_THUMB_H + HEADER_PAD_V +
     REPLY_LINE_H [название+прогресс+время]) = 2*11 + max(32,48) = 70. }
   AUDIO_WIDGET_H    = 70;
+  { Виджет файла (TFileWidget, framehistory.pas) — тот же приём
+    подложки/контура/скругления, что и у AUDIO_WIDGET_H, но без полосы
+    прогресса — высота не переиспользует AUDIO_WIDGET_H целиком (тот
+    считался под кнопку+название+прогресс+время), а собственная
+    формула: значок (AUDIO_BUTTON_SIZE) + отступ сверху/снизу
+    (MSG_PAD_H=11 по месту пользователя) с каждой стороны. }
+  FILE_WIDGET_H     = AUDIO_BUTTON_SIZE + 2 * MSG_PAD_H;
 
   { ================= qrrender.pas ================= }
 

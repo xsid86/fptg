@@ -10,7 +10,7 @@ uses
 
 type
   TMsgContentKind = (mckText, mckAudio, mckPhoto, mckAnimation, mckSticker,
-    mckVoiceNote, mckOther);
+    mckVoiceNote, mckFile, mckOther);
 
   { Состояние доставки исходящего сообщения. Отдельное имя от
     tdchats.TMsgSendState: framehistory будет использовать оба юнита
@@ -98,6 +98,15 @@ type
     AudioFileId:            integer;
     AudioLocalPath:         utf8string;
     AudioDownloadRequested: boolean;
+    { messageDocument.document — только для Kind=mckFile. Тот же приём
+      двойного "document" в JSON (content.document.file_name — метаданные,
+      content.document.document — сам скачиваемый TDLib-объект file),
+      что и у content.audio.audio, проверено по tdlib_raw.log. }
+    DocFileName:     utf8string;
+    DocFileSize:     Int64;
+    DocFileId:            integer;
+    DocLocalPath:         utf8string;
+    DocDownloadRequested: boolean;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -124,6 +133,11 @@ type
   { file_id аудиофайла -> сообщение — тот же приём, что TTdChats.FByFile
     для аватарок (tdchats.pas). }
   TAudioFileMap = specialize TFPGMap<integer, TMsgRow>;
+  { file_id документа -> сообщение — та же роль, что TAudioFileMap у
+    аудио, отдельная карта (не общая с TAudioFileMap): у сообщения
+    ровно один Kind, но раздельные карты проще для чтения, чем общая
+    с веткой "какое поле обновлять" внутри. }
+  TDocFileMap = specialize TFPGMap<integer, TMsgRow>;
 
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
@@ -177,6 +191,8 @@ type
 
     { Скачивание аудиофайлов — см. EnsureAudioFile/ApplyAudioFile. }
     FByFile: TAudioFileMap;
+    { Скачивание файлов-документов — см. EnsureDocFile/ApplyDocFile. }
+    FDocByFile: TDocFileMap;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -192,6 +208,11 @@ type
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadAudioDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyAudioFile(AFile: TJSONObject);
+    procedure ExtractDocMeta(AContent: TJSONObject; const AType: utf8string;
+      out AFileName: utf8string; out AFileSize: Int64;
+      out AFileId: integer; out ALocalPath: utf8string);
+    procedure DownloadDocDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyDocFile(AFile: TJSONObject);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -256,6 +277,8 @@ type
       об этом обычной перерисовкой, отдельного события не заводим — тот
       же приём, что уже принят для аватарок (см. CLAUDE.md). }
     procedure EnsureAudioFile(ARow: TMsgRow);
+    { То же самое для файла-документа (см. DocFileId) — тем же приёмом. }
+    procedure EnsureDocFile(ARow: TMsgRow);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -403,6 +426,8 @@ begin
     Result := mckSticker;
   end else if AType = 'messageVoiceNote' then begin
     Result := mckVoiceNote;
+  end else if AType = 'messageDocument' then begin
+    Result := mckFile;
   end else begin
     Result := mckOther;
   end;
@@ -454,6 +479,8 @@ begin
   FReplyCache.Sorted := True;
   FByFile := TAudioFileMap.Create;
   FByFile.Sorted := True;
+  FDocByFile := TDocFileMap.Create;
+  FDocByFile.Sorted := True;
   FLoadLimit := 50;
 
   FTimer := TTimer.Create(Self);
@@ -482,6 +509,7 @@ begin
   FAll.Free;
   FReplyCache.Free;
   FByFile.Free;
+  FDocByFile.Free;
   inherited Destroy;
 end;
 
@@ -499,6 +527,7 @@ begin
   end;
   FReplyCache.Clear;
   FByFile.Clear;
+  FDocByFile.Clear;
   SetLength(FReplyPending, 0);
   FLoadingOlder := False;
   FOldestLoaded := False;
@@ -950,6 +979,41 @@ begin
   end;
 end;
 
+{ messageDocument.document — тот же приём двойного "document" в JSON,
+  что и content.audio.audio выше: content.document — метаданные (имя
+  файла), content.document.document — сам скачиваемый TDLib-объект
+  file. Проверено по tdlib_raw.log, не по памяти. }
+procedure TTdMessages.ExtractDocMeta(AContent: TJSONObject; const AType: utf8string;
+  out AFileName: utf8string; out AFileSize: Int64;
+  out AFileId: integer; out ALocalPath: utf8string);
+var
+  DocObj, FileObj, LocalObj: TJSONObject;
+begin
+  AFileName := '';
+  AFileSize := 0;
+  AFileId := 0;
+  ALocalPath := '';
+  if (AContent = nil) or (AType <> 'messageDocument') then begin
+    Exit;
+  end;
+  DocObj := JGetObj(AContent, 'document');
+  if DocObj = nil then begin
+    Exit;
+  end;
+  AFileName := JGetStr(DocObj, 'file_name');
+
+  FileObj := JGetObj(DocObj, 'document');
+  if FileObj = nil then begin
+    Exit;
+  end;
+  AFileSize := JGetInt64(FileObj, 'size');
+  AFileId := JGetInt(FileObj, 'id');
+  LocalObj := JGetObj(FileObj, 'local');
+  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+    ALocalPath := JGetStr(LocalObj, 'path');
+  end;
+end;
+
 procedure TTdMessages.ApplyMessage(AMsg: TJSONObject);
 var
   R: TMsgRow;
@@ -1072,6 +1136,7 @@ begin
   ExtractFormatted(ContentObj, T, R.PlainText, R.Entities);
   ExtractAudioMeta(ContentObj, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
     R.AudioFileId, R.AudioLocalPath);
+  ExtractDocMeta(ContentObj, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -1100,6 +1165,7 @@ begin
   ExtractFormatted(ANewContent, T, R.PlainText, R.Entities);
   ExtractAudioMeta(ANewContent, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
     R.AudioFileId, R.AudioLocalPath);
+  ExtractDocMeta(ANewContent, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
@@ -1301,6 +1367,7 @@ begin
     mckAnimation: Result := 'GIF';
     mckSticker:   Result := 'Sticker';
     mckVoiceNote: Result := 'Voice message';
+    mckFile:      Result := 'File';
   else
     Result := 'Message';
   end;
@@ -1464,6 +1531,81 @@ begin
   Touch;
 end;
 
+{ Скачивание файла-документа — точная копия EnsureAudioFile/
+  DownloadAudioDone/ApplyAudioFile выше, отдельная от них ровно потому,
+  что file_id аудио и file_id документа — раздельные карты (FByFile/
+  FDocByFile), см. комментарий у TDocFileMap. }
+procedure TTdMessages.EnsureDocFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.DocFileId = 0) or (ARow.DocLocalPath <> '') or ARow.DocDownloadRequested then begin
+    Exit;
+  end;
+  ARow.DocDownloadRequested := True;
+  if FDocByFile.IndexOf(ARow.DocFileId) < 0 then begin
+    FDocByFile.Add(ARow.DocFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.DocDownloadRequested := False;
+    Exit;
+  end;
+  { priority 32 — высший, как и у аудио: явный запрос пользователя
+    "хочу сохранить этот файл", не фоновая подгрузка. }
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.DocFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadDocDone, ARow.DocFileId);
+end;
+
+procedure TTdMessages.DownloadDocDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyDocFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FDocByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FDocByFile.Data[Idx].DocDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyDocFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FDocByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FDocByFile.Data[Idx];
+  if R.DocLocalPath = Path then begin
+    Exit;
+  end;
+  R.DocLocalPath := Path;
+  Touch;
+end;
+
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
   Obj: TJSONObject;
@@ -1496,6 +1638,7 @@ begin
         JGetObj(Obj, 'new_content'));
     end else if T = 'updateFile' then begin
       ApplyAudioFile(JGetObj(Obj, 'file'));
+      ApplyDocFile(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));

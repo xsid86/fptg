@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
-  BGRABitmap, BGRABitmapTypes, avatarcache,
+  Dialogs, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
   uiframe, framechats, audioplayer;
 
@@ -83,6 +83,42 @@ type
   end;
 
   TAudioMap = specialize TFPGMap<Int64, TAudioWidget>;
+
+  { TFileWidget
+
+    Виджет файла-документа — по прямому запросу пользователя, тот же
+    внешний вид, что и у финальной реализации TAudioWidget (подложка/
+    контур/скругление/отступы, одна и та же FILE_WIDGET_H=AUDIO_WIDGET_H),
+    но без play/pause и полосы прогресса (у файла нет ни того, ни
+    другого): слева — значок по расширению файла (FileIconIndex,
+    FileTypes ImageList на TFrameHistory), справа — имя файла (там же,
+    где у аудио заголовок трека) и его размер (там же, где у аудио
+    время). Курсор — рука на всём виджете (не только над значком, как
+    у play/pause кнопки audio), клик в любом месте — сохранить файл. }
+  TFileWidget = class(TCustomControl)
+  private
+    FRowId: Int64;
+    FFileName: utf8string;
+    FFileSize: Int64;
+    FIconIndex: integer;
+    FImages: TImageList;
+    FOnClick: TNotifyEvent;
+    function IconRect: TRect;
+  protected
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    procedure SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64);
+    property Images: TImageList read FImages write FImages;
+    property RowId: Int64 read FRowId;
+    property OnFileClick: TNotifyEvent read FOnClick write FOnClick;
+  end;
+
+  { Не TFileMap — то имя уже занято tdchats.TFileMap (file_id -> TChatRow,
+    для аватарок), framehistory тянет tdchats в uses. }
+  TFileWidgetMap = specialize TFPGMap<Int64, TFileWidget>;
+
   { Ключ — id пользователя или чата-источника репоста (см. поле у
     TMsgScroller, где заведены два разных инстанса этого типа). }
   TForwardAvatarMap = specialize TFPGMap<Int64, TBGRABitmap>;
@@ -125,6 +161,15 @@ type
       сразу после создания FScroller (см. её конструктор), свой список
       на форме (не framechats.ImageList1 — те 16x16, эти 32x32). }
     FAudioImages: TImageList;
+
+    { Виджет файла-документа — тот же пул-приём, что у аудио. }
+    FFilePool:   TFPList;       { of TFileWidget }
+    FFileActive: TFileWidgetMap;
+    FFileImages: TImageList;    { FileTypes на TFrameHistory }
+    { Клик по ещё не скачанному файлу — EnsureDocFile только запрашивает
+      загрузку; когда путь придёт (ModelChanged/Touch), диалог сохранения
+      открывается сам — тот же приём, что FPendingPlayMsgId у аудио. }
+    FPendingSaveMsgId: Int64;
 
     { Проигрывание аудио — один активный плеер на весь скроллер (как и
       в самом Telegram, играет не более одного трека разом). Виджет —
@@ -217,6 +262,10 @@ type
     function ContentRect(AIndex: integer): TRect;
     procedure LayoutAudioWidgets(ALo, AHi: integer);
     function ObtainAudioWidget: TAudioWidget;
+    procedure LayoutFileWidgets(ALo, AHi: integer);
+    function ObtainFileWidget: TFileWidget;
+    procedure FileWidgetClick(Sender: TObject);
+    procedure SaveDocFile(ARow: TMsgRow);
     function HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;
     function ResolveSelection(out ALowIdx, AHighIdx, ALowChar, AHighChar: integer): boolean;
     procedure RangeForRow(AIndex, ALowIdx, AHighIdx, ALowChar, AHighChar,
@@ -258,6 +307,7 @@ type
     property OnScrollRangeChanged: TNotifyEvent read FOnScrollRangeChanged write FOnScrollRangeChanged;
     property OnNearTop: TNotifyEvent read FOnNearTop write FOnNearTop;
     property AudioImages: TImageList read FAudioImages write FAudioImages;
+    property FileImages: TImageList read FFileImages write FFileImages;
   end;
 
   { TFrameHistory
@@ -267,6 +317,7 @@ type
     через навигатор. }
   TFrameHistory = class(TFrameBase, ITdActiveListener)
     ImageList1: TImageList;
+    FileTypes: TImageList;
   private
     FReady: boolean;
     FModel: TTdMessages;
@@ -855,6 +906,182 @@ begin
   Canvas.RoundRect(Box, Radius, Radius);
 end;
 
+{ ---------------- TFileWidget ---------------- }
+
+type
+  TFileIconEntry = record
+    Idx: integer;
+    Ext: string;
+  end;
+
+const
+  FILE_ICON_COUNT = 98;
+  { Расширение -> индекс кадра в FileTypes (TFrameHistory). Не считано
+    со скриншотов на глаз — сгенерировано из реального списка файлов в
+    res/file_types/ (тот самый каталог, откуда пользователь массово
+    импортировал кадры в ImageList редактором Lazarus): отсортированные
+    по имени file_extension_<ext>.png дают ТОЧНО тот же порядок, что и
+    кадры 1..98 (кадр 0 — page_white.png, общая заглушка, добавлена до
+    массового импорта). Poka строится один раз командой в оболочке
+    (ls | sed | awk), не вручную — почти по определению без ошибок
+    транскрипции, в отличие от более ранней версии этой таблицы,
+    считанной со скриншотов (там едва не потерялись MSWMM и TORRENT —
+    оба между соседними по алфавиту расширениями, глазом за них легко
+    проскочить). Каждая запись — независимая пара (индекс, расширение),
+    не позиция в массиве, на случай будущей ручной правки одной строки. }
+  FILE_ICONS: array[1..FILE_ICON_COUNT] of TFileIconEntry = (
+    (Idx:1;Ext:'3GP'),    (Idx:2;Ext:'7Z'),     (Idx:3;Ext:'ACE'),    (Idx:4;Ext:'AI'),
+    (Idx:5;Ext:'AIF'),    (Idx:6;Ext:'AIFF'),   (Idx:7;Ext:'AMR'),    (Idx:8;Ext:'ASF'),
+    (Idx:9;Ext:'ASX'),    (Idx:10;Ext:'BAT'),   (Idx:11;Ext:'BIN'),   (Idx:12;Ext:'BMP'),
+    (Idx:13;Ext:'BUP'),   (Idx:14;Ext:'CAB'),   (Idx:15;Ext:'CBR'),   (Idx:16;Ext:'CDA'),
+    (Idx:17;Ext:'CDL'),   (Idx:18;Ext:'CDR'),   (Idx:19;Ext:'CHM'),   (Idx:20;Ext:'DAT'),
+    (Idx:21;Ext:'DIVX'),  (Idx:22;Ext:'DLL'),   (Idx:23;Ext:'DMG'),   (Idx:24;Ext:'DOC'),
+    (Idx:25;Ext:'DSS'),   (Idx:26;Ext:'DVF'),   (Idx:27;Ext:'DWG'),   (Idx:28;Ext:'EML'),
+    (Idx:29;Ext:'EPS'),   (Idx:30;Ext:'EXE'),   (Idx:31;Ext:'FLA'),   (Idx:32;Ext:'FLV'),
+    (Idx:33;Ext:'GIF'),   (Idx:34;Ext:'GZ'),    (Idx:35;Ext:'HQX'),   (Idx:36;Ext:'HTM'),
+    (Idx:37;Ext:'HTML'),  (Idx:38;Ext:'IFO'),   (Idx:39;Ext:'INDD'),  (Idx:40;Ext:'ISO'),
+    (Idx:41;Ext:'JAR'),   (Idx:42;Ext:'JPEG'),  (Idx:43;Ext:'JPG'),   (Idx:44;Ext:'LNK'),
+    (Idx:45;Ext:'LOG'),   (Idx:46;Ext:'M4A'),   (Idx:47;Ext:'M4B'),   (Idx:48;Ext:'M4P'),
+    (Idx:49;Ext:'M4V'),   (Idx:50;Ext:'MCD'),   (Idx:51;Ext:'MDB'),   (Idx:52;Ext:'MID'),
+    (Idx:53;Ext:'MOV'),   (Idx:54;Ext:'MP2'),   (Idx:55;Ext:'MP4'),   (Idx:56;Ext:'MPEG'),
+    (Idx:57;Ext:'MPG'),   (Idx:58;Ext:'MSI'),   (Idx:59;Ext:'MSWMM'), (Idx:60;Ext:'OGG'),
+    (Idx:61;Ext:'PDF'),   (Idx:62;Ext:'PNG'),   (Idx:63;Ext:'PPS'),   (Idx:64;Ext:'PS'),
+    (Idx:65;Ext:'PSD'),   (Idx:66;Ext:'PST'),   (Idx:67;Ext:'PTB'),   (Idx:68;Ext:'PUB'),
+    (Idx:69;Ext:'QBB'),   (Idx:70;Ext:'QBW'),   (Idx:71;Ext:'QXD'),   (Idx:72;Ext:'RAM'),
+    (Idx:73;Ext:'RAR'),   (Idx:74;Ext:'RM'),    (Idx:75;Ext:'RMVB'),  (Idx:76;Ext:'RTF'),
+    (Idx:77;Ext:'SEA'),   (Idx:78;Ext:'SES'),   (Idx:79;Ext:'SIT'),   (Idx:80;Ext:'SITX'),
+    (Idx:81;Ext:'SS'),    (Idx:82;Ext:'SWF'),   (Idx:83;Ext:'TGZ'),   (Idx:84;Ext:'THM'),
+    (Idx:85;Ext:'TIF'),   (Idx:86;Ext:'TMP'),   (Idx:87;Ext:'TORRENT'),(Idx:88;Ext:'TTF'),
+    (Idx:89;Ext:'TXT'),   (Idx:90;Ext:'VCD'),   (Idx:91;Ext:'VOB'),   (Idx:92;Ext:'WAV'),
+    (Idx:93;Ext:'WMA'),   (Idx:94;Ext:'WMV'),   (Idx:95;Ext:'WPS'),   (Idx:96;Ext:'XLS'),
+    (Idx:97;Ext:'XPI'),   (Idx:98;Ext:'ZIP')
+  );
+
+function FileIconIndex(const AFileName: utf8string): integer;
+var
+  Ext: string;
+  I: integer;
+begin
+  Result := 0;
+  Ext := UpperCase(string(ExtractFileExt(AFileName)));
+  if (Ext <> '') and (Ext[1] = '.') then begin
+    Delete(Ext, 1, 1);
+  end;
+  if Ext = '' then begin
+    Exit;
+  end;
+  for I := 1 to FILE_ICON_COUNT do begin
+    if FILE_ICONS[I].Ext = Ext then begin
+      Result := FILE_ICONS[I].Idx;
+      Exit;
+    end;
+  end;
+end;
+
+function FormatFileSize(ABytes: Int64): string;
+begin
+  if ABytes >= Int64(1024) * 1024 * 1024 then begin
+    Result := FormatFloat('0.0', ABytes / (Int64(1024) * 1024 * 1024)) + ' GB';
+  end else if ABytes >= 1024 * 1024 then begin
+    Result := FormatFloat('0.0', ABytes / (1024 * 1024)) + ' MB';
+  end else if ABytes >= 1024 then begin
+    Result := FormatFloat('0.0', ABytes / 1024) + ' KB';
+  end else begin
+    Result := IntToStr(ABytes) + ' B';
+  end;
+end;
+
+constructor TFileWidget.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  DoubleBuffered := True;
+  Cursor := crHandPoint;   { весь виджет кликабелен, не только значок }
+end;
+
+procedure TFileWidget.SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64);
+begin
+  FRowId := ARowId;
+  FFileName := AFileName;
+  FFileSize := AFileSize;
+  FIconIndex := FileIconIndex(AFileName);
+  Invalidate;
+end;
+
+function TFileWidget.IconRect: TRect;
+var
+  Box: TRect;
+begin
+  Box := ClientRect;
+  Result := Rect(Box.Left + MSG_PAD_H, (Box.Top + Box.Bottom - AUDIO_BUTTON_SIZE) div 2,
+    Box.Left + MSG_PAD_H + AUDIO_BUTTON_SIZE, (Box.Top + Box.Bottom + AUDIO_BUTTON_SIZE) div 2);
+end;
+
+procedure TFileWidget.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  if (Button = mbLeft) and Assigned(FOnClick) then begin
+    FOnClick(Self);
+  end;
+end;
+
+procedure TFileWidget.Paint;
+var
+  Box, IconR: TRect;
+  Radius, ContentX, ContentW: integer;
+  NameStr, SizeStr: string;
+begin
+  Box := ClientRect;
+  Radius := Min(FORWARD_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
+
+  { Тот же приём, что у TAudioWidget — настоящий дочерний control, не
+    просвечивает canvas родителя, поэтому сплошной фон вне скруглённых
+    углов обязателен. }
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := clWindow;
+  Canvas.FillRect(Box);
+
+  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow);
+  Canvas.RoundRect(Box, Radius, Radius);
+
+  IconR := IconRect;
+  if (FImages <> nil) and (FIconIndex < FImages.Count) then begin
+    FImages.Draw(Canvas, IconR.Left, IconR.Top, FIconIndex, True);
+  end;
+
+  ContentX := IconR.Right + MSG_PAD_H;
+  ContentW := Box.Right - MSG_PAD_H - ContentX;
+  if ContentW < 10 then begin
+    Exit;
+  end;
+
+  { Нет полосы прогресса (в отличие от аудио) — незачем разносить
+    строки на её высоту: имя — по верхнему краю значка, размер — по
+    нижнему, без зазора между ними, кроме собственной высоты строк. }
+  NameStr := string(FFileName);
+  if NameStr = '' then begin
+    NameStr := 'File';
+  end;
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := -11;
+  Canvas.Font.Style := [fsBold];
+  Canvas.Font.Color := AUDIO_COLOR;
+  Canvas.TextOut(ContentX, IconR.Top, TruncateToWidth(Canvas, NameStr, ContentW));
+
+  SizeStr := FormatFileSize(FFileSize);
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Style := [];
+  Canvas.Font.Color := AUDIO_COLOR;
+  Canvas.TextOut(ContentX, IconR.Bottom - Canvas.TextHeight(SizeStr), SizeStr);
+
+  Canvas.Brush.Style := bsClear;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Width := 1;
+  Canvas.Pen.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BORDER_OPACITY, clWindow);
+  Canvas.RoundRect(Box, Radius, Radius);
+end;
+
 { ---------------- TMsgScroller ---------------- }
 
 constructor TMsgScroller.Create(AOwner: TComponent);
@@ -866,6 +1093,9 @@ begin
   FAudioPool := TFPList.Create;
   FAudioActive := TAudioMap.Create;
   FAudioActive.Sorted := True;
+  FFilePool := TFPList.Create;
+  FFileActive := TFileWidgetMap.Create;
+  FFileActive.Sorted := True;
   FForwardChatAvatars := TForwardAvatarMap.Create;
   FForwardChatAvatars.Sorted := True;
   FForwardUserAvatars := TForwardAvatarMap.Create;
@@ -887,6 +1117,8 @@ begin
   { Сами виджеты не освобождаем: они дочерние control'ы Self,
     их уничтожит LCL вместе с родителем. }
   FAudioPool.Free;
+  FFileActive.Free;
+  FFilePool.Free;
   ClearForwardAvatars;
   FForwardChatAvatars.Free;
   FForwardUserAvatars.Free;
@@ -972,10 +1204,11 @@ end;
 function TMsgScroller.ContentPadV(ARow: TMsgRow): integer;
 begin
   { Обычный вертикальный отступ контента от заголовка блока/от нижнего
-    края блока — MSG_PAD_V, кроме аудио: у него по месту пользователя
-    оба этих отступа должны совпадать с его же собственным внутренним
-    отступом (MSG_PAD_H=11), не с обычным вертикальным (MSG_PAD_V=6). }
-  if (ARow <> nil) and (ARow.Kind = mckAudio) then begin
+    края блока — MSG_PAD_V, кроме аудио и файла: у обоих по месту
+    пользователя оба этих отступа должны совпадать с их же собственным
+    внутренним отступом (MSG_PAD_H=11), не с обычным вертикальным
+    (MSG_PAD_V=6) — тот же виджет-скелет, та же логика. }
+  if (ARow <> nil) and (ARow.Kind in [mckAudio, mckFile]) then begin
     Result := MSG_PAD_H;
   end else begin
     Result := MSG_PAD_V;
@@ -1301,6 +1534,16 @@ begin
     if (PendingIdx >= 0) and (FModel[PendingIdx].AudioLocalPath <> '') then begin
       StartPlayback(FModel[PendingIdx]);
       FPendingPlayMsgId := 0;
+    end;
+  end;
+
+  { То же самое для клика "сохранить" на ещё не скачанном файле, см.
+    FileWidgetClick. }
+  if FPendingSaveMsgId <> 0 then begin
+    PendingIdx := FModel.IndexOfId(FPendingSaveMsgId);
+    if (PendingIdx >= 0) and (FModel[PendingIdx].DocLocalPath <> '') then begin
+      SaveDocFile(FModel[PendingIdx]);
+      FPendingSaveMsgId := 0;
     end;
   end;
 
@@ -1852,6 +2095,10 @@ begin
     LayoutAudioWidgets(Lo, Hi);
   except
   end;
+  try
+    LayoutFileWidgets(Lo, Hi);
+  except
+  end;
 end;
 
 procedure TMsgScroller.LayoutAudioWidgets(ALo, AHi: integer);
@@ -1948,6 +2195,148 @@ begin
   Result.OnPlayClick := @AudioPlayClick;
   Result.OnSeek := @AudioSeek;
   FAudioPool.Add(Result);
+end;
+
+{ Копия LayoutAudioWidgets — тот же приём recycled-пула, для файлов
+  вместо аудио (Kind=mckFile). }
+procedure TMsgScroller.LayoutFileWidgets(ALo, AHi: integer);
+var
+  I, N, MIdx, AIdx: integer;
+  R: TMsgRow;
+  W: TFileWidget;
+  CR: TRect;
+  WantIds: array of Int64;
+
+  function IsWanted(AId: Int64): boolean;
+  var
+    K: integer;
+  begin
+    Result := False;
+    for K := 0 to N - 1 do begin
+      if WantIds[K] = AId then begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
+begin
+  N := 0;
+  if FModel <> nil then begin
+    SetLength(WantIds, AHi - ALo + 2);
+    for I := ALo to AHi do begin
+      R := FModel[I];
+      if R.Kind = mckFile then begin
+        WantIds[N] := R.Id;
+        Inc(N);
+      end;
+    end;
+  end;
+
+  for AIdx := FFileActive.Count - 1 downto 0 do begin
+    if not IsWanted(FFileActive.Keys[AIdx]) then begin
+      FFileActive.Data[AIdx].Visible := False;
+      FFileActive.Delete(AIdx);
+    end;
+  end;
+
+  for I := 0 to N - 1 do begin
+    MIdx := FModel.IndexOfId(WantIds[I]);
+    if MIdx < 0 then begin
+      Continue;
+    end;
+    CR := ContentRect(MIdx);
+    AIdx := FFileActive.IndexOf(WantIds[I]);
+    if AIdx >= 0 then begin
+      W := FFileActive.Data[AIdx];
+    end else begin
+      W := ObtainFileWidget;
+      FFileActive.Add(WantIds[I], W);
+    end;
+    W.Images := FFileImages;
+    R := FModel[MIdx];
+    W.SetFile(R.Id, R.DocFileName, R.DocFileSize);
+    W.SetBounds(CR.Left, CR.Top, CR.Right - CR.Left, CR.Bottom - CR.Top);
+    W.Visible := True;
+  end;
+end;
+
+function TMsgScroller.ObtainFileWidget: TFileWidget;
+var
+  I: integer;
+begin
+  for I := 0 to FFilePool.Count - 1 do begin
+    Result := TFileWidget(FFilePool[I]);
+    if not Result.Visible then begin
+      Result.OnFileClick := @FileWidgetClick;
+      Exit;
+    end;
+  end;
+  Result := TFileWidget.Create(Self);
+  Result.Parent := Self;
+  Result.OnFileClick := @FileWidgetClick;
+  FFilePool.Add(Result);
+end;
+
+procedure TMsgScroller.FileWidgetClick(Sender: TObject);
+var
+  W: TFileWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TFileWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  if Row.DocLocalPath <> '' then begin
+    SaveDocFile(Row);
+    Exit;
+  end;
+  { Ещё не скачан — запрашиваем и запоминаем, что диалог сохранения
+    нужно открыть, как только путь придёт (см. ModelChanged), тот же
+    приём, что FPendingPlayMsgId у аудио. }
+  FPendingSaveMsgId := Row.Id;
+  FModel.EnsureDocFile(Row);
+end;
+
+procedure TMsgScroller.SaveDocFile(ARow: TMsgRow);
+var
+  Dlg: TSaveDialog;
+  Src, Dst: TFileStream;
+begin
+  if (ARow = nil) or (ARow.DocLocalPath = '') then begin
+    Exit;
+  end;
+  Dlg := TSaveDialog.Create(nil);
+  try
+    Dlg.FileName := string(ARow.DocFileName);
+    Dlg.Filter := 'All files|*.*';
+    Dlg.Options := Dlg.Options + [ofOverwritePrompt];
+    if not Dlg.Execute then begin
+      Exit;
+    end;
+    { Файл уже скачан TDLib'ом в свой кэш — здесь просто копия в место,
+      выбранное пользователем, не повторное скачивание. }
+    Src := TFileStream.Create(string(ARow.DocLocalPath), fmOpenRead or fmShareDenyWrite);
+    try
+      Dst := TFileStream.Create(Dlg.FileName, fmCreate);
+      try
+        Dst.CopyFrom(Src, Src.Size);
+      finally
+        Dst.Free;
+      end;
+    finally
+      Src.Free;
+    end;
+  finally
+    Dlg.Free;
+  end;
 end;
 
 { ---------------- проигрывание аудио ---------------- }
@@ -2360,9 +2749,10 @@ begin
   FScroller.Align := alClient;
   FScroller.OnScrollRangeChanged := @ScrollerRangeChanged;
   FScroller.OnNearTop := @ScrollerNearTop;
-  { ImageList1 — компонент фрейма (LFM), к этому моменту уже создан
-    inherited-стримингом, до тела этого конструктора. }
+  { ImageList1/FileTypes — компоненты фрейма (LFM), к этому моменту уже
+    созданы inherited-стримингом, до тела этого конструктора. }
   FScroller.AudioImages := ImageList1;
+  FScroller.FileImages := FileTypes;
 
   { Флаг ставится последним по тому же правилу, что и во всех формах
     и фреймах проекта: LFM-стриминг (тут его формально нет, но

@@ -449,7 +449,7 @@ begin
   Result := HitTestRuns(L.Runs, X - ARect.Left, Y - ARect.Top);
 end;
 
-{ ---------------- аудио: пока UI-заглушка ---------------- }
+{ ---------------- аудио: реальный виджет (framehistory.TAudioWidget) ---------------- }
 
 type
   TAudioContentRenderer = class(TMsgContentRenderer)
@@ -477,6 +477,38 @@ begin
 end;
 
 function TAudioContentRenderer.WantsWidget: boolean;
+begin
+  Result := True;
+end;
+
+{ ---------------- файл-документ: реальный виджет (framehistory.TFileWidget) ----------------
+  Та же схема, что и у аудио — этот renderer только резервирует высоту
+  и рисует подложку-заглушку на кадр до того, как TFrameHistory
+  позиционирует поверх настоящий TFileWidget из своего пула. }
+
+type
+  TDocContentRenderer = class(TMsgContentRenderer)
+  public
+    function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
+    procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
+      ASelStart, ASelEnd: integer); override;
+    function WantsWidget: boolean; override;
+  end;
+
+function TDocContentRenderer.Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer;
+begin
+  Result := FILE_WIDGET_H;
+end;
+
+procedure TDocContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
+  ASelStart, ASelEnd: integer);
+begin
+  ACanvas.Brush.Style := bsSolid;
+  ACanvas.Brush.Color := clBtnFace;
+  ACanvas.FillRect(ARect);
+end;
+
+function TDocContentRenderer.WantsWidget: boolean;
 begin
   Result := True;
 end;
@@ -571,6 +603,7 @@ end;
 var
   GTextRenderer:        TTextContentRenderer;
   GAudioRenderer:        TAudioContentRenderer;
+  GDocRenderer:         TDocContentRenderer;
   GPlaceholderRenderer: TPlaceholderContentRenderer;
 
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
@@ -578,6 +611,7 @@ begin
   case AKind of
     mckText:  Result := GTextRenderer;
     mckAudio: Result := GAudioRenderer;
+    mckFile:  Result := GDocRenderer;
   else
     Result := GPlaceholderRenderer;
   end;
@@ -586,11 +620,13 @@ end;
 initialization
   GTextRenderer := TTextContentRenderer.Create;
   GAudioRenderer := TAudioContentRenderer.Create;
+  GDocRenderer := TDocContentRenderer.Create;
   GPlaceholderRenderer := TPlaceholderContentRenderer.Create;
 
 finalization
   GTextRenderer.Free;
   GAudioRenderer.Free;
+  GDocRenderer.Free;
   GPlaceholderRenderer.Free;
 
 end.
