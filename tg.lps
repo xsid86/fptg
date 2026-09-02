@@ -260,6 +260,11 @@
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
+        <Filename Value="ffdecode.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="msglayout.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="30"/>
