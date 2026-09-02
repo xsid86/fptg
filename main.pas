@@ -80,6 +80,10 @@ type
       framehistory.pas, чтобы взять ImageList1 со значками статуса
       сообщений, не заводя вторую копию тех же иконок. }
     property Chats: TFrameChats read FChats;
+    { Выбранное в Settings устройство вывода звука — нужен
+      framehistory.pas (TAudioPlayer.Create), чтобы не заводить второй
+      источник правды поверх уже существующего config.ini/[audio]. }
+    property AudioDeviceName: string read FAudioDeviceName;
   end;
 
 var

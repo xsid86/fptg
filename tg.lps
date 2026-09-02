@@ -265,6 +265,11 @@
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
+        <Filename Value="audioplayer.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="msglayout.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="30"/>

@@ -9,7 +9,7 @@ uses
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
-  uiframe, framechats;
+  uiframe, framechats, audioplayer;
 
 type
   { TAudioWidget
@@ -25,20 +25,61 @@ type
     переключается, сам объект не пересоздаётся на каждый скролл — но
     данные ТРЕКА меняются при каждом переиспользовании под другое
     сообщение, см. SetTrack. }
+  TAudioSeekEvent = procedure(Sender: TObject; AFraction: double) of object;
+
   TAudioWidget = class(TCustomControl)
   private
+    FRowId: Int64;
     FTitle, FPerformer, FFileName: utf8string;
     FDuration: integer;
     FImages: TImageList;
+    { Проигрывание — см. SetPlayback/TMsgScroller.AudioPlayClick.
+      FIsActive=False — сообщение не то, что сейчас играет/на паузе
+      (обычное состояние подавляющего большинства виджетов). }
+    FIsActive:    boolean;
+    FPlaying:     boolean;
+    FPositionSec: double;
+    { Перетаскивание ползунка — предпросмотр локальный (FDragFraction),
+      сам факт перемотки (TMsgScroller.AudioSeek — новый TAudioPlayer с
+      позиции) срабатывает один раз по отпусканию, не на каждый пиксель
+      движения мыши: иначе пересоздавали бы поток декодирования/wave-
+      устройство на каждый MouseMove, дорого и дёргано. }
+    FDraggingSeek: boolean;
+    FDragFraction: double;
+    FOnPlayClick: TNotifyEvent;
+    FOnSeek: TAudioSeekEvent;
+    function PlayButtonRect: TRect;
+    { Общая геометрия контента (справа от кнопки play) — один источник
+      правды для Paint И для хит-теста ползунка (TrackAreaRect/
+      FractionFromX), чтобы не разъехались при правке. False, если
+      места не хватает (см. Paint). }
+    function ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
+    function TrackAreaRect: TRect;
+    function FractionFromX(AX: integer): double;
   protected
     procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
   public
     constructor Create(AOwner: TComponent); override;
     { Данные конкретного сообщения — вызывается из LayoutAudioWidgets
       при каждом переиспользовании виджета под (возможно) другое
-      сообщение, не только при создании. }
-    procedure SetTrack(const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
+      сообщение, не только при создании. Сбрасывает состояние
+      проигрывания (виджет из пула мог до этого представлять активный
+      трек) — актуальное состояние восстанавливает SetPlayback сразу
+      следом, если новый ARowId и есть активный трек. }
+    procedure SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
+    procedure SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
     property Images: TImageList read FImages write FImages;
+    property RowId: Int64 read FRowId;
+    { Идёт перетаскивание ползунка ПРЯМО СЕЙЧАС — LayoutAudioWidgets
+      должен пропустить SetPlayback на этот заход, иначе перезапишет
+      локальный предпросмотр перетаскивания реальной (ещё старой)
+      позицией на следующем же Paint. }
+    property Dragging: boolean read FDraggingSeek;
+    property OnPlayClick: TNotifyEvent read FOnPlayClick write FOnPlayClick;
+    property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
   end;
 
   TAudioMap = specialize TFPGMap<Int64, TAudioWidget>;
@@ -85,6 +126,29 @@ type
       на форме (не framechats.ImageList1 — те 16x16, эти 32x32). }
     FAudioImages: TImageList;
 
+    { Проигрывание аудио — один активный плеер на весь скроллер (как и
+      в самом Telegram, играет не более одного трека разом). Виджет —
+      recycled-пул (см. FAudioActive/FAudioPool выше), состояние
+      проигрывания живёт ЗДЕСЬ, не в виджете: тот может уйти с экрана
+      при скролле, пока сообщение продолжает играть.
+      FDonePlayer — плеер, чей поток уже завершается/завершился
+      (TAudioPlayer.State перешёл в apsStopped/apsError через
+      PlayerStateChanged, вызванный самим потоком через Synchronize) —
+      освобождать TThread ИЗНУТРИ его же Synchronize-колбэка нельзя
+      (Free внутри может ждать завершения потока — тот самый поток,
+      что сейчас заблокирован в Synchronize, ожидая нас — взаимная
+      блокировка); PlaybackTick освобождает его безопасно, из другого
+      контекста (обычный вызов по таймеру, не изнутри Synchronize). }
+    FActivePlayer:      TAudioPlayer;
+    FActivePlayerMsgId: Int64;
+    FDonePlayer:        TAudioPlayer;
+    { Клик по play, когда файл ещё не скачан — EnsureAudioFile только
+      запрашивает загрузку; когда путь придёт (ModelChanged/Touch),
+      если он всё ещё нужен (пользователь мог передумать/кликнуть по
+      другому треку), проигрывание запускается автоматически. }
+    FPendingPlayMsgId:  Int64;
+    FPlaybackTimer:     TTimer;
+
     { Аватарки источников репоста — маленькие (диаметр HEADER_H),
       свой кэш, а не avatarcache.TAvatarCache: тот заточен под
       AVATAR_SIZE=44 и TChatRow (список чатов), здесь же нужны и чаты
@@ -98,6 +162,14 @@ type
 
     FOnScrollRangeChanged: TNotifyEvent;
     FOnNearTop: TNotifyEvent;
+
+    procedure AudioPlayClick(Sender: TObject);
+    procedure AudioSeek(Sender: TObject; AFraction: double);
+    procedure PlayerStateChanged(Sender: TObject);
+    procedure PlaybackTick(Sender: TObject);
+    procedure FlushDonePlayer;
+    procedure StopActivePlayer;
+    procedure StartPlayback(ARow: TMsgRow; AStartPositionSec: double = 0);
 
     procedure RebuildOffsets;
     { Левая/правая граница центрированной колонки сообщений — не шире
@@ -524,8 +596,23 @@ begin
   DoubleBuffered := True;
 end;
 
-procedure TAudioWidget.SetTrack(const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
+procedure TAudioWidget.SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
 begin
+  if ARowId <> FRowId then begin
+    { Виджет из пула переиспользован под ДРУГОЕ сообщение — старое
+      состояние проигрывания/перетаскивания относится не к этому
+      треку, обнуляем. Если ARowId тот же (обычный повторный проход
+      LayoutAudioWidgets — вызывается на КАЖДЫЙ Paint скроллера, в том
+      числе каждый тик таймера прогресса) — состояние НЕ трогаем: раньше
+      именно это и рвало перетаскивание ползунка и клик по полосе —
+      следующий же Paint (буквально через доли секунды) отбрасывал
+      FDraggingSeek/позицию обратно к нулю прямо под курсором. }
+    FIsActive := False;
+    FPlaying := False;
+    FPositionSec := 0;
+    FDraggingSeek := False;
+  end;
+  FRowId := ARowId;
   FTitle := ATitle;
   FPerformer := APerformer;
   FFileName := AFileName;
@@ -533,11 +620,116 @@ begin
   Invalidate;
 end;
 
+procedure TAudioWidget.SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
+begin
+  FIsActive := AIsActive;
+  FPlaying := APlaying;
+  FPositionSec := APositionSec;
+  Invalidate;
+end;
+
+function TAudioWidget.PlayButtonRect: TRect;
+var
+  Box: TRect;
+begin
+  Box := ClientRect;
+  Result := Rect(Box.Left + MSG_PAD_H, (Box.Top + Box.Bottom - AUDIO_BUTTON_SIZE) div 2,
+    Box.Left + MSG_PAD_H + AUDIO_BUTTON_SIZE, (Box.Top + Box.Bottom + AUDIO_BUTTON_SIZE) div 2);
+end;
+
+function TAudioWidget.ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
+var
+  Box, PlayRect: TRect;
+begin
+  Box := ClientRect;
+  PlayRect := PlayButtonRect;
+  AContentX := PlayRect.Right + MSG_PAD_H;
+  AContentW := Box.Right - MSG_PAD_H - AContentX;
+  AProgressTop := Box.Top + MSG_PAD_H + REPLY_LINE_H + HEADER_PAD_V;
+  Result := AContentW >= 10;
+end;
+
+function TAudioWidget.TrackAreaRect: TRect;
+var
+  CX, CW, PT: integer;
+begin
+  if not ContentGeometry(CX, CW, PT) then begin
+    Result := Rect(0, 0, 0, 0);
+    Exit;
+  end;
+  { Хит-зона выше и ниже визуальной полосы/ползунка — тем удобнее в
+    неё попасть мышью, сам ползунок всего AUDIO_THUMB_H пикселей. }
+  Result := Rect(CX, PT - 4, CX + CW, PT + AUDIO_THUMB_H + 4);
+end;
+
+function TAudioWidget.FractionFromX(AX: integer): double;
+var
+  CX, CW, PT: integer;
+begin
+  Result := 0;
+  if not ContentGeometry(CX, CW, PT) or (CW <= 0) then begin
+    Exit;
+  end;
+  Result := (AX - CX) / CW;
+  if Result < 0 then Result := 0;
+  if Result > 1 then Result := 1;
+end;
+
+procedure TAudioWidget.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  if Button <> mbLeft then begin
+    Exit;
+  end;
+  if PtInRect(PlayButtonRect, Point(X, Y)) then begin
+    if Assigned(FOnPlayClick) then begin
+      FOnPlayClick(Self);
+    end;
+    Exit;
+  end;
+  { Перемотка — только у активного (проигрывается/на паузе) трека:
+    у остальных ползунок всегда в начале, тащить там нечего. }
+  if FIsActive and PtInRect(TrackAreaRect, Point(X, Y)) then begin
+    FDraggingSeek := True;
+    FDragFraction := FractionFromX(X);
+    Invalidate;
+  end;
+end;
+
+procedure TAudioWidget.MouseMove(Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseMove(Shift, X, Y);
+  if FDraggingSeek then begin
+    FDragFraction := FractionFromX(X);
+    Invalidate;
+    Exit;
+  end;
+  if PtInRect(PlayButtonRect, Point(X, Y)) or
+     (FIsActive and PtInRect(TrackAreaRect, Point(X, Y))) then begin
+    Cursor := crHandPoint;
+  end else begin
+    Cursor := crDefault;
+  end;
+end;
+
+procedure TAudioWidget.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseUp(Button, Shift, X, Y);
+  if FDraggingSeek and (Button = mbLeft) then begin
+    FDraggingSeek := False;
+    if Assigned(FOnSeek) then begin
+      FOnSeek(Self, FDragFraction);
+    end;
+    Invalidate;
+  end;
+end;
+
 procedure TAudioWidget.Paint;
 var
   Box, PlayRect, TrackRect, ThumbRect, PlayedRect: TRect;
-  Radius, ContentX, ContentW, ProgressTop, PlayedW: integer;
+  Radius, ContentX, ContentW, ProgressTop, PlayedW, IconIdx: integer;
   TitleStr, ElapsedStr, RemainStr: string;
+  Frac: double;
 begin
   Box := ClientRect;
   Radius := Min(FORWARD_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
@@ -559,12 +751,15 @@ begin
   Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow);
   Canvas.RoundRect(Box, Radius, Radius);
 
-  { Кнопка play/pause — левый край, по вертикали центрирована.
-    Реального воспроизведения нет (см. класс) — всегда play. }
-  PlayRect := Rect(Box.Left + MSG_PAD_H, (Box.Top + Box.Bottom - AUDIO_BUTTON_SIZE) div 2,
-    Box.Left + MSG_PAD_H + AUDIO_BUTTON_SIZE, (Box.Top + Box.Bottom + AUDIO_BUTTON_SIZE) div 2);
-  if (FImages <> nil) and (AUDIO_ICON_PLAY < FImages.Count) then begin
-    FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, AUDIO_ICON_PLAY, True);
+  { Кнопка play/pause — левый край, по вертикали центрирована. }
+  PlayRect := PlayButtonRect;
+  if FIsActive and FPlaying then begin
+    IconIdx := AUDIO_ICON_PAUSE;
+  end else begin
+    IconIdx := AUDIO_ICON_PLAY;
+  end;
+  if (FImages <> nil) and (IconIdx < FImages.Count) then begin
+    FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, IconIdx, True);
   end;
 
   ContentX := PlayRect.Right + MSG_PAD_H;
@@ -592,12 +787,21 @@ begin
   Canvas.Font.Color := AUDIO_COLOR;
   Canvas.TextOut(ContentX, Box.Top + MSG_PAD_H, TruncateToWidth(Canvas, TitleStr, ContentW));
 
-  { Полоса прогресса — реального воспроизведения нет, всегда 0%
-    (ползунок в начале, вся полоса — "ещё не проигранная"). }
+  { Полоса прогресса — реальная позиция, только пока ЭТО сообщение
+    активно (проигрывается/на паузе); иначе, как и раньше, 0%. }
   ProgressTop := Box.Top + MSG_PAD_H + REPLY_LINE_H + HEADER_PAD_V;
   TrackRect := Rect(ContentX, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2,
     ContentX + ContentW, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2 + AUDIO_TRACK_H);
-  PlayedW := 0;
+  if FDraggingSeek then begin
+    PlayedW := Round(FDragFraction * ContentW);
+  end else if FIsActive and (FDuration > 0) then begin
+    Frac := FPositionSec / FDuration;
+    if Frac < 0 then Frac := 0;
+    if Frac > 1 then Frac := 1;
+    PlayedW := Round(Frac * ContentW);
+  end else begin
+    PlayedW := 0;
+  end;
 
   Canvas.Pen.Style := psClear;
   Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_REMAIN_OPACITY, clWindow);
@@ -617,8 +821,16 @@ begin
     Brush.Style сброшен обратно в bsClear явно — FillRect выше (трек/
     ползунок) на этом виджет-сете переключает его в bsSolid как побочный
     эффект заливки, иначе текст рисовался бы с непрозрачным фоном. }
-  ElapsedStr := FormatAudioTime(0);
-  RemainStr := FormatAudioTime(-FDuration);
+  if FDraggingSeek then begin
+    ElapsedStr := FormatAudioTime(Round(FDragFraction * FDuration));
+    RemainStr := FormatAudioTime(Round(FDragFraction * FDuration) - FDuration);
+  end else if FIsActive then begin
+    ElapsedStr := FormatAudioTime(Round(FPositionSec));
+    RemainStr := FormatAudioTime(Round(FPositionSec) - FDuration);
+  end else begin
+    ElapsedStr := FormatAudioTime(0);
+    RemainStr := FormatAudioTime(-FDuration);
+  end;
   Canvas.Brush.Style := bsClear;
   Canvas.Font.Style := [];
   Canvas.Font.Color := AUDIO_COLOR;
@@ -652,10 +864,17 @@ begin
   FForwardUserAvatars.Sorted := True;
   SetLength(FOffsets, 1);
   FOffsets[0] := 0;
+
+  FPlaybackTimer := TTimer.Create(Self);
+  FPlaybackTimer.Interval := 250;
+  FPlaybackTimer.OnTimer := @PlaybackTick;
+  FPlaybackTimer.Enabled := False;
 end;
 
 destructor TMsgScroller.Destroy;
 begin
+  StopActivePlayer;
+  FlushDonePlayer;
   FAudioActive.Free;
   { Сами виджеты не освобождаем: они дочерние control'ы Self,
     их уничтожит LCL вместе с родителем. }
@@ -1007,6 +1226,7 @@ var
   OldMax, OldCount: integer;
   AnchorId: Int64;
   AnchorIdx, AnchorOldOffset, AnchorNewOffset: integer;
+  PendingIdx: integer;
 begin
   OldCount := Length(FRowIds);
   OldMax := FTotalHeight - ClientHeight;
@@ -1054,6 +1274,17 @@ begin
     end;
   end else begin
     ClampScrollTop(FScrollTop);
+  end;
+
+  { Ждали скачивания файла, чтобы начать проигрывание (клик по play на
+    ещё не скачанном треке, см. AudioPlayClick) — путь мог появиться
+    именно в этом апдейте. }
+  if FPendingPlayMsgId <> 0 then begin
+    PendingIdx := FModel.IndexOfId(FPendingPlayMsgId);
+    if (PendingIdx >= 0) and (FModel[PendingIdx].AudioLocalPath <> '') then begin
+      StartPlayback(FModel[PendingIdx]);
+      FPendingPlayMsgId := 0;
+    end;
   end;
 
   Invalidate;
@@ -1665,7 +1896,19 @@ begin
       не только при первом получении. }
     W.Images := FAudioImages;
     R := FModel[MIdx];
-    W.SetTrack(R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration);
+    W.SetTrack(R.Id, R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration);
+    { Пока идёт перетаскивание ползунка — не трогаем состояние
+      проигрывания этим заходом (LayoutAudioWidgets вызывается на
+      КАЖДЫЙ Paint, в т.ч. каждый тик FPlaybackTimer): иначе реальная
+      (ещё не догнавшая клик/драг) позиция перезаписала бы локальный
+      предпросмотр прямо под курсором. }
+    if not W.Dragging then begin
+      if (FActivePlayer <> nil) and (FActivePlayerMsgId = R.Id) then begin
+        W.SetPlayback(True, FActivePlayer.State = apsPlaying, FActivePlayer.PositionSec);
+      end else begin
+        W.SetPlayback(False, False, 0);
+      end;
+    end;
     W.SetBounds(CR.Left, CR.Top, CR.Right - CR.Left, CR.Bottom - CR.Top);
     W.Visible := True;
   end;
@@ -1678,12 +1921,144 @@ begin
   for I := 0 to FAudioPool.Count - 1 do begin
     Result := TAudioWidget(FAudioPool[I]);
     if not Result.Visible then begin
+      Result.OnPlayClick := @AudioPlayClick;
+      Result.OnSeek := @AudioSeek;
       Exit;
     end;
   end;
   Result := TAudioWidget.Create(Self);
   Result.Parent := Self;
+  Result.OnPlayClick := @AudioPlayClick;
+  Result.OnSeek := @AudioSeek;
   FAudioPool.Add(Result);
+end;
+
+{ ---------------- проигрывание аудио ---------------- }
+
+procedure TMsgScroller.FlushDonePlayer;
+begin
+  if FDonePlayer <> nil then begin
+    FDonePlayer.WaitFor;
+    FDonePlayer.Free;
+    FDonePlayer := nil;
+  end;
+end;
+
+procedure TMsgScroller.StopActivePlayer;
+begin
+  FlushDonePlayer;
+  if FActivePlayer <> nil then begin
+    FActivePlayer.StopPlayback;
+    FDonePlayer := FActivePlayer;
+    FActivePlayer := nil;
+    FActivePlayerMsgId := 0;
+  end;
+  FPlaybackTimer.Enabled := False;
+end;
+
+procedure TMsgScroller.StartPlayback(ARow: TMsgRow; AStartPositionSec: double);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  StopActivePlayer;
+  FActivePlayer := TAudioPlayer.Create(ARow.AudioLocalPath, utf8string(FormMain.AudioDeviceName), AStartPositionSec);
+  FActivePlayer.OnStateChanged := @PlayerStateChanged;
+  FActivePlayerMsgId := ARow.Id;
+  FPlaybackTimer.Enabled := True;
+  Invalidate;
+end;
+
+procedure TMsgScroller.AudioPlayClick(Sender: TObject);
+var
+  W: TAudioWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TAudioWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  if (FActivePlayer <> nil) and (FActivePlayerMsgId = W.RowId) then begin
+    { Тот же трек — просто пауза/продолжить, не пересоздаём плеер. }
+    if FActivePlayer.State = apsPlaying then begin
+      FActivePlayer.Pause;
+    end else if FActivePlayer.State = apsPaused then begin
+      FActivePlayer.Resume;
+    end;
+    Invalidate;
+    Exit;
+  end;
+
+  { Другой трек (или ничего не играло) — прежний останавливаем. }
+  FPendingPlayMsgId := 0;
+
+  if Row.AudioLocalPath = '' then begin
+    { Файл ещё не скачан — запрашиваем и запомним, что именно этот
+      трек нужно начать проигрывать, как только путь придёт (см.
+      ModelChanged). Прежний плеер, если играл, всё равно останавливаем
+      сейчас — не ждать же его до момента, когда новый файл скачается. }
+    StopActivePlayer;
+    FPendingPlayMsgId := W.RowId;
+    FModel.EnsureAudioFile(Row);
+    Exit;
+  end;
+
+  StartPlayback(Row);
+end;
+
+procedure TMsgScroller.AudioSeek(Sender: TObject; AFraction: double);
+var
+  W: TAudioWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  { Перемотка имеет смысл только для АКТИВНОГО (проигрывается/на паузе)
+    трека — виджет разрешает драг ползунка только когда FIsActive
+    (см. TAudioWidget.MouseDown), так что сюда и не должно прилетать
+    иначе, но проверяем ещё раз на всякий случай. }
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TAudioWidget(Sender);
+  if (FActivePlayer = nil) or (FActivePlayerMsgId <> W.RowId) then begin
+    Exit;
+  end;
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+  if (Row.AudioLocalPath = '') or (Row.AudioDuration <= 0) then begin
+    Exit;
+  end;
+  StartPlayback(Row, AFraction * Row.AudioDuration);
+end;
+
+procedure TMsgScroller.PlayerStateChanged(Sender: TObject);
+begin
+  if (Sender = FActivePlayer) and
+     ((FActivePlayer.State = apsStopped) or (FActivePlayer.State = apsError)) then begin
+    FDonePlayer := FActivePlayer;
+    FActivePlayer := nil;
+    FActivePlayerMsgId := 0;
+    FPlaybackTimer.Enabled := False;
+  end;
+  Invalidate;
+end;
+
+procedure TMsgScroller.PlaybackTick(Sender: TObject);
+begin
+  FlushDonePlayer;
+  if FActivePlayer <> nil then begin
+    Invalidate;
+  end;
 end;
 
 function TMsgScroller.HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;

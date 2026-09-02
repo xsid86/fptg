@@ -52,6 +52,12 @@ const
     не зависит от платформы/errno, поэтому безопасно вычислен константой. }
   AVERROR_EOF_VAL = -(Ord('E') or (Ord('O') shl 8) or (Ord('F') shl 16) or (Ord(' ') shl 24));
 
+  { av_seek_frame: stream_index=-1 — таймстамп в AV_TIME_BASE
+    (микросекундах), не в timebase конкретного потока; ffmpeg сам
+    сконвертирует. AVSEEK_FLAG_BACKWARD — искать ближайший опорный
+    кадр НЕ ПОЗЖЕ цели (проверено по libavformat/avformat.h). }
+  AVSEEK_FLAG_BACKWARD = 1;
+
 type
   { --- libavutil/rational.h --- }
   PAVRational = ^TAVRational;

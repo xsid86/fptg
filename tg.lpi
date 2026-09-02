@@ -17,7 +17,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="25"/>
+      <BuildNr Value="37"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -179,6 +179,10 @@
       </Unit>
       <Unit>
         <Filename Value="ffdecode.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="audioplayer.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
