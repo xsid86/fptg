@@ -273,14 +273,17 @@ const
     там TDLib сам присылает отдельный объект с контекстом источника,
     здесь же это просто ссылка на СВОЁ ЖЕ сообщение выше по переписке,
     ближе по духу к тому, как reply рисует оригинальный клиент
-    Telegram). Отступы значка от левого/верхнего края плашки и от
-    значка до текста — MSG_ICON_GAP, тот же, что и у иконки в основном
-    заголовке и заголовке цитаты репоста (везде один и тот же смысл:
-    "зазор вокруг маленького значка"), не отдельное число. Высота —
-    фиксированные два текстовых ряда, без word-wrap: имя и текст
-    обрезаются по ширине с "…", не переносятся. }
+    Telegram). Отступ значка от левого края плашки и от значка до
+    текста — MSG_PAD_H/MSG_ICON_GAP, отступ сверху — HEADER_PAD_V: те
+    же константы и по тому же месту, что и у иконки в основном
+    заголовке блока (HeaderX := BR.Left + MSG_PAD_H, HeaderY := BR.Top
+    + HEADER_PAD_V, см. Paint) и у аватара в заголовке цитаты репоста
+    (AvX/AvY в PaintForwardCard) — по месту пользователя: 4px "на
+    глаз" смотрелись хуже, чем повтор уже устоявшегося отступа
+    заголовков. Высота — фиксированные два текстовых ряда, без
+    word-wrap: имя и текст обрезаются по ширине с "…", не переносятся. }
   REPLY_LINE_H  = 15;
-  REPLY_BOX_H   = 2 * REPLY_LINE_H + 2 * MSG_ICON_GAP;
+  REPLY_BOX_H   = 2 * REPLY_LINE_H + 2 * HEADER_PAD_V;
 
   { Цвет отправителя по кругу — единственное место в файле, которое
     придётся тронуть под тёмную тему (см. план: полноценную
@@ -826,26 +829,40 @@ begin
   Result := Rect(Card.Left, Card.Top, Card.Right, Card.Top + HEADER_BAR_H);
 end;
 
+{ FORWARD_HEADER_GAP — зазор ОТ ОСНОВНОГО ЗАГОЛОВКА до плашки цитаты
+  ответа, тот же самый (не просто равный по значению), что и у карточки
+  репоста, по месту пользователя: "цитата от верхнего края основного
+  сообщения так же должна отстоять на 11 пикселей, как и пересланное
+  сообщение" — переиспользуем именно эту константу, а не заводим
+  REPLY_TOP_GAP с тем же числом, чтобы они не могли разъехаться при
+  следующей правке. "REPLY_BOX_H" ниже — уже сама плашка; отступ ПОСЛЕ
+  неё (до карточки репоста, если есть, либо до контента) — обычный
+  MSG_PAD_V, как и у всего остального в ForwardMetrics, см. вызовы
+  ReplyExtraH в RebuildOffsets/ContentRect/ForwardCardRect: везде это
+  прибавляется К ГОЛОВЕ уже готового PreH из ForwardMetrics (который
+  сам начинается с MSG_PAD_V для обычного контента или с
+  FORWARD_HEADER_GAP для карточки репоста) — то есть "отступ после
+  плашки" тут получается автоматически, из уже существующего PreH, а
+  не отдельным слагаемым здесь. }
 function TMsgScroller.ReplyExtraH(ARow: TMsgRow): integer;
 begin
   if (ARow = nil) or (ARow.ReplyMessageId = 0) then begin
     Result := 0;
   end else begin
-    Result := REPLY_BOX_H + MSG_PAD_V;
+    Result := FORWARD_HEADER_GAP + REPLY_BOX_H;
   end;
 end;
 
-{ Плашка цитаты ответа — сразу под основным заголовком блока, тем же
-  MSG_PAD_H/MSG_PAD_V, что и у обычного контента (см. ForwardCardRect —
-  тот же приём). Если у сообщения ЕЩЁ и репост — карточка репоста и
-  контент сдвинуты ниже неё, см. ReplyExtraH в ForwardCardRect/
-  ContentRect/RebuildOffsets. }
+{ Плашка цитаты ответа — сразу под основным заголовком блока, на том же
+  отступе (FORWARD_HEADER_GAP), что и карточка репоста от него. Если у
+  сообщения ЕЩЁ и репост — карточка репоста и контент сдвинуты ниже
+  неё, см. ReplyExtraH в ForwardCardRect/ContentRect/RebuildOffsets. }
 function TMsgScroller.ReplyBoxRect(AIndex: integer): TRect;
 var
   ColL, ColR, TopY: integer;
 begin
   ColumnBounds(ColL, ColR);
-  TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + MSG_PAD_V;
+  TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + FORWARD_HEADER_GAP;
   Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + REPLY_BOX_H);
 end;
 
@@ -1301,8 +1318,8 @@ begin
   { Значок цитаты — из того же ImageList1, что и значки статуса
     сообщения/аватар источника репоста (FormMain.Chats.ImageList1, см.
     комментарий в Paint про общий список с одной сквозной нумерацией). }
-  IconX := Box.Left + MSG_ICON_GAP;
-  IconY := Box.Top + MSG_ICON_GAP;
+  IconX := Box.Left + MSG_PAD_H;
+  IconY := Box.Top + HEADER_PAD_V;
   IconList := nil;
   if (FormMain <> nil) and (FormMain.Chats <> nil) then begin
     IconList := FormMain.Chats.ImageList1;
@@ -1311,7 +1328,7 @@ begin
     IconList.Draw(Canvas, IconX, IconY, ICON_QUOTE, True);
   end;
 
-  TextX := Box.Left + MSG_ICON_GAP + MSG_ICON_W + MSG_ICON_GAP;
+  TextX := Box.Left + MSG_PAD_H + MSG_ICON_W + MSG_ICON_GAP;
   MaxW := Box.Right - MSG_ICON_GAP - TextX;
   if MaxW >= 10 then begin
     Canvas.Brush.Style := bsClear;
@@ -1320,11 +1337,11 @@ begin
 
     Canvas.Font.Style := [fsBold];
     Canvas.Font.Color := Clr;
-    Canvas.TextOut(TextX, Box.Top + MSG_ICON_GAP, Truncate(NameStr, MaxW));
+    Canvas.TextOut(TextX, Box.Top + HEADER_PAD_V, Truncate(NameStr, MaxW));
 
     Canvas.Font.Style := [];
     Canvas.Font.Color := clGrayText;
-    Canvas.TextOut(TextX, Box.Top + MSG_ICON_GAP + REPLY_LINE_H, Truncate(SnippetStr, MaxW));
+    Canvas.TextOut(TextX, Box.Top + HEADER_PAD_V + REPLY_LINE_H, Truncate(SnippetStr, MaxW));
   end;
 
   { Контур — последним, поверх содержимого, тем же приёмом, что и у

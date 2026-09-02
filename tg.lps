@@ -62,6 +62,7 @@
         <EditorIndex Value="10"/>
         <UsageCount Value="81"/>
         <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -199,9 +200,9 @@
         <ComponentName Value="FrameChats"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="15"/>
-        <CursorPos X="26" Y="13"/>
+        <TopLine Value="232"/>
+        <CursorPos X="63" Y="206"/>
         <UsageCount Value="67"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
@@ -260,8 +261,9 @@
         <ComponentName Value="FrameHistory"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="3"/>
-        <TopLine Value="194"/>
+        <TopLine Value="198"/>
         <CursorPos X="21" Y="199"/>
         <UsageCount Value="30"/>
         <Loaded Value="True"/>
