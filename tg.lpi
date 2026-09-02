@@ -17,7 +17,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="21"/>
+      <BuildNr Value="22"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -171,6 +171,10 @@
       </Unit>
       <Unit>
         <Filename Value="tdaccentcolors.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="audiodevices.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

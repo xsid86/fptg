@@ -5,10 +5,10 @@ unit main;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Dialogs, StdCtrls, ExtCtrls, Graphics,
-  Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
+  Classes, SysUtils, IniFiles, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
+  Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome,
-  framechats, framehistory;
+  framechats, framehistory, audiodevices;
 
 type
 
@@ -55,10 +55,13 @@ type
     FChats:        TFrameChats;
     FAccMenuCount: integer;   { сколько пунктов меню создано динамически }
     FGlyphs: TStringList;   { кэш глифов меню: ключ -> TBitmap }
+    FAudioDeviceName: string;   { выбранное устройство вывода звука, из config.ini [audio] }
     function  AccountGlyph(AAcc: TTdAccount; AActive, ANeedLogin: boolean): TBitmap;
     procedure RebuildAccountsMenu;
     procedure AccountItemClick(Sender: TObject);
     procedure AddAccountClick(Sender: TObject);
+    procedure RebuildAudioDeviceMenu;
+    procedure AudioDeviceItemClick(Sender: TObject);
     procedure ShutdownDone(Sender: TObject);
     procedure ChatSelected(Sender: TObject; ARow: TChatRow);
     procedure ListModeChanged(Sender: TObject; AMode: TChatListMode);
@@ -121,6 +124,19 @@ begin
   TdApp.Subscribe(Self);
   TdApp.SubscribeActive(Self);
   RebuildAccountsMenu;
+
+  { Выбор устройства вывода звука — не отдельная форма настроек (см.
+    ARCHITECTURE.md/CLAUDE.md), а пункты прямо в существующем, до этого
+    пустом MenuItem5 ("Settings"), персистится в тот же config.ini,
+    где уже лежат api_id/api_hash, новой секцией [audio]. }
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      FAudioDeviceName := ReadString('audio', 'device', '');
+    finally
+      Free;
+    end;
+  end;
+  RebuildAudioDeviceMenu;
 
   { «New» из меню Account заводит ещё один аккаунт. }
   if MenuItem11 <> nil then begin
@@ -368,6 +384,63 @@ end;
 procedure TFormMain.AccountItemClick(Sender: TObject);
 begin
   TdApp.ActiveIndex := TMenuItem(Sender).Tag;
+end;
+
+{ ---------------- меню устройства вывода звука ---------------- }
+
+procedure TFormMain.RebuildAudioDeviceMenu;
+var
+  Devs: TAudioDeviceArray;
+  I: integer;
+  MI: TMenuItem;
+begin
+  if MenuItem5 = nil then begin
+    Exit;
+  end;
+
+  for I := MenuItem5.Count - 1 downto 0 do begin
+    MenuItem5.Delete(I);
+  end;
+
+  Devs := EnumAudioOutputDevices;
+  if Length(Devs) = 0 then begin
+    MI := TMenuItem.Create(MenuItem5);
+    MI.Caption := 'No audio output devices found';
+    MI.Enabled := False;
+    MenuItem5.Add(MI);
+    Exit;
+  end;
+
+  for I := 0 to High(Devs) do begin
+    MI := TMenuItem.Create(MenuItem5);
+    MI.Caption := Devs[I].Name;
+    MI.RadioItem := True;
+    MI.GroupIndex := 1;
+    { Ничего не сохранено (первый запуск) — по умолчанию первое
+      устройство в системном списке, как обычно и есть устройство
+      "по умолчанию" в Windows. }
+    MI.Checked := (Devs[I].Name = FAudioDeviceName) or
+      ((FAudioDeviceName = '') and (I = 0));
+    MI.OnClick := @AudioDeviceItemClick;
+    MenuItem5.Add(MI);
+  end;
+end;
+
+procedure TFormMain.AudioDeviceItemClick(Sender: TObject);
+var
+  MI: TMenuItem;
+begin
+  MI := TMenuItem(Sender);
+  FAudioDeviceName := MI.Caption;
+  MI.Checked := True;   { RadioItem/GroupIndex сам снимает отметку с остальных }
+
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteString('audio', 'device', FAudioDeviceName);
+    finally
+      Free;
+    end;
+  end;
 end;
 
 procedure TFormMain.AddAccountClick(Sender: TObject);

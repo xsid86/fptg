@@ -13,7 +13,7 @@ uses
   Forms, Dialogs,
   constants,
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
-  tdusers, tdaccentcolors, tdaccount, tdcore,
+  tdusers, tdaccentcolors, tdaccount, tdcore, audiodevices,
   uiframe, avatarcache, qrrender, msglayout,
   main, splash, login, framelog, framewelcome, framechats, framehistory
   { you can add units after this };
