@@ -7,6 +7,7 @@ interface
 uses
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
+  BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
   uiframe, framechats;
 
@@ -26,6 +27,9 @@ type
   end;
 
   TAudioMap = specialize TFPGMap<Int64, TAudioWidget>;
+  { Ключ — id пользователя или чата-источника репоста (см. поле у
+    TMsgScroller, где заведены два разных инстанса этого типа). }
+  TForwardAvatarMap = specialize TFPGMap<Int64, TBGRABitmap>;
 
   { TMsgScroller
 
@@ -62,6 +66,17 @@ type
     FAudioPool:   TFPList;   { of TAudioWidget, все когда-либо созданные }
     FAudioActive: TAudioMap; { сейчас позиционированные, по id сообщения }
 
+    { Аватарки источников репоста — маленькие (диаметр HEADER_H),
+      свой кэш, а не avatarcache.TAvatarCache: тот заточен под
+      AVATAR_SIZE=44 и TChatRow (список чатов), здесь же нужны и чаты
+      (mfoChat/mfoChannel — по ForwardChatId), и пользователи (mfoUser —
+      по ForwardUserId, для которых в проекте вообще нет скачанных фото,
+      только TChatRow их имеет). Раздельные карты — id пользователя и
+      id чата не одно и то же пространство, а совпадение по значению
+      возможно. Ключ — Id источника; значение освобождается в Destroy. }
+    FForwardChatAvatars: TForwardAvatarMap;
+    FForwardUserAvatars: TForwardAvatarMap;
+
     FOnScrollRangeChanged: TNotifyEvent;
     FOnNearTop: TNotifyEvent;
 
@@ -71,6 +86,22 @@ type
       переноса текста), BlockRect и ContentRect — иначе разъедутся при
       малейшей правке одного из них. }
     procedure ColumnBounds(out ALeft, ARight: integer);
+    { Единый расчёт для строки с репостом — сколько места до и после
+      контента занимает цитата (шапка+паддинги источника, БЕЗ высоты
+      самого контента) и какая ширина остаётся контенту внутри неё.
+      ARow=nil или не репост — APreH/APostH такие же, как и без цитаты
+      (см. реализацию), AInnerW=AAvailW без изменений. Источник истины
+      и для RebuildOffsets (высота строки), и для ContentRect/
+      ForwardCardRect/ForwardHeaderRect (где рисовать) — как ColumnBounds. }
+    procedure ForwardMetrics(ARow: TMsgRow; AAvailW: integer;
+      out APreH, APostH, AInnerW: integer);
+    { Рамка цитаты целиком (для заливки/обводки) и её собственная строка
+      "аватар+имя+время" (для отрисовки и хит-теста клика по имени). }
+    function ForwardCardRect(AIndex: integer): TRect;
+    function ForwardHeaderRect(AIndex: integer): TRect;
+    function ForwardAvatarBmp(ARow: TMsgRow): TBGRABitmap;
+    procedure ClearForwardAvatars;
+    procedure PaintForwardCard(AIndex: integer; ARow: TMsgRow);
     function IndexAtY(AY: integer): integer;
     function FirstVisible: integer;
     function LastVisible: integer;
@@ -141,6 +172,10 @@ type
     procedure UsersChanged(Sender: TObject);
     procedure ActionError(Sender: TObject; ACode: integer;
       const AMessage, AAction: utf8string);
+    { Ответ на RequestMessageLink (клик по имени источника в цитате
+      репоста) — открываем во внешнем браузере, тем же путём, что и
+      обычные ссылки в тексте сообщений (TMsgScroller.DoLinkClick). }
+    procedure MessageLinkResolved(Sender: TObject; const AUrl: utf8string);
     procedure ScrollerRangeChanged(Sender: TObject);
     procedure ScrollerNearTop(Sender: TObject);
     procedure ScrollbarScroll(Sender: TObject; ScrollCode: TScrollCode; var ScrollPos: integer);
@@ -197,6 +232,15 @@ const
     не "прыгало" по горизонтали от строки к строке. }
   MSG_ICON_W     = 16;
   MSG_ICON_GAP   = 4;
+
+  { Цитата репоста (сообщение, пришедшее с forward_info) — своя рамка
+    внутри блока: свой, меньший радиус и свой отступ от основного
+    заголовка сообщения. Остальные отступы внутри цитаты переиспользуют
+    MSG_PAD_H/MSG_PAD_V/HEADER_BAR_H — цитата структурно то же самое
+    "заголовок+контент", что и весь блок, только вложенная и поменьше,
+    заводить для неё второй набор паддингов не за чем. }
+  FORWARD_HEADER_GAP    = 16;
+  FORWARD_CORNER_RADIUS = 8;
 
   { Цвет отправителя по кругу — единственное место в файле, которое
     придётся тронуть под тёмную тему (см. план: полноценную
@@ -337,6 +381,98 @@ begin
   end;
 end;
 
+{ Отображаемое имя источника репоста. mfoChannel/mfoChat резолвятся
+  через уже загруженный список чатов (ForwardChatId) — тот же приём,
+  что и SenderDisplayName для анонимных постов от чата. mfoUser — через
+  кэш пользователей. mfoHiddenUser — TDLib присылает готовое имя и
+  больше ничего (отправитель сам скрыл, откуда переслано). }
+function ForwardSourceName(ARow: TMsgRow): utf8string;
+var
+  C: TChatRow;
+  L: TTdChats;
+  U: TTdUsers;
+begin
+  Result := '';
+  case ARow.ForwardKind of
+    mfoUser: begin
+      U := TdUserList;
+      if U <> nil then begin
+        Result := U.DisplayName(ARow.ForwardUserId);
+      end;
+    end;
+    mfoChat, mfoChannel: begin
+      L := TdChatList;
+      C := nil;
+      if L <> nil then begin
+        C := L.Lookup(ARow.ForwardChatId);
+      end;
+      if C <> nil then begin
+        Result := C.Title;
+      end else if ARow.ForwardSenderName <> '' then begin
+        Result := ARow.ForwardSenderName;
+      end else begin
+        Result := 'Channel';
+      end;
+    end;
+    mfoHiddenUser: begin
+      Result := ARow.ForwardSenderName;
+    end;
+  end;
+  if Result = '' then begin
+    Result := 'Unknown';
+  end;
+end;
+
+{ Цвет источника репоста — тот же приём, что и SenderColor (настоящий
+  accent_color_id, хэш по SENDER_PALETTE запасным вариантом), но по
+  ForwardUserId/ForwardChatId, а не по отправителю самого сообщения:
+  это два разных, независимо раскрашенных участка одного блока — кто
+  прислал репост (внешний заголовок) и откуда он изначально (цитата). }
+function ForwardSourceColor(ARow: TMsgRow): TColor;
+var
+  Id: Int64;
+  AccId: integer;
+  C: TChatRow;
+  L: TTdChats;
+  AC: TTdAccentColors;
+begin
+  AccId := -1;
+  Id := 0;
+  case ARow.ForwardKind of
+    mfoUser: begin
+      Id := ARow.ForwardUserId;
+      if TdUserList <> nil then begin
+        AccId := TdUserList.AccentColorId(Id);
+      end;
+    end;
+    mfoChat, mfoChannel: begin
+      Id := ARow.ForwardChatId;
+      L := TdChatList;
+      if L <> nil then begin
+        C := L.Lookup(Id);
+        if C <> nil then begin
+          AccId := C.AccentColorId;
+        end;
+      end;
+    end;
+  end;
+
+  if AccId >= 0 then begin
+    AC := TdAccentColorList;
+    if (AC <> nil) and AC.TryGetColor(AccId, Result) then begin
+      Exit;
+    end;
+  end;
+
+  if Id = 0 then begin
+    { mfoHiddenUser (и любой другой случай без числового id) — стабильный,
+      но произвольный запасной цвет: важно не 0, иначе всегда одна и та
+      же ячейка палитры для всех подряд. }
+    Id := 1;
+  end;
+  Result := SENDER_PALETTE[Abs(Id) mod Length(SENDER_PALETTE)];
+end;
+
 { ---------------- TAudioWidget ---------------- }
 
 constructor TAudioWidget.Create(AOwner: TComponent);
@@ -383,6 +519,10 @@ begin
   FAudioPool := TFPList.Create;
   FAudioActive := TAudioMap.Create;
   FAudioActive.Sorted := True;
+  FForwardChatAvatars := TForwardAvatarMap.Create;
+  FForwardChatAvatars.Sorted := True;
+  FForwardUserAvatars := TForwardAvatarMap.Create;
+  FForwardUserAvatars.Sorted := True;
   SetLength(FOffsets, 1);
   FOffsets[0] := 0;
 end;
@@ -393,6 +533,9 @@ begin
   { Сами виджеты не освобождаем: они дочерние control'ы Self,
     их уничтожит LCL вместе с родителем. }
   FAudioPool.Free;
+  ClearForwardAvatars;
+  FForwardChatAvatars.Free;
+  FForwardUserAvatars.Free;
   inherited Destroy;
 end;
 
@@ -412,7 +555,7 @@ end;
 
 procedure TMsgScroller.RebuildOffsets;
 var
-  I, AvailW, H, Cnt, ColL, ColR: integer;
+  I, AvailW, H, Cnt, ColL, ColR, PreH, PostH, InnerW: integer;
   Ctx: TMsgLayoutCtx;
 begin
   { Align/Resize может дёрнуть это ещё в конструкторе TFrameHistory,
@@ -440,7 +583,6 @@ begin
     AvailW := 20;
   end;
   Ctx.Canvas := Canvas;
-  Ctx.AvailWidth := AvailW;
 
   Canvas.Font.Name := 'default';
   Canvas.Font.Height := -13;
@@ -451,11 +593,41 @@ begin
   FOffsets[0] := 0;
   for I := 0 to Cnt - 1 do begin
     FRowIds[I] := FModel[I].Id;
-    H := HEADER_BAR_H + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + 2 * MSG_PAD_V;
+    ForwardMetrics(FModel[I], AvailW, PreH, PostH, InnerW);
+    Ctx.AvailWidth := InnerW;
+    H := HEADER_BAR_H + PreH + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + PostH;
     FOffsets[I + 1] := FOffsets[I] + H + MSG_GAP;
   end;
 
   FTotalHeight := FOffsets[Cnt];
+end;
+
+{ Метрики цитаты репоста — единый источник для RebuildOffsets (высота
+  строки) и ContentRect/ForwardCardRect/ForwardHeaderRect (где рисовать),
+  тем же приёмом, что ColumnBounds. Не репост — APreH/APostH такие же,
+  как и раньше без цитаты (MSG_PAD_V сверху/снизу контента), AInnerW
+  не сужается. См. комментарий у FORWARD_HEADER_GAP — остальные отступы
+  внутри цитаты нарочно те же константы, что и у всего блока. }
+procedure TMsgScroller.ForwardMetrics(ARow: TMsgRow; AAvailW: integer;
+  out APreH, APostH, AInnerW: integer);
+begin
+  if (ARow = nil) or (ARow.ForwardKind = mfoNone) then begin
+    APreH := MSG_PAD_V;
+    APostH := MSG_PAD_V;
+    AInnerW := AAvailW;
+    Exit;
+  end;
+  { До контента: зазор от основного заголовка (FORWARD_HEADER_GAP) +
+    мини-заголовок цитаты (HEADER_BAR_H) + её собственный верхний
+    отступ контента (MSG_PAD_V). После контента: собственный нижний
+    отступ цитаты (MSG_PAD_V) + отступ блока снизу, тот же, что и без
+    цитаты (MSG_PAD_V). }
+  APreH := FORWARD_HEADER_GAP + HEADER_BAR_H + MSG_PAD_V;
+  APostH := MSG_PAD_V + MSG_PAD_V;
+  AInnerW := AAvailW - 2 * MSG_PAD_H;
+  if AInnerW < 20 then begin
+    AInnerW := 20;
+  end;
 end;
 
 procedure TMsgScroller.ColumnBounds(out ALeft, ARight: integer);
@@ -522,13 +694,54 @@ end;
 
 function TMsgScroller.ContentRect(AIndex: integer): TRect;
 var
-  BlockH, ContentH, TopY, ColL, ColR: integer;
+  BlockH, ContentH, TopY, ColL, ColR, AvailW, PreH, PostH, InnerW: integer;
+  R: TMsgRow;
 begin
   ColumnBounds(ColL, ColR);
+  R := FModel[AIndex];
+  AvailW := (ColR - ColL) - 2 * MSG_PAD_H;
+  ForwardMetrics(R, AvailW, PreH, PostH, InnerW);
   BlockH := FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP;
-  ContentH := BlockH - HEADER_BAR_H - 2 * MSG_PAD_V;
-  TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + MSG_PAD_V;
+  ContentH := BlockH - HEADER_BAR_H - PreH - PostH;
+  TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + PreH;
+  if (R <> nil) and (R.ForwardKind <> mfoNone) then begin
+    { Контент цитаты — внутри рамки ForwardCardRect, у которой уже свой
+      MSG_PAD_H от краёв блока; ещё один такой же паддинг — уже
+      собственный отступ содержимого ОТ этой рамки. }
+    Result := Rect(ColL + 2 * MSG_PAD_H, TopY, ColR - 2 * MSG_PAD_H, TopY + ContentH);
+    Exit;
+  end;
   Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + ContentH);
+end;
+
+{ Рамка цитаты целиком (заливка/обводка) — от конца основного заголовка
+  плюс FORWARD_HEADER_GAP, до нижнего внутреннего отступа цитаты после
+  ContentRect (см. ForwardMetrics: APostH = 2*MSG_PAD_V, из которых
+  первый MSG_PAD_V — как раз этот нижний отступ). Горизонтально — та же
+  ширина, что у обычного (не вложенного) контента: MSG_PAD_H от краёв
+  блока. Не репост — пустой Rect, вызывающий обязан сам проверить
+  ForwardKind перед вызовом. }
+function TMsgScroller.ForwardCardRect(AIndex: integer): TRect;
+var
+  ColL, ColR: integer;
+  CR: TRect;
+begin
+  ColumnBounds(ColL, ColR);
+  CR := ContentRect(AIndex);
+  Result := Rect(ColL + MSG_PAD_H,
+    FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + FORWARD_HEADER_GAP,
+    ColR - MSG_PAD_H, CR.Bottom + MSG_PAD_V);
+end;
+
+{ Строка "аватар+имя+время" внутри цитаты — верхняя полоса ForwardCardRect,
+  высотой HEADER_BAR_H (та же величина, что и у основного заголовка блока —
+  цитата структурно то же самое "заголовок+контент", см. ForwardMetrics). }
+function TMsgScroller.ForwardHeaderRect(AIndex: integer): TRect;
+var
+  Card: TRect;
+begin
+  Card := ForwardCardRect(AIndex);
+  Result := Rect(Card.Left, Card.Top, Card.Right, Card.Top + HEADER_BAR_H);
 end;
 
 { Зажимает и применяет позицию без уведомления "около верха — догрузи
@@ -720,6 +933,158 @@ begin
   end;
 end;
 
+procedure TMsgScroller.ClearForwardAvatars;
+var
+  I: integer;
+begin
+  for I := 0 to FForwardChatAvatars.Count - 1 do begin
+    FForwardChatAvatars.Data[I].Free;
+  end;
+  FForwardChatAvatars.Clear;
+  for I := 0 to FForwardUserAvatars.Count - 1 do begin
+    FForwardUserAvatars.Data[I].Free;
+  end;
+  FForwardUserAvatars.Clear;
+end;
+
+{ Аватарка источника репоста — из FForwardChatAvatars/FForwardUserAvatars
+  (владелец кэш, вызывающий НЕ освобождает результат), либо nil, если
+  строить не из чего (mfoHiddenUser — там нет числового id вовсе, см.
+  вызов в PaintForwardCard, он рисует запасной вариант отдельно, без
+  кэша). Источник данных — TChatRow (mfoChat/mfoChannel, по ForwardChatId
+  через TdChatList) или ничего, кроме имени (mfoUser — в проекте пока
+  нет скачанных фото произвольных пользователей, tdusers.pas хранит
+  только имя/цвет, см. ARCHITECTURE.md) — RenderAvatarBmp в этом случае
+  сам падает на инициалы, что и требуется. }
+function TMsgScroller.ForwardAvatarBmp(ARow: TMsgRow): TBGRABitmap;
+var
+  Idx: integer;
+  Id: Int64;
+  Map: TForwardAvatarMap;
+  C: TChatRow;
+  L: TTdChats;
+  SrcName: utf8string;
+begin
+  Result := nil;
+  if ARow = nil then begin
+    Exit;
+  end;
+
+  case ARow.ForwardKind of
+    mfoUser: begin
+      Map := FForwardUserAvatars;
+      Id := ARow.ForwardUserId;
+    end;
+    mfoChat, mfoChannel: begin
+      Map := FForwardChatAvatars;
+      Id := ARow.ForwardChatId;
+    end;
+  else
+    Exit;   { mfoNone/mfoHiddenUser — нет стабильного id, см. комментарий выше }
+  end;
+  if Id = 0 then begin
+    Exit;
+  end;
+
+  Idx := Map.IndexOf(Id);
+  if Idx >= 0 then begin
+    Result := Map.Data[Idx];
+    Exit;
+  end;
+
+  SrcName := ForwardSourceName(ARow);
+  if ARow.ForwardKind in [mfoChat, mfoChannel] then begin
+    C := nil;
+    L := TdChatList;
+    if L <> nil then begin
+      C := L.Lookup(Id);
+    end;
+    if C <> nil then begin
+      Result := RenderAvatarBmp(C.PhotoPath, C.Minithumb, SrcName, Id, HEADER_H, True);
+    end else begin
+      Result := RenderAvatarBmp('', '', SrcName, Id, HEADER_H, True);
+    end;
+  end else begin
+    Result := RenderAvatarBmp('', '', SrcName, Id, HEADER_H, True);
+  end;
+  if Result <> nil then begin
+    Map.Add(Id, Result);
+  end;
+end;
+
+{ Цитата репоста — рамка (заливка+обводка тем же приёмом, что и у
+  внешнего блока, см. Paint), внутри неё своя строка "аватар+имя+время".
+  Имя — ссылка (цвет источника, TextOut, без подчёркивания — курсор
+  меняется на руку в MouseMove, как и у обычных текстовых ссылок) только
+  для mfoChannel: только там TDLib вообще даёт message_id исходного
+  поста, без которого getMessageLink нечего резолвить (см. комментарий
+  у TMsgForwardKind в tdmessages.pas — приватность остальных случаев
+  запрещает строить ссылку). }
+procedure TMsgScroller.PaintForwardCard(AIndex: integer; ARow: TMsgRow);
+var
+  CardRect, HeaderRect: TRect;
+  Clr: TColor;
+  Radius, AvX, AvY, NameX: integer;
+  AvBmp: TBGRABitmap;
+  FreeAvBmp: boolean;
+  NameStr, TimeStr: string;
+  LocalDT: TDateTime;
+begin
+  CardRect := ForwardCardRect(AIndex);
+  HeaderRect := ForwardHeaderRect(AIndex);
+  Clr := ForwardSourceColor(ARow);
+  Radius := Min(FORWARD_CORNER_RADIUS, (CardRect.Bottom - CardRect.Top) div 2);
+
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow);
+  Canvas.RoundRect(CardRect, Radius, Radius);
+
+  Canvas.Brush.Style := bsClear;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Width := 1;
+  Canvas.Pen.Color := BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow);
+  Canvas.RoundRect(CardRect, Radius, Radius);
+  Canvas.Pen.Style := psClear;
+
+  AvBmp := ForwardAvatarBmp(ARow);
+  FreeAvBmp := False;
+  if AvBmp = nil then begin
+    { mfoHiddenUser (или ещё не резолвившийся id) — рендерим на месте,
+      без кэша: это только инициалы, decode файла/превью тут не бывает
+      (см. ForwardAvatarBmp), так что дёшево даже каждую перерисовку. }
+    AvBmp := RenderAvatarBmp('', '', ForwardSourceName(ARow), 0, HEADER_H, True);
+    FreeAvBmp := True;
+  end;
+  AvX := HeaderRect.Left;
+  AvY := HeaderRect.Top + HEADER_PAD_V;
+  if AvBmp <> nil then begin
+    AvBmp.Draw(Canvas, AvX, AvY, False);
+    if FreeAvBmp then begin
+      AvBmp.Free;
+    end;
+  end;
+
+  NameX := HeaderRect.Left + HEADER_H + MSG_ICON_GAP;
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := -11;
+  Canvas.Font.Style := [fsBold];
+  Canvas.Font.Color := Clr;
+  Canvas.Brush.Style := bsClear;
+  NameStr := string(ForwardSourceName(ARow));
+  Canvas.TextOut(NameX, HeaderRect.Top + HEADER_PAD_V, NameStr);
+
+  LocalDT := UniversalTimeToLocal(UnixToDateTime(ARow.ForwardDate));
+  if SameDate(LocalDT, Date) then begin
+    TimeStr := ' (' + FormatDateTime('hh:nn', LocalDT) + ')';
+  end else begin
+    TimeStr := ' (' + FormatDateTime('hh:nn dd.mm.yy', LocalDT) + ')';
+  end;
+  Canvas.Font.Style := [];
+  Canvas.Font.Color := clGrayText;
+  Canvas.TextOut(NameX + Canvas.TextWidth(NameStr), HeaderRect.Top + HEADER_PAD_V, TimeStr);
+end;
+
 procedure TMsgScroller.Paint;
 var
   I, Lo, Hi: integer;
@@ -869,6 +1234,10 @@ begin
         Canvas.Font.Style := [];
         Canvas.Font.Color := clGrayText;
         Canvas.TextOut(HeaderX + Canvas.TextWidth(S), HeaderY, SuffixStr);
+      end;
+
+      if R.ForwardKind <> mfoNone then begin
+        PaintForwardCard(I, R);
       end;
 
       Canvas.Font.Height := -13;
@@ -1055,12 +1424,24 @@ begin
     Exit;
   end;
 
+  R := FModel[Idx];
+  { Имя источника в цитате репоста — ссылка только у mfoChannel (только
+    там TDLib знает message_id исходного поста, см. TMsgForwardKind).
+    Кликабельна вся строка "аватар+имя+время", не только текст имени —
+    для такой маленькой строки точный хит-тест по ширине текста не
+    стоит лишнего кода. }
+  if (R.ForwardKind = mfoChannel) and PtInRect(ForwardHeaderRect(Idx), Point(X, Y)) then begin
+    if FModel <> nil then begin
+      FModel.RequestMessageLink(R.ForwardChatId, R.ForwardMessageId);
+    end;
+    Exit;
+  end;
+
   if Hit.Kind = mhkLink then begin
     DoLinkClick(Hit.URL);
     Exit;
   end;
 
-  R := FModel[Idx];
   FSelAnchorMsg := R.Id;
   FSelFocusMsg := R.Id;
   if Hit.CharOffset >= 0 then begin
@@ -1108,7 +1489,10 @@ begin
   end;
 
   Hit := HitTestAt(X, Y, Idx);
-  if Hit.Kind = mhkLink then begin
+  if (Idx >= 0) and (FModel[Idx].ForwardKind = mfoChannel)
+    and PtInRect(ForwardHeaderRect(Idx), Point(X, Y)) then begin
+    Want := crHandPoint;
+  end else if Hit.Kind = mhkLink then begin
     Want := crHandPoint;
   end else if Hit.Kind = mhkText then begin
     Want := crIBeam;
@@ -1237,6 +1621,7 @@ begin
   FModel.OnChanged := @ModelChanged;
   FModel.OnLoadingChanged := @LoadingChanged;
   FModel.OnActionError := @ActionError;
+  FModel.OnMessageLink := @MessageLinkResolved;
   ModelChanged(nil);
   LoadingChanged(nil);
 end;
@@ -1252,6 +1637,9 @@ begin
     end;
     if TMethod(FModel.OnActionError).Data = Pointer(Self) then begin
       FModel.OnActionError := nil;
+    end;
+    if TMethod(FModel.OnMessageLink).Data = Pointer(Self) then begin
+      FModel.OnMessageLink := nil;
     end;
     FModel := nil;
   end;
@@ -1354,6 +1742,13 @@ begin
     RPC был бы совсем незаметен: пустой список и тишина. }
   if lblStatus <> nil then begin
     lblStatus.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
+  end;
+end;
+
+procedure TFrameHistory.MessageLinkResolved(Sender: TObject; const AUrl: utf8string);
+begin
+  if AUrl <> '' then begin
+    OpenURL(string(AUrl));
   end;
 end;
 

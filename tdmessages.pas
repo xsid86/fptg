@@ -34,6 +34,17 @@ type
   end;
   TMsgEntityArray = array of TMsgEntity;
 
+  { Откуда переслано сообщение — variant-тип TDLib messageOrigin.
+    mfoChannel — единственный случай, где известен message_id
+    исходного поста (chat_id+message_id прямо в origin), поэтому
+    только для него можно построить настоящую ссылку (getMessageLink).
+    У mfoUser/mfoChat Telegram намеренно не отдаёт id исходного
+    сообщения (приватность), у mfoHiddenUser нет вообще ничего, кроме
+    имени. Подтверждено по tdlib_raw.log (все 4 варианта origin
+    встречались) и docs.core.telegram.org (getMessageLink/messageLink/
+    messageForwardInfo.source — не по памяти). }
+  TMsgForwardKind = (mfoNone, mfoUser, mfoChat, mfoChannel, mfoHiddenUser);
+
   { TMsgRow
 
     Чистые данные, без LCL — как и TChatRow. ContentRaw хранит JSON
@@ -54,6 +65,14 @@ type
     PlainText:       utf8string;
     Entities:        TMsgEntityArray;
     Delivery:        TMsgDeliveryState;
+    { Репост — см. TMsgForwardKind. ForwardDate — время исходной
+      публикации (не путать с Date — временем этого репоста). }
+    ForwardKind:       TMsgForwardKind;
+    ForwardUserId:     Int64;   { mfoUser }
+    ForwardChatId:     Int64;   { mfoChat: sender_chat_id; mfoChannel: chat_id источника }
+    ForwardMessageId:  Int64;   { mfoChannel: id сообщения в чате-источнике }
+    ForwardSenderName: utf8string;   { mfoHiddenUser; mfoChat/mfoChannel: author_signature, может быть '' }
+    ForwardDate:       Int64;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -67,6 +86,7 @@ type
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
     const AMessage, AAction: utf8string) of object;
+  TTdMessagesLinkEvent = procedure(Sender: TObject; const AUrl: utf8string) of object;
 
   { TTdMessages
 
@@ -99,6 +119,7 @@ type
     FOnChanged: TTdMessagesEvent;
     FOnLoadingChanged: TTdMessagesEvent;
     FOnActionError: TTdMessagesErrorEvent;
+    FOnMessageLink: TTdMessagesLinkEvent;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -117,6 +138,7 @@ type
     procedure RetryTick(Sender: TObject);
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
+    procedure MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
   public
     { Модель принадлежит аккаунту, резолвер передаётся снаружи —
       тот же приём, что у TTdChats. }
@@ -138,6 +160,13 @@ type
 
     procedure SendText(const AText: utf8string);
     procedure MarkRead(const AMessageIds: array of Int64);
+    { Настоящая ссылка на сообщение в чате-источнике — только через
+      TDLib (getMessageLink), не собирается вручную по chat_id/message_id:
+      формат отличается для публичных/приватных каналов, привязки к теме
+      форума и т.п. Работает только там, где TDLib вообще знает id
+      исходного сообщения — см. TMsgForwardKind (mfoChannel). Результат
+      приходит асинхронно через OnMessageLink. }
+    procedure RequestMessageLink(AChatId, AMessageId: Int64);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -156,6 +185,7 @@ type
     property OnChanged: TTdMessagesEvent read FOnChanged write FOnChanged;
     property OnActionError: TTdMessagesErrorEvent read FOnActionError write FOnActionError;
     property OnLoadingChanged: TTdMessagesEvent read FOnLoadingChanged write FOnLoadingChanged;
+    property OnMessageLink: TTdMessagesLinkEvent read FOnMessageLink write FOnMessageLink;
   end;
 
 { Значок статуса ИСХОДЯЩЕГО сообщения — то же понятие, что ChatReceipt в
@@ -790,8 +820,8 @@ var
   R: TMsgRow;
   Id, MsgChatId: Int64;
   T: utf8string;
-  ContentObj, SenderObj: TJSONObject;
-  SenderType, St: utf8string;
+  ContentObj, SenderObj, FwdObj, OriginObj: TJSONObject;
+  SenderType, St, OriginType: utf8string;
   NewContentRaw: utf8string;
   WasNew: boolean;
 begin
@@ -822,6 +852,39 @@ begin
   end else if SenderType = 'messageSenderChat' then begin
     R.SenderChatId := JGetInt64(SenderObj, 'chat_id');
     R.SenderUserId := 0;
+  end;
+
+  { forward_info отсутствует у обычных сообщений (JGetObj вернёт nil) —
+    origin разбирается по @type, см. комментарий у TMsgForwardKind. }
+  FwdObj := JGetObj(AMsg, 'forward_info');
+  if FwdObj = nil then begin
+    R.ForwardKind := mfoNone;
+  end else begin
+    OriginObj := JGetObj(FwdObj, 'origin');
+    OriginType := JGetStr(OriginObj, '@type');
+    R.ForwardDate := JGetInt64(FwdObj, 'date');
+    R.ForwardUserId := 0;
+    R.ForwardChatId := 0;
+    R.ForwardMessageId := 0;
+    R.ForwardSenderName := '';
+    if OriginType = 'messageOriginUser' then begin
+      R.ForwardKind := mfoUser;
+      R.ForwardUserId := JGetInt64(OriginObj, 'sender_user_id');
+    end else if OriginType = 'messageOriginChat' then begin
+      R.ForwardKind := mfoChat;
+      R.ForwardChatId := JGetInt64(OriginObj, 'sender_chat_id');
+      R.ForwardSenderName := JGetStr(OriginObj, 'author_signature');
+    end else if OriginType = 'messageOriginChannel' then begin
+      R.ForwardKind := mfoChannel;
+      R.ForwardChatId := JGetInt64(OriginObj, 'chat_id');
+      R.ForwardMessageId := JGetInt64(OriginObj, 'message_id');
+      R.ForwardSenderName := JGetStr(OriginObj, 'author_signature');
+    end else if OriginType = 'messageOriginHiddenUser' then begin
+      R.ForwardKind := mfoHiddenUser;
+      R.ForwardSenderName := JGetStr(OriginObj, 'sender_name');
+    end else begin
+      R.ForwardKind := mfoNone;
+    end;
   end;
 
   St := JGetStr(JGetObj(AMsg, 'sending_state'), '@type');
@@ -959,6 +1022,27 @@ begin
   end;
   if Assigned(FOnActionError) then begin
     FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, '');
+  end;
+end;
+
+procedure TTdMessages.RequestMessageLink(AChatId, AMessageId: Int64);
+begin
+  if (FReq = nil) or (AChatId = 0) or (AMessageId = 0) then begin
+    Exit;
+  end;
+  FReq.SendRequest('getMessageLink',
+    '"chat_id":' + utf8string(IntToStr(AChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId)) +
+    ',"media_timestamp":0,"for_album":false,"in_message_thread":false',
+    @MessageLinkDone);
+end;
+
+procedure TTdMessages.MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if AResp.Success and Assigned(FOnMessageLink) then begin
+    FOnMessageLink(Self, JGetStr(AResp.Obj, 'link'));
+  end else if (not AResp.Success) and Assigned(FOnActionError) then begin
+    FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'message-link');
   end;
 end;
 

@@ -19,7 +19,6 @@
         <EditorIndex Value="-1"/>
         <CursorPos X="80" Y="17"/>
         <UsageCount Value="81"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="login.pas"/>
@@ -42,7 +41,6 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="81"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="splash.pas"/>
@@ -64,7 +62,6 @@
         <EditorIndex Value="10"/>
         <UsageCount Value="81"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -122,14 +119,12 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="81"/>
-        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="tg.lps"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <UsageCount Value="81"/>
-        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="tg.res"/>
@@ -139,7 +134,6 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="81"/>
-        <DefaultSyntaxHighlighter Value="None"/>
       </Unit>
       <Unit>
         <Filename Value="qrrender.pas"/>
@@ -217,7 +211,6 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="181"/>
         <UsageCount Value="67"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="avatarcache.pas"/>
@@ -278,154 +271,9 @@
         <Filename Value="framehistory.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="30"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
-      </Unit>
-      <Unit>
-        <Filename Value="C:\lazarus\lcl\grids.pas"/>
-        <UnitName Value="Grids"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="2245"/>
-        <CursorPos Y="2263"/>
-        <UsageCount Value="5"/>
-      </Unit>
-      <Unit>
-        <Filename Value="C:\lazarus\lcl\forms.pp"/>
-        <UnitName Value="Forms"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="339"/>
-        <CursorPos X="17" Y="353"/>
-        <UsageCount Value="9"/>
-      </Unit>
-      <Unit>
-        <Filename Value="C:\lazarus\lcl\include\wincontrol.inc"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="7566"/>
-        <CursorPos Y="7578"/>
-        <UsageCount Value="9"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="29">
-      <Position>
-        <Filename Value="tdclient.pas"/>
-        <Caret Line="38" Column="86" TopLine="13"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="92" Column="90" TopLine="71"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="93" Column="90" TopLine="72"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="94" Column="90" TopLine="73"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="95" Column="90" TopLine="74"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="96" Column="90" TopLine="75"/>
-      </Position>
-      <Position>
-        <Filename Value="login.pas"/>
-        <Caret Line="28" Column="34" TopLine="10"/>
-      </Position>
-      <Position>
-        <Filename Value="login.pas"/>
-        <Caret Line="22" Column="25" TopLine="13"/>
-      </Position>
-      <Position>
-        <Filename Value="login.pas"/>
-        <Caret Line="109" Column="22" TopLine="91"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="98" Column="60" TopLine="76"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="109" Column="25" TopLine="82"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="102" Column="61" TopLine="83"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="32" Column="15" TopLine="13"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="780" Column="10" TopLine="748"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="48" Column="5" TopLine="30"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="646" Column="26" TopLine="620"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="654" Column="37" TopLine="646"/>
-      </Position>
-      <Position>
-        <Filename Value="tdchats.pas"/>
-        <Caret Line="101" Column="60" TopLine="73"/>
-      </Position>
-      <Position>
-        <Filename Value="main.pas"/>
-        <Caret Line="371" Column="39" TopLine="351"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="912" Column="51" TopLine="900"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="913" Column="51" TopLine="901"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="36" Column="77" TopLine="19"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="12" Column="77"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="548" Column="45" TopLine="523"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="577" Column="43" TopLine="554"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="578" Column="32" TopLine="554"/>
-      </Position>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="86" Column="20" TopLine="77"/>
-      </Position>
-      <Position>
-        <Filename Value="tdcore.pas"/>
-        <Caret Line="74" TopLine="50"/>
-      </Position>
-      <Position>
-        <Filename Value="framehistory.pas"/>
-        <Caret Line="375" TopLine="363"/>
-      </Position>
-      <Position>
-        <Filename Value="framehistory.pas"/>
-        <Caret Line="187" Column="42" TopLine="172"/>
-      </Position>
-    </JumpHistory>
+    <JumpHistory HistoryIndex="-1"/>
     <RunParams>
       <FormatVersion Value="2"/>
       <Modes ActiveMode=""/>
