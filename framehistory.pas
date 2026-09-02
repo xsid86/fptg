@@ -184,6 +184,14 @@ type
       (см. реализацию), AInnerW=AAvailW без изменений. Источник истины
       и для RebuildOffsets (высота строки), и для ContentRect/
       ForwardCardRect/ForwardHeaderRect (где рисовать) — как ColumnBounds. }
+    { Обычный вертикальный отступ контента от заголовка/от нижнего края —
+      MSG_PAD_V, кроме аудио: у него оба этих отступа совпадают с его же
+      собственным внутренним отступом (MSG_PAD_H). Один источник правды
+      для ForwardMetrics И ForwardCardRect — раньше ForwardCardRect не
+      знал про этот особый случай и всегда прибавлял MSG_PAD_V, отчего
+      нижний отступ аудио-виджета внутри карточки репоста был у́же
+      остальных трёх сторон (6px вместо 11px). }
+    function ContentPadV(ARow: TMsgRow): integer;
     procedure ForwardMetrics(ARow: TMsgRow; AColW: integer;
       out APreH, APostH, AInnerW: integer);
     { Рамка цитаты целиком (для заливки/обводки) и её собственная строка
@@ -961,20 +969,25 @@ end;
   и только для одного места: зазор МЕЖДУ основным заголовком блока и
   рамкой цитаты (см. FORWARD_HEADER_GAP выше). Не репост — APreH/APostH/
   AInnerW как у обычного блока. }
-procedure TMsgScroller.ForwardMetrics(ARow: TMsgRow; AColW: integer;
-  out APreH, APostH, AInnerW: integer);
-var
-  PadV: integer;
+function TMsgScroller.ContentPadV(ARow: TMsgRow): integer;
 begin
   { Обычный вертикальный отступ контента от заголовка блока/от нижнего
     края блока — MSG_PAD_V, кроме аудио: у него по месту пользователя
     оба этих отступа должны совпадать с его же собственным внутренним
     отступом (MSG_PAD_H=11), не с обычным вертикальным (MSG_PAD_V=6). }
   if (ARow <> nil) and (ARow.Kind = mckAudio) then begin
-    PadV := MSG_PAD_H;
+    Result := MSG_PAD_H;
   end else begin
-    PadV := MSG_PAD_V;
+    Result := MSG_PAD_V;
   end;
+end;
+
+procedure TMsgScroller.ForwardMetrics(ARow: TMsgRow; AColW: integer;
+  out APreH, APostH, AInnerW: integer);
+var
+  PadV: integer;
+begin
+  PadV := ContentPadV(ARow);
 
   if (ARow = nil) or (ARow.ForwardKind = mfoNone) then begin
     APreH := PadV;
@@ -1108,10 +1121,14 @@ begin
   ColumnBounds(ColL, ColR);
   CR := ContentRect(AIndex);
   { ReplyExtraH — если у сообщения ЕЩЁ и есть цитата ответа (reply_to),
-    она рисуется первой, а карточка репоста сдвигается ниже её. }
+    она рисуется первой, а карточка репоста сдвигается ниже её.
+    Нижний отступ — ContentPadV(ARow), НЕ голый MSG_PAD_V: у аудио он
+    11px (как и остальные три стороны), не обычные 6px — раньше здесь
+    было захардкожено MSG_PAD_V, отчего у аудио-виджета внутри карточки
+    репоста нижний отступ был у́же трёх остальных сторон. }
   Result := Rect(ColL + MSG_PAD_H,
     FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + ReplyExtraH(FModel[AIndex]) + FORWARD_HEADER_GAP,
-    ColR - MSG_PAD_H, CR.Bottom + MSG_PAD_V);
+    ColR - MSG_PAD_H, CR.Bottom + ContentPadV(FModel[AIndex]));
 end;
 
 { Строка "аватар+имя+время" внутри цитаты — верхняя полоса ForwardCardRect,
