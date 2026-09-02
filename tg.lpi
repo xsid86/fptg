@@ -17,7 +17,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="11"/>
+      <BuildNr Value="12"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>

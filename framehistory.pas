@@ -99,7 +99,10 @@ type
       "аватар+имя+время" (для отрисовки и хит-теста клика по имени). }
     function ForwardCardRect(AIndex: integer): TRect;
     function ForwardHeaderRect(AIndex: integer): TRect;
-    function ForwardAvatarBmp(ARow: TMsgRow): TBGRABitmap;
+    { AOwned=True — вызывающий обязан сам освободить результат (снимок
+      "пока не скачано", не кэшируется, см. реализацию); False —
+      результат в кэше, освобождать нельзя. }
+    function ForwardAvatarBmp(ARow: TMsgRow; out AOwned: boolean): TBGRABitmap;
     procedure ClearForwardAvatars;
     procedure PaintForwardCard(AIndex: integer; ARow: TMsgRow);
     function IndexAtY(AY: integer): integer;
@@ -966,16 +969,16 @@ begin
   FForwardUserAvatars.Clear;
 end;
 
-{ Аватарка источника репоста — из FForwardChatAvatars/FForwardUserAvatars
-  (владелец кэш, вызывающий НЕ освобождает результат), либо nil, если
-  строить не из чего (mfoHiddenUser — там нет числового id вовсе, см.
-  вызов в PaintForwardCard, он рисует запасной вариант отдельно, без
-  кэша). Источник данных — TChatRow (mfoChat/mfoChannel, по ForwardChatId
-  через TdChatList) или ничего, кроме имени (mfoUser — в проекте пока
-  нет скачанных фото произвольных пользователей, tdusers.pas хранит
-  только имя/цвет, см. ARCHITECTURE.md) — RenderAvatarBmp в этом случае
-  сам падает на инициалы, что и требуется. }
-function TMsgScroller.ForwardAvatarBmp(ARow: TMsgRow): TBGRABitmap;
+{ Аватарка источника репоста. AOwned=False (обычный случай) — результат
+  в FForwardChatAvatars/FForwardUserAvatars, вызывающий НЕ освобождает.
+  AOwned=True — снимок "фото ещё не скачано" (см. ниже), вызывающий
+  обязан освободить сам. nil — строить не из чего вовсе (mfoHiddenUser,
+  нет числового id — см. вызов в PaintForwardCard, там свой запасной
+  вариант без кэша). Источник данных — TChatRow (mfoChat/mfoChannel, по
+  ForwardChatId через TdChatList) или ничего, кроме имени (mfoUser — в
+  проекте пока нет скачанных фото произвольных пользователей,
+  tdusers.pas хранит только имя/цвет, см. ARCHITECTURE.md). }
+function TMsgScroller.ForwardAvatarBmp(ARow: TMsgRow; out AOwned: boolean): TBGRABitmap;
 var
   Idx: integer;
   Id: Int64;
@@ -985,6 +988,7 @@ var
   SrcName: utf8string;
 begin
   Result := nil;
+  AOwned := False;
   if ARow = nil then begin
     Exit;
   end;
@@ -1019,11 +1023,37 @@ begin
       C := L.Lookup(Id);
     end;
     if C <> nil then begin
+      { Список чатов сам скачивает настоящее фото только для строк,
+        реально видимых в TDrawGrid (framechats.pas:757,
+        TTdChats.EnsureAvatar) — источник репоста туда обычно не входит
+        (это ЧУЖОЙ канал/группа, необязательно наш, в списке чатов).
+        Без явного запроса здесь PhotoPath остался бы пустым навсегда, и
+        рисовалось бы только Minithumb — заведомо мелкое, размытое
+        превью (Telegram сам генерирует его таким, "заглушка на время
+        загрузки", не полноценная миниатюра — вот и вся причина
+        "размытости" из жалобы). }
+      L.EnsureAvatar(C);
       Result := RenderAvatarBmp(C.PhotoPath, C.Minithumb, SrcName, Id, HEADER_H, True);
+      if C.PhotoPath = '' then begin
+        { Настоящее фото ещё не скачано — НЕ кэшируем: со следующей
+          перерисовкой (скролл, новое сообщение, что угодно) попробуем
+          снова, и как только EnsureAvatar докачает файл, подхватим уже
+          настоящую картинку вместо Minithumb. Результат при этом уже
+          не принадлежит кэшу — вызывающий обязан его освободить сам
+          (иначе утечка: RenderAvatarBmp создаёт новый TBGRABitmap на
+          каждый такой вызов). Не идеально (decode Minithumb на каждый
+          Paint, пока файл не готов), но дёшево и временно — реальных
+          цитат на экране одновременно немного. }
+        AOwned := True;
+        Exit;
+      end;
     end else begin
       Result := RenderAvatarBmp('', '', SrcName, Id, HEADER_H, True);
     end;
   end else begin
+    { mfoUser — для произвольных пользователей в проекте вообще нет
+      механизма скачивания фото (см. TODO.md), апгрейда не будет —
+      кэшировать инициалы насовсем можно спокойно. }
     Result := RenderAvatarBmp('', '', SrcName, Id, HEADER_H, True);
   end;
   if Result <> nil then begin
@@ -1069,8 +1099,7 @@ begin
   Canvas.FillRect(Rect(HeaderRect.Left, HeaderRect.Bottom - HeaderRadius,
     HeaderRect.Right, HeaderRect.Bottom));
 
-  AvBmp := ForwardAvatarBmp(ARow);
-  FreeAvBmp := False;
+  AvBmp := ForwardAvatarBmp(ARow, FreeAvBmp);
   if AvBmp = nil then begin
     { mfoHiddenUser (или ещё не резолвившийся id) — рендерим на месте,
       без кэша: это только инициалы, decode файла/превью тут не бывает
