@@ -72,6 +72,14 @@ type
     ForwardMessageId:  Int64;   { mfoChannel: id сообщения в чате-источнике }
     ForwardSenderName: utf8string;   { mfoHiddenUser; mfoChat/mfoChannel: author_signature, может быть '' }
     ForwardDate:       Int64;
+    { Реплай (messageReplyToMessage) — 0/0, если сообщение не реплай
+      или реплай на сторис (messageReplyToStory, отдельный, более
+      редкий вариант — не разбираем в этом заходе). TDLib НЕ кладёт
+      сюда содержимое цитируемого сообщения (проверено по
+      tdlib_raw.log: только chat_id/message_id и служебные поля) —
+      имя/текст превью резолвит TTdMessages.ReplyPreview отдельно. }
+    ReplyChatId:       Int64;
+    ReplyMessageId:    Int64;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -81,6 +89,19 @@ type
   end;
 
   TMsgMap = specialize TFPGMap<Int64, TMsgRow>;
+
+  { Превью цитируемого (reply_to) сообщения — только для реплаев на
+    сообщение из уже загруженной истории (см. ReplyPreview/RequestReply)
+    ИЛИ догруженное отдельно через getRepliedMessage, когда оно ещё не
+    в FAll (более старое, чем текущая пагинация). Не путать с TMsgRow —
+    сюда попадает только то, что нужно для отрисовки самой цитаты. }
+  TMsgReplyPreview = class
+  public
+    SenderUserId, SenderChatId: Int64;
+    PreviewText: utf8string;
+  end;
+
+  TReplyMap = specialize TFPGMap<Int64, TMsgReplyPreview>;
 
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
@@ -122,6 +143,16 @@ type
     FOnActionError: TTdMessagesErrorEvent;
     FOnJumpReady: TTdMessagesJumpEvent;
 
+    { Превью цитируемых (reply_to) сообщений, которых ещё нет в FAll —
+      см. ReplyPreview/RequestReply/GetRepliedDone. Отдельная от FAll
+      структура намеренно: getRepliedMessage — разовый точечный запрос
+      "что там за сообщение", не часть последовательной пагинации, и
+      закидывать его результат в FAll сломало бы предположение
+      "FAll — непрерывный, без дыр, диапазон истории", на которое
+      опирается LoadOlder/якорь (см. комментарии там). }
+    FReplyCache: TReplyMap;
+    FReplyPending: array of Int64;
+
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
     function Lookup(AId: Int64): TMsgRow;
@@ -140,6 +171,11 @@ type
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
     procedure JumpDone(Sender: TObject; const AResp: TTdResponse);
+    function IsReplyPending(AId: Int64): boolean;
+    procedure MarkReplyPending(AId: Int64);
+    procedure ClearReplyPending(AId: Int64);
+    procedure RequestReply(AMessageId: Int64);
+    procedure GetRepliedDone(Sender: TObject; const AResp: TTdResponse);
   public
     { Модель принадлежит аккаунту, резолвер передаётся снаружи —
       тот же приём, что у TTdChats. }
@@ -174,6 +210,16 @@ type
       чат целиком. Готовность — через OnJumpReady, синхронно (без RPC),
       если AMessageId уже в FAll. }
     procedure JumpTo(AMessageId: Int64);
+    { Данные для отрисовки цитаты reply_to — только для реплаев В ТОМ
+      ЖЕ чате (AChatId <> ChatId — кросс-чатные реплаи, напр. канал и
+      его группа обсуждения, не поддержаны в этом заходе: редкий
+      случай, не стоит заводить под него кэш с составным ключом
+      chat+message — возвращает False без попытки резолва).
+      Возвращает True и данные, если превью уже есть (в FAll или в
+      FReplyCache); False — превью ещё нет, но уже запущен (или вот-вот
+      запустится) getRepliedMessage, результат придёт через OnChanged. }
+    function ReplyPreview(AChatId, AMessageId: Int64;
+      out ASenderUserId, ASenderChatId: Int64; out APreviewText: utf8string): boolean;
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -388,6 +434,8 @@ begin
   FAll := TMsgMap.Create;
   FAll.Sorted := True;
   FRows := TFPList.Create;
+  FReplyCache := TReplyMap.Create;
+  FReplyCache.Sorted := True;
   FLoadLimit := 50;
 
   FTimer := TTimer.Create(Self);
@@ -414,6 +462,7 @@ begin
   Clear;
   FRows.Free;
   FAll.Free;
+  FReplyCache.Free;
   inherited Destroy;
 end;
 
@@ -426,6 +475,11 @@ begin
     FAll.Data[I].Free;
   end;
   FAll.Clear;
+  for I := 0 to FReplyCache.Count - 1 do begin
+    FReplyCache.Data[I].Free;
+  end;
+  FReplyCache.Clear;
+  SetLength(FReplyPending, 0);
   FLoadingOlder := False;
   FOldestLoaded := False;
   FNoProgressRetries := 0;
@@ -838,7 +892,7 @@ var
   R: TMsgRow;
   Id, MsgChatId: Int64;
   T: utf8string;
-  ContentObj, SenderObj, FwdObj, OriginObj: TJSONObject;
+  ContentObj, SenderObj, FwdObj, OriginObj, ReplyObj: TJSONObject;
   SenderType, St, OriginType: utf8string;
   NewContentRaw: utf8string;
   WasNew: boolean;
@@ -903,6 +957,21 @@ begin
     end else begin
       R.ForwardKind := mfoNone;
     end;
+  end;
+
+  { reply_to — только messageReplyToMessage (ответ на сообщение);
+    messageReplyToStory (ответ на сторис) не разбираем, ReplyMessageId
+    остаётся 0 — цитата тогда просто не рисуется, как и без reply_to
+    вовсе. Сам TDLib НЕ кладёт сюда содержимое цитируемого сообщения —
+    только chat_id/message_id (проверено по tdlib_raw.log), текст/имя
+    для отрисовки резолвит ReplyPreview отдельно, лениво. }
+  ReplyObj := JGetObj(AMsg, 'reply_to');
+  if (ReplyObj <> nil) and (JGetStr(ReplyObj, '@type') = 'messageReplyToMessage') then begin
+    R.ReplyChatId := JGetInt64(ReplyObj, 'chat_id');
+    R.ReplyMessageId := JGetInt64(ReplyObj, 'message_id');
+  end else begin
+    R.ReplyChatId := 0;
+    R.ReplyMessageId := 0;
   end;
 
   St := JGetStr(JGetObj(AMsg, 'sending_state'), '@type');
@@ -1113,6 +1182,142 @@ begin
   if Assigned(FOnJumpReady) then begin
     FOnJumpReady(Self, TargetId);
   end;
+end;
+
+function TTdMessages.IsReplyPending(AId: Int64): boolean;
+var
+  I: integer;
+begin
+  Result := False;
+  for I := 0 to High(FReplyPending) do begin
+    if FReplyPending[I] = AId then begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TTdMessages.MarkReplyPending(AId: Int64);
+begin
+  SetLength(FReplyPending, Length(FReplyPending) + 1);
+  FReplyPending[High(FReplyPending)] := AId;
+end;
+
+procedure TTdMessages.ClearReplyPending(AId: Int64);
+var
+  I, J: integer;
+begin
+  for I := 0 to High(FReplyPending) do begin
+    if FReplyPending[I] = AId then begin
+      for J := I to High(FReplyPending) - 1 do begin
+        FReplyPending[J] := FReplyPending[J + 1];
+      end;
+      SetLength(FReplyPending, Length(FReplyPending) - 1);
+      Exit;
+    end;
+  end;
+end;
+
+{ То же самое сопоставление "тип контента -> подпись превью", что и
+  MessagePreview (tdchats.pas), но по уже разобранным Kind/PlainText
+  TMsgRow, а не по сырому JSON — не перепарсивать ContentRaw на каждую
+  отрисовку уже загруженной цитаты (единственный путь, где это нужно:
+  сообщение уже в FAll, см. ReplyPreview). Для ДОгружаемых через
+  getRepliedMessage сообщений используется сам MessagePreview напрямую
+  с сырым JSON ответа — см. GetRepliedDone. }
+function ReplyKindLabel(AKind: TMsgContentKind; const APlainText: utf8string): utf8string;
+begin
+  case AKind of
+    mckText:      Result := APlainText;
+    mckAudio:     Result := 'Audio';
+    mckPhoto:     Result := 'Photo';
+    mckAnimation: Result := 'GIF';
+    mckSticker:   Result := 'Sticker';
+    mckVoiceNote: Result := 'Voice message';
+  else
+    Result := 'Message';
+  end;
+end;
+
+function TTdMessages.ReplyPreview(AChatId, AMessageId: Int64;
+  out ASenderUserId, ASenderChatId: Int64; out APreviewText: utf8string): boolean;
+var
+  R: TMsgRow;
+  Idx: integer;
+begin
+  Result := False;
+  ASenderUserId := 0;
+  ASenderChatId := 0;
+  APreviewText := '';
+  if (AMessageId = 0) or (AChatId <> FChatId) then begin
+    Exit;
+  end;
+
+  R := Lookup(AMessageId);
+  if R <> nil then begin
+    ASenderUserId := R.SenderUserId;
+    ASenderChatId := R.SenderChatId;
+    APreviewText := ReplyKindLabel(R.Kind, R.PlainText);
+    Result := True;
+    Exit;
+  end;
+
+  Idx := FReplyCache.IndexOf(AMessageId);
+  if Idx >= 0 then begin
+    ASenderUserId := FReplyCache.Data[Idx].SenderUserId;
+    ASenderChatId := FReplyCache.Data[Idx].SenderChatId;
+    APreviewText := FReplyCache.Data[Idx].PreviewText;
+    Result := True;
+    Exit;
+  end;
+
+  RequestReply(AMessageId);
+end;
+
+procedure TTdMessages.RequestReply(AMessageId: Int64);
+begin
+  if (FReq = nil) or (FChatId = 0) or IsReplyPending(AMessageId) then begin
+    Exit;
+  end;
+  MarkReplyPending(AMessageId);
+  FReq.SendRequest('getRepliedMessage',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId)),
+    @GetRepliedDone, PtrInt(AMessageId));
+end;
+
+procedure TTdMessages.GetRepliedDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Id: Int64;
+  P: TMsgReplyPreview;
+  SenderObj: TJSONObject;
+  SenderType: utf8string;
+begin
+  Id := Int64(AResp.Tag);
+  ClearReplyPending(Id);
+  if not AResp.Success then begin
+    { Молча не показываем цитату — тем же приёмом, что и промах getUser
+      в tdusers.pas: цитируемое сообщение могло быть удалено, это не
+      повод засорять статус-строку на каждый такой случай в истории. }
+    Exit;
+  end;
+
+  P := TMsgReplyPreview.Create;
+  SenderObj := JGetObj(AResp.Obj, 'sender_id');
+  SenderType := JGetStr(SenderObj, '@type');
+  if SenderType = 'messageSenderUser' then begin
+    P.SenderUserId := JGetInt64(SenderObj, 'user_id');
+  end else if SenderType = 'messageSenderChat' then begin
+    P.SenderChatId := JGetInt64(SenderObj, 'chat_id');
+  end;
+  P.PreviewText := MessagePreview(JGetObj(AResp.Obj, 'content'));
+
+  if FReplyCache.IndexOf(Id) < 0 then begin
+    FReplyCache.Add(Id, P);
+  end else begin
+    P.Free;   { не должно случаться (см. IsReplyPending), но не течь на всякий случай }
+  end;
+  Touch;
 end;
 
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);

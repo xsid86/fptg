@@ -99,6 +99,12 @@ type
       "аватар+имя+время" (для отрисовки и хит-теста клика по имени). }
     function ForwardCardRect(AIndex: integer): TRect;
     function ForwardHeaderRect(AIndex: integer): TRect;
+    { Высота плашки цитаты ответа (reply_to) + отступ до того, что
+      после неё — 0, если у сообщения нет reply_to. Складывается с
+      PreH из ForwardMetrics (ортогональные свойства, см. реализацию). }
+    function ReplyExtraH(ARow: TMsgRow): integer;
+    function ReplyBoxRect(AIndex: integer): TRect;
+    procedure PaintReplyBox(AIndex: integer; ARow: TMsgRow);
     { AOwned=True — вызывающий обязан сам освободить результат (снимок
       "пока не скачано", не кэшируется, см. реализацию); False —
       результат в кэше, освобождать нельзя. }
@@ -260,6 +266,19 @@ const
   FORWARD_CORNER_RADIUS = 8;
   FORWARD_HEADER_GAP    = MSG_PAD_H;
 
+  { Цитата ответа (reply_to) — компактная плашка над содержимым
+    сообщения: цветная вертикальная полоса + имя цитируемого
+    отправителя + первая строка его текста, без аватара и времени (не
+    как у цитаты репоста, FORWARD_*, — там TDLib сам присылает
+    отдельный объект с контекстом источника, здесь же это просто ссылка
+    на СВОЁ ЖЕ сообщение выше по переписке, ближе по духу к тому, как
+    reply рисует оригинальный клиент Telegram). Высота — фиксированные
+    два текстовых ряда, без word-wrap: имя и текст обрезаются по
+    ширине с "…", не переносятся. }
+  REPLY_BAR_W   = 3;
+  REPLY_LINE_H  = 15;
+  REPLY_BOX_H   = 2 * REPLY_LINE_H;
+
   { Цвет отправителя по кругу — единственное место в файле, которое
     придётся тронуть под тёмную тему (см. план: полноценную
     инфраструктуру тем сейчас не строим, только не закапываем цвета
@@ -287,12 +306,17 @@ const
     выше (0.5): не тонировка, а именно очерчивающая рамка блока. }
   SENDER_BORDER_OPACITY = 0.5;
 
-{ Цвет по кругу, детерминированно по id отправителя — свой SenderUserId
-  просто обычное значение в этом же хэше, поэтому исходящие сообщения
-  получают стабильный цвет автоматически, без отдельной ветки на
-  IsOutgoing. SenderChatId у каналов/супергрупп бывает отрицательным
-  (см. tdlib_raw.log) — Abs, чтобы не уйти за границу массива. }
-function SenderColor(ARow: TMsgRow): TColor;
+{ Цвет по кругу, детерминированно по id — общий резолвер для отправителя
+  сообщения (SenderColor), источника репоста (ForwardSourceColor) и
+  цитируемого в reply_to (ReplySenderColor): три структурно одинаковых
+  случая "раскрасить кого-то по id", вынесены в одно место. Ровно один
+  из AUserId/AChatId должен быть ненулевым (как и везде в проекте —
+  отправитель это либо пользователь, либо чат, не оба разом); оба
+  нулевые (напр. mfoHiddenUser) — берём Id=1, лишь бы не всегда одна и
+  та же ячейка палитры. AChatId у каналов/супергрупп бывает
+  отрицательным (см. tdlib_raw.log) — Abs, чтобы не уйти за границу
+  массива. }
+function ResolveAccentColor(AUserId, AChatId: Int64): TColor;
 var
   Id: Int64;
   AccId: integer;
@@ -308,14 +332,14 @@ begin
     отправителя) или для совсем неожиданного случая, когда ни один
     источник его не даёт. }
   AccId := -1;
-  if ARow.SenderUserId <> 0 then begin
+  if AUserId <> 0 then begin
     if TdUserList <> nil then begin
-      AccId := TdUserList.AccentColorId(ARow.SenderUserId);
+      AccId := TdUserList.AccentColorId(AUserId);
     end;
-  end else if ARow.SenderChatId <> 0 then begin
+  end else if AChatId <> 0 then begin
     L := TdChatList;
     if L <> nil then begin
-      C := L.Lookup(ARow.SenderChatId);
+      C := L.Lookup(AChatId);
       if C <> nil then begin
         AccId := C.AccentColorId;
       end;
@@ -329,12 +353,20 @@ begin
     end;
   end;
 
-  if ARow.SenderUserId <> 0 then begin
-    Id := ARow.SenderUserId;
+  if AUserId <> 0 then begin
+    Id := AUserId;
   end else begin
-    Id := ARow.SenderChatId;
+    Id := AChatId;
+  end;
+  if Id = 0 then begin
+    Id := 1;
   end;
   Result := SENDER_PALETTE[Abs(Id) mod Length(SENDER_PALETTE)];
+end;
+
+function SenderColor(ARow: TMsgRow): TColor;
+begin
+  Result := ResolveAccentColor(ARow.SenderUserId, ARow.SenderChatId);
 end;
 
 { Смешивает AColor с ABackground в пропорции AOpacity (0..1) —
@@ -356,26 +388,27 @@ begin
   );
 end;
 
-{ Имя отправителя. SenderChatId (анонимный админ/пост от имени канала)
-  резолвится через уже загруженный список чатов, не через TTdUsers —
-  это не пользователь. }
-function SenderDisplayName(ARow: TMsgRow): utf8string;
+{ Имя по id — общий резолвер, тем же приёмом, что и ResolveAccentColor
+  (отправитель сообщения / источник репоста / цитируемый в reply_to).
+  AChatId (анонимный админ/пост от имени канала) резолвится через уже
+  загруженный список чатов, не через TTdUsers — это не пользователь. }
+function ResolveDisplayName(AUserId, AChatId: Int64): utf8string;
 var
   C: TChatRow;
   U: TTdUsers;
   L: TTdChats;
 begin
   Result := '';
-  if ARow.SenderUserId <> 0 then begin
+  if AUserId <> 0 then begin
     U := TdUserList;
     if U <> nil then begin
-      Result := U.DisplayName(ARow.SenderUserId);
+      Result := U.DisplayName(AUserId);
     end;
-  end else if ARow.SenderChatId <> 0 then begin
+  end else if AChatId <> 0 then begin
     L := TdChatList;
     C := nil;
     if L <> nil then begin
-      C := L.Lookup(ARow.SenderChatId);
+      C := L.Lookup(AChatId);
     end;
     if C <> nil then begin
       Result := C.Title;
@@ -383,6 +416,11 @@ begin
       Result := 'Channel';
     end;
   end;
+end;
+
+function SenderDisplayName(ARow: TMsgRow): utf8string;
+begin
+  Result := ResolveDisplayName(ARow.SenderUserId, ARow.SenderChatId);
 end;
 
 { Индекс кадра в ImageList1 (framechats.pas) под значок статуса
@@ -608,6 +646,11 @@ begin
   for I := 0 to Cnt - 1 do begin
     FRowIds[I] := FModel[I].Id;
     ForwardMetrics(FModel[I], ColR - ColL, PreH, PostH, InnerW);
+    { Цитата ответа (reply_to) рисуется ВЫШЕ цитаты репоста/контента —
+      её высота добавляется к PreH отдельно, а не внутри ForwardMetrics
+      (это два независимых, ортогональных свойства сообщения: реплай и
+      репост технически могут встретиться на одном сообщении разом). }
+    PreH := PreH + ReplyExtraH(FModel[I]);
     Ctx.AvailWidth := InnerW;
     H := HEADER_BAR_H + PreH + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + PostH;
     FOffsets[I + 1] := FOffsets[I] + H + MSG_GAP;
@@ -730,6 +773,7 @@ begin
   ColumnBounds(ColL, ColR);
   R := FModel[AIndex];
   ForwardMetrics(R, ColR - ColL, PreH, PostH, InnerW);
+  PreH := PreH + ReplyExtraH(R);
   BlockH := FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP;
   ContentH := BlockH - HEADER_BAR_H - PreH - PostH;
   TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + PreH;
@@ -761,8 +805,10 @@ var
 begin
   ColumnBounds(ColL, ColR);
   CR := ContentRect(AIndex);
+  { ReplyExtraH — если у сообщения ЕЩЁ и есть цитата ответа (reply_to),
+    она рисуется первой, а карточка репоста сдвигается ниже её. }
   Result := Rect(ColL + MSG_PAD_H,
-    FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + FORWARD_HEADER_GAP,
+    FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + ReplyExtraH(FModel[AIndex]) + FORWARD_HEADER_GAP,
     ColR - MSG_PAD_H, CR.Bottom + MSG_PAD_V);
 end;
 
@@ -775,6 +821,29 @@ var
 begin
   Card := ForwardCardRect(AIndex);
   Result := Rect(Card.Left, Card.Top, Card.Right, Card.Top + HEADER_BAR_H);
+end;
+
+function TMsgScroller.ReplyExtraH(ARow: TMsgRow): integer;
+begin
+  if (ARow = nil) or (ARow.ReplyMessageId = 0) then begin
+    Result := 0;
+  end else begin
+    Result := REPLY_BOX_H + MSG_PAD_V;
+  end;
+end;
+
+{ Плашка цитаты ответа — сразу под основным заголовком блока, тем же
+  MSG_PAD_H/MSG_PAD_V, что и у обычного контента (см. ForwardCardRect —
+  тот же приём). Если у сообщения ЕЩЁ и репост — карточка репоста и
+  контент сдвинуты ниже неё, см. ReplyExtraH в ForwardCardRect/
+  ContentRect/RebuildOffsets. }
+function TMsgScroller.ReplyBoxRect(AIndex: integer): TRect;
+var
+  ColL, ColR, TopY: integer;
+begin
+  ColumnBounds(ColL, ColR);
+  TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + MSG_PAD_V;
+  Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + REPLY_BOX_H);
 end;
 
 { Зажимает и применяет позицию без уведомления "около верха — догрузи
@@ -1150,6 +1219,95 @@ begin
   Canvas.TextOut(NameX, HeaderRect.Top + HEADER_PAD_V, S);
 end;
 
+{ Цитата ответа (reply_to) — компактная плашка: цветная вертикальная
+  полоса + имя цитируемого отправителя (жирным, цветом) + первая строка
+  его текста (серым), без аватара и рамки — короче и легче репост-
+  карточки (см. константы REPLY_*), ближе к тому, как это делает
+  оригинальный клиент. Данные — FModel.ReplyPreview: если ещё не
+  разрешены (сообщение ещё грузится через getRepliedMessage), рисуем
+  временную серую заглушку — перерисуется сама, как только придут
+  (см. TTdMessages.GetRepliedDone → Touch → полный ModelChanged, не
+  просто Invalidate: высота плашки не меняется, но текст появляется). }
+procedure TMsgScroller.PaintReplyBox(AIndex: integer; ARow: TMsgRow);
+var
+  Box: TRect;
+  SenderUserId, SenderChatId: Int64;
+  PreviewText: utf8string;
+  Have: boolean;
+  Clr: TColor;
+  NameStr, SnippetStr: string;
+  TextX, MaxW, NlPos: integer;
+
+  function Truncate(const S: string; AMaxW: integer): string;
+  var
+    Lo, Hi, Mid: integer;
+  begin
+    Result := S;
+    if Canvas.TextWidth(Result) <= AMaxW then begin
+      Exit;
+    end;
+    Lo := 0;
+    Hi := Length(S);
+    while Lo < Hi do begin
+      Mid := (Lo + Hi + 1) div 2;
+      if Canvas.TextWidth(Copy(S, 1, Mid) + '…') <= AMaxW then begin
+        Lo := Mid;
+      end else begin
+        Hi := Mid - 1;
+      end;
+    end;
+    if Lo <= 0 then begin
+      Result := '…';
+    end else begin
+      Result := Copy(S, 1, Lo) + '…';
+    end;
+  end;
+
+begin
+  Box := ReplyBoxRect(AIndex);
+  Have := (FModel <> nil) and FModel.ReplyPreview(ARow.ReplyChatId, ARow.ReplyMessageId,
+    SenderUserId, SenderChatId, PreviewText);
+
+  if Have then begin
+    Clr := ResolveAccentColor(SenderUserId, SenderChatId);
+    NameStr := string(ResolveDisplayName(SenderUserId, SenderChatId));
+    SnippetStr := string(PreviewText);
+    NlPos := Pos(#10, SnippetStr);
+    if NlPos > 0 then begin
+      { Только первая строка — многострочный текст сжимаем в одну,
+        как и оригинальный клиент. }
+      SnippetStr := Copy(SnippetStr, 1, NlPos - 1);
+    end;
+  end else begin
+    Clr := clGrayText;
+    NameStr := '';
+    SnippetStr := 'Loading…';
+  end;
+
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := Clr;
+  Canvas.FillRect(Rect(Box.Left, Box.Top, Box.Left + REPLY_BAR_W, Box.Bottom));
+
+  TextX := Box.Left + REPLY_BAR_W + MSG_ICON_GAP;
+  MaxW := Box.Right - TextX;
+  if MaxW < 10 then begin
+    Exit;
+  end;
+
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := -11;
+
+  Canvas.Font.Style := [fsBold];
+  Canvas.Font.Color := Clr;
+  Canvas.TextOut(TextX, Box.Top, Truncate(NameStr, MaxW));
+
+  Canvas.Font.Style := [];
+  Canvas.Font.Color := clGrayText;
+  Canvas.TextOut(TextX, Box.Top + REPLY_LINE_H, Truncate(SnippetStr, MaxW));
+end;
+
 procedure TMsgScroller.Paint;
 var
   I, Lo, Hi: integer;
@@ -1299,6 +1457,10 @@ begin
         Canvas.Font.Style := [];
         Canvas.Font.Color := clGrayText;
         Canvas.TextOut(HeaderX + Canvas.TextWidth(S), HeaderY, SuffixStr);
+      end;
+
+      if R.ReplyMessageId <> 0 then begin
+        PaintReplyBox(I, R);
       end;
 
       if R.ForwardKind <> mfoNone then begin
@@ -1542,6 +1704,16 @@ begin
   end;
 
   R := FModel[Idx];
+  { Клик по плашке цитаты ответа — прыжок к цитируемому сообщению В ТОМ
+    ЖЕ чате (ReplyPreview/JumpTo поддерживают только этот случай, см.
+    комментарий у TTdMessages.ReplyPreview) — тем же приёмом, что тап
+    по цитате в оригинальном клиенте. }
+  if (R.ReplyMessageId <> 0) and (FModel <> nil) and (R.ReplyChatId = FModel.ChatId)
+    and PtInRect(ReplyBoxRect(Idx), Point(X, Y)) then begin
+    FModel.JumpTo(R.ReplyMessageId);
+    Exit;
+  end;
+
   { Имя источника в цитате репоста — ссылка только у mfoChannel (только
     там TDLib знает message_id исходного поста, см. TMsgForwardKind).
     Кликабельна вся строка "аватар+имя+время", не только текст имени —
@@ -1606,6 +1778,10 @@ begin
   Hit := HitTestAt(X, Y, Idx);
   if (Idx >= 0) and (FModel[Idx].ForwardKind = mfoChannel)
     and PtInRect(ForwardHeaderRect(Idx), Point(X, Y)) then begin
+    Want := crHandPoint;
+  end else if (Idx >= 0) and (FModel[Idx].ReplyMessageId <> 0)
+    and (FModel[Idx].ReplyChatId = FModel.ChatId)
+    and PtInRect(ReplyBoxRect(Idx), Point(X, Y)) then begin
     Want := crHandPoint;
   end else if Hit.Kind = mhkLink then begin
     Want := crHandPoint;
