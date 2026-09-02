@@ -199,6 +199,7 @@
         <ComponentName Value="FrameChats"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="15"/>
         <CursorPos X="26" Y="13"/>
         <UsageCount Value="67"/>
@@ -259,9 +260,8 @@
         <ComponentName Value="FrameHistory"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="3"/>
-        <TopLine Value="190"/>
+        <TopLine Value="194"/>
         <CursorPos X="21" Y="199"/>
         <UsageCount Value="30"/>
         <Loaded Value="True"/>

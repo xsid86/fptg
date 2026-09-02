@@ -5,15 +5,6 @@ unit framehistory;
 interface
 
 uses
-  { Windows — самым первым: юниты, идущие ПОЗЖЕ в uses, перекрывают его
-    символы при неквалифицированном использовании. Нужен только ради
-    CreateRoundRectRgn/SelectClipRgn/DeleteObject (клип полосы цитаты
-    ответа под скруглённые углы подложки, см. PaintReplyBox) — эти
-    вызовы в коде квалифицированы явно, Windows.xxx, но если бы юнит
-    стоял после Types/Classes, его собственный Rect перекрыл бы
-    Types.Rect для уже написанного кода (Rect(x1,y1,x2,y2) используется
-    по всему файлу) — синтаксическая ошибка ровно от этого. }
-  Windows,
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   BGRABitmap, BGRABitmapTypes, avatarcache,
@@ -276,21 +267,20 @@ const
   FORWARD_HEADER_GAP    = MSG_PAD_H;
 
   { Цитата ответа (reply_to) — компактная плашка над содержимым
-    сообщения: цветная вертикальная полоса + имя цитируемого
-    отправителя + первая строка его текста, без аватара и времени (не
-    как у цитаты репоста, FORWARD_*, — там TDLib сам присылает
-    отдельный объект с контекстом источника, здесь же это просто ссылка
-    на СВОЁ ЖЕ сообщение выше по переписке, ближе по духу к тому, как
-    reply рисует оригинальный клиент Telegram). Высота — фиксированные
-    два текстовых ряда, без word-wrap: имя и текст обрезаются по
-    ширине с "…", не переносятся. }
-  REPLY_BAR_W   = 2;
+    сообщения: значок цитаты + имя цитируемого отправителя + первая
+    строка его текста, подложка и контур тем же приёмом, что и у
+    карточки репоста (не как у цитаты репоста, FORWARD_*, при этом —
+    там TDLib сам присылает отдельный объект с контекстом источника,
+    здесь же это просто ссылка на СВОЁ ЖЕ сообщение выше по переписке,
+    ближе по духу к тому, как reply рисует оригинальный клиент
+    Telegram). Отступы значка от левого/верхнего края плашки и от
+    значка до текста — MSG_ICON_GAP, тот же, что и у иконки в основном
+    заголовке и заголовке цитаты репоста (везде один и тот же смысл:
+    "зазор вокруг маленького значка"), не отдельное число. Высота —
+    фиксированные два текстовых ряда, без word-wrap: имя и текст
+    обрезаются по ширине с "…", не переносятся. }
   REPLY_LINE_H  = 15;
-  { Отступ текста внутри плашки — и горизонтальный (от полосы), и
-    вертикальный (сверху/снизу от рамки), одно и то же число, чтобы
-    было легко подрегулировать сразу оба разом. }
-  REPLY_PAD     = 8;
-  REPLY_BOX_H   = 2 * REPLY_LINE_H + 2 * REPLY_PAD;
+  REPLY_BOX_H   = 2 * REPLY_LINE_H + 2 * MSG_ICON_GAP;
 
   { Цвет отправителя по кругу — единственное место в файле, которое
     придётся тронуть под тёмную тему (см. план: полноценную
@@ -1232,15 +1222,16 @@ begin
   Canvas.TextOut(NameX, HeaderRect.Top + HEADER_PAD_V, S);
 end;
 
-{ Цитата ответа (reply_to) — компактная плашка: цветная вертикальная
-  полоса + имя цитируемого отправителя (жирным, цветом) + первая строка
-  его текста (серым), без аватара и рамки — короче и легче репост-
-  карточки (см. константы REPLY_*), ближе к тому, как это делает
-  оригинальный клиент. Данные — FModel.ReplyPreview: если ещё не
-  разрешены (сообщение ещё грузится через getRepliedMessage), рисуем
-  временную серую заглушку — перерисуется сама, как только придут
-  (см. TTdMessages.GetRepliedDone → Touch → полный ModelChanged, не
-  просто Invalidate: высота плашки не меняется, но текст появляется). }
+{ Цитата ответа (reply_to) — компактная плашка: значок цитаты + имя
+  цитируемого отправителя (жирным, цветом) + первая строка его текста
+  (серым) — подложка/контур/скругление тем же приёмом, что и у карточки
+  репоста (см. константы REPLY_*), но без аватара — источник тут не
+  внешний объект, а просто своё же более раннее сообщение, значок
+  вместо фото. Данные — FModel.ReplyPreview: если ещё не разрешены
+  (сообщение ещё грузится через getRepliedMessage), рисуем временную
+  серую заглушку — перерисуется сама, как только придут (см.
+  TTdMessages.GetRepliedDone → Touch → полный ModelChanged, не просто
+  Invalidate: высота плашки не меняется, но текст появляется). }
 procedure TMsgScroller.PaintReplyBox(AIndex: integer; ARow: TMsgRow);
 var
   Box: TRect;
@@ -1249,8 +1240,8 @@ var
   Have: boolean;
   Clr: TColor;
   NameStr, SnippetStr: string;
-  TextX, MaxW, NlPos, Radius: integer;
-  Rgn: Windows.HRGN;
+  TextX, MaxW, NlPos, Radius, IconX, IconY: integer;
+  IconList: TImageList;
 
   function Truncate(const S: string; AMaxW: integer): string;
   var
@@ -1307,42 +1298,42 @@ begin
   Canvas.Brush.Color := BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow);
   Canvas.RoundRect(Box, Radius, Radius);
 
-  { Полоса слева — во всю высоту плашки, но её верхний-левый и нижний-
-    левый углы должны повторять скругление подложки, а не торчать за
-    него острым углом (при REPLY_BAR_W=2 обычный RoundRect с тем же
-    Radius для самой полосы не работает: радиус много больше её
-    ширины — тот же класс проблемы, что и "капсула" у заголовка,
-    только по горизонтали, там просто ничего вменяемого не нарисует.
-    Вместо этого — заливка обычным прямоугольником, но через маску
-    скругления самой Box: тот же контур, что и у уже нарисованной
-    подложки, поэтому полоса ровно повторяет её изгиб на углах. }
-  Rgn := Windows.CreateRoundRectRgn(Box.Left, Box.Top, Box.Right, Box.Bottom, Radius * 2, Radius * 2);
-  try
-    Windows.SelectClipRgn(Canvas.Handle, Rgn);
-    Canvas.Brush.Color := Clr;
-    Canvas.FillRect(Rect(Box.Left, Box.Top, Box.Left + REPLY_BAR_W, Box.Bottom));
-  finally
-    Windows.SelectClipRgn(Canvas.Handle, 0);
-    Windows.DeleteObject(Rgn);
+  { Значок цитаты — из того же ImageList1, что и значки статуса
+    сообщения/аватар источника репоста (FormMain.Chats.ImageList1, см.
+    комментарий в Paint про общий список с одной сквозной нумерацией). }
+  IconX := Box.Left + MSG_ICON_GAP;
+  IconY := Box.Top + MSG_ICON_GAP;
+  IconList := nil;
+  if (FormMain <> nil) and (FormMain.Chats <> nil) then begin
+    IconList := FormMain.Chats.ImageList1;
+  end;
+  if (IconList <> nil) and (ICON_QUOTE >= 0) and (ICON_QUOTE < IconList.Count) then begin
+    IconList.Draw(Canvas, IconX, IconY, ICON_QUOTE, True);
   end;
 
-  TextX := Box.Left + REPLY_BAR_W + REPLY_PAD;
-  MaxW := Box.Right - REPLY_PAD - TextX;
-  if MaxW < 10 then begin
-    Exit;
+  TextX := Box.Left + MSG_ICON_GAP + MSG_ICON_W + MSG_ICON_GAP;
+  MaxW := Box.Right - MSG_ICON_GAP - TextX;
+  if MaxW >= 10 then begin
+    Canvas.Brush.Style := bsClear;
+    Canvas.Font.Name := 'default';
+    Canvas.Font.Height := -11;
+
+    Canvas.Font.Style := [fsBold];
+    Canvas.Font.Color := Clr;
+    Canvas.TextOut(TextX, Box.Top + MSG_ICON_GAP, Truncate(NameStr, MaxW));
+
+    Canvas.Font.Style := [];
+    Canvas.Font.Color := clGrayText;
+    Canvas.TextOut(TextX, Box.Top + MSG_ICON_GAP + REPLY_LINE_H, Truncate(SnippetStr, MaxW));
   end;
 
+  { Контур — последним, поверх содержимого, тем же приёмом, что и у
+    карточки репоста (SENDER_BORDER_OPACITY, тот же Radius). }
   Canvas.Brush.Style := bsClear;
-  Canvas.Font.Name := 'default';
-  Canvas.Font.Height := -11;
-
-  Canvas.Font.Style := [fsBold];
-  Canvas.Font.Color := Clr;
-  Canvas.TextOut(TextX, Box.Top + REPLY_PAD, Truncate(NameStr, MaxW));
-
-  Canvas.Font.Style := [];
-  Canvas.Font.Color := clGrayText;
-  Canvas.TextOut(TextX, Box.Top + REPLY_PAD + REPLY_LINE_H, Truncate(SnippetStr, MaxW));
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Width := 1;
+  Canvas.Pen.Color := BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow);
+  Canvas.RoundRect(Box, Radius, Radius);
 end;
 
 procedure TMsgScroller.Paint;
