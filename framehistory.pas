@@ -275,7 +275,7 @@ const
     reply рисует оригинальный клиент Telegram). Высота — фиксированные
     два текстовых ряда, без word-wrap: имя и текст обрезаются по
     ширине с "…", не переносятся. }
-  REPLY_BAR_W   = 3;
+  REPLY_BAR_W   = 2;
   REPLY_LINE_H  = 15;
   REPLY_BOX_H   = 2 * REPLY_LINE_H;
 
@@ -1236,7 +1236,7 @@ var
   Have: boolean;
   Clr: TColor;
   NameStr, SnippetStr: string;
-  TextX, MaxW, NlPos: integer;
+  TextX, MaxW, NlPos, Radius: integer;
 
   function Truncate(const S: string; AMaxW: integer): string;
   var
@@ -1284,8 +1284,16 @@ begin
     SnippetStr := 'Loading…';
   end;
 
+  { Подложка — тем же приёмом, что и у карточки репоста (SENDER_BG_
+    OPACITY, скруглённые углы с той же защитой от "капсулы", см.
+    PaintForwardCard). Полоса слева рисуется поверх неё уже без
+    скругления — при REPLY_BAR_W=2 разница не видна. }
+  Radius := Min(FORWARD_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow);
+  Canvas.RoundRect(Box, Radius, Radius);
+
   Canvas.Brush.Color := Clr;
   Canvas.FillRect(Rect(Box.Left, Box.Top, Box.Left + REPLY_BAR_W, Box.Bottom));
 
