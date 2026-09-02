@@ -268,7 +268,7 @@
         <ResourceBaseClass Value="Frame"/>
         <IsVisibleTab Value="True"/>
         <EditorIndex Value="3"/>
-        <TopLine Value="200"/>
+        <TopLine Value="202"/>
         <CursorPos X="25" Y="202"/>
         <UsageCount Value="30"/>
         <Loaded Value="True"/>

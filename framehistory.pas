@@ -613,11 +613,15 @@ begin
   Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, clWindow);
   Canvas.FillRect(ThumbRect);
 
-  { Время — слева от начала трека, справа до конца (отрицательное). }
+  { Время — слева от начала трека, справа до конца (отрицательное).
+    Brush.Style сброшен обратно в bsClear явно — FillRect выше (трек/
+    ползунок) на этом виджет-сете переключает его в bsSolid как побочный
+    эффект заливки, иначе текст рисовался бы с непрозрачным фоном. }
   ElapsedStr := FormatAudioTime(0);
   RemainStr := FormatAudioTime(-FDuration);
+  Canvas.Brush.Style := bsClear;
   Canvas.Font.Style := [];
-  Canvas.Font.Color := clGrayText;
+  Canvas.Font.Color := AUDIO_COLOR;
   Canvas.TextOut(ContentX, ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, ElapsedStr);
   Canvas.TextOut(ContentX + ContentW - Canvas.TextWidth(RemainStr),
     ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, RemainStr);
@@ -740,10 +744,22 @@ end;
   AInnerW как у обычного блока. }
 procedure TMsgScroller.ForwardMetrics(ARow: TMsgRow; AColW: integer;
   out APreH, APostH, AInnerW: integer);
+var
+  PadV: integer;
 begin
+  { Обычный вертикальный отступ контента от заголовка блока/от нижнего
+    края блока — MSG_PAD_V, кроме аудио: у него по месту пользователя
+    оба этих отступа должны совпадать с его же собственным внутренним
+    отступом (MSG_PAD_H=11), не с обычным вертикальным (MSG_PAD_V=6). }
+  if (ARow <> nil) and (ARow.Kind = mckAudio) then begin
+    PadV := MSG_PAD_H;
+  end else begin
+    PadV := MSG_PAD_V;
+  end;
+
   if (ARow = nil) or (ARow.ForwardKind = mfoNone) then begin
-    APreH := MSG_PAD_V;
-    APostH := MSG_PAD_V;
+    APreH := PadV;
+    APostH := PadV;
     AInnerW := AColW - 2 * MSG_PAD_H;
     if AInnerW < 20 then begin
       AInnerW := 20;
@@ -752,15 +768,15 @@ begin
   end;
   { До контента: зазор от основного заголовка (FORWARD_HEADER_GAP) +
     мини-заголовок цитаты (HEADER_BAR_H) + её собственный отступ до
-    контента — тот же MSG_PAD_V, что и у обычного блока. После контента
-    — собственный нижний отступ цитаты (MSG_PAD_V, симметричен верхнему
+    контента — тот же PadV, что и у обычного блока. После контента
+    — собственный нижний отступ цитаты (PadV, симметричен верхнему
     внутри самой цитаты) + отступ ОТ рамки цитаты до края основного
     блока — тот же FORWARD_HEADER_GAP, что и сверху (симметрия с
-    зазором "заголовок блока → цитата", а не обычный MSG_PAD_V: цитата
+    зазором "заголовок блока → цитата", а не обычный PadV: цитата
     — не обычный контент, а вложенный элемент со своим отступом от
     родителя с обеих сторон). }
-  APreH := FORWARD_HEADER_GAP + HEADER_BAR_H + MSG_PAD_V;
-  APostH := MSG_PAD_V + FORWARD_HEADER_GAP;
+  APreH := FORWARD_HEADER_GAP + HEADER_BAR_H + PadV;
+  APostH := PadV + FORWARD_HEADER_GAP;
   { Ширина контента: рамка цитаты отстоит от краёв блока на MSG_PAD_H
     (как обычный контент от блока), содержимое внутри рамки — ещё на
     такой же MSG_PAD_H от неё. }
