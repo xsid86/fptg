@@ -89,6 +89,15 @@ type
     AudioTitle:        utf8string;
     AudioPerformer:    utf8string;
     AudioFileName:     utf8string;
+    { Сам скачиваемый файл (content.audio.audio, TDLib-объект file —
+      не путать с content.audio, у аудио-сообщения оба уровня зовутся
+      "audio", проверено по tdlib_raw.log). AudioFileId=0 — поле не
+      пришло (не Kind=mckAudio). AudioLocalPath — пусто, пока файл не
+      скачан; заполняется EnsureAudioFile/ApplyAudioFile, тем же
+      приёмом, что TChatRow.PhotoPath в tdchats.pas. }
+    AudioFileId:            integer;
+    AudioLocalPath:         utf8string;
+    AudioDownloadRequested: boolean;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -111,6 +120,10 @@ type
   end;
 
   TReplyMap = specialize TFPGMap<Int64, TMsgReplyPreview>;
+
+  { file_id аудиофайла -> сообщение — тот же приём, что TTdChats.FByFile
+    для аватарок (tdchats.pas). }
+  TAudioFileMap = specialize TFPGMap<integer, TMsgRow>;
 
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
@@ -162,6 +175,9 @@ type
     FReplyCache: TReplyMap;
     FReplyPending: array of Int64;
 
+    { Скачивание аудиофайлов — см. EnsureAudioFile/ApplyAudioFile. }
+    FByFile: TAudioFileMap;
+
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
     function Lookup(AId: Int64): TMsgRow;
@@ -172,7 +188,10 @@ type
     procedure ExtractFormatted(AContent: TJSONObject; const AType: utf8string;
       out APlainText: utf8string; out AEntities: TMsgEntityArray);
     procedure ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
-      out ADuration: integer; out ATitle, APerformer, AFileName: utf8string);
+      out ADuration: integer; out ATitle, APerformer, AFileName: utf8string;
+      out AFileId: integer; out ALocalPath: utf8string);
+    procedure DownloadAudioDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyAudioFile(AFile: TJSONObject);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -231,6 +250,12 @@ type
       запустится) getRepliedMessage, результат придёт через OnChanged. }
     function ReplyPreview(AChatId, AMessageId: Int64;
       out ASenderUserId, ASenderChatId: Int64; out APreviewText: utf8string): boolean;
+    { Запросить скачивание аудиофайла сообщения (см. AudioFileId), если
+      ещё не скачан и не запрошен. Результат приходит через updateFile
+      -> Touch (ARow.AudioLocalPath заполнится сам); framehistory узнаёт
+      об этом обычной перерисовкой, отдельного события не заводим — тот
+      же приём, что уже принят для аватарок (см. CLAUDE.md). }
+    procedure EnsureAudioFile(ARow: TMsgRow);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -427,6 +452,8 @@ begin
   FRows := TFPList.Create;
   FReplyCache := TReplyMap.Create;
   FReplyCache.Sorted := True;
+  FByFile := TAudioFileMap.Create;
+  FByFile.Sorted := True;
   FLoadLimit := 50;
 
   FTimer := TTimer.Create(Self);
@@ -454,6 +481,7 @@ begin
   FRows.Free;
   FAll.Free;
   FReplyCache.Free;
+  FByFile.Free;
   inherited Destroy;
 end;
 
@@ -470,6 +498,7 @@ begin
     FReplyCache.Data[I].Free;
   end;
   FReplyCache.Clear;
+  FByFile.Clear;
   SetLength(FReplyPending, 0);
   FLoadingOlder := False;
   FOldestLoaded := False;
@@ -884,14 +913,17 @@ end;
   "audio","duration":214,"title":"...","performer":"...","file_name":
   "..."}}. }
 procedure TTdMessages.ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
-  out ADuration: integer; out ATitle, APerformer, AFileName: utf8string);
+  out ADuration: integer; out ATitle, APerformer, AFileName: utf8string;
+  out AFileId: integer; out ALocalPath: utf8string);
 var
-  AudioObj: TJSONObject;
+  AudioObj, FileObj, LocalObj: TJSONObject;
 begin
   ADuration := 0;
   ATitle := '';
   APerformer := '';
   AFileName := '';
+  AFileId := 0;
+  ALocalPath := '';
   if (AContent = nil) or (AType <> 'messageAudio') then begin
     Exit;
   end;
@@ -903,6 +935,19 @@ begin
   ATitle := JGetStr(AudioObj, 'title');
   APerformer := JGetStr(AudioObj, 'performer');
   AFileName := JGetStr(AudioObj, 'file_name');
+
+  { content.audio.audio — сам скачиваемый файл (TDLib-объект file),
+    отдельный уровень от content.audio (метаданные трека) — оба зовутся
+    "audio", проверено по tdlib_raw.log, не по памяти. }
+  FileObj := JGetObj(AudioObj, 'audio');
+  if FileObj = nil then begin
+    Exit;
+  end;
+  AFileId := JGetInt(FileObj, 'id');
+  LocalObj := JGetObj(FileObj, 'local');
+  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+    ALocalPath := JGetStr(LocalObj, 'path');
+  end;
 end;
 
 procedure TTdMessages.ApplyMessage(AMsg: TJSONObject);
@@ -1025,7 +1070,8 @@ begin
   R.ContentRaw := NewContentRaw;
   R.Kind := ContentKindFromType(T);
   ExtractFormatted(ContentObj, T, R.PlainText, R.Entities);
-  ExtractAudioMeta(ContentObj, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName);
+  ExtractAudioMeta(ContentObj, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
+    R.AudioFileId, R.AudioLocalPath);
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -1052,7 +1098,8 @@ begin
   R.Kind := ContentKindFromType(T);
   R.ContentRaw := utf8string(ANewContent.AsJSON);
   ExtractFormatted(ANewContent, T, R.PlainText, R.Entities);
-  ExtractAudioMeta(ANewContent, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName);
+  ExtractAudioMeta(ANewContent, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
+    R.AudioFileId, R.AudioLocalPath);
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
@@ -1340,6 +1387,83 @@ begin
   Touch;
 end;
 
+{ Скачивание аудиофайла — тот же приём, что TTdChats.EnsureAvatar/
+  DownloadDone/ApplyFile (tdchats.pas) для аватарок, адаптированный на
+  TMsgRow вместо TChatRow: файл может уже быть на диске, тогда путь
+  придёт прямо в ответе на downloadFile и updateFile может не прийти
+  вовсе — оба случая ведут в ApplyAudioFile. }
+procedure TTdMessages.EnsureAudioFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.AudioFileId = 0) or (ARow.AudioLocalPath <> '') or ARow.AudioDownloadRequested then begin
+    Exit;
+  end;
+  ARow.AudioDownloadRequested := True;
+  if FByFile.IndexOf(ARow.AudioFileId) < 0 then begin
+    FByFile.Add(ARow.AudioFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.AudioDownloadRequested := False;
+    Exit;
+  end;
+  { priority 32 — высший: в отличие от аватарок (фон, не мешать
+    истории), это явный запрос пользователя на прослушивание,
+    ждать его не должны. }
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.AudioFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadAudioDone, ARow.AudioFileId);
+end;
+
+procedure TTdMessages.DownloadAudioDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyAudioFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FByFile.Data[Idx].AudioDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyAudioFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FByFile.Data[Idx];
+  if R.AudioLocalPath = Path then begin
+    Exit;
+  end;
+  R.AudioLocalPath := Path;
+  Touch;
+end;
+
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
   Obj: TJSONObject;
@@ -1370,6 +1494,8 @@ begin
     end else if T = 'updateMessageContent' then begin
       ApplyContentUpdate(JGetInt64(Obj, 'chat_id'), JGetInt64(Obj, 'message_id'),
         JGetObj(Obj, 'new_content'));
+    end else if T = 'updateFile' then begin
+      ApplyAudioFile(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));
