@@ -210,6 +210,27 @@ const
     выше (0.5): не тонировка, а именно очерчивающая рамка блока. }
   SENDER_BORDER_OPACITY = 0.5;
 
+  { Аудио-виджет (TAudioWidget) — по аналогии с плашкой цитаты ответа
+    (тот же радиус — FORWARD_CORNER_RADIUS, та же подложка/контур —
+    SENDER_BG_OPACITY/SENDER_BORDER_OPACITY, тот же внутренний отступ —
+    MSG_PAD_H), но свой, независимый базовый цвет: не отправитель
+    сообщения, один и тот же для любого аудио. TColor — $00BBGGRR,
+    поэтому #03A9F4 (RGB) записан в обратном порядке байт. }
+  AUDIO_COLOR = $F4A903;  { RGB(3, 169, 244) — Material light blue 500 }
+  { Индексы кадров в TFrameHistory.ImageList1 (32x32, кнопки
+    play/pause — свой список, не framechats.ImageList1). }
+  AUDIO_ICON_PLAY  = 0;
+  AUDIO_ICON_PAUSE = 1;
+  AUDIO_BUTTON_SIZE = 32;
+  { Полоса прогресса и её ползунок. }
+  AUDIO_TRACK_H = 2;
+  AUDIO_THUMB_W = 3;
+  AUDIO_THUMB_H = 6;
+  { Проигранная часть трека и сам ползунок — заметнее, чем ещё не
+    проигранная (0.75 против 0.25), AUDIO_COLOR в обоих случаях. }
+  AUDIO_PLAYED_OPACITY = 0.75;
+  AUDIO_REMAIN_OPACITY = 0.25;
+
   { ================= framelog.pas ================= }
 
   { Лог не должен расти бесконечно: мемо с сотнями тысяч строк
@@ -223,7 +244,11 @@ const
   PLACEHOLDER_BOX   = 160;
   PLACEHOLDER_BOX_H = 120;
   CAPTION_GAP       = 6;
-  AUDIO_WIDGET_H    = 56;
+  { Пересчитано под новый TAudioWidget (framehistory.pas): 2*MSG_PAD_H
+    (внутренний отступ сверху/снизу) + max(32 [кнопка play/pause],
+    REPLY_LINE_H + HEADER_PAD_V + AUDIO_THUMB_H + HEADER_PAD_V +
+    REPLY_LINE_H [название+прогресс+время]) = 2*11 + max(32,48) = 70. }
+  AUDIO_WIDGET_H    = 70;
 
   { ================= qrrender.pas ================= }
 

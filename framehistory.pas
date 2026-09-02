@@ -14,16 +14,31 @@ uses
 type
   { TAudioWidget
 
-    UI-заглушка аудио-сообщения: кружок с play, подпись. Никакого
-    декодирования — реальное воспроизведение (через ffmpeg) заедет
-    отдельным заходом поверх этого же класса. Recycled-контрол: живёт
-    в пуле TMsgScroller, Visible переключается, сам объект не
-    пересоздаётся на каждый скролл. }
+    UI-заглушка аудио-сообщения: подложка/контур тем же приёмом, что и
+    у плашки цитаты ответа (AUDIO_COLOR вместо цвета отправителя),
+    кнопка play/pause (ImageList1 у TFrameHistory, назначается через
+    Images), название трека, полоса прогресса. Реального
+    воспроизведения нет (только UI) — та часть, что реально требует
+    декодирования (через ffmpeg), заедет отдельным заходом поверх этого
+    же класса; пока прогресс всегда 0%, кнопка всегда в состоянии
+    "play". Recycled-контрол: живёт в пуле TMsgScroller, Visible
+    переключается, сам объект не пересоздаётся на каждый скролл — но
+    данные ТРЕКА меняются при каждом переиспользовании под другое
+    сообщение, см. SetTrack. }
   TAudioWidget = class(TCustomControl)
+  private
+    FTitle, FPerformer, FFileName: utf8string;
+    FDuration: integer;
+    FImages: TImageList;
   protected
     procedure Paint; override;
   public
     constructor Create(AOwner: TComponent); override;
+    { Данные конкретного сообщения — вызывается из LayoutAudioWidgets
+      при каждом переиспользовании виджета под (возможно) другое
+      сообщение, не только при создании. }
+    procedure SetTrack(const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
+    property Images: TImageList read FImages write FImages;
   end;
 
   TAudioMap = specialize TFPGMap<Int64, TAudioWidget>;
@@ -65,6 +80,10 @@ type
 
     FAudioPool:   TFPList;   { of TAudioWidget, все когда-либо созданные }
     FAudioActive: TAudioMap; { сейчас позиционированные, по id сообщения }
+    { Кнопки play/pause для TAudioWidget — назначается TFrameHistory
+      сразу после создания FScroller (см. её конструктор), свой список
+      на форме (не framechats.ImageList1 — те 16x16, эти 32x32). }
+    FAudioImages: TImageList;
 
     { Аватарки источников репоста — маленькие (диаметр HEADER_H),
       свой кэш, а не avatarcache.TAvatarCache: тот заточен под
@@ -158,6 +177,7 @@ type
     property TotalHeight: integer read FTotalHeight;
     property OnScrollRangeChanged: TNotifyEvent read FOnScrollRangeChanged write FOnScrollRangeChanged;
     property OnNearTop: TNotifyEvent read FOnNearTop write FOnNearTop;
+    property AudioImages: TImageList read FAudioImages write FAudioImages;
   end;
 
   { TFrameHistory
@@ -166,6 +186,7 @@ type
     сторона (main.pas, клик по чату) сама решает, когда его показать
     через навигатор. }
   TFrameHistory = class(TFrameBase, ITdActiveListener)
+    ImageList1: TImageList;
   private
     FReady: boolean;
     FModel: TTdMessages;
@@ -305,6 +326,53 @@ begin
     Round(((Bg shr 8) and $FF) + AOpacity * (((Fg shr 8) and $FF) - ((Bg shr 8) and $FF))),
     Round(((Bg shr 16) and $FF) + AOpacity * (((Fg shr 16) and $FF) - ((Bg shr 16) and $FF)))
   );
+end;
+
+{ Обрезает S по ширине AMaxW (пикселей, шрифтом уже выставленным на
+  ACanvas) с "…" на конце — используется и цитатой ответа, и аудио-
+  виджетом, оба однострочные, без word-wrap. }
+function TruncateToWidth(ACanvas: TCanvas; const S: string; AMaxW: integer): string;
+var
+  Lo, Hi, Mid: integer;
+begin
+  Result := S;
+  if ACanvas.TextWidth(Result) <= AMaxW then begin
+    Exit;
+  end;
+  Lo := 0;
+  Hi := Length(S);
+  while Lo < Hi do begin
+    Mid := (Lo + Hi + 1) div 2;
+    if ACanvas.TextWidth(Copy(S, 1, Mid) + '…') <= AMaxW then begin
+      Lo := Mid;
+    end else begin
+      Hi := Mid - 1;
+    end;
+  end;
+  if Lo <= 0 then begin
+    Result := '…';
+  end else begin
+    Result := Copy(S, 1, Lo) + '…';
+  end;
+end;
+
+{ ЧЧ:ММ:СС, "-" спереди для отрицательных (оставшееся время трека). }
+function FormatAudioTime(ASeconds: integer): string;
+var
+  H, M, S: integer;
+  Neg: boolean;
+begin
+  Neg := ASeconds < 0;
+  if Neg then begin
+    ASeconds := -ASeconds;
+  end;
+  H := ASeconds div 3600;
+  M := (ASeconds mod 3600) div 60;
+  S := ASeconds mod 60;
+  Result := Format('%.2d:%.2d:%.2d', [H, M, S]);
+  if Neg then begin
+    Result := '-' + Result;
+  end;
 end;
 
 { Имя по id — общий резолвер, тем же приёмом, что и ResolveAccentColor
@@ -454,33 +522,113 @@ constructor TAudioWidget.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   DoubleBuffered := True;
-  Color := clBtnFace;
+end;
+
+procedure TAudioWidget.SetTrack(const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
+begin
+  FTitle := ATitle;
+  FPerformer := APerformer;
+  FFileName := AFileName;
+  FDuration := ADuration;
+  Invalidate;
 end;
 
 procedure TAudioWidget.Paint;
 var
-  R: TRect;
-  CX, CY: integer;
+  Box, PlayRect, TrackRect, ThumbRect, PlayedRect: TRect;
+  Radius, ContentX, ContentW, ProgressTop, PlayedW: integer;
+  TitleStr, ElapsedStr, RemainStr: string;
 begin
+  Box := ClientRect;
+  Radius := Min(FORWARD_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
+
+  { TAudioWidget — настоящий дочерний control, не рисуется "сквозь"
+    canvas родителя, как цитаты/карточки репоста — вне скруглённых
+    углов нужен сплошной фон. clWindow — то же приближение, что и у
+    подложек цитат (BlendWithBackground(..., clWindow) там же): точный
+    цвет РОДИТЕЛЬСКОГО блока (с учётом тона отправителя) сюда не
+    протекает, разница на практике не заметна. }
   Canvas.Brush.Style := bsSolid;
-  Canvas.Brush.Color := clBtnFace;
-  Canvas.FillRect(ClientRect);
-
-  R := Rect(8, (ClientHeight - 32) div 2, 8 + 32, (ClientHeight - 32) div 2 + 32);
-  Canvas.Pen.Color := clGrayText;
+  Canvas.Pen.Style := psClear;
   Canvas.Brush.Color := clWindow;
-  Canvas.Ellipse(R);
+  Canvas.FillRect(Box);
 
-  CX := (R.Left + R.Right) div 2;
-  CY := (R.Top + R.Bottom) div 2;
-  Canvas.Brush.Color := clGrayText;
-  Canvas.Pen.Color := clGrayText;
-  Canvas.Polygon([Point(CX - 5, CY - 8), Point(CX - 5, CY + 8), Point(CX + 8, CY)]);
+  { Подложка — тем же приёмом, что и у плашки цитаты ответа/карточки
+    репоста (SENDER_BG_OPACITY), но своим цветом (AUDIO_COLOR), не
+    завязанным на отправителя — один и тот же для любого аудио. }
+  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow);
+  Canvas.RoundRect(Box, Radius, Radius);
+
+  { Кнопка play/pause — левый край, по вертикали центрирована.
+    Реального воспроизведения нет (см. класс) — всегда play. }
+  PlayRect := Rect(Box.Left + MSG_PAD_H, (Box.Top + Box.Bottom - AUDIO_BUTTON_SIZE) div 2,
+    Box.Left + MSG_PAD_H + AUDIO_BUTTON_SIZE, (Box.Top + Box.Bottom + AUDIO_BUTTON_SIZE) div 2);
+  if (FImages <> nil) and (AUDIO_ICON_PLAY < FImages.Count) then begin
+    FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, AUDIO_ICON_PLAY, True);
+  end;
+
+  ContentX := PlayRect.Right + MSG_PAD_H;
+  ContentW := Box.Right - MSG_PAD_H - ContentX;
+  if ContentW < 10 then begin
+    Exit;
+  end;
+
+  { Название — исполнитель и трек через дефис; то, что есть из двух,
+    если не хватает второго; имя файла, если метаданных нет вовсе. }
+  if (FPerformer <> '') and (FTitle <> '') then begin
+    TitleStr := string(FPerformer) + ' - ' + string(FTitle);
+  end else if FTitle <> '' then begin
+    TitleStr := string(FTitle);
+  end else if FPerformer <> '' then begin
+    TitleStr := string(FPerformer);
+  end else begin
+    TitleStr := string(FFileName);
+  end;
 
   Canvas.Brush.Style := bsClear;
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := -11;
+  Canvas.Font.Style := [fsBold];
+  Canvas.Font.Color := AUDIO_COLOR;
+  Canvas.TextOut(ContentX, Box.Top + MSG_PAD_H, TruncateToWidth(Canvas, TitleStr, ContentW));
+
+  { Полоса прогресса — реального воспроизведения нет, всегда 0%
+    (ползунок в начале, вся полоса — "ещё не проигранная"). }
+  ProgressTop := Box.Top + MSG_PAD_H + REPLY_LINE_H + HEADER_PAD_V;
+  TrackRect := Rect(ContentX, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2,
+    ContentX + ContentW, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2 + AUDIO_TRACK_H);
+  PlayedW := 0;
+
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_REMAIN_OPACITY, clWindow);
+  Canvas.FillRect(TrackRect);
+  if PlayedW > 0 then begin
+    PlayedRect := Rect(TrackRect.Left, TrackRect.Top, TrackRect.Left + PlayedW, TrackRect.Bottom);
+    Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, clWindow);
+    Canvas.FillRect(PlayedRect);
+  end;
+
+  ThumbRect := Rect(ContentX + PlayedW - AUDIO_THUMB_W div 2, ProgressTop,
+    ContentX + PlayedW - AUDIO_THUMB_W div 2 + AUDIO_THUMB_W, ProgressTop + AUDIO_THUMB_H);
+  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, clWindow);
+  Canvas.FillRect(ThumbRect);
+
+  { Время — слева от начала трека, справа до конца (отрицательное). }
+  ElapsedStr := FormatAudioTime(0);
+  RemainStr := FormatAudioTime(-FDuration);
+  Canvas.Font.Style := [];
   Canvas.Font.Color := clGrayText;
-  Canvas.TextOut(R.Right + 12, (ClientHeight - Canvas.TextHeight('0')) div 2,
-    'Audio (UI only)');
+  Canvas.TextOut(ContentX, ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, ElapsedStr);
+  Canvas.TextOut(ContentX + ContentW - Canvas.TextWidth(RemainStr),
+    ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, RemainStr);
+
+  { Контур — последним, поверх содержимого, тем же приёмом, что и у
+    прочих карточек (SENDER_BORDER_OPACITY). }
+  Canvas.Brush.Style := bsClear;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Width := 1;
+  Canvas.Pen.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BORDER_OPACITY, clWindow);
+  Canvas.RoundRect(Box, Radius, Radius);
 end;
 
 { ---------------- TMsgScroller ---------------- }
@@ -1172,32 +1320,6 @@ var
   NameStr, SnippetStr: string;
   TextX, MaxW, NlPos, Radius, IconX, IconY: integer;
   IconList: TImageList;
-
-  function Truncate(const S: string; AMaxW: integer): string;
-  var
-    Lo, Hi, Mid: integer;
-  begin
-    Result := S;
-    if Canvas.TextWidth(Result) <= AMaxW then begin
-      Exit;
-    end;
-    Lo := 0;
-    Hi := Length(S);
-    while Lo < Hi do begin
-      Mid := (Lo + Hi + 1) div 2;
-      if Canvas.TextWidth(Copy(S, 1, Mid) + '…') <= AMaxW then begin
-        Lo := Mid;
-      end else begin
-        Hi := Mid - 1;
-      end;
-    end;
-    if Lo <= 0 then begin
-      Result := '…';
-    end else begin
-      Result := Copy(S, 1, Lo) + '…';
-    end;
-  end;
-
 begin
   Box := ReplyBoxRect(AIndex);
   Have := (FModel <> nil) and FModel.ReplyPreview(ARow.ReplyChatId, ARow.ReplyMessageId,
@@ -1250,11 +1372,11 @@ begin
 
     Canvas.Font.Style := [fsBold];
     Canvas.Font.Color := Clr;
-    Canvas.TextOut(TextX, Box.Top + HEADER_PAD_V, Truncate(NameStr, MaxW));
+    Canvas.TextOut(TextX, Box.Top + HEADER_PAD_V, TruncateToWidth(Canvas, NameStr, MaxW));
 
     Canvas.Font.Style := [];
     Canvas.Font.Color := clGrayText;
-    Canvas.TextOut(TextX, Box.Top + HEADER_PAD_V + REPLY_LINE_H, Truncate(SnippetStr, MaxW));
+    Canvas.TextOut(TextX, Box.Top + HEADER_PAD_V + REPLY_LINE_H, TruncateToWidth(Canvas, SnippetStr, MaxW));
   end;
 
   { Контур — последним, поверх содержимого, тем же приёмом, что и у
@@ -1522,6 +1644,12 @@ begin
       W := ObtainAudioWidget;
       FAudioActive.Add(WantIds[I], W);
     end;
+    { Виджет из пула переиспользован — мог представлять ДРУГОЕ
+      сообщение до этого, данные трека обновляем при каждом заходе,
+      не только при первом получении. }
+    W.Images := FAudioImages;
+    R := FModel[MIdx];
+    W.SetTrack(R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration);
     W.SetBounds(CR.Left, CR.Top, CR.Right - CR.Left, CR.Bottom - CR.Top);
     W.Visible := True;
   end;
@@ -1824,6 +1952,9 @@ begin
   FScroller.Align := alClient;
   FScroller.OnScrollRangeChanged := @ScrollerRangeChanged;
   FScroller.OnNearTop := @ScrollerNearTop;
+  { ImageList1 — компонент фрейма (LFM), к этому моменту уже создан
+    inherited-стримингом, до тела этого конструктора. }
+  FScroller.AudioImages := ImageList1;
 
   { Флаг ставится последним по тому же правилу, что и во всех формах
     и фреймах проекта: LFM-стриминг (тут его формально нет, но

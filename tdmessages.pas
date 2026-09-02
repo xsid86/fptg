@@ -80,6 +80,15 @@ type
       имя/текст превью резолвит TTdMessages.ReplyPreview отдельно. }
     ReplyChatId:       Int64;
     ReplyMessageId:    Int64;
+    { messageAudio.audio — только для Kind=mckAudio. AudioDuration в
+      секундах (0, если не Kind=mckAudio или поле не пришло). Title/
+      Performer — метаданные из самого файла (ID3 и т.п.), TDLib
+      отдаёт их без скачивания/декода аудио; либо оба пустые — тогда
+      в заголовке виджета показывается AudioFileName. }
+    AudioDuration:     integer;
+    AudioTitle:        utf8string;
+    AudioPerformer:    utf8string;
+    AudioFileName:     utf8string;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -162,6 +171,8 @@ type
     procedure ApplyContentUpdate(AChatId, AMessageId: Int64; ANewContent: TJSONObject);
     procedure ExtractFormatted(AContent: TJSONObject; const AType: utf8string;
       out APlainText: utf8string; out AEntities: TMsgEntityArray);
+    procedure ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
+      out ADuration: integer; out ATitle, APerformer, AFileName: utf8string);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -867,6 +878,33 @@ begin
   SetLength(AEntities, N);
 end;
 
+{ messageAudio.audio — метаданные из самого файла (ID3 и т.п.), TDLib
+  отдаёт их сразу в content, без скачивания/декода аудио. Проверено по
+  tdlib_raw.log: "content":{"@type":"messageAudio","audio":{"@type":
+  "audio","duration":214,"title":"...","performer":"...","file_name":
+  "..."}}. }
+procedure TTdMessages.ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
+  out ADuration: integer; out ATitle, APerformer, AFileName: utf8string);
+var
+  AudioObj: TJSONObject;
+begin
+  ADuration := 0;
+  ATitle := '';
+  APerformer := '';
+  AFileName := '';
+  if (AContent = nil) or (AType <> 'messageAudio') then begin
+    Exit;
+  end;
+  AudioObj := JGetObj(AContent, 'audio');
+  if AudioObj = nil then begin
+    Exit;
+  end;
+  ADuration := JGetInt(AudioObj, 'duration');
+  ATitle := JGetStr(AudioObj, 'title');
+  APerformer := JGetStr(AudioObj, 'performer');
+  AFileName := JGetStr(AudioObj, 'file_name');
+end;
+
 procedure TTdMessages.ApplyMessage(AMsg: TJSONObject);
 var
   R: TMsgRow;
@@ -987,6 +1025,7 @@ begin
   R.ContentRaw := NewContentRaw;
   R.Kind := ContentKindFromType(T);
   ExtractFormatted(ContentObj, T, R.PlainText, R.Entities);
+  ExtractAudioMeta(ContentObj, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName);
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -1013,6 +1052,7 @@ begin
   R.Kind := ContentKindFromType(T);
   R.ContentRaw := utf8string(ANewContent.AsJSON);
   ExtractFormatted(ANewContent, T, R.PlainText, R.Entities);
+  ExtractAudioMeta(ANewContent, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName);
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
