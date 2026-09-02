@@ -602,10 +602,14 @@ end;
   строки) и ContentRect/ForwardCardRect/ForwardHeaderRect (где рисовать),
   тем же приёмом, что ColumnBounds. AColW — ШИРИНА КОЛОНКИ целиком
   (ColR-ColL, ДО вычитания чьих-либо паддингов) — у цитаты свой,
-  независимый от обычного MSG_PAD_H набор отступов (FORWARD_HEADER_GAP,
-  везде одно и то же число, по месту пользователя: "все отступы... 16",
-  не смешивать с MSG_PAD_H/MSG_PAD_V обычного, некитированного блока).
-  Не репост — APreH/APostH/AInnerW как у обычного блока (MSG_PAD_H/V). }
+  цитата структурно нарочно то же самое "заголовок+контент", что и весь
+  блок, вложенное — переиспользует ровно те же MSG_PAD_H/MSG_PAD_V, что
+  и обычный (не вложенный) блок, чтобы отступы контента от рамки цитаты
+  визуально совпадали с отступами обычного сообщения от рамки блока.
+  FORWARD_HEADER_GAP — единственное по-настоящему отдельное число,
+  и только для одного места: зазор МЕЖДУ основным заголовком блока и
+  рамкой цитаты (см. FORWARD_HEADER_GAP выше). Не репост — APreH/APostH/
+  AInnerW как у обычного блока. }
 procedure TMsgScroller.ForwardMetrics(ARow: TMsgRow; AColW: integer;
   out APreH, APostH, AInnerW: integer);
 begin
@@ -620,16 +624,15 @@ begin
   end;
   { До контента: зазор от основного заголовка (FORWARD_HEADER_GAP) +
     мини-заголовок цитаты (HEADER_BAR_H) + её собственный отступ до
-    контента (FORWARD_HEADER_GAP). После контента: собственный нижний
-    отступ цитаты (FORWARD_HEADER_GAP) + отступ блока снизу, тот же,
-    что и у обычного блока (MSG_PAD_V) — граница цитаты и остальной
-    вёрстки блока, не "внутри цитаты", её точно так же не трогаем. }
-  APreH := FORWARD_HEADER_GAP + HEADER_BAR_H + FORWARD_HEADER_GAP;
-  APostH := FORWARD_HEADER_GAP + MSG_PAD_V;
-  { Ширина контента: рамка цитаты отстоит от краёв блока на
-    FORWARD_HEADER_GAP, содержимое внутри рамки — ещё на такой же
-    отступ от неё. }
-  AInnerW := AColW - 4 * FORWARD_HEADER_GAP;
+    контента — тот же MSG_PAD_V, что и у обычного блока. После контента
+    — тот же парный MSG_PAD_V (низ цитаты) + обычный отступ блока снизу
+    (MSG_PAD_V). }
+  APreH := FORWARD_HEADER_GAP + HEADER_BAR_H + MSG_PAD_V;
+  APostH := MSG_PAD_V + MSG_PAD_V;
+  { Ширина контента: рамка цитаты отстоит от краёв блока на MSG_PAD_H
+    (как обычный контент от блока), содержимое внутри рамки — ещё на
+    такой же MSG_PAD_H от неё. }
+  AInnerW := AColW - 4 * MSG_PAD_H;
   if AInnerW < 20 then begin
     AInnerW := 20;
   end;
@@ -710,23 +713,25 @@ begin
   TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + PreH;
   if (R <> nil) and (R.ForwardKind <> mfoNone) then begin
     { Контент цитаты — внутри рамки ForwardCardRect, у которой уже свой
-      FORWARD_HEADER_GAP от краёв блока; ещё один такой же отступ — уже
-      собственный отступ содержимого ОТ этой рамки (см. ForwardMetrics). }
-    Result := Rect(ColL + 2 * FORWARD_HEADER_GAP, TopY,
-      ColR - 2 * FORWARD_HEADER_GAP, TopY + ContentH);
+      MSG_PAD_H от краёв блока (как у обычного контента); ещё один такой
+      же MSG_PAD_H — собственный отступ содержимого ОТ этой рамки (см.
+      ForwardMetrics) — тот же по величине отступ, что у контента
+      обычного сообщения от его блока, не отдельное число. }
+    Result := Rect(ColL + 2 * MSG_PAD_H, TopY,
+      ColR - 2 * MSG_PAD_H, TopY + ContentH);
     Exit;
   end;
   Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + ContentH);
 end;
 
 { Рамка цитаты целиком (заливка/обводка) — от конца основного заголовка
-  плюс FORWARD_HEADER_GAP, до нижнего внутреннего отступа цитаты после
-  ContentRect (см. ForwardMetrics: APostH = FORWARD_HEADER_GAP + MSG_PAD_V,
-  первое слагаемое — как раз этот нижний отступ). Горизонтально — тот
-  же FORWARD_HEADER_GAP от краёв блока: единый отступ для всего, что
-  относится к цитате, ничего не заимствуем у обычного (не вложенного)
-  контента. Не репост — пустой Rect, вызывающий обязан сам проверить
-  ForwardKind перед вызовом. }
+  плюс FORWARD_HEADER_GAP (единственный отступ, специфичный для цитаты),
+  до нижнего внутреннего отступа цитаты после ContentRect (см.
+  ForwardMetrics: APostH = 2*MSG_PAD_V, первый MSG_PAD_V — как раз этот
+  нижний отступ). Горизонтально — тот же MSG_PAD_H, что и у обычного
+  (не вложенного) контента от блока — см. комментарий у ForwardMetrics.
+  Не репост — пустой Rect, вызывающий обязан сам проверить ForwardKind
+  перед вызовом. }
 function TMsgScroller.ForwardCardRect(AIndex: integer): TRect;
 var
   ColL, ColR: integer;
@@ -734,9 +739,9 @@ var
 begin
   ColumnBounds(ColL, ColR);
   CR := ContentRect(AIndex);
-  Result := Rect(ColL + FORWARD_HEADER_GAP,
+  Result := Rect(ColL + MSG_PAD_H,
     FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + FORWARD_HEADER_GAP,
-    ColR - FORWARD_HEADER_GAP, CR.Bottom + FORWARD_HEADER_GAP);
+    ColR - MSG_PAD_H, CR.Bottom + MSG_PAD_V);
 end;
 
 { Строка "аватар+имя+время" внутри цитаты — верхняя полоса ForwardCardRect,
@@ -1037,7 +1042,7 @@ var
   Radius, HeaderRadius, AvX, AvY, NameX: integer;
   AvBmp: TBGRABitmap;
   FreeAvBmp: boolean;
-  NameStr, TimeStr: string;
+  TimeStr, S: string;
   LocalDT: TDateTime;
 begin
   CardRect := ForwardCardRect(AIndex);
@@ -1065,11 +1070,10 @@ begin
     AvBmp := RenderAvatarBmp('', '', ForwardSourceName(ARow), 0, HEADER_H, True);
     FreeAvBmp := True;
   end;
-  { Единый отступ цитаты (FORWARD_HEADER_GAP) — и по горизонтали
-    (аватар от левого края строки), и уже был по вертикали (HEADER_PAD_V
-    — тот же приём вертикального центрирования, что и у внешнего
-    заголовка, см. Paint: там тоже HEADER_PAD_V, не отдельное число). }
-  AvX := HeaderRect.Left + FORWARD_HEADER_GAP;
+  { Тот же горизонтальный отступ, что и у внешнего заголовка
+    (HeaderX := BR.Left + MSG_PAD_H, см. Paint) — и та же вертикальная
+    центровка (HEADER_PAD_V). }
+  AvX := HeaderRect.Left + MSG_PAD_H;
   AvY := HeaderRect.Top + HEADER_PAD_V;
   if AvBmp <> nil then begin
     AvBmp.Draw(Canvas, AvX, AvY, False);
@@ -1078,24 +1082,24 @@ begin
     end;
   end;
 
+  { Имя+время — ОДНОЙ строкой в цвете источника, тем же приёмом, что и
+    у внешнего заголовка (там тоже единый TextOut на "Имя (HH:MM)",
+    цветом отправителя целиком — время не отдельным серым суффиксом). }
   NameX := AvX + HEADER_H + MSG_ICON_GAP;
+  LocalDT := UniversalTimeToLocal(UnixToDateTime(ARow.ForwardDate));
+  if SameDate(LocalDT, Date) then begin
+    TimeStr := FormatDateTime('hh:nn', LocalDT);
+  end else begin
+    TimeStr := FormatDateTime('hh:nn dd.mm.yy', LocalDT);
+  end;
+  S := string(ForwardSourceName(ARow)) + ' (' + TimeStr + ')';
+
   Canvas.Font.Name := 'default';
   Canvas.Font.Height := -11;
   Canvas.Font.Style := [fsBold];
   Canvas.Font.Color := Clr;
   Canvas.Brush.Style := bsClear;
-  NameStr := string(ForwardSourceName(ARow));
-  Canvas.TextOut(NameX, HeaderRect.Top + HEADER_PAD_V, NameStr);
-
-  LocalDT := UniversalTimeToLocal(UnixToDateTime(ARow.ForwardDate));
-  if SameDate(LocalDT, Date) then begin
-    TimeStr := ' (' + FormatDateTime('hh:nn', LocalDT) + ')';
-  end else begin
-    TimeStr := ' (' + FormatDateTime('hh:nn dd.mm.yy', LocalDT) + ')';
-  end;
-  Canvas.Font.Style := [];
-  Canvas.Font.Color := clGrayText;
-  Canvas.TextOut(NameX + Canvas.TextWidth(NameStr), HeaderRect.Top + HEADER_PAD_V, TimeStr);
+  Canvas.TextOut(NameX, HeaderRect.Top + HEADER_PAD_V, S);
 end;
 
 procedure TMsgScroller.Paint;
