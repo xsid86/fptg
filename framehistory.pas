@@ -119,6 +119,16 @@ type
     procedure ClampScrollTop(AValue: integer);
     procedure SetScrollTop(AValue: integer);
     procedure DoLinkClick(const AUrl: utf8string);
+    { Клик по источнику цитаты репоста (только mfoChannel — см. вызов) —
+      не строим шэрабельную ссылку (getMessageLink требует членства в
+      чате, для чужого источника обычно не наш случай), а переходим,
+      как в официальном клиенте: открываем чат-источник и
+      прокручиваем к сообщению. }
+    procedure OpenForwardSource(ARow: TMsgRow);
+    { Прокрутить и показать конкретное сообщение — вызывается из
+      TFrameHistory в ответ на TTdMessages.OnJumpReady, когда нужная
+      пачка истории уже применена и FOffsets/FRowIds её видят. }
+    procedure ScrollToMessage(AMessageId: Int64);
     procedure CopySelection;
   protected
     procedure Paint; override;
@@ -175,10 +185,9 @@ type
     procedure UsersChanged(Sender: TObject);
     procedure ActionError(Sender: TObject; ACode: integer;
       const AMessage, AAction: utf8string);
-    { Ответ на RequestMessageLink (клик по имени источника в цитате
-      репоста) — открываем во внешнем браузере, тем же путём, что и
-      обычные ссылки в тексте сообщений (TMsgScroller.DoLinkClick). }
-    procedure MessageLinkResolved(Sender: TObject; const AUrl: utf8string);
+    { Нужная вокруг AMessageId пачка истории применена (TTdMessages.
+      JumpTo/JumpDone) — переход по цитате репоста: прокрутить к ней. }
+    procedure JumpReady(Sender: TObject; AMessageId: Int64);
     procedure ScrollerRangeChanged(Sender: TObject);
     procedure ScrollerNearTop(Sender: TObject);
     procedure ScrollbarScroll(Sender: TObject; ScrollCode: TScrollCode; var ScrollPos: integer);
@@ -190,7 +199,9 @@ type
     constructor Create(TheOwner: TComponent); override;
     destructor Destroy; override;
 
-    procedure OpenChat(AChatId: Int64);
+    { AJumpToMessageId <> 0 — переход по цитате репоста, см.
+      TTdMessages.OpenChat/JumpTo. }
+    procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0);
 
     { ITdActiveListener }
     procedure TdActiveChanged(ANew: TTdAccount);
@@ -1446,6 +1457,46 @@ begin
   OpenURL(U);
 end;
 
+procedure TMsgScroller.OpenForwardSource(ARow: TMsgRow);
+var
+  F: TFrameHistory;
+begin
+  if (ARow = nil) or (ARow.ForwardChatId = 0) or (ARow.ForwardMessageId = 0) then begin
+    Exit;
+  end;
+  if (FormMain = nil) or (FormMain.Nav = nil) then begin
+    Exit;
+  end;
+  { TFrameHistory — синглтон навигатора (TFrameNavigator.ShowFrame сам
+    решает создавать или переиспользовать), так что если источник —
+    ТЕКУЩИЙ открытый чат, это буквально вызов метода у самого Self же
+    владельца, просто через новую точку входа TFrameHistory.OpenChat. }
+  F := TFrameHistory(FormMain.Nav.ShowFrame(TFrameHistory));
+  if F <> nil then begin
+    F.OpenChat(ARow.ForwardChatId, ARow.ForwardMessageId);
+  end;
+end;
+
+procedure TMsgScroller.ScrollToMessage(AMessageId: Int64);
+var
+  Idx, RowH: integer;
+begin
+  if (FModel = nil) or (Length(FOffsets) < 2) then begin
+    Exit;
+  end;
+  Idx := FModel.IndexOfId(AMessageId);
+  if Idx < 0 then begin
+    { Не должно случаться после синхронного Rebuild в TTdMessages.
+      JumpDone, но на всякий случай — просто не скроллим, не падаем. }
+    Exit;
+  end;
+  RowH := FOffsets[Idx + 1] - FOffsets[Idx];
+  { Центрируем сообщение в видимой области, а не прижимаем к верху —
+    так виднее и то, что было до, и то, что после. }
+  ClampScrollTop(FOffsets[Idx] - (ClientHeight - RowH) div 2);
+  Invalidate;
+end;
+
 procedure TMsgScroller.CopySelection;
 var
   I, LowIdx, HighIdx, LowChar, HighChar, SelStart, SelEnd: integer;
@@ -1497,9 +1548,7 @@ begin
     для такой маленькой строки точный хит-тест по ширине текста не
     стоит лишнего кода. }
   if (R.ForwardKind = mfoChannel) and PtInRect(ForwardHeaderRect(Idx), Point(X, Y)) then begin
-    if FModel <> nil then begin
-      FModel.RequestMessageLink(R.ForwardChatId, R.ForwardMessageId);
-    end;
+    OpenForwardSource(R);
     Exit;
   end;
 
@@ -1687,7 +1736,7 @@ begin
   FModel.OnChanged := @ModelChanged;
   FModel.OnLoadingChanged := @LoadingChanged;
   FModel.OnActionError := @ActionError;
-  FModel.OnMessageLink := @MessageLinkResolved;
+  FModel.OnJumpReady := @JumpReady;
   ModelChanged(nil);
   LoadingChanged(nil);
 end;
@@ -1704,8 +1753,8 @@ begin
     if TMethod(FModel.OnActionError).Data = Pointer(Self) then begin
       FModel.OnActionError := nil;
     end;
-    if TMethod(FModel.OnMessageLink).Data = Pointer(Self) then begin
-      FModel.OnMessageLink := nil;
+    if TMethod(FModel.OnJumpReady).Data = Pointer(Self) then begin
+      FModel.OnJumpReady := nil;
     end;
     FModel := nil;
   end;
@@ -1724,7 +1773,7 @@ begin
   FScroller.BindModel(nil);
 end;
 
-procedure TFrameHistory.OpenChat(AChatId: Int64);
+procedure TFrameHistory.OpenChat(AChatId: Int64; AJumpToMessageId: Int64);
 begin
   if FModel = nil then begin
     Exit;
@@ -1737,7 +1786,7 @@ begin
     это выглядит как наглухо зависшее приложение, если диалог
     исключения всплывает не поверх активного окна. }
   try
-    FModel.OpenChat(AChatId);
+    FModel.OpenChat(AChatId, AJumpToMessageId);
   except
     on E: Exception do begin
       if lblStatus <> nil then begin
@@ -1806,15 +1855,25 @@ procedure TFrameHistory.ActionError(Sender: TObject; ACode: integer;
 begin
   { Ошибка getChatHistory/sendMessage/viewMessages — без этого сбой
     RPC был бы совсем незаметен: пустой список и тишина. }
-  if lblStatus <> nil then begin
-    lblStatus.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
+  if lblStatus = nil then begin
+    Exit;
   end;
+  if AAction = 'jump' then begin
+    { getChatHistory вокруг сообщения (переход по цитате репоста) не
+      удался — обычно потому, что само сообщение с тех пор удалено в
+      чате-источнике, а не баг: chat_id/message_id идут как есть из
+      forward_info.origin, без ручных преобразований (см.
+      TMsgForwardKind в tdmessages.pas). }
+    lblStatus.Caption := 'Не удалось перейти к сообщению — возможно, оно удалено';
+    Exit;
+  end;
+  lblStatus.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
 end;
 
-procedure TFrameHistory.MessageLinkResolved(Sender: TObject; const AUrl: utf8string);
+procedure TFrameHistory.JumpReady(Sender: TObject; AMessageId: Int64);
 begin
-  if AUrl <> '' then begin
-    OpenURL(string(AUrl));
+  if FReady and (FScroller <> nil) then begin
+    FScroller.ScrollToMessage(AMessageId);
   end;
 end;
 

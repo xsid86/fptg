@@ -62,6 +62,7 @@
         <EditorIndex Value="10"/>
         <UsageCount Value="81"/>
         <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -261,7 +262,7 @@
         <ResourceBaseClass Value="Frame"/>
         <IsVisibleTab Value="True"/>
         <EditorIndex Value="3"/>
-        <TopLine Value="185"/>
+        <TopLine Value="186"/>
         <CursorPos X="21" Y="199"/>
         <UsageCount Value="30"/>
         <Loaded Value="True"/>

@@ -37,12 +37,11 @@ type
   { Откуда переслано сообщение — variant-тип TDLib messageOrigin.
     mfoChannel — единственный случай, где известен message_id
     исходного поста (chat_id+message_id прямо в origin), поэтому
-    только для него можно построить настоящую ссылку (getMessageLink).
-    У mfoUser/mfoChat Telegram намеренно не отдаёт id исходного
-    сообщения (приватность), у mfoHiddenUser нет вообще ничего, кроме
-    имени. Подтверждено по tdlib_raw.log (все 4 варианта origin
-    встречались) и docs.core.telegram.org (getMessageLink/messageLink/
-    messageForwardInfo.source — не по памяти). }
+    только для него можно перейти к самому сообщению (см. OpenChat/
+    JumpTo ниже). У mfoUser/mfoChat Telegram намеренно не отдаёт id
+    исходного сообщения (приватность), у mfoHiddenUser нет вообще
+    ничего, кроме имени. Подтверждено по tdlib_raw.log (все 4 варианта
+    origin встречались) и docs.core.telegram.org, не по памяти. }
   TMsgForwardKind = (mfoNone, mfoUser, mfoChat, mfoChannel, mfoHiddenUser);
 
   { TMsgRow
@@ -86,7 +85,9 @@ type
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
     const AMessage, AAction: utf8string) of object;
-  TTdMessagesLinkEvent = procedure(Sender: TObject; const AUrl: utf8string) of object;
+  { Пачка вокруг AMessageId применена (или сообщение уже было
+    загружено) и FRows точно её видит — см. JumpTo/JumpDone. }
+  TTdMessagesJumpEvent = procedure(Sender: TObject; AMessageId: Int64) of object;
 
   { TTdMessages
 
@@ -119,7 +120,7 @@ type
     FOnChanged: TTdMessagesEvent;
     FOnLoadingChanged: TTdMessagesEvent;
     FOnActionError: TTdMessagesErrorEvent;
-    FOnMessageLink: TTdMessagesLinkEvent;
+    FOnJumpReady: TTdMessagesJumpEvent;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -138,7 +139,7 @@ type
     procedure RetryTick(Sender: TObject);
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
-    procedure MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
+    procedure JumpDone(Sender: TObject; const AResp: TTdResponse);
   public
     { Модель принадлежит аккаунту, резолвер передаётся снаружи —
       тот же приём, что у TTdChats. }
@@ -147,9 +148,16 @@ type
     destructor Destroy; override;
 
     procedure Clear;
-    { Переключение на другой чат. Тот же id — no-op: история уже
-      загружена и поддерживается апдейтами. }
-    procedure OpenChat(AChatId: Int64);
+    { Переключение на другой чат. Тот же id — no-op (кроме
+      AJumpToMessageId <> 0, см. ниже). AJumpToMessageId <> 0 — вместо
+      обычной LoadOlder (свежие сообщения, с конца) грузит пачку ВОКРУГ
+      этого id (см. JumpTo) — переход по цитате репоста на чужое
+      сообщение в другом (или том же) чате, тем же путём, что и
+      "перейти к сообщению" в официальном клиенте: открыть чат и
+      прокрутить к сообщению, а не строить шэрабельную ссылку
+      (getMessageLink требует членства в чате — не наш случай для
+      источника репоста, которого обычно нет в списке чатов). }
+    procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0);
     procedure CloseChat;
     { Подгрузить более старую страницу истории. }
     procedure LoadOlder;
@@ -160,13 +168,12 @@ type
 
     procedure SendText(const AText: utf8string);
     procedure MarkRead(const AMessageIds: array of Int64);
-    { Настоящая ссылка на сообщение в чате-источнике — только через
-      TDLib (getMessageLink), не собирается вручную по chat_id/message_id:
-      формат отличается для публичных/приватных каналов, привязки к теме
-      форума и т.п. Работает только там, где TDLib вообще знает id
-      исходного сообщения — см. TMsgForwardKind (mfoChannel). Результат
-      приходит асинхронно через OnMessageLink. }
-    procedure RequestMessageLink(AChatId, AMessageId: Int64);
+    { Догрузить (если ещё не загружено) и подготовить к показу пачку
+      сообщений ВОКРУГ AMessageId в ТЕКУЩЕМ открытом чате — не путать с
+      OpenChat(AChatId, AJumpToMessageId), который сначала переключает
+      чат целиком. Готовность — через OnJumpReady, синхронно (без RPC),
+      если AMessageId уже в FAll. }
+    procedure JumpTo(AMessageId: Int64);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -185,7 +192,7 @@ type
     property OnChanged: TTdMessagesEvent read FOnChanged write FOnChanged;
     property OnActionError: TTdMessagesErrorEvent read FOnActionError write FOnActionError;
     property OnLoadingChanged: TTdMessagesEvent read FOnLoadingChanged write FOnLoadingChanged;
-    property OnMessageLink: TTdMessagesLinkEvent read FOnMessageLink write FOnMessageLink;
+    property OnJumpReady: TTdMessagesJumpEvent read FOnJumpReady write FOnJumpReady;
   end;
 
 { Значок статуса ИСХОДЯЩЕГО сообщения — то же понятие, что ChatReceipt в
@@ -427,9 +434,16 @@ begin
   FTimer.Enabled := False;
 end;
 
-procedure TTdMessages.OpenChat(AChatId: Int64);
+procedure TTdMessages.OpenChat(AChatId: Int64; AJumpToMessageId: Int64);
 begin
   if FChatId = AChatId then begin
+    { Тот же чат — обычно no-op, но переход по цитате может указывать
+      на сообщение в ТЕКУЩЕМ же открытом чате (репост из соседнего
+      сообщения той же переписки) — историю целиком не перезагружаем,
+      просто догружаем/показываем нужный участок. }
+    if AJumpToMessageId <> 0 then begin
+      JumpTo(AJumpToMessageId);
+    end;
     Exit;
   end;
   { closeChat/openChat — не для данных (те идут апдейтами и RPC-ответами
@@ -451,7 +465,11 @@ begin
     FOnChanged(Self);
   end;
   if AChatId <> 0 then begin
-    LoadOlder;
+    if AJumpToMessageId <> 0 then begin
+      JumpTo(AJumpToMessageId);
+    end else begin
+      LoadOlder;
+    end;
   end;
 end;
 
@@ -1025,24 +1043,75 @@ begin
   end;
 end;
 
-procedure TTdMessages.RequestMessageLink(AChatId, AMessageId: Int64);
+procedure TTdMessages.JumpTo(AMessageId: Int64);
 begin
-  if (FReq = nil) or (AChatId = 0) or (AMessageId = 0) then begin
+  if (FReq = nil) or (FChatId = 0) or (AMessageId = 0) then begin
     Exit;
   end;
-  FReq.SendRequest('getMessageLink',
-    '"chat_id":' + utf8string(IntToStr(AChatId)) +
-    ',"message_id":' + utf8string(IntToStr(AMessageId)) +
-    ',"media_timestamp":0,"for_album":false,"in_message_thread":false',
-    @MessageLinkDone);
+  if Lookup(AMessageId) <> nil then begin
+    { Уже загружено — например, повторный клик на ту же цитату, или
+      сообщение попало в окно предыдущей обычной подгрузки истории.
+      RPC не нужен, сразу сообщаем о готовности. }
+    if Assigned(FOnJumpReady) then begin
+      FOnJumpReady(Self, AMessageId);
+    end;
+    Exit;
+  end;
+  { offset:-(N) — "ещё N сообщений НОВЕЕ от_message_id" (официальные
+    docs.core.telegram.org/tdlib, getChatHistory.offset), в дополнение
+    к самому AMessageId и более старым, до заполнения limit. Тем самым
+    сообщение оказывается не в самом конце пачки, а где-то посередине —
+    видна часть переписки вокруг него, не только то, что было раньше. }
+  FReq.SendRequest('getChatHistory',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"from_message_id":' + utf8string(IntToStr(AMessageId)) +
+    ',"offset":' + utf8string(IntToStr(-(FLoadLimit div 2))) +
+    ',"limit":' + utf8string(IntToStr(FLoadLimit)) +
+    ',"only_local":false', @JumpDone, PtrInt(AMessageId));
 end;
 
-procedure TTdMessages.MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
+procedure TTdMessages.JumpDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Arr: TJSONArray;
+  I: integer;
+  TargetId: Int64;
 begin
-  if AResp.Success and Assigned(FOnMessageLink) then begin
-    FOnMessageLink(Self, JGetStr(AResp.Obj, 'link'));
-  end else if (not AResp.Success) and Assigned(FOnActionError) then begin
-    FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'message-link');
+  TargetId := Int64(AResp.Tag);
+  if not AResp.Success then begin
+    if Assigned(FOnActionError) then begin
+      FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'jump');
+    end;
+    Exit;
+  end;
+
+  Arr := JGetArr(AResp.Obj, 'messages');
+  if Arr <> nil then begin
+    { Тот же порядок, что и в HistoryDone: getChatHistory отдаёт от
+      новых к старым, применяем в обратном порядке. }
+    for I := Arr.Count - 1 downto 0 do begin
+      if Arr.Items[I].JSONType = jtObject then begin
+        try
+          ApplyMessage(TJSONObject(Arr.Items[I]));
+        except
+          on E: Exception do begin
+            if Assigned(FOnActionError) then begin
+              FOnActionError(Self, 0, utf8string(E.Message), 'jump-parse');
+            end;
+          end;
+        end;
+      end;
+    end;
+  end;
+
+  { ApplyMessage выше только помечает FDirty (Touch) — настоящая
+    пересборка FRows идёт отложенно, по 50-мс таймеру. Вызывающему
+    (см. framehistory.pas: TMsgScroller.ScrollToMessage) нужен готовый,
+    актуальный FRows/FOffsets ПРЯМО в момент OnJumpReady — синхронный
+    Rebuild здесь, а не ожидание таймера, как в обычном потоке апдейтов. }
+  Rebuild(nil);
+
+  if Assigned(FOnJumpReady) then begin
+    FOnJumpReady(Self, TargetId);
   end;
 end;
 
