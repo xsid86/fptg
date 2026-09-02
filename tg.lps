@@ -62,7 +62,6 @@
         <EditorIndex Value="10"/>
         <UsageCount Value="81"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>

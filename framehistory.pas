@@ -5,6 +5,15 @@ unit framehistory;
 interface
 
 uses
+  { Windows — самым первым: юниты, идущие ПОЗЖЕ в uses, перекрывают его
+    символы при неквалифицированном использовании. Нужен только ради
+    CreateRoundRectRgn/SelectClipRgn/DeleteObject (клип полосы цитаты
+    ответа под скруглённые углы подложки, см. PaintReplyBox) — эти
+    вызовы в коде квалифицированы явно, Windows.xxx, но если бы юнит
+    стоял после Types/Classes, его собственный Rect перекрыл бы
+    Types.Rect для уже написанного кода (Rect(x1,y1,x2,y2) используется
+    по всему файлу) — синтаксическая ошибка ровно от этого. }
+  Windows,
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   BGRABitmap, BGRABitmapTypes, avatarcache,
@@ -277,7 +286,11 @@ const
     ширине с "…", не переносятся. }
   REPLY_BAR_W   = 2;
   REPLY_LINE_H  = 15;
-  REPLY_BOX_H   = 2 * REPLY_LINE_H;
+  { Отступ текста внутри плашки — и горизонтальный (от полосы), и
+    вертикальный (сверху/снизу от рамки), одно и то же число, чтобы
+    было легко подрегулировать сразу оба разом. }
+  REPLY_PAD     = 8;
+  REPLY_BOX_H   = 2 * REPLY_LINE_H + 2 * REPLY_PAD;
 
   { Цвет отправителя по кругу — единственное место в файле, которое
     придётся тронуть под тёмную тему (см. план: полноценную
@@ -1237,6 +1250,7 @@ var
   Clr: TColor;
   NameStr, SnippetStr: string;
   TextX, MaxW, NlPos, Radius: integer;
+  Rgn: Windows.HRGN;
 
   function Truncate(const S: string; AMaxW: integer): string;
   var
@@ -1286,19 +1300,34 @@ begin
 
   { Подложка — тем же приёмом, что и у карточки репоста (SENDER_BG_
     OPACITY, скруглённые углы с той же защитой от "капсулы", см.
-    PaintForwardCard). Полоса слева рисуется поверх неё уже без
-    скругления — при REPLY_BAR_W=2 разница не видна. }
+    PaintForwardCard). }
   Radius := Min(FORWARD_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
   Canvas.Brush.Color := BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow);
   Canvas.RoundRect(Box, Radius, Radius);
 
-  Canvas.Brush.Color := Clr;
-  Canvas.FillRect(Rect(Box.Left, Box.Top, Box.Left + REPLY_BAR_W, Box.Bottom));
+  { Полоса слева — во всю высоту плашки, но её верхний-левый и нижний-
+    левый углы должны повторять скругление подложки, а не торчать за
+    него острым углом (при REPLY_BAR_W=2 обычный RoundRect с тем же
+    Radius для самой полосы не работает: радиус много больше её
+    ширины — тот же класс проблемы, что и "капсула" у заголовка,
+    только по горизонтали, там просто ничего вменяемого не нарисует.
+    Вместо этого — заливка обычным прямоугольником, но через маску
+    скругления самой Box: тот же контур, что и у уже нарисованной
+    подложки, поэтому полоса ровно повторяет её изгиб на углах. }
+  Rgn := Windows.CreateRoundRectRgn(Box.Left, Box.Top, Box.Right, Box.Bottom, Radius * 2, Radius * 2);
+  try
+    Windows.SelectClipRgn(Canvas.Handle, Rgn);
+    Canvas.Brush.Color := Clr;
+    Canvas.FillRect(Rect(Box.Left, Box.Top, Box.Left + REPLY_BAR_W, Box.Bottom));
+  finally
+    Windows.SelectClipRgn(Canvas.Handle, 0);
+    Windows.DeleteObject(Rgn);
+  end;
 
-  TextX := Box.Left + REPLY_BAR_W + MSG_ICON_GAP;
-  MaxW := Box.Right - TextX;
+  TextX := Box.Left + REPLY_BAR_W + REPLY_PAD;
+  MaxW := Box.Right - REPLY_PAD - TextX;
   if MaxW < 10 then begin
     Exit;
   end;
@@ -1309,11 +1338,11 @@ begin
 
   Canvas.Font.Style := [fsBold];
   Canvas.Font.Color := Clr;
-  Canvas.TextOut(TextX, Box.Top, Truncate(NameStr, MaxW));
+  Canvas.TextOut(TextX, Box.Top + REPLY_PAD, Truncate(NameStr, MaxW));
 
   Canvas.Font.Style := [];
   Canvas.Font.Color := clGrayText;
-  Canvas.TextOut(TextX, Box.Top + REPLY_LINE_H, Truncate(SnippetStr, MaxW));
+  Canvas.TextOut(TextX, Box.Top + REPLY_PAD + REPLY_LINE_H, Truncate(SnippetStr, MaxW));
 end;
 
 procedure TMsgScroller.Paint;
