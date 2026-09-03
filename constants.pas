@@ -219,8 +219,13 @@ const
   AUDIO_COLOR = $F4A903;  { RGB(3, 169, 244) — Material light blue 500 }
   { Индексы кадров в TFrameHistory.ImageList1 (32x32, кнопки
     play/pause — свой список, не framechats.ImageList1). }
-  AUDIO_ICON_PLAY  = 0;
-  AUDIO_ICON_PAUSE = 1;
+  AUDIO_ICON_PLAY     = 0;
+  AUDIO_ICON_PAUSE    = 1;
+  { Значок "скачать" — переиспользуется TFileWidget (framehistory.pas)
+    для файла-документа, ещё не скачанного на диск; тот же ImageList1,
+    что и play/pause, не отдельный список — пользователь добавил кадр
+    в дизайнере рядом с ними. }
+  AUDIO_ICON_DOWNLOAD = 2;
   AUDIO_BUTTON_SIZE = 32;
   { Полоса прогресса и её ползунок. }
   AUDIO_TRACK_H = 2;

@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
-  Dialogs, BGRABitmap, BGRABitmapTypes, avatarcache,
+  Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
   uiframe, framechats, audioplayer;
 
@@ -101,7 +101,9 @@ type
     FFileName: utf8string;
     FFileSize: Int64;
     FIconIndex: integer;
-    FImages: TImageList;
+    FDownloaded: boolean;
+    FImages: TImageList;         { FileTypes — значки по расширению }
+    FDownloadImages: TImageList; { ImageList1 — значок "скачать" (AUDIO_ICON_DOWNLOAD) }
     FOnClick: TNotifyEvent;
     function IconRect: TRect;
   protected
@@ -109,9 +111,18 @@ type
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
   public
     constructor Create(AOwner: TComponent); override;
-    procedure SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64);
+    { ADownloaded — файл уже есть на диске (ARow.DocLocalPath<>'') —
+      значок мим-типа; иначе значок "скачать" (AUDIO_ICON_DOWNLOAD). }
+    procedure SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64;
+      ADownloaded: boolean);
     property Images: TImageList read FImages write FImages;
+    property DownloadImages: TImageList read FDownloadImages write FDownloadImages;
     property RowId: Int64 read FRowId;
+    { Левый клик: не скачан — качает молча (без диалога); скачан —
+      открывает файл системным приложением по умолчанию (см.
+      TMsgScroller.FileWidgetClick). Контекстное меню (правый клик) —
+      не своё, общий компонент формы (см. TMsgScroller.FilePopupMenu),
+      LCL показывает его сам через унаследованное свойство PopupMenu. }
     property OnFileClick: TNotifyEvent read FOnClick write FOnClick;
   end;
 
@@ -122,6 +133,12 @@ type
   { Ключ — id пользователя или чата-источника репоста (см. поле у
     TMsgScroller, где заведены два разных инстанса этого типа). }
   TForwardAvatarMap = specialize TFPGMap<Int64, TBGRABitmap>;
+
+  { Что сделать с файлом-документом, как только он скачается — "Save
+    as..."/"Show in folder" в контекстном меню на ещё не скачанном
+    файле сначала запускают загрузку (FPendingSaveMsgId), действие
+    выполняется отложенно, см. TMsgScroller.ModelChanged. }
+  TPendingFileAction = (pfaNone, pfaSaveDialog, pfaShowInFolder);
 
   { TMsgScroller
 
@@ -166,10 +183,21 @@ type
     FFilePool:   TFPList;       { of TFileWidget }
     FFileActive: TFileWidgetMap;
     FFileImages: TImageList;    { FileTypes на TFrameHistory }
-    { Клик по ещё не скачанному файлу — EnsureDocFile только запрашивает
-      загрузку; когда путь придёт (ModelChanged/Touch), диалог сохранения
-      открывается сам — тот же приём, что FPendingPlayMsgId у аудио. }
+    { Общее контекстное меню файла (правый клик) — компонент формы
+      (TFrameHistory.FilePopupMenu, в LFM, редактируется пользователем
+      в дизайнере), не создаётся здесь: каждый TFileWidget получает на
+      него ссылку через свойство PopupMenu (LCL сам показывает его по
+      правому клику и выставляет PopupComponent на нажатый виджет —
+      обработчики пунктов меню читают его оттуда, см.
+      TFrameHistory.MenuItemFileSaveAsClick/MenuItemFileShowInFolderClick). }
+    FFilePopupMenu: TPopupMenu;
+    { Клик по ещё не скачанному файлу в контекстном меню ("Save as..."/
+      "Show in folder") — EnsureDocFile только запрашивает загрузку;
+      когда путь придёт (ModelChanged/Touch), нужное действие
+      выполняется само (FPendingFileAction решает, какое) — тот же
+      приём, что FPendingPlayMsgId у аудио. }
     FPendingSaveMsgId: Int64;
+    FPendingFileAction: TPendingFileAction;
 
     { Проигрывание аудио — один активный плеер на весь скроллер (как и
       в самом Telegram, играет не более одного трека разом). Виджет —
@@ -308,6 +336,13 @@ type
     property OnNearTop: TNotifyEvent read FOnNearTop write FOnNearTop;
     property AudioImages: TImageList read FAudioImages write FAudioImages;
     property FileImages: TImageList read FFileImages write FFileImages;
+    property FilePopupMenu: TPopupMenu read FFilePopupMenu write FFilePopupMenu;
+    { Обработчики пунктов TFrameHistory.FilePopupMenu — вызываются
+      оттуда (LFM резолвит OnClick только на методы владельца-формы,
+      не динамически создаваемого TMsgScroller), Sender — сам
+      TFileWidget, добытый через PopupMenu.PopupComponent. }
+    procedure FileWidgetSaveAsClick(Sender: TObject);
+    procedure FileWidgetShowInFolderClick(Sender: TObject);
   end;
 
   { TFrameHistory
@@ -318,6 +353,18 @@ type
   TFrameHistory = class(TFrameBase, ITdActiveListener)
     ImageList1: TImageList;
     FileTypes: TImageList;
+    Actions16: TImageList;
+    FilePopupMenu: TPopupMenu;
+    MenuItemFileSaveAs: TMenuItem;
+    MenuItemFileShowInFolder: TMenuItem;
+    { Пункты FilePopupMenu (LFM, редактируется в дизайнере) — LFM
+      резолвит OnClick только на методы владельца-формы, поэтому сами
+      обработчики здесь, а не на TMsgScroller (тот создаётся в коде, не
+      компонент формы); дальше просто передают вызов в FScroller,
+      беря исходный TFileWidget из PopupMenu.PopupComponent — тот же
+      компонент показан по правому клику именно на этом виджете. }
+    procedure MenuItemFileSaveAsClick(Sender: TObject);
+    procedure MenuItemFileShowInFolderClick(Sender: TObject);
   private
     FReady: boolean;
     FModel: TTdMessages;
@@ -991,6 +1038,22 @@ begin
   end;
 end;
 
+{ "Show in folder" — открывает Проводник с уже выделенным файлом.
+  Только Windows (explorer.exe /select) — тот же класс правки, что и
+  audiodevices.pas/winmm для вывода звука: платформенный шим, декод/
+  модель остаются общими, меняется только это тонкое место при
+  будущем переносе на другую ОС. }
+procedure ShowDocInFolder(const APath: utf8string);
+begin
+  if APath = '' then begin
+    Exit;
+  end;
+  { SW_SHOWNORMAL = 1 — общеизвестное значение Win32, не тянуть Windows
+    юнит целиком ради одной константы. }
+  ShellExecute(0, 'open', 'explorer.exe',
+    PChar('/select,"' + string(APath) + '"'), nil, 1);
+end;
+
 constructor TFileWidget.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -998,11 +1061,13 @@ begin
   Cursor := crHandPoint;   { весь виджет кликабелен, не только значок }
 end;
 
-procedure TFileWidget.SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64);
+procedure TFileWidget.SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64;
+  ADownloaded: boolean);
 begin
   FRowId := ARowId;
   FFileName := AFileName;
   FFileSize := AFileSize;
+  FDownloaded := ADownloaded;
   FIconIndex := FileIconIndex(AFileName);
   Invalidate;
 end;
@@ -1045,8 +1110,16 @@ begin
   Canvas.RoundRect(Box, Radius, Radius);
 
   IconR := IconRect;
-  if (FImages <> nil) and (FIconIndex < FImages.Count) then begin
-    FImages.Draw(Canvas, IconR.Left, IconR.Top, FIconIndex, True);
+  if not FDownloaded then begin
+    { Файла ещё нет на диске — значок "скачать", не мим-тип: клик по
+      нему запускает загрузку, не открытие несуществующего файла. }
+    if (FDownloadImages <> nil) and (AUDIO_ICON_DOWNLOAD < FDownloadImages.Count) then begin
+      FDownloadImages.Draw(Canvas, IconR.Left, IconR.Top, AUDIO_ICON_DOWNLOAD, True);
+    end;
+  end else begin
+    if (FImages <> nil) and (FIconIndex < FImages.Count) then begin
+      FImages.Draw(Canvas, IconR.Left, IconR.Top, FIconIndex, True);
+    end;
   end;
 
   ContentX := IconR.Right + MSG_PAD_H;
@@ -1537,13 +1610,17 @@ begin
     end;
   end;
 
-  { То же самое для клика "сохранить" на ещё не скачанном файле, см.
-    FileWidgetClick. }
+  { То же самое для "Save as..."/"Show in folder" на ещё не скачанном
+    файле, см. FileWidgetSaveAsClick/FileWidgetShowInFolderClick. }
   if FPendingSaveMsgId <> 0 then begin
     PendingIdx := FModel.IndexOfId(FPendingSaveMsgId);
     if (PendingIdx >= 0) and (FModel[PendingIdx].DocLocalPath <> '') then begin
-      SaveDocFile(FModel[PendingIdx]);
+      case FPendingFileAction of
+        pfaSaveDialog:   SaveDocFile(FModel[PendingIdx]);
+        pfaShowInFolder: ShowDocInFolder(FModel[PendingIdx].DocLocalPath);
+      end;
       FPendingSaveMsgId := 0;
+      FPendingFileAction := pfaNone;
     end;
   end;
 
@@ -2254,8 +2331,10 @@ begin
       FFileActive.Add(WantIds[I], W);
     end;
     W.Images := FFileImages;
+    W.DownloadImages := FAudioImages;
+    W.PopupMenu := FFilePopupMenu;
     R := FModel[MIdx];
-    W.SetFile(R.Id, R.DocFileName, R.DocFileSize);
+    W.SetFile(R.Id, R.DocFileName, R.DocFileSize, R.DocLocalPath <> '');
     W.SetBounds(CR.Left, CR.Top, CR.Right - CR.Left, CR.Bottom - CR.Top);
     W.Visible := True;
   end;
@@ -2295,6 +2374,34 @@ begin
   Row := FModel[Idx];
 
   if Row.DocLocalPath <> '' then begin
+    { Файл уже скачан — открываем системным приложением по умолчанию,
+      не диалог сохранения (тот теперь только через контекстное меню
+      "Save as...", см. FileWidgetSaveAsClick). }
+    OpenDocument(string(Row.DocLocalPath));
+    Exit;
+  end;
+  { Ещё не скачан — просто качаем, без диалога: значок сам сменится на
+    мим-тип, как только путь придёт (см. ModelChanged/LayoutFileWidgets). }
+  FModel.EnsureDocFile(Row);
+end;
+
+procedure TMsgScroller.FileWidgetSaveAsClick(Sender: TObject);
+var
+  W: TFileWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TFileWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  if Row.DocLocalPath <> '' then begin
     SaveDocFile(Row);
     Exit;
   end;
@@ -2302,6 +2409,32 @@ begin
     нужно открыть, как только путь придёт (см. ModelChanged), тот же
     приём, что FPendingPlayMsgId у аудио. }
   FPendingSaveMsgId := Row.Id;
+  FPendingFileAction := pfaSaveDialog;
+  FModel.EnsureDocFile(Row);
+end;
+
+procedure TMsgScroller.FileWidgetShowInFolderClick(Sender: TObject);
+var
+  W: TFileWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TFileWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  if Row.DocLocalPath <> '' then begin
+    ShowDocInFolder(Row.DocLocalPath);
+    Exit;
+  end;
+  FPendingSaveMsgId := Row.Id;
+  FPendingFileAction := pfaShowInFolder;
   FModel.EnsureDocFile(Row);
 end;
 
@@ -2753,6 +2886,7 @@ begin
     созданы inherited-стримингом, до тела этого конструктора. }
   FScroller.AudioImages := ImageList1;
   FScroller.FileImages := FileTypes;
+  FScroller.FilePopupMenu := FilePopupMenu;
 
   { Флаг ставится последним по тому же правилу, что и во всех формах
     и фреймах проекта: LFM-стриминг (тут его формально нет, но
@@ -2775,6 +2909,32 @@ begin
   TdApp.UnsubscribeActive(Self);
   UnbindModel;
   inherited Destroy;
+end;
+
+procedure TFrameHistory.MenuItemFileShowInFolderClick(Sender: TObject);
+var
+  PM: TPopupMenu;
+begin
+  PM := TPopupMenu(TMenuItem(Sender).GetParentMenu);
+  if (PM = nil) or (PM.PopupComponent = nil) then begin
+    Exit;
+  end;
+  if PM.PopupComponent is TFileWidget then begin
+    FScroller.FileWidgetShowInFolderClick(PM.PopupComponent);
+  end;
+end;
+
+procedure TFrameHistory.MenuItemFileSaveAsClick(Sender: TObject);
+var
+  PM: TPopupMenu;
+begin
+  PM := TPopupMenu(TMenuItem(Sender).GetParentMenu);
+  if (PM = nil) or (PM.PopupComponent = nil) then begin
+    Exit;
+  end;
+  if PM.PopupComponent is TFileWidget then begin
+    FScroller.FileWidgetSaveAsClick(PM.PopupComponent);
+  end;
 end;
 
 procedure TFrameHistory.BindModel;
