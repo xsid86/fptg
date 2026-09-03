@@ -179,9 +179,13 @@ type
     destructor Destroy; override;
     { AMinithumb — сырые (уже base64-декодированные) байты JPEG, может
       быть '' (не пришёл/уже не нужен — скачано). ADownloaded/ALocalPath
-      — есть ли уже настоящий файл на диске. }
+      — есть ли уже настоящий файл на диске. AMaxW — реальная доступная
+      ширина колонки в этом месте (см. ComputePhotoPreviewSize) — без
+      неё превью могло вылезти за карточку сообщения на нешироких
+      окнах. }
     procedure SetPhoto(ARowId: Int64; ANaturalW, ANaturalH: integer;
-      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string);
+      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+      AMaxW: integer);
     property TargetWidth: integer read FTargetW;
     property TargetHeight: integer read FTargetH;
     property DownloadImages: TImageList read FDownloadImages write FDownloadImages;
@@ -1289,10 +1293,12 @@ begin
 end;
 
 procedure TPhotoWidget.SetPhoto(ARowId: Int64; ANaturalW, ANaturalH: integer;
-  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string);
+  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+  AMaxW: integer);
 var
   Ms: TMemoryStream;
   Src, Resized, Stretched: TBGRABitmap;
+  OldTargetW, OldTargetH: integer;
 begin
   if ARowId <> FRowId then begin
     { Виджет из пула переиспользован под ДРУГОЕ сообщение — старые
@@ -1305,7 +1311,17 @@ begin
   FRowId := ARowId;
   FNaturalW := ANaturalW;
   FNaturalH := ANaturalH;
-  ComputePhotoPreviewSize(ANaturalW, ANaturalH, FTargetW, FTargetH);
+  OldTargetW := FTargetW;
+  OldTargetH := FTargetH;
+  ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, FTargetW, FTargetH);
+  if (FTargetW <> OldTargetW) or (FTargetH <> OldTargetH) then begin
+    { Ширина колонки поменялась (окно изменило размер) — уже
+      декодированные битмапы теперь не того размера. FLocalPath
+      сбрасываем тоже — иначе блок "путь появился/сменился" ниже не
+      перезайдёт в decode заново для того же самого пути. }
+    ClearBitmaps;
+    FLocalPath := '';
+  end;
 
   { Блюр-плейсхолдер из minithumbnail — декодируем и блюрим один раз
     (пока не готов), не при каждом заходе: сам файл крошечный, но
@@ -1372,9 +1388,12 @@ end;
   аватарки (avatarcache.ApplyRoundMaskTo), только прямоугольная маска
   вместо круглой. }
 procedure TPhotoWidget.DrawBmpRounded(ABmp: TBGRABitmap);
+const
+  BORDER_W = 1;
 var
   Mask, Masked: TBGRABitmap;
   Radius: integer;
+  NearXY, FarX, FarY: single;
 begin
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
@@ -1386,11 +1405,41 @@ begin
   end;
   Radius := Min(PHOTO_CORNER_RADIUS, Min(ABmp.Width, ABmp.Height) div 2);
 
+  { Корень трёх последовательных правок этой функции (белый зазор в
+    углу, потом обрезанная обводка справа/снизу, потом мутная обводка
+    слева/сверху) — один и тот же факт, каждый раз понятый чуть
+    точнее: BGRABitmap считает координаты "по центру пикселя"
+    (APixelCenteredCoordinates=True — это ЗНАЧЕНИЕ ПО УМОЛЧАНИЮ и у
+    FillRoundRectAntialias, и у RoundRectAntialias, проверено чтением
+    исходника bgrapolygon.pas, не угадано) — целая координата N это
+    ЦЕНТР пикселя N, а не граница между пикселями N-1 и N, как в GDI
+    (тем способом координаты читал я, отсюда все три правки). Из-за
+    этого (0,0,Width,Height) — не "весь битмап", а сдвинуто на +0.5
+    пикселя вправо/вниз от истинных границ: левый/верхний край задевает
+    мягкую антиалиасинговую кромку (мутно), правый/нижний уходит ЗА
+    истинный край, там сглаживать уже нечему (чётко, но обрезано у
+    обводки — обводка ведь ограничена самим битмапом). Верная граница
+    заливки для FillRoundRectAntialias (пиксель-центрированные
+    координаты) — не (0,0,W,H), а (-0.5,-0.5,W-0.5,H-0.5): ровно
+    середина между "здесь есть пиксель" и "здесь уже нет". }
   Masked := ABmp.Duplicate as TBGRABitmap;
   Mask := TBGRABitmap.Create(ABmp.Width, ABmp.Height, BGRABlack);
   try
-    Mask.FillRoundRectAntialias(0, 0, ABmp.Width, ABmp.Height, Radius, Radius, BGRAWhite);
+    Mask.FillRoundRectAntialias(-0.5, -0.5, ABmp.Width - 0.5, ABmp.Height - 0.5,
+      Radius, Radius, BGRAWhite);
     Masked.ApplyMask(Mask);
+
+    { Обводка — та же поправка, плюс сам путь линии (она рисуется
+      ЦЕНТРИРОВАННОЙ на своих координатах) сдвинут так, чтобы вся её
+      толщина BORDER_W легла внутрь битмапа: путь ближнего края —
+      BORDER_W/2 минус та же поправка на пиксель-центрирование (0.5),
+      дальнего — Width минус то же самое. При BORDER_W=1 это ровно
+      (0, 0, Width-1, Height-1) — путь через центры крайних пикселей. }
+    NearXY := BORDER_W / 2 - 0.5;
+    FarX := ABmp.Width - BORDER_W / 2 - 0.5;
+    FarY := ABmp.Height - BORDER_W / 2 - 0.5;
+    Masked.RoundRectAntialias(NearXY, NearXY, FarX, FarY, Radius, Radius,
+      ColorToBGRA(PHOTO_BORDER_COLOR), BORDER_W);
     Masked.Draw(Canvas, 0, 0, False);
   finally
     Mask.Free;
@@ -2964,7 +3013,7 @@ begin
     R := FModel[MIdx];
     W.BackgroundColor := BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow);
     W.SetPhoto(R.Id, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
-      R.PhotoLocalPath <> '', R.PhotoLocalPath);
+      R.PhotoLocalPath <> '', R.PhotoLocalPath, CR.Right - CR.Left);
     W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
     W.Visible := True;
   end;

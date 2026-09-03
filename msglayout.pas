@@ -77,11 +77,18 @@ function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
 
 { Целевой размер превью фото по натуральным ANaturalW/ANaturalH —
   общая формула для TPhotoContentRenderer.Measure/Paint (высота строки)
-  И TFileWidget-аналога в framehistory.pas (сам рендер) — один источник
+  И TPhotoWidget в framehistory.pas (сам рендер) — один источник
   правды, а не две копии одной арифметики. Вертикальное изображение
   (height>width) — ограничена ширина (PHOTO_MAX_WIDTH), горизонтальное
-  — высота (PHOTO_MAX_HEIGHT); маленькие изображения не увеличиваем. }
-procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH: integer; out AOutW, AOutH: integer);
+  — высота (PHOTO_MAX_HEIGHT); маленькие изображения не увеличиваем.
+  AMaxW — реальная доступная ширина колонки в этом месте (Ctx.AvailWidth/
+  ширина ContentRect) — второй, обязательный проход поверх первого:
+  PHOTO_MAX_WIDTH сам по себе НЕ гарантирует, что превью влезет в
+  колонку (окно может быть у́же MAX_MSG_W) — без этой правки картинка
+  вылезала за карточку сообщения на нешироких окнах (баг, пойманный
+  пользователем по скриншоту). AMaxW<=0 — ограничение не действует
+  (вызывающий ещё не знает реальную ширину, напр. до первого layout). }
+procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
 
 implementation
 
@@ -523,14 +530,12 @@ end;
 
 { ---------------- фото: реальный виджет (framehistory.TPhotoWidget) ---------------- }
 
-procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH: integer; out AOutW, AOutH: integer);
+procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
 begin
   if (ANaturalW <= 0) or (ANaturalH <= 0) then begin
     AOutW := PHOTO_MAX_WIDTH;
     AOutH := PHOTO_MAX_HEIGHT;
-    Exit;
-  end;
-  if ANaturalH > ANaturalW then begin
+  end else if ANaturalH > ANaturalW then begin
     { Вертикальное — ограничена ширина, высота пропорционально. }
     AOutW := Min(ANaturalW, PHOTO_MAX_WIDTH);
     AOutH := Round(ANaturalH * (AOutW / ANaturalW));
@@ -538,6 +543,14 @@ begin
     { Горизонтальное (или квадратное) — ограничена высота. }
     AOutH := Min(ANaturalH, PHOTO_MAX_HEIGHT);
     AOutW := Round(ANaturalW * (AOutH / ANaturalH));
+  end;
+
+  { Второй проход — реальная ширина колонки в этом месте может быть
+    у́же PHOTO_MAX_WIDTH (окно не широкое): сжимаем ЕЩЁ, сохраняя
+    пропорции, иначе превью вылезает за карточку сообщения. }
+  if (AMaxW > 0) and (AOutW > AMaxW) then begin
+    AOutH := Round(AOutH * (AMaxW / AOutW));
+    AOutW := AMaxW;
   end;
 end;
 
@@ -555,7 +568,7 @@ function TPhotoContentRenderer.Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx)
 var
   ImgW, ImgH: integer;
 begin
-  ComputePhotoPreviewSize(ARow.PhotoWidth, ARow.PhotoHeight, ImgW, ImgH);
+  ComputePhotoPreviewSize(ARow.PhotoWidth, ARow.PhotoHeight, ACtx.AvailWidth, ImgW, ImgH);
   if ARow.PlainText = '' then begin
     Result := ImgH;
   end else begin
@@ -576,7 +589,7 @@ begin
     позиционировать поверх настоящий TPhotoWidget из пула — тот же
     приём, что и у аудио/файла. Только под превью, не во всю ширину:
     у фото свой натуральный размер, не "во всю колонку". }
-  ComputePhotoPreviewSize(ARow.PhotoWidth, ARow.PhotoHeight, ImgW, ImgH);
+  ComputePhotoPreviewSize(ARow.PhotoWidth, ARow.PhotoHeight, ARect.Right - ARect.Left, ImgW, ImgH);
   ACanvas.Brush.Style := bsSolid;
   ACanvas.Brush.Color := clBtnFace;
   ACanvas.FillRect(Rect(ARect.Left, ARect.Top, ARect.Left + ImgW, ARect.Top + ImgH));

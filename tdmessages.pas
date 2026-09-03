@@ -1069,14 +1069,20 @@ end;
   photo.sizes — массив photoSize (type/width/height/photo — сам
   скачиваемый TDLib-объект file), проверено по tdlib_raw.log, не по
   памяти. Два РАЗНЫХ слоя выбираются из одного массива за один проход:
-  AFileId/ALocalPath — предпочитаем type='m' (среднего качества,
-  достаточно для инлайн-превью до PHOTO_MAX_WIDTH/HEIGHT — не тянуть
-  самый большой размер только чтобы показать миниатюру), если 'm'
-  почему-то нет — первый элемент; ABestFileId/ABestLocalPath — слой с
-  максимальным width*height, для "Save as"/"Show in folder" (сохранять
-  нужно оригинал, не мелкую превью-копию) — по площади, а не по
-  порядку в массиве, не полагаемся на то, что TDLib всегда отдаёт
-  sizes от меньшего к большему. }
+  AFileId/ALocalPath — НАИМЕНЬШИЙ слой, которого хватает, чтобы заполнить
+  превью PHOTO_MAX_WIDTH×PHOTO_MAX_HEIGHT (msglayout.pas) БЕЗ апскейла —
+  раньше здесь был жёстко зашит type='m' (по прямому запросу пользователя
+  переделано: 'm' у Telegram — фиксированный бокс примерно 320px,
+  заметно мельче PHOTO_MAX_WIDTH/HEIGHT=400, и ComputePhotoPreviewSize
+  всё равно не станет его увеличивать — итог был не "наш плохой ресемпл",
+  а честно мелкая, к тому же сильнее сжатая JPEG-прослойка, показанная
+  МЕНЬШЕ, чем место под неё в блоке). Если ни один слой не дотягивает до
+  цели (сам исходник мельче PHOTO_MAX_WIDTH/HEIGHT) — тот же слой, что и
+  ABestFileId ниже, крупнее найти неоткуда. ABestFileId/ABestLocalPath —
+  слой с максимальным width*height, для "Save as"/"Show in folder"
+  (сохранять нужно оригинал, не превью-копию) — по площади, а не по
+  порядку в массиве, не полагаемся на то, что TDLib всегда отдаёт sizes
+  от меньшего к большему. }
 procedure TTdMessages.ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8string;
   out AWidth, AHeight: integer; out AMinithumb: RawByteString;
   out AFileId: integer; out ALocalPath: utf8string;
@@ -1084,8 +1090,8 @@ procedure TTdMessages.ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8s
 var
   PhotoObj, MiniObj, SizeObj, FileObj, LocalObj: TJSONObject;
   Arr: TJSONArray;
-  I, MedIdx, LargestIdx, W, H: integer;
-  LargestArea, Area: Int64;
+  I, PreviewIdx, LargestIdx, W, H: integer;
+  LargestArea, PreviewArea, Area: Int64;
   B64: utf8string;
 begin
   AWidth := 0;
@@ -1115,15 +1121,13 @@ begin
   if (Arr = nil) or (Arr.Count = 0) then begin
     Exit;
   end;
-  MedIdx := 0;
   LargestIdx := 0;
   LargestArea := -1;
+  PreviewIdx := -1;
+  PreviewArea := -1;
   for I := 0 to Arr.Count - 1 do begin
     if Arr.Items[I].JSONType <> jtObject then begin
       Continue;
-    end;
-    if JGetStr(TJSONObject(Arr.Items[I]), 'type') = 'm' then begin
-      MedIdx := I;
     end;
     W := JGetInt(TJSONObject(Arr.Items[I]), 'width');
     H := JGetInt(TJSONObject(Arr.Items[I]), 'height');
@@ -1132,10 +1136,19 @@ begin
       LargestArea := Area;
       LargestIdx := I;
     end;
+    if (W >= PHOTO_MAX_WIDTH) and (H >= PHOTO_MAX_HEIGHT) then begin
+      if (PreviewArea < 0) or (Area < PreviewArea) then begin
+        PreviewArea := Area;
+        PreviewIdx := I;
+      end;
+    end;
+  end;
+  if PreviewIdx < 0 then begin
+    PreviewIdx := LargestIdx;
   end;
 
-  if Arr.Items[MedIdx].JSONType = jtObject then begin
-    SizeObj := TJSONObject(Arr.Items[MedIdx]);
+  if Arr.Items[PreviewIdx].JSONType = jtObject then begin
+    SizeObj := TJSONObject(Arr.Items[PreviewIdx]);
     AWidth := JGetInt(SizeObj, 'width');
     AHeight := JGetInt(SizeObj, 'height');
     FileObj := JGetObj(SizeObj, 'photo');
