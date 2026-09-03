@@ -15,7 +15,8 @@ uses
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
   tdusers, tdaccentcolors, tdaccount, tdcore, audiodevices, ffdecode, audioplayer,
   uiframe, avatarcache, qrrender, msglayout,
-  main, splash, login, framelog, framewelcome, framechats, framehistory
+  main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
+  framelog, framewelcome, framechats, framehistory
   { you can add units after this };
 
 {$R *.res}

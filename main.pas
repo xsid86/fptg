@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, IniFiles, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
   Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome,
-  framechats, framehistory, audiodevices;
+  framechats, framehistory;
 
 type
 
@@ -34,6 +34,7 @@ type
     MenuItem7:  TMenuItem;
     MenuItem8:  TMenuItem;
     MenuItem9:  TMenuItem;
+    MenuItem14: TMenuItem;
     pnlTop:     TPanel;
     lblState:   TLabel;
     btnLogout:  TButton;
@@ -49,6 +50,7 @@ type
     procedure logScreen(Sender: TObject);
     procedure welcomeScreen(Sender: TObject);
     procedure menuQuitClick(Sender: TObject);
+    procedure SettingsMenuClick(Sender: TObject);
   private
     FTdClosed:     boolean;
     FNav:          TFrameNavigator;
@@ -60,8 +62,6 @@ type
     procedure RebuildAccountsMenu;
     procedure AccountItemClick(Sender: TObject);
     procedure AddAccountClick(Sender: TObject);
-    procedure RebuildAudioDeviceMenu;
-    procedure AudioDeviceItemClick(Sender: TObject);
     procedure ShutdownDone(Sender: TObject);
     procedure ChatSelected(Sender: TObject; ARow: TChatRow);
     procedure ListModeChanged(Sender: TObject; AMode: TChatListMode);
@@ -84,6 +84,11 @@ type
       framehistory.pas (TAudioPlayer.Create), чтобы не заводить второй
       источник правды поверх уже существующего config.ini/[audio]. }
     property AudioDeviceName: string read FAudioDeviceName;
+    { Меняет выбранное устройство и сразу же персистит его в
+      config.ini/[audio] — вызывается из TFrameSettingsAudio (окно
+      настроек), тем же приёмом доступа через глобальный FormMain, что
+      framehistory.pas уже применяет для Chats/Nav. }
+    procedure SetAudioDeviceName(const AName: string);
   end;
 
 var
@@ -91,10 +96,12 @@ var
 
 implementation
 
-{ login в реализации, а не в интерфейсе: login сам использует main
-  (для RequestAppClose), и в интерфейсе это дало бы цикл. }
+{ login/settings в реализации, а не в интерфейсе: оба сами используют
+  main (login — для RequestAppClose, settings — транзитивно, через
+  framesettingsaudio.pas и FormMain.AudioDeviceName/SetAudioDeviceName),
+  и в интерфейсе это дало бы цикл. }
 uses
-  login;
+  login, settings;
 
 {$R *.lfm}
 
@@ -129,10 +136,9 @@ begin
   TdApp.SubscribeActive(Self);
   RebuildAccountsMenu;
 
-  { Выбор устройства вывода звука — не отдельная форма настроек (см.
-    ARCHITECTURE.md/CLAUDE.md), а пункты прямо в существующем, до этого
-    пустом MenuItem5 ("Settings"), персистится в тот же config.ini,
-    где уже лежат api_id/api_hash, новой секцией [audio]. }
+  { Выбор устройства вывода звука персистится в тот же config.ini, где
+    уже лежат api_id/api_hash, секцией [audio] — сам выбор теперь в
+    окне настроек (settings.pas, раздел Audio), не в главном меню. }
   with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
     try
       FAudioDeviceName := ReadString('audio', 'device', '');
@@ -140,7 +146,6 @@ begin
       Free;
     end;
   end;
-  RebuildAudioDeviceMenu;
 
   { «New» из меню Account заводит ещё один аккаунт. }
   if MenuItem11 <> nil then begin
@@ -390,54 +395,26 @@ begin
   TdApp.ActiveIndex := TMenuItem(Sender).Tag;
 end;
 
-{ ---------------- меню устройства вывода звука ---------------- }
+{ ---------------- окно настроек ---------------- }
 
-procedure TFormMain.RebuildAudioDeviceMenu;
+procedure TFormMain.SettingsMenuClick(Sender: TObject);
 var
-  Devs: TAudioDeviceArray;
-  I: integer;
-  MI: TMenuItem;
+  Dlg: TFormSettings;
 begin
-  if MenuItem5 = nil then begin
-    Exit;
-  end;
-
-  for I := MenuItem5.Count - 1 downto 0 do begin
-    MenuItem5.Delete(I);
-  end;
-
-  Devs := EnumAudioOutputDevices;
-  if Length(Devs) = 0 then begin
-    MI := TMenuItem.Create(MenuItem5);
-    MI.Caption := 'No audio output devices found';
-    MI.Enabled := False;
-    MenuItem5.Add(MI);
-    Exit;
-  end;
-
-  for I := 0 to High(Devs) do begin
-    MI := TMenuItem.Create(MenuItem5);
-    MI.Caption := Devs[I].Name;
-    MI.RadioItem := True;
-    MI.GroupIndex := 1;
-    { Ничего не сохранено (первый запуск) — по умолчанию первое
-      устройство в системном списке, как обычно и есть устройство
-      "по умолчанию" в Windows. }
-    MI.Checked := (Devs[I].Name = FAudioDeviceName) or
-      ((FAudioDeviceName = '') and (I = 0));
-    MI.OnClick := @AudioDeviceItemClick;
-    MenuItem5.Add(MI);
+  Dlg := TFormSettings.Create(Self);
+  try
+    Dlg.ShowModal;
+  finally
+    Dlg.Free;
   end;
 end;
 
-procedure TFormMain.AudioDeviceItemClick(Sender: TObject);
-var
-  MI: TMenuItem;
+procedure TFormMain.SetAudioDeviceName(const AName: string);
 begin
-  MI := TMenuItem(Sender);
-  FAudioDeviceName := MI.Caption;
-  MI.Checked := True;   { RadioItem/GroupIndex сам снимает отметку с остальных }
-
+  if AName = FAudioDeviceName then begin
+    Exit;
+  end;
+  FAudioDeviceName := AName;
   with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
     try
       WriteString('audio', 'device', FAudioDeviceName);

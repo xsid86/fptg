@@ -268,8 +268,8 @@ const
     PHOTO_MAX_HEIGHT. Не увеличиваем маленькие изображения — если
     натуральный размер уже меньше потолка, превью остаётся в
     натуральную величину (см. TMsgScroller.ComputePhotoPreviewSize). }
-  PHOTO_MAX_WIDTH     = 200;
-  PHOTO_MAX_HEIGHT    = 200;
+  PHOTO_MAX_WIDTH     = 400;
+  PHOTO_MAX_HEIGHT    = 400;
   { Радиус скругления самого превью — по прямому запросу пользователя
     отдельный от FORWARD_CORNER_RADIUS/MSG_CORNER_RADIUS (те — для
     карточек с подложкой/контуром; у фото своей подложки/контура нет,

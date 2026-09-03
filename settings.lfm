@@ -1,0 +1,53 @@
+object FormSettings: TFormSettings
+  Left = 0
+  Height = 420
+  Top = 0
+  Width = 640
+  BorderIcons = [biSystemMenu]
+  BorderStyle = bsSizeToolWin
+  Caption = 'Settings'
+  ChildSizing.LeftRightSpacing = 5
+  ChildSizing.TopBottomSpacing = 5
+  ChildSizing.HorizontalSpacing = 5
+  ChildSizing.Layout = cclLeftToRightThenTopToBottom
+  ChildSizing.ControlsPerLine = 2
+  ClientHeight = 420
+  ClientWidth = 640
+  Constraints.MinHeight = 320
+  Constraints.MinWidth = 480
+  Position = poOwnerFormCenter
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  object pnlLeft: TPanel
+    Left = 5
+    Height = 410
+    Top = 5
+    Width = 180
+    Align = alLeft
+    BevelOuter = bvNone
+    ClientHeight = 410
+    ClientWidth = 180
+    TabOrder = 0
+    object tvSections: TTreeView
+      Left = 0
+      Height = 410
+      Top = 0
+      Width = 180
+      Align = alClient
+      ScrollBars = ssAutoVertical
+      TabOrder = 0
+      OnSelectionChanged = tvSectionsSelectionChanged
+    end
+  end
+  object pnlContent: TPanel
+    Left = 190
+    Height = 410
+    Top = 5
+    Width = 445
+    Align = alClient
+    BevelInner = bvLowered
+    BevelOuter = bvNone
+    TabOrder = 1
+  end
+end
