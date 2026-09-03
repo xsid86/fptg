@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, IniFiles, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
   Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome,
-  framechats, framehistory;
+  framechats, framehistory, constants;
 
 type
 
@@ -58,6 +58,12 @@ type
     FAccMenuCount: integer;   { сколько пунктов меню создано динамически }
     FGlyphs: TStringList;   { кэш глифов меню: ключ -> TBitmap }
     FAudioDeviceName: string;   { выбранное устройство вывода звука, из config.ini [audio] }
+    { FAutoDownload[медиа][чат] — кэш сетки из config.ini/[autodownload]
+      (см. framesettingsautodownload.pas), тот же принцип, что и у
+      FAudioDeviceName: единственный источник правды в памяти на время
+      сессии, config.ini — только персистенс. Индексы — позиции в
+      AUTODL_MEDIA_KINDS/AUTODL_CHAT_KINDS (constants.pas). }
+    FAutoDownload: array[0..High(AUTODL_MEDIA_KINDS)] of array[0..High(AUTODL_CHAT_KINDS)] of boolean;
     function  AccountGlyph(AAcc: TTdAccount; AActive, ANeedLogin: boolean): TBitmap;
     procedure RebuildAccountsMenu;
     procedure AccountItemClick(Sender: TObject);
@@ -89,6 +95,18 @@ type
       настроек), тем же приёмом доступа через глобальный FormMain, что
       framehistory.pas уже применяет для Chats/Nav. }
     procedure SetAudioDeviceName(const AName: string);
+    { Читает config.ini/[autodownload] в FAutoDownload — вызывается при
+      старте (FormCreate) и заново из TFrameSettingsAutoDownload.SaveSettings
+      после сохранения (тот же приём переиспользования, что и у
+      SetAudioDeviceName — единственная запись, освежающая единственный
+      источник правды). }
+    procedure LoadAutoDownloadSettings;
+    { Включена ли автозагрузка для пары (тип медиа, тип чата) — ключи
+      те же строки, что в AUTODL_MEDIA_KINDS/AUTODL_CHAT_KINDS
+      (constants.pas), напр. ('images','private'). Неизвестный ключ —
+      False, не исключение: вызывающему (framehistory.pas) не из чего
+      понять, что чат ещё неизвестного типа — это norm, не ошибка. }
+    function AutoDownloadEnabled(const AMediaKind, AChatKind: string): boolean;
   end;
 
 var
@@ -146,6 +164,7 @@ begin
       Free;
     end;
   end;
+  LoadAutoDownloadSettings;
 
   { «New» из меню Account заводит ещё один аккаунт. }
   if MenuItem11 <> nil then begin
@@ -422,6 +441,65 @@ begin
       Free;
     end;
   end;
+end;
+
+{ ---------------- автозагрузка ---------------- }
+
+function AutoDownloadMediaIndex(const AKind: string): integer;
+var
+  I: integer;
+begin
+  Result := -1;
+  for I := 0 to High(AUTODL_MEDIA_KINDS) do begin
+    if AUTODL_MEDIA_KINDS[I] = AKind then begin
+      Result := I;
+      Exit;
+    end;
+  end;
+end;
+
+function AutoDownloadChatIndex(const AKind: string): integer;
+var
+  I: integer;
+begin
+  Result := -1;
+  for I := 0 to High(AUTODL_CHAT_KINDS) do begin
+    if AUTODL_CHAT_KINDS[I] = AKind then begin
+      Result := I;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TFormMain.LoadAutoDownloadSettings;
+var
+  M, C: integer;
+begin
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      for M := 0 to High(AUTODL_MEDIA_KINDS) do begin
+        for C := 0 to High(AUTODL_CHAT_KINDS) do begin
+          FAutoDownload[M][C] := ReadBool('autodownload',
+            AUTODL_MEDIA_KINDS[M] + '.' + AUTODL_CHAT_KINDS[C], False);
+        end;
+      end;
+    finally
+      Free;
+    end;
+  end;
+end;
+
+function TFormMain.AutoDownloadEnabled(const AMediaKind, AChatKind: string): boolean;
+var
+  M, C: integer;
+begin
+  Result := False;
+  M := AutoDownloadMediaIndex(AMediaKind);
+  C := AutoDownloadChatIndex(AChatKind);
+  if (M < 0) or (C < 0) then begin
+    Exit;
+  end;
+  Result := FAutoDownload[M][C];
 end;
 
 procedure TFormMain.AddAccountClick(Sender: TObject);

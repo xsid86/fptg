@@ -17,7 +17,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="72"/>
+      <BuildNr Value="74"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -219,6 +219,13 @@
         <Filename Value="framesettingsaudio.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="FrameSettingsAudio"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="framesettingsautodownload.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FrameSettingsAutoDownload"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
       </Unit>

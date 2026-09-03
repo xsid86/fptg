@@ -311,6 +311,35 @@ type
     FOnScrollRangeChanged: TNotifyEvent;
     FOnNearTop: TNotifyEvent;
 
+    { Кэш "тип текущего чата -> ключ AUTODL_CHAT_KINDS" (см.
+      CurrentChatKind) — вычисляется лениво и только заново при смене
+      чата (FChatKindChatId <> FModel.ChatId), не на каждый вызов: тот
+      вызывается из ClampScrollTop, самого частого места в файле (колесо
+      мыши/драг скроллбара), TdChatList.Lookup+case там был бы не
+      бесплатным. FChatKindChatId=0 — ещё не считали (0 не бывает
+      настоящим chat_id). }
+    FChatKindChatId: Int64;
+    FChatKindCache:  string;
+    function CurrentChatKind: string;
+    { Автозагрузка (FormMain.AutoDownloadEnabled) — если включена для
+      пары (тип медиа этого сообщения, тип текущего чата), запрашивает
+      файл ЗАРАНЕЕ (Ensure*File), тем же вызовом, что и первый клик по
+      виджету сейчас, но без открытия/проигрывания — только загрузка,
+      по прямому запросу пользователя. Idempotent (как и сами Ensure*),
+      можно звать сколько угодно раз на одну и ту же строку. }
+    procedure MaybeAutoDownload(ARow: TMsgRow);
+    { Однократно, на весь диапазон [FirstVisible..LastVisible] — вызывается
+      из ModelChanged (открытие чата, новые сообщения, догрузка истории). }
+    procedure AutoDownloadVisible;
+    { На каждое РЕАЛЬНОЕ изменение позиции скролла (см. ClampScrollTop) —
+      с упреждением на ОДНО сообщение в сторону скролла (ADirection>0 —
+      вниз/к новым, <0 — вверх/к старым), чтобы к моменту, когда
+      сообщение реально появится на экране, загрузка уже шла. Прямой
+      запрос пользователя — иначе доскроллить до сообщения с ещё не
+      скачанным медиа означало бы всегда ждать начала загрузки уже
+      ПОСЛЕ того, как оно стало видно. }
+    procedure PrefetchAutoDownload(ADirection: integer);
+
     procedure AudioPlayClick(Sender: TObject);
     procedure AudioSeek(Sender: TObject; AFraction: double);
     procedure PlayerStateChanged(Sender: TObject);
@@ -1626,6 +1655,119 @@ begin
   Result := IndexAtY(FScrollTop + ClientHeight - 1);
 end;
 
+{ ---------------- автозагрузка ---------------- }
+
+function TMsgScroller.CurrentChatKind: string;
+var
+  ChatRow: TChatRow;
+begin
+  if FModel = nil then begin
+    Result := '';
+    Exit;
+  end;
+  if FModel.ChatId <> FChatKindChatId then begin
+    FChatKindChatId := FModel.ChatId;
+    FChatKindCache := '';
+    if TdChatList <> nil then begin
+      ChatRow := TdChatList.Lookup(FModel.ChatId);
+      if ChatRow <> nil then begin
+        case ChatRow.Kind of
+          ckPrivate:
+            if TdChatList.IsBotChat(ChatRow) then begin
+              FChatKindCache := 'bots';
+            end else begin
+              FChatKindCache := 'private';
+            end;
+          ckSecret:
+            FChatKindCache := 'secret';
+          ckBasicGroup, ckSupergroup:
+            FChatKindCache := 'groups';
+          ckChannel:
+            FChatKindCache := 'channels';
+        end;
+      end;
+    end;
+  end;
+  Result := FChatKindCache;
+end;
+
+procedure TMsgScroller.MaybeAutoDownload(ARow: TMsgRow);
+var
+  MediaKind, ChatKind: string;
+begin
+  if (ARow = nil) or (FModel = nil) or (FormMain = nil) then begin
+    Exit;
+  end;
+  case ARow.Kind of
+    mckPhoto: MediaKind := 'images';
+    mckAudio: MediaKind := 'audio';
+    mckFile:  MediaKind := 'files';
+  else
+    { Видео/GIF/стикеры/голосовые — по-прежнему только плейсхолдер
+      (см. TODO.md), скачивать заранее нечего: у них нет ни своего
+      Ensure*File, ни своего file_id на TMsgRow. }
+    Exit;
+  end;
+
+  ChatKind := CurrentChatKind;
+  if ChatKind = '' then begin
+    Exit;
+  end;
+  if not FormMain.AutoDownloadEnabled(MediaKind, ChatKind) then begin
+    Exit;
+  end;
+
+  case ARow.Kind of
+    mckPhoto: begin
+      { Обе копии — превью (для инлайн-показа в самом чате) и оригинал
+        (чтобы открытие по клику потом было мгновенным) — то же самое,
+        что уже сейчас качает первый клик по фото (см. PhotoWidgetClick),
+        только без клика. }
+      FModel.EnsurePhotoFile(ARow);
+      FModel.EnsurePhotoBestFile(ARow);
+    end;
+    mckAudio:
+      FModel.EnsureAudioFile(ARow);
+    mckFile:
+      FModel.EnsureDocFile(ARow);
+  end;
+end;
+
+procedure TMsgScroller.AutoDownloadVisible;
+var
+  I, Lo, Hi: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  Lo := FirstVisible;
+  Hi := LastVisible;
+  if (Lo < 0) or (Hi < 0) then begin
+    Exit;
+  end;
+  for I := Lo to Hi do begin
+    MaybeAutoDownload(FModel[I]);
+  end;
+end;
+
+procedure TMsgScroller.PrefetchAutoDownload(ADirection: integer);
+var
+  Idx: integer;
+begin
+  if (FModel = nil) or (ADirection = 0) then begin
+    Exit;
+  end;
+  if ADirection > 0 then begin
+    Idx := LastVisible + 1;
+  end else begin
+    Idx := FirstVisible - 1;
+  end;
+  if (Idx < 0) or (Idx >= FModel.Count) then begin
+    Exit;
+  end;
+  MaybeAutoDownload(FModel[Idx]);
+end;
+
 function TMsgScroller.BlockRect(AIndex: integer): TRect;
 var
   ColL, ColR: integer;
@@ -1742,7 +1884,7 @@ end;
   ровно один раз. }
 procedure TMsgScroller.ClampScrollTop(AValue: integer);
 var
-  MaxTop: integer;
+  MaxTop, OldTop: integer;
 begin
   MaxTop := FTotalHeight - ClientHeight;
   if MaxTop < 0 then begin
@@ -1757,8 +1899,18 @@ begin
   if AValue = FScrollTop then begin
     Exit;
   end;
+  OldTop := FScrollTop;
   FScrollTop := AValue;
   Invalidate;
+  { Упреждающая автозагрузка на одно сообщение вперёд по направлению
+    скролла — единственное место, где ЛЮБОЕ реальное изменение позиции
+    (колесо, клавиши, драг скроллбара, программные правки вроде
+    ScrollToBottom) проходит, см. комментарий у SetScrollTop. }
+  if AValue > OldTop then begin
+    PrefetchAutoDownload(1);
+  end else if AValue < OldTop then begin
+    PrefetchAutoDownload(-1);
+  end;
   if Assigned(FOnScrollRangeChanged) then begin
     FOnScrollRangeChanged(Self);
   end;
@@ -1888,6 +2040,13 @@ begin
       FPendingPhotoAction := pfaNone;
     end;
   end;
+
+  { Открытие чата и новые сообщения проходят ЗДЕСЬ, не через
+    ClampScrollTop — то упреждает на одно сообщение ТОЛЬКО при реальном
+    изменении позиции скролла, а самая первая страница чата (и любое
+    сообщение, прилетевшее сразу в уже видимую область без скролла)
+    иначе не попала бы под автозагрузку вовсе. }
+  AutoDownloadVisible;
 
   Invalidate;
   if Assigned(FOnScrollRangeChanged) then begin

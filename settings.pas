@@ -5,8 +5,8 @@ unit settings;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, ComCtrls, ExtCtrls,
-  uiframe, framesettingsgeneral, framesettingsaudio;
+  Classes, SysUtils, Forms, Controls, ComCtrls, ExtCtrls, StdCtrls,
+  uiframe, framesettingsgeneral, framesettingsaudio, framesettingsautodownload;
 
 type
 
@@ -24,9 +24,12 @@ type
     pnlLeft:    TPanel;
     tvSections: TTreeView;
     pnlContent: TPanel;
+    pnlButtons: TPanel;
+    btnSave:    TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure tvSectionsSelectionChanged(Sender: TObject);
+    procedure btnSaveClick(Sender: TObject);
   private
     FNav: TFrameNavigator;
   end;
@@ -47,6 +50,7 @@ begin
   tvSections.Items.Clear;
   tvSections.Items.Add(nil, 'General');
   tvSections.Items.Add(nil, 'Audio');
+  tvSections.Items.Add(nil, 'Auto download');
   tvSections.Selected := tvSections.Items[0];
   { Выбор первого пункта не всегда сам стреляет OnSelectionChanged
     (зависит от того, был ли уже выбранный узел) — показываем фрейм
@@ -67,7 +71,24 @@ begin
   case tvSections.Selected.Index of
     0: FNav.ShowFrame(TFrameSettingsGeneral);
     1: FNav.ShowFrame(TFrameSettingsAudio);
+    2: FNav.ShowFrame(TFrameSettingsAutoDownload);
   end;
+end;
+
+procedure TFormSettings.btnSaveClick(Sender: TObject);
+var
+  F: TFrameBase;
+begin
+  { Аудио персистит выбор сразу при клике по устройству (см.
+    framesettingsaudio.pas) — сохранять здесь нечего. General пуст.
+    Auto download сохраняем, только если раздел реально открывали
+    (Find <> nil) — иначе сетка чекбоксов ни разу не создавалась и
+    сохранять нечего, значения в config.ini остаются как были. }
+  F := FNav.Find(TFrameSettingsAutoDownload);
+  if F <> nil then begin
+    TFrameSettingsAutoDownload(F).SaveSettings;
+  end;
+  Close;
 end;
 
 end.

@@ -50,4 +50,25 @@ object FormSettings: TFormSettings
     BevelOuter = bvNone
     TabOrder = 1
   end
+  object pnlButtons: TPanel
+    Left = 0
+    Height = 44
+    Top = 376
+    Width = 640
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 640
+    TabOrder = 2
+    object btnSave: TButton
+      Left = 549
+      Height = 25
+      Top = 10
+      Width = 75
+      Anchors = [akTop, akRight]
+      Caption = 'Save'
+      TabOrder = 0
+      OnClick = btnSaveClick
+    end
+  end
 end

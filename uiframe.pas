@@ -47,11 +47,16 @@ type
     FContainer: TWinControl;
     FFrames:    TFPList;
     FCurrent:   TFrameBase;
-    function Find(AClass: TFrameBaseClass): TFrameBase;
   public
     constructor Create(AContainer: TWinControl);
     destructor Destroy; override;
 
+    { Публичный — нужен вызывающим, которые хотят достать УЖЕ созданный
+      (посещённый) фрейм напрямую, не через ShowFrame (тот заодно и
+      показывает/скрывает). Пример — TFormSettings.btnSaveClick:
+      сохранять есть смысл только раздел, который пользователь реально
+      открыл, Find(AClass) = nil значит "не открывал, нечего сохранять". }
+    function Find(AClass: TFrameBaseClass): TFrameBase;
     function ShowFrame(AClass: TFrameBaseClass): TFrameBase;
     procedure HideCurrent;
 

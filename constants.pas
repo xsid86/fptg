@@ -242,6 +242,19 @@ const
     съедает память и начинает тормозить при перерисовке. }
   MAX_LOG_LINES = 500;
 
+  { ================= framesettingsautodownload.pas ================= }
+
+  { Пять типов медиа × пять типов чата — сетка чекбоксов раздела
+    "Auto download" окна настроек. AUTODL_*_KINDS — ключи персистенса
+    в config.ini/[autodownload] (ключ "<медиа>.<чат>", напр.
+    "images.private"), AUTODL_*_CAPTIONS — подписи в UI, тот же порядок
+    в обеих парах массивов (порядок отрисовки: медиа — секции/столбцы,
+    чат — строки внутри секции). }
+  AUTODL_MEDIA_KINDS: array[0..4] of string = ('images', 'video', 'audio', 'gif', 'files');
+  AUTODL_MEDIA_CAPTIONS: array[0..4] of string = ('Images', 'Video', 'Audio', 'GIF', 'Files');
+  AUTODL_CHAT_KINDS: array[0..4] of string = ('private', 'secret', 'groups', 'channels', 'bots');
+  AUTODL_CHAT_CAPTIONS: array[0..4] of string = ('Private chats', 'Secret chats', 'Groups', 'Channels', 'Bots');
+
   { ================= msglayout.pas ================= }
 
   { Небольшой межстрочный запас поверх TextHeight. }

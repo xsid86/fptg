@@ -62,7 +62,6 @@
         <EditorIndex Value="13"/>
         <UsageCount Value="101"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -300,7 +299,6 @@
         <TopLine Value="3664"/>
         <UsageCount Value="50"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="settings.pas"/>
@@ -326,6 +324,14 @@
         <Filename Value="framesettingsaudio.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="FrameSettingsAudio"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="framesettingsautodownload.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FrameSettingsAutoDownload"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
         <UsageCount Value="20"/>
