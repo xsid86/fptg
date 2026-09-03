@@ -5,7 +5,7 @@ unit msglayout;
 interface
 
 uses
-  Classes, SysUtils, Types, Graphics,
+  Classes, SysUtils, Types, Math, Graphics,
   constants, tdmessages;
 
 type
@@ -71,9 +71,17 @@ type
   end;
 
 { Реестр — простой lookup по виду контента. Сюда позже подключатся
-  TPhotoContentRenderer/TAnimationContentRenderer/TStickerContentRenderer
-  без изменений в framehistory. }
+  TAnimationContentRenderer/TStickerContentRenderer без изменений в
+  framehistory. }
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
+
+{ Целевой размер превью фото по натуральным ANaturalW/ANaturalH —
+  общая формула для TPhotoContentRenderer.Measure/Paint (высота строки)
+  И TFileWidget-аналога в framehistory.pas (сам рендер) — один источник
+  правды, а не две копии одной арифметики. Вертикальное изображение
+  (height>width) — ограничена ширина (PHOTO_MAX_WIDTH), горизонтальное
+  — высота (PHOTO_MAX_HEIGHT); маленькие изображения не увеличиваем. }
+procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH: integer; out AOutW, AOutH: integer);
 
 implementation
 
@@ -513,7 +521,96 @@ begin
   Result := True;
 end;
 
-{ ---------------- фото/видео/анимации/стикеры: плейсхолдер ---------------- }
+{ ---------------- фото: реальный виджет (framehistory.TPhotoWidget) ---------------- }
+
+procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH: integer; out AOutW, AOutH: integer);
+begin
+  if (ANaturalW <= 0) or (ANaturalH <= 0) then begin
+    AOutW := PHOTO_MAX_WIDTH;
+    AOutH := PHOTO_MAX_HEIGHT;
+    Exit;
+  end;
+  if ANaturalH > ANaturalW then begin
+    { Вертикальное — ограничена ширина, высота пропорционально. }
+    AOutW := Min(ANaturalW, PHOTO_MAX_WIDTH);
+    AOutH := Round(ANaturalH * (AOutW / ANaturalW));
+  end else begin
+    { Горизонтальное (или квадратное) — ограничена высота. }
+    AOutH := Min(ANaturalH, PHOTO_MAX_HEIGHT);
+    AOutW := Round(ANaturalW * (AOutH / ANaturalH));
+  end;
+end;
+
+type
+  TPhotoContentRenderer = class(TMsgContentRenderer)
+  public
+    function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
+    procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
+      ASelStart, ASelEnd: integer); override;
+    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; override;
+    function WantsWidget: boolean; override;
+  end;
+
+function TPhotoContentRenderer.Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer;
+var
+  ImgW, ImgH: integer;
+begin
+  ComputePhotoPreviewSize(ARow.PhotoWidth, ARow.PhotoHeight, ImgW, ImgH);
+  if ARow.PlainText = '' then begin
+    Result := ImgH;
+  end else begin
+    { Подпись — во всю доступную ширину колонки, не ограничена шириной
+      самого превью (та часто уже него). }
+    Result := EnsureTextLayout(ARow, ACtx, ImgH + CAPTION_GAP).Height;
+  end;
+end;
+
+procedure TPhotoContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
+  ASelStart, ASelEnd: integer);
+var
+  ImgW, ImgH: integer;
+  L: TMsgLayout;
+  Ctx: TMsgLayoutCtx;
+begin
+  { Подложка на случай кадра до того, как framehistory успеет
+    позиционировать поверх настоящий TPhotoWidget из пула — тот же
+    приём, что и у аудио/файла. Только под превью, не во всю ширину:
+    у фото свой натуральный размер, не "во всю колонку". }
+  ComputePhotoPreviewSize(ARow.PhotoWidth, ARow.PhotoHeight, ImgW, ImgH);
+  ACanvas.Brush.Style := bsSolid;
+  ACanvas.Brush.Color := clBtnFace;
+  ACanvas.FillRect(Rect(ARect.Left, ARect.Top, ARect.Left + ImgW, ARect.Top + ImgH));
+
+  if ARow.PlainText = '' then begin
+    Exit;
+  end;
+  Ctx.Canvas := ACanvas;
+  Ctx.AvailWidth := ARect.Right - ARect.Left;
+  L := EnsureTextLayout(ARow, Ctx, ImgH + CAPTION_GAP);
+  PaintRuns(ACanvas, Point(ARect.Left, ARect.Top), L.Runs, ASelStart, ASelEnd);
+end;
+
+function TPhotoContentRenderer.HitTest(ARow: TMsgRow; const ARect: TRect;
+  X, Y: integer): TMsgHit;
+var
+  L: TMsgLayout;
+begin
+  L := TMsgLayout(ARow.LayoutCache);
+  if L = nil then begin
+    Result.Kind := mhkNone;
+    Result.URL := '';
+    Result.CharOffset := -1;
+    Exit;
+  end;
+  Result := HitTestRuns(L.Runs, X - ARect.Left, Y - ARect.Top);
+end;
+
+function TPhotoContentRenderer.WantsWidget: boolean;
+begin
+  Result := True;
+end;
+
+{ ---------------- видео/анимации/стикеры: плейсхолдер ---------------- }
 
 type
   TPlaceholderContentRenderer = class(TMsgContentRenderer)
@@ -604,6 +701,7 @@ var
   GTextRenderer:        TTextContentRenderer;
   GAudioRenderer:        TAudioContentRenderer;
   GDocRenderer:         TDocContentRenderer;
+  GPhotoRenderer:       TPhotoContentRenderer;
   GPlaceholderRenderer: TPlaceholderContentRenderer;
 
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
@@ -612,6 +710,7 @@ begin
     mckText:  Result := GTextRenderer;
     mckAudio: Result := GAudioRenderer;
     mckFile:  Result := GDocRenderer;
+    mckPhoto: Result := GPhotoRenderer;
   else
     Result := GPlaceholderRenderer;
   end;
@@ -621,12 +720,14 @@ initialization
   GTextRenderer := TTextContentRenderer.Create;
   GAudioRenderer := TAudioContentRenderer.Create;
   GDocRenderer := TDocContentRenderer.Create;
+  GPhotoRenderer := TPhotoContentRenderer.Create;
   GPlaceholderRenderer := TPlaceholderContentRenderer.Create;
 
 finalization
   GTextRenderer.Free;
   GAudioRenderer.Free;
   GDocRenderer.Free;
+  GPhotoRenderer.Free;
   GPlaceholderRenderer.Free;
 
 end.

@@ -5,7 +5,7 @@ unit tdmessages;
 interface
 
 uses
-  Classes, SysUtils, fgl, ExtCtrls, fpjson, jsonparser,
+  Classes, SysUtils, base64, fgl, ExtCtrls, fpjson, jsonparser,
   constants, tdauth, tdsession, tdreq, tdchats;
 
 type
@@ -107,6 +107,26 @@ type
     DocFileId:            integer;
     DocLocalPath:         utf8string;
     DocDownloadRequested: boolean;
+    { messagePhoto.photo — только для Kind=mckPhoto. PhotoWidth/Height —
+      натуральные размеры выбранного (среднего, type='m') слоя photo.sizes,
+      для расчёта превью. PhotoMinithumb — сырые (уже base64-декодированные)
+      байты крошечного JPEG, приходит сразу в контенте без скачивания —
+      для блюр-плейсхолдера, пока настоящий файл не скачан. }
+    PhotoWidth, PhotoHeight: integer;
+    PhotoMinithumb:          RawByteString;
+    PhotoFileId:             integer;
+    PhotoLocalPath:          utf8string;
+    PhotoDownloadRequested:  boolean;
+    { Самый большой доступный слой photo.sizes (по width*height, не по
+      порядку в массиве — не полагаемся на то, что TDLib всегда отдаёт
+      их от меньшего к большему) — для "Save as"/"Show in folder":
+      сохранять надо оригинал, не мелкую превью-копию (PhotoFileId
+      выше — сознательно средний размер, ради скорости инлайн-показа,
+      не подходит для сохранения). Отдельная от PhotoFileId загрузка —
+      разные file_id, разный кэш-файл TDLib. }
+    PhotoBestFileId:            integer;
+    PhotoBestLocalPath:         utf8string;
+    PhotoBestDownloadRequested: boolean;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -138,6 +158,9 @@ type
     ровно один Kind, но раздельные карты проще для чтения, чем общая
     с веткой "какое поле обновлять" внутри. }
   TDocFileMap = specialize TFPGMap<integer, TMsgRow>;
+  { То же для фото — своя карта, не общая с аудио/документом (см.
+    комментарий у TDocFileMap). }
+  TPhotoFileMap = specialize TFPGMap<integer, TMsgRow>;
 
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
@@ -193,6 +216,12 @@ type
     FByFile: TAudioFileMap;
     { Скачивание файлов-документов — см. EnsureDocFile/ApplyDocFile. }
     FDocByFile: TDocFileMap;
+    { Скачивание фото — см. EnsurePhotoFile/ApplyPhotoFile. }
+    FPhotoByFile: TPhotoFileMap;
+    { Скачивание оригинала (самого большого слоя) — см. EnsurePhotoBestFile/
+      ApplyPhotoBestFile. Отдельная карта: разные file_id, разный кэш-файл
+      TDLib, чем у превью-загрузки выше (см. комментарий у TMsgRow.PhotoBestFileId). }
+    FPhotoBestByFile: TPhotoFileMap;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -213,6 +242,14 @@ type
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadDocDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyDocFile(AFile: TJSONObject);
+    procedure ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8string;
+      out AWidth, AHeight: integer; out AMinithumb: RawByteString;
+      out AFileId: integer; out ALocalPath: utf8string;
+      out ABestFileId: integer; out ABestLocalPath: utf8string);
+    procedure DownloadPhotoDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyPhotoFile(AFile: TJSONObject);
+    procedure DownloadPhotoBestDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyPhotoBestFile(AFile: TJSONObject);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -279,6 +316,11 @@ type
     procedure EnsureAudioFile(ARow: TMsgRow);
     { То же самое для файла-документа (см. DocFileId) — тем же приёмом. }
     procedure EnsureDocFile(ARow: TMsgRow);
+    { То же самое для фото (см. PhotoFileId) — тем же приёмом. }
+    procedure EnsurePhotoFile(ARow: TMsgRow);
+    { Оригинал фото (см. PhotoBestFileId) — для "Save as"/"Show in
+      folder", отдельно от превью выше (см. комментарий у поля). }
+    procedure EnsurePhotoBestFile(ARow: TMsgRow);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -481,6 +523,10 @@ begin
   FByFile.Sorted := True;
   FDocByFile := TDocFileMap.Create;
   FDocByFile.Sorted := True;
+  FPhotoByFile := TPhotoFileMap.Create;
+  FPhotoByFile.Sorted := True;
+  FPhotoBestByFile := TPhotoFileMap.Create;
+  FPhotoBestByFile.Sorted := True;
   FLoadLimit := 50;
 
   FTimer := TTimer.Create(Self);
@@ -510,6 +556,8 @@ begin
   FReplyCache.Free;
   FByFile.Free;
   FDocByFile.Free;
+  FPhotoByFile.Free;
+  FPhotoBestByFile.Free;
   inherited Destroy;
 end;
 
@@ -528,6 +576,8 @@ begin
   FReplyCache.Clear;
   FByFile.Clear;
   FDocByFile.Clear;
+  FPhotoByFile.Clear;
+  FPhotoBestByFile.Clear;
   SetLength(FReplyPending, 0);
   FLoadingOlder := False;
   FOldestLoaded := False;
@@ -1014,6 +1064,103 @@ begin
   end;
 end;
 
+{ messagePhoto.photo — content.photo.minithumbnail — крошечный JPEG
+  прямо в контенте (base64, поле data), не нужно скачивать; content.
+  photo.sizes — массив photoSize (type/width/height/photo — сам
+  скачиваемый TDLib-объект file), проверено по tdlib_raw.log, не по
+  памяти. Два РАЗНЫХ слоя выбираются из одного массива за один проход:
+  AFileId/ALocalPath — предпочитаем type='m' (среднего качества,
+  достаточно для инлайн-превью до PHOTO_MAX_WIDTH/HEIGHT — не тянуть
+  самый большой размер только чтобы показать миниатюру), если 'm'
+  почему-то нет — первый элемент; ABestFileId/ABestLocalPath — слой с
+  максимальным width*height, для "Save as"/"Show in folder" (сохранять
+  нужно оригинал, не мелкую превью-копию) — по площади, а не по
+  порядку в массиве, не полагаемся на то, что TDLib всегда отдаёт
+  sizes от меньшего к большему. }
+procedure TTdMessages.ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8string;
+  out AWidth, AHeight: integer; out AMinithumb: RawByteString;
+  out AFileId: integer; out ALocalPath: utf8string;
+  out ABestFileId: integer; out ABestLocalPath: utf8string);
+var
+  PhotoObj, MiniObj, SizeObj, FileObj, LocalObj: TJSONObject;
+  Arr: TJSONArray;
+  I, MedIdx, LargestIdx, W, H: integer;
+  LargestArea, Area: Int64;
+  B64: utf8string;
+begin
+  AWidth := 0;
+  AHeight := 0;
+  AMinithumb := '';
+  AFileId := 0;
+  ALocalPath := '';
+  ABestFileId := 0;
+  ABestLocalPath := '';
+  if (AContent = nil) or (AType <> 'messagePhoto') then begin
+    Exit;
+  end;
+  PhotoObj := JGetObj(AContent, 'photo');
+  if PhotoObj = nil then begin
+    Exit;
+  end;
+
+  MiniObj := JGetObj(PhotoObj, 'minithumbnail');
+  if MiniObj <> nil then begin
+    B64 := JGetStr(MiniObj, 'data');
+    if B64 <> '' then begin
+      AMinithumb := DecodeStringBase64(string(B64));
+    end;
+  end;
+
+  Arr := JGetArr(PhotoObj, 'sizes');
+  if (Arr = nil) or (Arr.Count = 0) then begin
+    Exit;
+  end;
+  MedIdx := 0;
+  LargestIdx := 0;
+  LargestArea := -1;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Items[I].JSONType <> jtObject then begin
+      Continue;
+    end;
+    if JGetStr(TJSONObject(Arr.Items[I]), 'type') = 'm' then begin
+      MedIdx := I;
+    end;
+    W := JGetInt(TJSONObject(Arr.Items[I]), 'width');
+    H := JGetInt(TJSONObject(Arr.Items[I]), 'height');
+    Area := Int64(W) * H;
+    if Area > LargestArea then begin
+      LargestArea := Area;
+      LargestIdx := I;
+    end;
+  end;
+
+  if Arr.Items[MedIdx].JSONType = jtObject then begin
+    SizeObj := TJSONObject(Arr.Items[MedIdx]);
+    AWidth := JGetInt(SizeObj, 'width');
+    AHeight := JGetInt(SizeObj, 'height');
+    FileObj := JGetObj(SizeObj, 'photo');
+    if FileObj <> nil then begin
+      AFileId := JGetInt(FileObj, 'id');
+      LocalObj := JGetObj(FileObj, 'local');
+      if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+        ALocalPath := JGetStr(LocalObj, 'path');
+      end;
+    end;
+  end;
+
+  if Arr.Items[LargestIdx].JSONType = jtObject then begin
+    SizeObj := TJSONObject(Arr.Items[LargestIdx]);
+    FileObj := JGetObj(SizeObj, 'photo');
+    if FileObj <> nil then begin
+      ABestFileId := JGetInt(FileObj, 'id');
+      LocalObj := JGetObj(FileObj, 'local');
+      if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+        ABestLocalPath := JGetStr(LocalObj, 'path');
+      end;
+    end;
+  end;
+end;
+
 procedure TTdMessages.ApplyMessage(AMsg: TJSONObject);
 var
   R: TMsgRow;
@@ -1137,6 +1284,8 @@ begin
   ExtractAudioMeta(ContentObj, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
     R.AudioFileId, R.AudioLocalPath);
   ExtractDocMeta(ContentObj, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
+  ExtractPhotoMeta(ContentObj, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
+    R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -1166,6 +1315,8 @@ begin
   ExtractAudioMeta(ANewContent, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
     R.AudioFileId, R.AudioLocalPath);
   ExtractDocMeta(ANewContent, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
+  ExtractPhotoMeta(ANewContent, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
+    R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
@@ -1606,6 +1757,152 @@ begin
   Touch;
 end;
 
+{ Скачивание фото — точная копия EnsureDocFile/DownloadDocDone/
+  ApplyDocFile выше, отдельная от них ровно по той же причине, что и
+  документ от аудио (см. комментарий у TPhotoFileMap). }
+procedure TTdMessages.EnsurePhotoFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.PhotoFileId = 0) or (ARow.PhotoLocalPath <> '') or ARow.PhotoDownloadRequested then begin
+    Exit;
+  end;
+  ARow.PhotoDownloadRequested := True;
+  if FPhotoByFile.IndexOf(ARow.PhotoFileId) < 0 then begin
+    FPhotoByFile.Add(ARow.PhotoFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.PhotoDownloadRequested := False;
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.PhotoFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadPhotoDone, ARow.PhotoFileId);
+end;
+
+procedure TTdMessages.DownloadPhotoDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyPhotoFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FPhotoByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FPhotoByFile.Data[Idx].PhotoDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyPhotoFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FPhotoByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FPhotoByFile.Data[Idx];
+  if R.PhotoLocalPath = Path then begin
+    Exit;
+  end;
+  R.PhotoLocalPath := Path;
+  Touch;
+end;
+
+{ Оригинал (самый большой слой) — точная копия EnsurePhotoFile/
+  DownloadPhotoDone/ApplyPhotoFile выше, отдельная своя карта
+  (FPhotoBestByFile), потому что file_id и, соответственно, кэш-путь
+  TDLib у оригинала и у превью-копии — РАЗНЫЕ (см. комментарий у
+  TMsgRow.PhotoBestFileId). }
+procedure TTdMessages.EnsurePhotoBestFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.PhotoBestFileId = 0) or (ARow.PhotoBestLocalPath <> '') or ARow.PhotoBestDownloadRequested then begin
+    Exit;
+  end;
+  ARow.PhotoBestDownloadRequested := True;
+  if FPhotoBestByFile.IndexOf(ARow.PhotoBestFileId) < 0 then begin
+    FPhotoBestByFile.Add(ARow.PhotoBestFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.PhotoBestDownloadRequested := False;
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.PhotoBestFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadPhotoBestDone, ARow.PhotoBestFileId);
+end;
+
+procedure TTdMessages.DownloadPhotoBestDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyPhotoBestFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FPhotoBestByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FPhotoBestByFile.Data[Idx].PhotoBestDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyPhotoBestFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FPhotoBestByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FPhotoBestByFile.Data[Idx];
+  if R.PhotoBestLocalPath = Path then begin
+    Exit;
+  end;
+  R.PhotoBestLocalPath := Path;
+  Touch;
+end;
+
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
   Obj: TJSONObject;
@@ -1639,6 +1936,8 @@ begin
     end else if T = 'updateFile' then begin
       ApplyAudioFile(JGetObj(Obj, 'file'));
       ApplyDocFile(JGetObj(Obj, 'file'));
+      ApplyPhotoFile(JGetObj(Obj, 'file'));
+      ApplyPhotoBestFile(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));

@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
-  Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, avatarcache,
+  Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
   uiframe, framechats, audioplayer;
 
@@ -130,6 +130,68 @@ type
     для аватарок), framehistory тянет tdchats в uses. }
   TFileWidgetMap = specialize TFPGMap<Int64, TFileWidget>;
 
+  { TPhotoWidget
+
+    Превью фото — по прямому запросу пользователя. В отличие от
+    TAudioWidget/TFileWidget — БЕЗ подложки/контура-карточки (только
+    само изображение, скруглённое PHOTO_CORNER_RADIUS): "рамки вокруг
+    предпросмотра не нужно". Взаимодействие — тот же приём, что у
+    TFileWidget: курсор-рука на весь виджет, левый клик качает
+    (молча, если не скачано) либо открывает системным приложением
+    (если уже скачано), контекстное меню — тот же общий FilePopupMenu.
+
+    Пока файл не скачан — показываем блюр-плейсхолдер из
+    content.photo.minithumbnail (крошечный JPEG, приходит сразу в
+    контенте, без скачивания) поверх которого — значок "скачать"
+    (тот же AUDIO_ICON_DOWNLOAD, что и у TFileWidget). Оба декодированных
+    битмапа (блюр-превью и настоящее фото) кэшируются в самом виджете —
+    тот recycled (пул TMsgScroller), пересчитываются только когда
+    виджет реально переиспользован под ДРУГОЕ сообщение (см. SetPhoto),
+    не на каждую перерисовку. }
+  TPhotoWidget = class(TCustomControl)
+  private
+    FRowId: Int64;
+    FNaturalW, FNaturalH: integer;
+    FTargetW, FTargetH: integer;
+    FLocalPath: utf8string;
+    FDownloaded: boolean;
+    FBlurBmp: TBGRABitmap;   { блюр-плейсхолдер из minithumbnail, до скачивания }
+    FRealBmp: TBGRABitmap;   { настоящее фото, после скачивания }
+    FDownloadImages: TImageList; { ImageList1 — значок "скачать" }
+    { Цвет фона БЛОКА сообщения в этой точке (BlendWithBackground(
+      SenderColor(R), SENDER_BG_OPACITY, clWindow) — та же формула, что
+      красит сам блок в TMsgScroller.Paint) — НЕ голый clWindow: виджет,
+      как и TAudioWidget/TFileWidget, реальный дочерний control и не
+      просвечивает canvas родителя, а у фото (в отличие от аудио/файла)
+      нет своей непрозрачной карточки-подложки поверх этого фона — без
+      подмены угол превью снаружи скруглённой маски показывал бы белый
+      clWindow, заметно отличающийся от подкрашенного фона блока
+      ("белые треугольники по углам"). }
+    FBgColor: TColor;
+    FOnClick: TNotifyEvent;
+    procedure ClearBitmaps;
+    procedure DrawBmpRounded(ABmp: TBGRABitmap);
+  protected
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    { AMinithumb — сырые (уже base64-декодированные) байты JPEG, может
+      быть '' (не пришёл/уже не нужен — скачано). ADownloaded/ALocalPath
+      — есть ли уже настоящий файл на диске. }
+    procedure SetPhoto(ARowId: Int64; ANaturalW, ANaturalH: integer;
+      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string);
+    property TargetWidth: integer read FTargetW;
+    property TargetHeight: integer read FTargetH;
+    property DownloadImages: TImageList read FDownloadImages write FDownloadImages;
+    property BackgroundColor: TColor read FBgColor write FBgColor;
+    property RowId: Int64 read FRowId;
+    property OnPhotoClick: TNotifyEvent read FOnClick write FOnClick;
+  end;
+
+  TPhotoWidgetMap = specialize TFPGMap<Int64, TPhotoWidget>;
+
   { Ключ — id пользователя или чата-источника репоста (см. поле у
     TMsgScroller, где заведены два разных инстанса этого типа). }
   TForwardAvatarMap = specialize TFPGMap<Int64, TBGRABitmap>;
@@ -137,7 +199,10 @@ type
   { Что сделать с файлом-документом, как только он скачается — "Save
     as..."/"Show in folder" в контекстном меню на ещё не скачанном
     файле сначала запускают загрузку (FPendingSaveMsgId), действие
-    выполняется отложенно, см. TMsgScroller.ModelChanged. }
+    выполняется отложенно, см. TMsgScroller.ModelChanged. У клика по
+    превью фото — своя, ПРЯМАЯ (без отложенного действия) логика
+    "первый клик качает, второй открывает" (см. PhotoWidgetClick), этот
+    enum её не касается. }
   TPendingFileAction = (pfaNone, pfaSaveDialog, pfaShowInFolder);
 
   { TMsgScroller
@@ -198,6 +263,16 @@ type
       приём, что FPendingPlayMsgId у аудио. }
     FPendingSaveMsgId: Int64;
     FPendingFileAction: TPendingFileAction;
+
+    { Превью фото — тот же пул-приём, что у аудио/файла; общий
+      FilePopupMenu/FAudioImages переиспользуются, свой список
+      значков-по-типу не нужен (нет "типа" — только само фото). }
+    FPhotoPool:   TFPList;       { of TPhotoWidget }
+    FPhotoActive: TPhotoWidgetMap;
+    { Тот же приём, что FPendingSaveMsgId у файла — своя пара полей,
+      не общая: разные Kind, разные Local-поля у TMsgRow. }
+    FPendingPhotoMsgId: Int64;
+    FPendingPhotoAction: TPendingFileAction;
 
     { Проигрывание аудио — один активный плеер на весь скроллер (как и
       в самом Telegram, играет не более одного трека разом). Виджет —
@@ -294,6 +369,10 @@ type
     function ObtainFileWidget: TFileWidget;
     procedure FileWidgetClick(Sender: TObject);
     procedure SaveDocFile(ARow: TMsgRow);
+    procedure LayoutPhotoWidgets(ALo, AHi: integer);
+    function ObtainPhotoWidget: TPhotoWidget;
+    procedure PhotoWidgetClick(Sender: TObject);
+    procedure SavePhotoFile(ARow: TMsgRow);
     function HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;
     function ResolveSelection(out ALowIdx, AHighIdx, ALowChar, AHighChar: integer): boolean;
     procedure RangeForRow(AIndex, ALowIdx, AHighIdx, ALowChar, AHighChar,
@@ -343,6 +422,9 @@ type
       TFileWidget, добытый через PopupMenu.PopupComponent. }
     procedure FileWidgetSaveAsClick(Sender: TObject);
     procedure FileWidgetShowInFolderClick(Sender: TObject);
+    { Те же два — для TPhotoWidget, тот же общий FilePopupMenu. }
+    procedure PhotoWidgetSaveAsClick(Sender: TObject);
+    procedure PhotoWidgetShowInFolderClick(Sender: TObject);
   end;
 
   { TFrameHistory
@@ -1155,6 +1237,167 @@ begin
   Canvas.RoundRect(Box, Radius, Radius);
 end;
 
+{ ---------------- TPhotoWidget ---------------- }
+
+constructor TPhotoWidget.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  DoubleBuffered := True;
+  Cursor := crHandPoint;   { весь виджет кликабелен }
+  FBgColor := clWindow;    { запасной вариант до первого LayoutPhotoWidgets }
+end;
+
+destructor TPhotoWidget.Destroy;
+begin
+  ClearBitmaps;
+  inherited Destroy;
+end;
+
+procedure TPhotoWidget.ClearBitmaps;
+begin
+  FreeAndNil(FBlurBmp);
+  FreeAndNil(FRealBmp);
+end;
+
+procedure TPhotoWidget.SetPhoto(ARowId: Int64; ANaturalW, ANaturalH: integer;
+  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string);
+var
+  Ms: TMemoryStream;
+  Src, Resized, Stretched: TBGRABitmap;
+begin
+  if ARowId <> FRowId then begin
+    { Виджет из пула переиспользован под ДРУГОЕ сообщение — старые
+      декодированные битмапы относятся не к этому фото, обнуляем.
+      Если ARowId тот же (обычный повторный проход LayoutPhotoWidgets,
+      вызывается на каждый Paint скроллера) — битмапы НЕ трогаем, та
+      же причина, что уже документирована у TAudioWidget.SetTrack. }
+    ClearBitmaps;
+  end;
+  FRowId := ARowId;
+  FNaturalW := ANaturalW;
+  FNaturalH := ANaturalH;
+  ComputePhotoPreviewSize(ANaturalW, ANaturalH, FTargetW, FTargetH);
+
+  { Блюр-плейсхолдер из minithumbnail — декодируем и блюрим один раз
+    (пока не готов), не при каждом заходе: сам файл крошечный, но
+    ресемпл+блюр не бесплатны, а этот метод вызывается на каждый Paint.
+    Двойной блюр (10px на источнике, растягивание, ещё 10px на
+    результате) — первый проход на крошечном (~30×40) исходнике убирает
+    блочность JPEG ДО растягивания, второй — сглаживает сам ресемпл
+    (rmFineResample и так даёт мягкую интерполяцию, но второй блюр
+    добавляет запас на случай, если исходник был не настолько мал). }
+  if (FBlurBmp = nil) and (AMinithumb <> '') then begin
+    Ms := TMemoryStream.Create;
+    Src := nil;
+    Resized := nil;
+    Stretched := nil;
+    try
+      try
+        Ms.WriteBuffer(AMinithumb[1], Length(AMinithumb));
+        Ms.Position := 0;
+        Src := TBGRABitmap.Create(Ms);
+        Resized := TBGRABitmap(FilterBlurRadial(Src, 10, rbNormal));
+        Resized.ResampleFilter := rfBestQuality;
+        Stretched := Resized.Resample(FTargetW, FTargetH, rmFineResample);
+        FBlurBmp := TBGRABitmap(FilterBlurRadial(Stretched, 10, rbNormal));
+      except
+        ClearBitmaps;
+      end;
+    finally
+      Stretched.Free;
+      Resized.Free;
+      Src.Free;
+      Ms.Free;
+    end;
+  end;
+
+  { Настоящее фото — декодируем, только когда путь реально появился/
+    сменился, не на каждый заход. }
+  if (ALocalPath <> '') and (ALocalPath <> FLocalPath) then begin
+    FreeAndNil(FRealBmp);
+    if FileExists(string(ALocalPath)) then begin
+      Src := nil;
+      try
+        try
+          Src := TBGRABitmap.Create(string(ALocalPath));
+          Src.ResampleFilter := rfBestQuality;
+          FRealBmp := Src.Resample(FTargetW, FTargetH, rmFineResample);
+        except
+          FreeAndNil(FRealBmp);
+        end;
+      finally
+        Src.Free;
+      end;
+    end;
+  end;
+
+  FDownloaded := ADownloaded;
+  FLocalPath := ALocalPath;
+  Invalidate;
+end;
+
+{ Заливает клиентскую область (уже настоящим цветом фона clWindow —
+  реальный дочерний control, не просвечивает canvas родителя) и рисует
+  переданный битмап, растянутый на весь TargetW x TargetH, с маской
+  скругления PHOTO_CORNER_RADIUS — тем же приёмом, что и круглые
+  аватарки (avatarcache.ApplyRoundMaskTo), только прямоугольная маска
+  вместо круглой. }
+procedure TPhotoWidget.DrawBmpRounded(ABmp: TBGRABitmap);
+var
+  Mask, Masked: TBGRABitmap;
+  Radius: integer;
+begin
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := FBgColor;
+  Canvas.FillRect(ClientRect);
+
+  if (ABmp = nil) or (ABmp.Width <= 0) or (ABmp.Height <= 0) then begin
+    Exit;
+  end;
+  Radius := Min(PHOTO_CORNER_RADIUS, Min(ABmp.Width, ABmp.Height) div 2);
+
+  Masked := ABmp.Duplicate as TBGRABitmap;
+  Mask := TBGRABitmap.Create(ABmp.Width, ABmp.Height, BGRABlack);
+  try
+    Mask.FillRoundRectAntialias(0, 0, ABmp.Width, ABmp.Height, Radius, Radius, BGRAWhite);
+    Masked.ApplyMask(Mask);
+    Masked.Draw(Canvas, 0, 0, False);
+  finally
+    Mask.Free;
+    Masked.Free;
+  end;
+end;
+
+procedure TPhotoWidget.Paint;
+var
+  IconR: TRect;
+begin
+  if FDownloaded and (FRealBmp <> nil) then begin
+    DrawBmpRounded(FRealBmp)
+  end else begin
+    DrawBmpRounded(FBlurBmp);
+  end;
+
+  if not FDownloaded then begin
+    { Значок "скачать" — по центру превью, тот же кадр, что и у
+      TFileWidget для недокачанного файла. }
+    if (FDownloadImages <> nil) and (AUDIO_ICON_DOWNLOAD < FDownloadImages.Count) then begin
+      IconR := Rect((ClientWidth - AUDIO_BUTTON_SIZE) div 2, (ClientHeight - AUDIO_BUTTON_SIZE) div 2,
+        (ClientWidth + AUDIO_BUTTON_SIZE) div 2, (ClientHeight + AUDIO_BUTTON_SIZE) div 2);
+      FDownloadImages.Draw(Canvas, IconR.Left, IconR.Top, AUDIO_ICON_DOWNLOAD, True);
+    end;
+  end;
+end;
+
+procedure TPhotoWidget.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  if (Button = mbLeft) and Assigned(FOnClick) then begin
+    FOnClick(Self);
+  end;
+end;
+
 { ---------------- TMsgScroller ---------------- }
 
 constructor TMsgScroller.Create(AOwner: TComponent);
@@ -1169,6 +1412,9 @@ begin
   FFilePool := TFPList.Create;
   FFileActive := TFileWidgetMap.Create;
   FFileActive.Sorted := True;
+  FPhotoPool := TFPList.Create;
+  FPhotoActive := TPhotoWidgetMap.Create;
+  FPhotoActive.Sorted := True;
   FForwardChatAvatars := TForwardAvatarMap.Create;
   FForwardChatAvatars.Sorted := True;
   FForwardUserAvatars := TForwardAvatarMap.Create;
@@ -1192,6 +1438,8 @@ begin
   FAudioPool.Free;
   FFileActive.Free;
   FFilePool.Free;
+  FPhotoActive.Free;
+  FPhotoPool.Free;
   ClearForwardAvatars;
   FForwardChatAvatars.Free;
   FForwardUserAvatars.Free;
@@ -1277,11 +1525,12 @@ end;
 function TMsgScroller.ContentPadV(ARow: TMsgRow): integer;
 begin
   { Обычный вертикальный отступ контента от заголовка блока/от нижнего
-    края блока — MSG_PAD_V, кроме аудио и файла: у обоих по месту
-    пользователя оба этих отступа должны совпадать с их же собственным
-    внутренним отступом (MSG_PAD_H=11), не с обычным вертикальным
-    (MSG_PAD_V=6) — тот же виджет-скелет, та же логика. }
-  if (ARow <> nil) and (ARow.Kind in [mckAudio, mckFile]) then begin
+    края блока — MSG_PAD_V, кроме аудио/файла/фото: у всех по месту
+    пользователя этот отступ должен совпадать с MSG_PAD_H=11, не с
+    обычным вертикальным (MSG_PAD_V=6). Список рос по одному правкой
+    "по месту" на каждый новый тип виджета — ContentPadV затем
+    единственное место, которое их всех и покрывает разом. }
+  if (ARow <> nil) and (ARow.Kind in [mckAudio, mckFile, mckPhoto]) then begin
     Result := MSG_PAD_H;
   end else begin
     Result := MSG_PAD_V;
@@ -1621,6 +1870,22 @@ begin
       end;
       FPendingSaveMsgId := 0;
       FPendingFileAction := pfaNone;
+    end;
+  end;
+
+  { То же для фото, см. PhotoWidgetSaveAsClick/PhotoWidgetShowInFolderClick.
+    PhotoBestLocalPath (оригинал), не PhotoLocalPath (превью-копия) —
+    оба меню-действия ждут именно оригинал, см. комментарий у
+    TMsgRow.PhotoBestFileId. }
+  if FPendingPhotoMsgId <> 0 then begin
+    PendingIdx := FModel.IndexOfId(FPendingPhotoMsgId);
+    if (PendingIdx >= 0) and (FModel[PendingIdx].PhotoBestLocalPath <> '') then begin
+      case FPendingPhotoAction of
+        pfaSaveDialog:   SavePhotoFile(FModel[PendingIdx]);
+        pfaShowInFolder: ShowDocInFolder(FModel[PendingIdx].PhotoBestLocalPath);
+      end;
+      FPendingPhotoMsgId := 0;
+      FPendingPhotoAction := pfaNone;
     end;
   end;
 
@@ -2176,6 +2441,10 @@ begin
     LayoutFileWidgets(Lo, Hi);
   except
   end;
+  try
+    LayoutPhotoWidgets(Lo, Hi);
+  except
+  end;
 end;
 
 procedure TMsgScroller.LayoutAudioWidgets(ALo, AHi: integer);
@@ -2457,6 +2726,213 @@ begin
     { Файл уже скачан TDLib'ом в свой кэш — здесь просто копия в место,
       выбранное пользователем, не повторное скачивание. }
     Src := TFileStream.Create(string(ARow.DocLocalPath), fmOpenRead or fmShareDenyWrite);
+    try
+      Dst := TFileStream.Create(Dlg.FileName, fmCreate);
+      try
+        Dst.CopyFrom(Src, Src.Size);
+      finally
+        Dst.Free;
+      end;
+    finally
+      Src.Free;
+    end;
+  finally
+    Dlg.Free;
+  end;
+end;
+
+{ Копия LayoutFileWidgets — тот же приём recycled-пула, для фото
+  вместо файла (Kind=mckPhoto). Отличие — ширина/высота виджета не
+  во всю колонку (CR), а натуральный размер превью (TargetWidth/
+  TargetHeight, посчитан внутри SetPhoto): узкое вертикальное фото не
+  должно растягиваться на всю ширину блока. }
+procedure TMsgScroller.LayoutPhotoWidgets(ALo, AHi: integer);
+var
+  I, N, MIdx, AIdx: integer;
+  R: TMsgRow;
+  W: TPhotoWidget;
+  CR: TRect;
+  WantIds: array of Int64;
+
+  function IsWanted(AId: Int64): boolean;
+  var
+    K: integer;
+  begin
+    Result := False;
+    for K := 0 to N - 1 do begin
+      if WantIds[K] = AId then begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
+begin
+  N := 0;
+  if FModel <> nil then begin
+    SetLength(WantIds, AHi - ALo + 2);
+    for I := ALo to AHi do begin
+      R := FModel[I];
+      if R.Kind = mckPhoto then begin
+        WantIds[N] := R.Id;
+        Inc(N);
+      end;
+    end;
+  end;
+
+  for AIdx := FPhotoActive.Count - 1 downto 0 do begin
+    if not IsWanted(FPhotoActive.Keys[AIdx]) then begin
+      FPhotoActive.Data[AIdx].Visible := False;
+      FPhotoActive.Delete(AIdx);
+    end;
+  end;
+
+  for I := 0 to N - 1 do begin
+    MIdx := FModel.IndexOfId(WantIds[I]);
+    if MIdx < 0 then begin
+      Continue;
+    end;
+    CR := ContentRect(MIdx);
+    AIdx := FPhotoActive.IndexOf(WantIds[I]);
+    if AIdx >= 0 then begin
+      W := FPhotoActive.Data[AIdx];
+    end else begin
+      W := ObtainPhotoWidget;
+      FPhotoActive.Add(WantIds[I], W);
+    end;
+    W.DownloadImages := FAudioImages;
+    W.PopupMenu := FFilePopupMenu;
+    R := FModel[MIdx];
+    W.BackgroundColor := BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow);
+    W.SetPhoto(R.Id, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
+      R.PhotoLocalPath <> '', R.PhotoLocalPath);
+    W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
+    W.Visible := True;
+  end;
+end;
+
+function TMsgScroller.ObtainPhotoWidget: TPhotoWidget;
+var
+  I: integer;
+begin
+  for I := 0 to FPhotoPool.Count - 1 do begin
+    Result := TPhotoWidget(FPhotoPool[I]);
+    if not Result.Visible then begin
+      Result.OnPhotoClick := @PhotoWidgetClick;
+      Exit;
+    end;
+  end;
+  Result := TPhotoWidget.Create(Self);
+  Result.Parent := Self;
+  Result.OnPhotoClick := @PhotoWidgetClick;
+  FPhotoPool.Add(Result);
+end;
+
+procedure TMsgScroller.PhotoWidgetClick(Sender: TObject);
+var
+  W: TPhotoWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TPhotoWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  { Строго два клика, по прямому запросу пользователя — без
+    автоматического открытия, как только оригинал докачается: первый
+    клик ТОЛЬКО качает (и превью — блюр -> настоящая миниатюра в самом
+    чате, и оригинал — для последующего открытия), повторный клик,
+    когда оригинал уже готов — открывает. Ensure*File сами не делают
+    лишнего — no-op, если уже скачано/уже запрошено, так что вызывать
+    оба безусловно безопасно. }
+  if Row.PhotoLocalPath = '' then begin
+    FModel.EnsurePhotoFile(Row);
+  end;
+  if Row.PhotoBestLocalPath = '' then begin
+    FModel.EnsurePhotoBestFile(Row);
+    Exit;
+  end;
+  OpenDocument(string(Row.PhotoBestLocalPath));
+end;
+
+procedure TMsgScroller.PhotoWidgetSaveAsClick(Sender: TObject);
+var
+  W: TPhotoWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TPhotoWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  { "Save as" сохраняет ОРИГИНАЛ (PhotoBestLocalPath), не мелкую
+    превью-копию (PhotoLocalPath — та для быстрого инлайн-показа,
+    см. комментарий у TMsgRow.PhotoBestFileId). }
+  if Row.PhotoBestLocalPath <> '' then begin
+    SavePhotoFile(Row);
+    Exit;
+  end;
+  FPendingPhotoMsgId := Row.Id;
+  FPendingPhotoAction := pfaSaveDialog;
+  FModel.EnsurePhotoBestFile(Row);
+end;
+
+procedure TMsgScroller.PhotoWidgetShowInFolderClick(Sender: TObject);
+var
+  W: TPhotoWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TPhotoWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  { "Show in folder" — тот же оригинал, что и "Save as" (см. там же). }
+  if Row.PhotoBestLocalPath <> '' then begin
+    ShowDocInFolder(Row.PhotoBestLocalPath);
+    Exit;
+  end;
+  FPendingPhotoMsgId := Row.Id;
+  FPendingPhotoAction := pfaShowInFolder;
+  FModel.EnsurePhotoBestFile(Row);
+end;
+
+procedure TMsgScroller.SavePhotoFile(ARow: TMsgRow);
+var
+  Dlg: TSaveDialog;
+  Src, Dst: TFileStream;
+begin
+  if (ARow = nil) or (ARow.PhotoBestLocalPath = '') then begin
+    Exit;
+  end;
+  Dlg := TSaveDialog.Create(nil);
+  try
+    Dlg.FileName := 'photo_' + IntToStr(ARow.Id) + '.jpg';
+    Dlg.Filter := 'JPEG|*.jpg;*.jpeg|All files|*.*';
+    Dlg.Options := Dlg.Options + [ofOverwritePrompt];
+    if not Dlg.Execute then begin
+      Exit;
+    end;
+    { Оригинал (PhotoBestLocalPath) — не превью-копия. }
+    Src := TFileStream.Create(string(ARow.PhotoBestLocalPath), fmOpenRead or fmShareDenyWrite);
     try
       Dst := TFileStream.Create(Dlg.FileName, fmCreate);
       try
@@ -2921,6 +3397,8 @@ begin
   end;
   if PM.PopupComponent is TFileWidget then begin
     FScroller.FileWidgetShowInFolderClick(PM.PopupComponent);
+  end else if PM.PopupComponent is TPhotoWidget then begin
+    FScroller.PhotoWidgetShowInFolderClick(PM.PopupComponent);
   end;
 end;
 
@@ -2934,6 +3412,8 @@ begin
   end;
   if PM.PopupComponent is TFileWidget then begin
     FScroller.FileWidgetSaveAsClick(PM.PopupComponent);
+  end else if PM.PopupComponent is TPhotoWidget then begin
+    FScroller.PhotoWidgetSaveAsClick(PM.PopupComponent);
   end;
 end;
 
