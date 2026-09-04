@@ -62,7 +62,6 @@
         <EditorIndex Value="13"/>
         <UsageCount Value="104"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -302,7 +301,6 @@
         <TopLine Value="3664"/>
         <UsageCount Value="53"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="settings.pas"/>
@@ -340,16 +338,7 @@
         <UsageCount Value="23"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="1">
-      <Position>
-        <Filename Value="framehistory.pas"/>
-        <Caret Line="2936" Column="64" TopLine="2934"/>
-      </Position>
-      <Position>
-        <Filename Value="framehistory.pas"/>
-        <Caret Line="12" Column="35"/>
-      </Position>
-    </JumpHistory>
+    <JumpHistory HistoryIndex="-1"/>
     <RunParams>
       <FormatVersion Value="2"/>
       <Modes ActiveMode=""/>

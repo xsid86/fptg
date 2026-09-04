@@ -98,6 +98,16 @@ type
     AudioFileId:            integer;
     AudioLocalPath:         utf8string;
     AudioDownloadRequested: boolean;
+    { messageVoiceNote.voice_note — только для Kind=mckVoiceNote. Тот же
+      двухуровневый приём, что и у audio (content.voice_note.voice — сам
+      скачиваемый файл, проверено по tdlib_raw.log), но без title/
+      performer/file_name — TDLib их для голосовых не присылает, у
+      виджета вместо них статичная подпись "Voice message" (см.
+      TMsgScroller.LayoutAudioWidgets). }
+    VoiceDuration:          integer;
+    VoiceFileId:            integer;
+    VoiceLocalPath:         utf8string;
+    VoiceDownloadRequested: boolean;
     { messageDocument.document — только для Kind=mckFile. Тот же приём
       двойного "document" в JSON (content.document.file_name — метаданные,
       content.document.document — сам скачиваемый TDLib-объект file),
@@ -153,6 +163,10 @@ type
   { file_id аудиофайла -> сообщение — тот же приём, что TTdChats.FByFile
     для аватарок (tdchats.pas). }
   TAudioFileMap = specialize TFPGMap<integer, TMsgRow>;
+  { file_id голосового сообщения -> сообщение — та же роль, что
+    TAudioFileMap у аудио, отдельная карта (не общая): свой file_id,
+    свой кэш-файл TDLib, тот же принцип, что у TDocFileMap ниже. }
+  TVoiceFileMap = specialize TFPGMap<integer, TMsgRow>;
   { file_id документа -> сообщение — та же роль, что TAudioFileMap у
     аудио, отдельная карта (не общая с TAudioFileMap): у сообщения
     ровно один Kind, но раздельные карты проще для чтения, чем общая
@@ -214,6 +228,8 @@ type
 
     { Скачивание аудиофайлов — см. EnsureAudioFile/ApplyAudioFile. }
     FByFile: TAudioFileMap;
+    { Скачивание голосовых сообщений — см. EnsureVoiceFile/ApplyVoiceFile. }
+    FVoiceByFile: TVoiceFileMap;
     { Скачивание файлов-документов — см. EnsureDocFile/ApplyDocFile. }
     FDocByFile: TDocFileMap;
     { Скачивание фото — см. EnsurePhotoFile/ApplyPhotoFile. }
@@ -237,6 +253,10 @@ type
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadAudioDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyAudioFile(AFile: TJSONObject);
+    procedure ExtractVoiceMeta(AContent: TJSONObject; const AType: utf8string;
+      out ADuration: integer; out AFileId: integer; out ALocalPath: utf8string);
+    procedure DownloadVoiceDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyVoiceFile(AFile: TJSONObject);
     procedure ExtractDocMeta(AContent: TJSONObject; const AType: utf8string;
       out AFileName: utf8string; out AFileSize: Int64;
       out AFileId: integer; out ALocalPath: utf8string);
@@ -314,6 +334,13 @@ type
       об этом обычной перерисовкой, отдельного события не заводим — тот
       же приём, что уже принят для аватарок (см. CLAUDE.md). }
     procedure EnsureAudioFile(ARow: TMsgRow);
+    { То же самое для голосового сообщения (см. VoiceFileId) — тем же
+      приёмом. }
+    procedure EnsureVoiceFile(ARow: TMsgRow);
+    { EnsureAudioFile/EnsureVoiceFile под одним именем — та же развязка
+      audio/voice_note "для вызывающего это один проигрываемый трек",
+      что и у PlayableLocalPath (см. её комментарий). }
+    procedure EnsurePlayableFile(ARow: TMsgRow);
     { То же самое для файла-документа (см. DocFileId) — тем же приёмом. }
     procedure EnsureDocFile(ARow: TMsgRow);
     { То же самое для фото (см. PhotoFileId) — тем же приёмом. }
@@ -348,6 +375,20 @@ type
   ARow; framehistory.pas достаёт его через TdChatList.Lookup(ARow.ChatId). }
 function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
 
+{ Путь к уже скачанному файлу трека для проигрывания — messageAudio и
+  messageVoiceNote хранят его в РАЗНЫХ полях (AudioLocalPath/
+  VoiceLocalPath, разные file_id, разные карты скачивания в TTdMessages),
+  но framehistory.pas работает с ними как с ОДНИМ проигрываемым треком:
+  TAudioWidget — общий виджет и для аудио, и для голосового (по прямому
+  запросу пользователя, "функционал и внешний вид идентичные"), поэтому
+  и код вокруг проигрывания (StartPlayback/AudioPlayClick/ModelChanged)
+  не должен на каждом шагу решать заново, какое из двух полей читать.
+  '' — не Kind=mckAudio/mckVoiceNote, или файл ещё не скачан. }
+function PlayableLocalPath(ARow: TMsgRow): utf8string;
+{ Та же развязка audio/voice_note, для длительности (AudioDuration/
+  VoiceDuration) — нужна при перемотке (AFraction * длительность). }
+function PlayableDuration(ARow: TMsgRow): integer;
+
 implementation
 
 function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
@@ -365,6 +406,30 @@ begin
     end else begin
       Result := crSent;
     end;
+  end;
+end;
+
+function PlayableLocalPath(ARow: TMsgRow): utf8string;
+begin
+  Result := '';
+  if ARow = nil then begin
+    Exit;
+  end;
+  case ARow.Kind of
+    mckAudio:     Result := ARow.AudioLocalPath;
+    mckVoiceNote: Result := ARow.VoiceLocalPath;
+  end;
+end;
+
+function PlayableDuration(ARow: TMsgRow): integer;
+begin
+  Result := 0;
+  if ARow = nil then begin
+    Exit;
+  end;
+  case ARow.Kind of
+    mckAudio:     Result := ARow.AudioDuration;
+    mckVoiceNote: Result := ARow.VoiceDuration;
   end;
 end;
 
@@ -521,6 +586,8 @@ begin
   FReplyCache.Sorted := True;
   FByFile := TAudioFileMap.Create;
   FByFile.Sorted := True;
+  FVoiceByFile := TVoiceFileMap.Create;
+  FVoiceByFile.Sorted := True;
   FDocByFile := TDocFileMap.Create;
   FDocByFile.Sorted := True;
   FPhotoByFile := TPhotoFileMap.Create;
@@ -555,6 +622,7 @@ begin
   FAll.Free;
   FReplyCache.Free;
   FByFile.Free;
+  FVoiceByFile.Free;
   FDocByFile.Free;
   FPhotoByFile.Free;
   FPhotoBestByFile.Free;
@@ -575,6 +643,7 @@ begin
   end;
   FReplyCache.Clear;
   FByFile.Clear;
+  FVoiceByFile.Clear;
   FDocByFile.Clear;
   FPhotoByFile.Clear;
   FPhotoBestByFile.Clear;
@@ -1029,6 +1098,43 @@ begin
   end;
 end;
 
+{ messageVoiceNote.voice_note — тот же двухуровневый приём, что и
+  content.audio.audio: content.voice_note — метаданные (тут — только
+  duration, TDLib не даёт title/performer/file_name для голосовых),
+  content.voice_note.voice — сам скачиваемый TDLib-объект file.
+  Проверено по tdlib_raw.log ("voice_note":{"@type":"voiceNote",
+  "duration":7,"waveform":"...","mime_type":"audio/ogg","voice":
+  {"@type":"file",...}}), не по памяти. waveform — есть, не читаем:
+  виджет "тот же, что аудио" не рисует форму волны (см. запрос
+  пользователя — идентичный внешний вид с TAudioWidget). }
+procedure TTdMessages.ExtractVoiceMeta(AContent: TJSONObject; const AType: utf8string;
+  out ADuration: integer; out AFileId: integer; out ALocalPath: utf8string);
+var
+  VoiceObj, FileObj, LocalObj: TJSONObject;
+begin
+  ADuration := 0;
+  AFileId := 0;
+  ALocalPath := '';
+  if (AContent = nil) or (AType <> 'messageVoiceNote') then begin
+    Exit;
+  end;
+  VoiceObj := JGetObj(AContent, 'voice_note');
+  if VoiceObj = nil then begin
+    Exit;
+  end;
+  ADuration := JGetInt(VoiceObj, 'duration');
+
+  FileObj := JGetObj(VoiceObj, 'voice');
+  if FileObj = nil then begin
+    Exit;
+  end;
+  AFileId := JGetInt(FileObj, 'id');
+  LocalObj := JGetObj(FileObj, 'local');
+  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+    ALocalPath := JGetStr(LocalObj, 'path');
+  end;
+end;
+
 { messageDocument.document — тот же приём двойного "document" в JSON,
   что и content.audio.audio выше: content.document — метаданные (имя
   файла), content.document.document — сам скачиваемый TDLib-объект
@@ -1296,6 +1402,7 @@ begin
   ExtractFormatted(ContentObj, T, R.PlainText, R.Entities);
   ExtractAudioMeta(ContentObj, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
     R.AudioFileId, R.AudioLocalPath);
+  ExtractVoiceMeta(ContentObj, T, R.VoiceDuration, R.VoiceFileId, R.VoiceLocalPath);
   ExtractDocMeta(ContentObj, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   ExtractPhotoMeta(ContentObj, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
     R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
@@ -1327,6 +1434,7 @@ begin
   ExtractFormatted(ANewContent, T, R.PlainText, R.Entities);
   ExtractAudioMeta(ANewContent, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
     R.AudioFileId, R.AudioLocalPath);
+  ExtractVoiceMeta(ANewContent, T, R.VoiceDuration, R.VoiceFileId, R.VoiceLocalPath);
   ExtractDocMeta(ANewContent, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   ExtractPhotoMeta(ANewContent, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
     R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
@@ -1695,6 +1803,92 @@ begin
   Touch;
 end;
 
+{ Скачивание голосового сообщения — точная копия EnsureAudioFile/
+  DownloadAudioDone/ApplyAudioFile выше, отдельная от них ровно потому,
+  что file_id аудио и file_id голосового — раздельные карты (FByFile/
+  FVoiceByFile), тот же принцип, что уже у документа/фото. }
+procedure TTdMessages.EnsureVoiceFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.VoiceFileId = 0) or (ARow.VoiceLocalPath <> '') or ARow.VoiceDownloadRequested then begin
+    Exit;
+  end;
+  ARow.VoiceDownloadRequested := True;
+  if FVoiceByFile.IndexOf(ARow.VoiceFileId) < 0 then begin
+    FVoiceByFile.Add(ARow.VoiceFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.VoiceDownloadRequested := False;
+    Exit;
+  end;
+  { priority 32 — та же логика, что у аудио: явный запрос пользователя
+    на прослушивание, не фоновая подгрузка. }
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.VoiceFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadVoiceDone, ARow.VoiceFileId);
+end;
+
+procedure TTdMessages.DownloadVoiceDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyVoiceFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FVoiceByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FVoiceByFile.Data[Idx].VoiceDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyVoiceFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FVoiceByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FVoiceByFile.Data[Idx];
+  if R.VoiceLocalPath = Path then begin
+    Exit;
+  end;
+  R.VoiceLocalPath := Path;
+  Touch;
+end;
+
+procedure TTdMessages.EnsurePlayableFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  case ARow.Kind of
+    mckAudio:     EnsureAudioFile(ARow);
+    mckVoiceNote: EnsureVoiceFile(ARow);
+  end;
+end;
+
 { Скачивание файла-документа — точная копия EnsureAudioFile/
   DownloadAudioDone/ApplyAudioFile выше, отдельная от них ровно потому,
   что file_id аудио и file_id документа — раздельные карты (FByFile/
@@ -1948,6 +2142,7 @@ begin
         JGetObj(Obj, 'new_content'));
     end else if T = 'updateFile' then begin
       ApplyAudioFile(JGetObj(Obj, 'file'));
+      ApplyVoiceFile(JGetObj(Obj, 'file'));
       ApplyDocFile(JGetObj(Obj, 'file'));
       ApplyPhotoFile(JGetObj(Obj, 'file'));
       ApplyPhotoBestFile(JGetObj(Obj, 'file'));

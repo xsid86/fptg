@@ -636,11 +636,12 @@ type
 
 function PlaceholderLabel(AKind: TMsgContentKind): string;
 begin
+  { mckVoiceNote убран отсюда — теперь реальный виджет (GAudioRenderer,
+    см. RendererFor), эта ветка для него больше недостижима. }
   case AKind of
     mckPhoto:     Result := 'Photo';
     mckAnimation: Result := 'GIF / video';
     mckSticker:   Result := 'Sticker';
-    mckVoiceNote: Result := 'Voice message';
   else
     Result := 'Unsupported';
   end;
@@ -720,10 +721,16 @@ var
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
 begin
   case AKind of
-    mckText:  Result := GTextRenderer;
-    mckAudio: Result := GAudioRenderer;
-    mckFile:  Result := GDocRenderer;
-    mckPhoto: Result := GPhotoRenderer;
+    mckText:      Result := GTextRenderer;
+    { Голосовое — тот же реальный виджет (TAudioWidget), что и
+      обычное аудио, по прямому запросу пользователя ("функционал и
+      внешний вид идентичные") — не отдельный класс, GAudioRenderer
+      просто резервирует ту же AUDIO_WIDGET_H, содержимым виджета
+      ведает framehistory.pas (LayoutAudioWidgets теперь фильтрует и
+      mckAudio, и mckVoiceNote). }
+    mckAudio, mckVoiceNote: Result := GAudioRenderer;
+    mckFile:      Result := GDocRenderer;
+    mckPhoto:     Result := GPhotoRenderer;
   else
     Result := GPlaceholderRenderer;
   end;

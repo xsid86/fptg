@@ -1693,12 +1693,13 @@ end;
 function TMsgScroller.ContentPadV(ARow: TMsgRow): integer;
 begin
   { Обычный вертикальный отступ контента от заголовка блока/от нижнего
-    края блока — MSG_PAD_V, кроме аудио/файла/фото: у всех по месту
-    пользователя этот отступ должен совпадать с MSG_PAD_H=11, не с
-    обычным вертикальным (MSG_PAD_V=6). Список рос по одному правкой
-    "по месту" на каждый новый тип виджета — ContentPadV затем
-    единственное место, которое их всех и покрывает разом. }
-  if (ARow <> nil) and (ARow.Kind in [mckAudio, mckFile, mckPhoto]) then begin
+    края блока — MSG_PAD_V, кроме аудио/голосового/файла/фото: у всех
+    по месту пользователя этот отступ должен совпадать с MSG_PAD_H=11,
+    не с обычным вертикальным (MSG_PAD_V=6). Список рос по одному
+    правкой "по месту" на каждый новый тип виджета — ContentPadV затем
+    единственное место, которое их всех и покрывает разом (голосовое —
+    тот же TAudioWidget, что и аудио, тот же случай). }
+  if (ARow <> nil) and (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto]) then begin
     Result := MSG_PAD_H;
   end else begin
     Result := MSG_PAD_V;
@@ -1839,12 +1840,15 @@ begin
   end;
   case ARow.Kind of
     mckPhoto: MediaKind := 'images';
-    mckAudio: MediaKind := 'audio';
+    { Голосовое — тот же виджет и та же настройка "Audio", что и
+      обычное аудио (см. LayoutAudioWidgets) — отдельной категории для
+      voice note в настройках Auto download нет и не нужно. }
+    mckAudio, mckVoiceNote: MediaKind := 'audio';
     mckFile:  MediaKind := 'files';
   else
-    { Видео/GIF/стикеры/голосовые — по-прежнему только плейсхолдер
-      (см. TODO.md), скачивать заранее нечего: у них нет ни своего
-      Ensure*File, ни своего file_id на TMsgRow. }
+    { Видео/GIF/стикеры — по-прежнему только плейсхолдер (см. TODO.md),
+      скачивать заранее нечего: у них нет ни своего Ensure*File, ни
+      своего file_id на TMsgRow. }
     Exit;
   end;
 
@@ -1865,8 +1869,8 @@ begin
       FModel.EnsurePhotoFile(ARow);
       FModel.EnsurePhotoBestFile(ARow);
     end;
-    mckAudio:
-      FModel.EnsureAudioFile(ARow);
+    mckAudio, mckVoiceNote:
+      FModel.EnsurePlayableFile(ARow);
     mckFile:
       FModel.EnsureDocFile(ARow);
   end;
@@ -2144,7 +2148,7 @@ begin
     именно в этом апдейте. }
   if FPendingPlayMsgId <> 0 then begin
     PendingIdx := FModel.IndexOfId(FPendingPlayMsgId);
-    if (PendingIdx >= 0) and (FModel[PendingIdx].AudioLocalPath <> '') then begin
+    if (PendingIdx >= 0) and (PlayableLocalPath(FModel[PendingIdx]) <> '') then begin
       StartPlayback(FModel[PendingIdx]);
       FPendingPlayMsgId := 0;
     end;
@@ -2758,7 +2762,10 @@ begin
     SetLength(WantIds, AHi - ALo + 2);
     for I := ALo to AHi do begin
       R := FModel[I];
-      if R.Kind = mckAudio then begin
+      { Голосовое — тот же виджет, что и обычное аудио (по прямому
+        запросу пользователя, "функционал и внешний вид идентичные"),
+        не отдельный класс. }
+      if R.Kind in [mckAudio, mckVoiceNote] then begin
         WantIds[N] := R.Id;
         Inc(N);
       end;
@@ -2791,7 +2798,16 @@ begin
     W.Images := FAudioImages;
     R := FModel[MIdx];
     W.BackgroundColor := WidgetBackdropColor(R);
-    W.SetTrack(R.Id, R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration);
+    { Голосовое — без title/performer/file_name (TDLib их не даёт, см.
+      TMsgRow.VoiceDuration) — статичная подпись вместо них, тем же
+      TAudioWidget.SetTrack, без единой правки в самом виджете:
+      TitleStr там уже падает на AFileName, когда Title/Performer
+      пусты. }
+    if R.Kind = mckVoiceNote then begin
+      W.SetTrack(R.Id, '', '', 'Voice message', R.VoiceDuration);
+    end else begin
+      W.SetTrack(R.Id, R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration);
+    end;
     { Пока идёт перетаскивание ползунка — не трогаем состояние
       проигрывания этим заходом (LayoutAudioWidgets вызывается на
       КАЖДЫЙ Paint, в т.ч. каждый тик FPlaybackTimer): иначе реальная
@@ -3268,7 +3284,7 @@ begin
     Exit;
   end;
   StopActivePlayer;
-  FActivePlayer := TAudioPlayer.Create(ARow.AudioLocalPath, utf8string(FormMain.AudioDeviceName), AStartPositionSec);
+  FActivePlayer := TAudioPlayer.Create(PlayableLocalPath(ARow), utf8string(FormMain.AudioDeviceName), AStartPositionSec);
   FActivePlayer.OnStateChanged := @PlayerStateChanged;
   FActivePlayerMsgId := ARow.Id;
   FPlaybackTimer.Enabled := True;
@@ -3305,14 +3321,14 @@ begin
   { Другой трек (или ничего не играло) — прежний останавливаем. }
   FPendingPlayMsgId := 0;
 
-  if Row.AudioLocalPath = '' then begin
+  if PlayableLocalPath(Row) = '' then begin
     { Файл ещё не скачан — запрашиваем и запомним, что именно этот
       трек нужно начать проигрывать, как только путь придёт (см.
       ModelChanged). Прежний плеер, если играл, всё равно останавливаем
       сейчас — не ждать же его до момента, когда новый файл скачается. }
     StopActivePlayer;
     FPendingPlayMsgId := W.RowId;
-    FModel.EnsureAudioFile(Row);
+    FModel.EnsurePlayableFile(Row);
     Exit;
   end;
 
@@ -3341,10 +3357,10 @@ begin
     Exit;
   end;
   Row := FModel[Idx];
-  if (Row.AudioLocalPath = '') or (Row.AudioDuration <= 0) then begin
+  if (PlayableLocalPath(Row) = '') or (PlayableDuration(Row) <= 0) then begin
     Exit;
   end;
-  StartPlayback(Row, AFraction * Row.AudioDuration);
+  StartPlayback(Row, AFraction * PlayableDuration(Row));
 end;
 
 procedure TMsgScroller.PlayerStateChanged(Sender: TObject);
