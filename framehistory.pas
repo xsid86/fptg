@@ -5,6 +5,15 @@ unit framehistory;
 interface
 
 uses
+  { Windows — первым: юниты, идущие позже в uses, перекрывают его
+    символы при неквалифицированном использовании (LCLIntf/LCLType
+    объявляют часть одноимённых GDI-функций кросс-платформенно) — сам
+    Windows нужен здесь только за CreateRoundRectRgn/SelectClipRgn/
+    DeleteObject (TPhotoWidget.DrawBmpRounded, SMOOTH_CORNERS=False —
+    у LCLIntf/LCLType их нет вовсе, проверено чтением исходников LCL,
+    не угадано), все три вызываются квалифицированно (Windows.), но
+    порядок в uses всё равно имеет значение для перегрузок. }
+  Windows,
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
@@ -658,7 +667,7 @@ procedure PaintRoundRectAA(ACanvas: TCanvas; const ABox: TRect; ARadius: single;
   AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor;
   ABorderWidth: single = 1);
 var
-  W, H: integer;
+  W, H, IRadius: integer;
   Bmp: TBGRABitmap;
   Half: single;
 begin
@@ -667,6 +676,46 @@ begin
   if (W <= 0) or (H <= 0) then begin
     Exit;
   end;
+
+  if not SMOOTH_CORNERS then begin
+    { Старый метод, ДО перехода на BGRA (см. CLAUDE.md) — обычный GDI
+      Canvas.RoundRect, без единого TBGRABitmap. Заведено по прямому
+      запросу пользователя — тест, действительно ли сама антиалиасинговая
+      отрисовка (аллокация+заливка временного битмапа на каждый вызов,
+      их тут 12 на кадр в худшем случае) заметна на плавности скролла,
+      не только субъективно "выглядит более гладко".
+      GDI RoundRect не умеет per-corner — единственный набор AOptions,
+      реально встречающийся в этом файле, [rrBottomLeftSquare,
+      rrBottomRightSquare] (спрямить низ у мини-заголовка), и оба места,
+      что его просят, всегда без обводки (ABorderColor=clNone) — тем же
+      старым трюком "нарисовать все 4 скруглёнными, потом спрямить низ
+      отдельным FillRect", что и был в проекте до перехода на BGRA.
+      Другие сочетания AOptions в файле не встречаются — не обобщаем
+      сверх того, что реально нужно. }
+    IRadius := Round(ARadius);
+    ACanvas.Pen.Style := psClear;
+    if ABorderColor <> clNone then begin
+      ACanvas.Pen.Style := psSolid;
+      ACanvas.Pen.Color := ABorderColor;
+      ACanvas.Pen.Width := Round(ABorderWidth);
+    end;
+    if AFillColor <> clNone then begin
+      ACanvas.Brush.Style := bsSolid;
+      ACanvas.Brush.Color := AFillColor;
+    end else begin
+      ACanvas.Brush.Style := bsClear;
+    end;
+    ACanvas.RoundRect(ABox.Left, ABox.Top, ABox.Right, ABox.Bottom, IRadius * 2, IRadius * 2);
+    if (AFillColor <> clNone) and (rrBottomLeftSquare in AOptions) and
+      (rrBottomRightSquare in AOptions) then begin
+      ACanvas.Pen.Style := psClear;
+      ACanvas.Brush.Style := bsSolid;
+      ACanvas.Brush.Color := AFillColor;
+      ACanvas.FillRect(Rect(ABox.Left, ABox.Bottom - IRadius, ABox.Right, ABox.Bottom));
+    end;
+    Exit;
+  end;
+
   Bmp := TBGRABitmap.Create(W, H, BGRAPixelTransparent);
   try
     if AFillColor <> clNone then begin
@@ -1482,8 +1531,9 @@ const
   BORDER_W = 1;
 var
   Mask, Masked: TBGRABitmap;
-  Radius: integer;
+  Radius, RgnRadius: integer;
   NearXY, FarX, FarY: single;
+  Rgn: HRGN;
 begin
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
@@ -1493,6 +1543,40 @@ begin
   if (ABmp = nil) or (ABmp.Width <= 0) or (ABmp.Height <= 0) then begin
     Exit;
   end;
+
+  if not SMOOTH_CORNERS then begin
+    { Старый метод — без BGRABitmap-маски (тест влияния сглаженной
+      отрисовки на плавность скролла, см. SMOOTH_CORNERS), но углы
+      всё равно должны оставаться скруглёнными — ПРАВКА ПО МЕСТУ:
+      первая версия рисовала битмап прямоугольным вовсе без скругления,
+      пользователь указал, что скругление именно фото-превью потерялось
+      при переходе на этот флаг, попросил вернуть. GDI не умеет
+      альфа-маскировать произвольное изображение (ApplyMask — только
+      BGRABitmap), но умеет ограничить область вывода регионом —
+      CreateRoundRectRgn/SelectClipRgn (тот же приём, что уже
+      использовался в этом файле для похожей задачи — клип-регион под
+      полосу цитаты ответа, впоследствии убранную вместе с самой
+      полосой, см. CLAUDE.md). Регион — временный, снимается и
+      освобождается сразу после отрисовки. Обводка поверх — обычный
+      GDI Canvas.RoundRect, тем же радиусом, без антиалиасинга. }
+    RgnRadius := Min(PHOTO_CORNER_RADIUS, Min(ABmp.Width, ABmp.Height) div 2);
+    Rgn := Windows.CreateRoundRectRgn(0, 0, ABmp.Width, ABmp.Height,
+      RgnRadius * 2, RgnRadius * 2);
+    Windows.SelectClipRgn(Canvas.Handle, Rgn);
+    try
+      ABmp.Draw(Canvas, 0, 0, False);
+    finally
+      Windows.SelectClipRgn(Canvas.Handle, 0);
+      Windows.DeleteObject(Rgn);
+    end;
+    Canvas.Pen.Style := psSolid;
+    Canvas.Pen.Color := PHOTO_BORDER_COLOR;
+    Canvas.Pen.Width := BORDER_W;
+    Canvas.Brush.Style := bsClear;
+    Canvas.RoundRect(0, 0, ABmp.Width, ABmp.Height, RgnRadius * 2, RgnRadius * 2);
+    Exit;
+  end;
+
   Radius := Min(PHOTO_CORNER_RADIUS, Min(ABmp.Width, ABmp.Height) div 2);
 
   { Корень трёх последовательных правок этой функции (белый зазор в

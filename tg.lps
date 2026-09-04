@@ -62,6 +62,7 @@
         <EditorIndex Value="13"/>
         <UsageCount Value="104"/>
         <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -107,8 +108,8 @@
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
         <EditorIndex Value="4"/>
-        <TopLine Value="283"/>
-        <CursorPos X="31" Y="312"/>
+        <TopLine Value="129"/>
+        <CursorPos X="24" Y="155"/>
         <UsageCount Value="43"/>
         <Loaded Value="True"/>
       </Unit>
@@ -301,6 +302,7 @@
         <TopLine Value="3664"/>
         <UsageCount Value="53"/>
         <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="settings.pas"/>
