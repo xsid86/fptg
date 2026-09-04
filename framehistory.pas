@@ -48,6 +48,9 @@ type
     FDragFraction: double;
     FOnPlayClick: TNotifyEvent;
     FOnSeek: TAudioSeekEvent;
+    { Фон снаружи скруглённой подложки — см. WidgetBackdropColor и
+      комментарий у TPhotoWidget.FBgColor, тот же приём. }
+    FBgColor: TColor;
     function PlayButtonRect: TRect;
     { Общая геометрия контента (справа от кнопки play) — один источник
       правды для Paint И для хит-теста ползунка (TrackAreaRect/
@@ -80,6 +83,7 @@ type
     property Dragging: boolean read FDraggingSeek;
     property OnPlayClick: TNotifyEvent read FOnPlayClick write FOnPlayClick;
     property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
+    property BackgroundColor: TColor read FBgColor write FBgColor;
   end;
 
   TAudioMap = specialize TFPGMap<Int64, TAudioWidget>;
@@ -105,6 +109,9 @@ type
     FImages: TImageList;         { FileTypes — значки по расширению }
     FDownloadImages: TImageList; { ImageList1 — значок "скачать" (AUDIO_ICON_DOWNLOAD) }
     FOnClick: TNotifyEvent;
+    { Фон снаружи скруглённой подложки — см. WidgetBackdropColor и
+      комментарий у TPhotoWidget.FBgColor, тот же приём. }
+    FBgColor: TColor;
     function IconRect: TRect;
   protected
     procedure Paint; override;
@@ -124,6 +131,7 @@ type
       не своё, общий компонент формы (см. TMsgScroller.FilePopupMenu),
       LCL показывает его сам через унаследованное свойство PopupMenu. }
     property OnFileClick: TNotifyEvent read FOnClick write FOnClick;
+    property BackgroundColor: TColor read FBgColor write FBgColor;
   end;
 
   { Не TFileMap — то имя уже занято tdchats.TFileMap (file_id -> TChatRow,
@@ -621,6 +629,61 @@ begin
   );
 end;
 
+{ Единая антиалиасинговая замена GDI Canvas.RoundRect для ЛЮБОЙ
+  скруглённой заливки/обводки в этом файле (блок сообщения, карточка
+  репоста, плашка цитаты ответа, аудио/файл-виджет). Рисует во
+  временный прозрачный BGRA-битмап размером ровно с ABox и композитит
+  его на ACanvas с альфа-блендингом (Draw ... False) — то, что снаружи
+  скругления, остаётся тем, что уже было на canvas, ничего лишнего не
+  перекрывает.
+
+  AFillColor/ABorderColor = clNone — соответствующий проход пропускается
+  (только заливка, только обводка, или разом, если оба заданы). Радиус
+  (ARadius) — ПРИНИМАЕТСЯ КАК ЕСТЬ, ни один вызывающий не поменял ни
+  одного числа при переходе на эту функцию, только сам способ рисовать
+  скругление.
+
+  Три захода на TPhotoWidget.DrawBmpRounded (белый зазор в углу →
+  обрезанная обводка → мутная обводка, все три — см. CLAUDE.md)
+  свелись к одному факту: FillRoundRectAntialias/RoundRectAntialias
+  по умолчанию (APixelCenteredCoordinates=True, подтверждено чтением
+  исходника BGRABitmap, не угадано) считают целую координату N ЦЕНТРОМ
+  пикселя N, не границей между пикселями N-1 и N, как в GDI. Отсюда две
+  поправки ниже, сразу верные, без повторения того же пути проб:
+  -0.5 у заливки (её край должен пройти ровно между "пиксель ещё есть"
+  и "пикселя уже нет") и AWidth-ABorderWidth/2-0.5 у дальнего края
+  обводки (сама линия centered на своём пути, толщиной ABorderWidth —
+  весь её след обязан остаться внутри битмапа). }
+procedure PaintRoundRectAA(ACanvas: TCanvas; const ABox: TRect; ARadius: single;
+  AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor;
+  ABorderWidth: single = 1);
+var
+  W, H: integer;
+  Bmp: TBGRABitmap;
+  Half: single;
+begin
+  W := ABox.Right - ABox.Left;
+  H := ABox.Bottom - ABox.Top;
+  if (W <= 0) or (H <= 0) then begin
+    Exit;
+  end;
+  Bmp := TBGRABitmap.Create(W, H, BGRAPixelTransparent);
+  try
+    if AFillColor <> clNone then begin
+      Bmp.FillRoundRectAntialias(-0.5, -0.5, W - 0.5, H - 0.5, ARadius, ARadius,
+        ColorToBGRA(AFillColor), AOptions);
+    end;
+    if ABorderColor <> clNone then begin
+      Half := ABorderWidth / 2;
+      Bmp.RoundRectAntialias(Half - 0.5, Half - 0.5, W - Half - 0.5, H - Half - 0.5,
+        ARadius, ARadius, ColorToBGRA(ABorderColor), ABorderWidth, AOptions);
+    end;
+    Bmp.Draw(ACanvas, ABox.Left, ABox.Top, False);
+  finally
+    Bmp.Free;
+  end;
+end;
+
 { Обрезает S по ширине AMaxW (пикселей, шрифтом уже выставленным на
   ACanvas) с "…" на конце — используется и цитатой ответа, и аудио-
   виджетом, оба однострочные, без word-wrap. }
@@ -809,12 +872,42 @@ begin
   Result := SENDER_PALETTE[Abs(Id) mod Length(SENDER_PALETTE)];
 end;
 
+{ Цвет фона ПОД скруглённым виджетом (аудио/файл/фото) в этой точке —
+  для их собственного BackgroundColor: реальные дочерние control'ы не
+  просвечивают canvas родителя (см. комментарий у TPhotoWidget), и без
+  подмены их угла СНАРУЖИ скруглённой заливки/маски показывали бы
+  clWindow (белый) — заметно отличается от того, что там на самом деле
+  нарисовано.
+
+  Раньше формула (BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY,
+  clWindow)) была только у TPhotoWidget и всегда брала цвет ВНЕШНЕГО
+  блока — верно для фото не внутри репоста, но ВНУТРИ репоста виджет
+  сидит на подложке карточки цитаты (свой, независимый цвет —
+  ForwardSourceColor, не SenderColor), не самого блока — не учитывалось
+  нигде, включая LayoutPhotoWidgets: угол виджета внутри репоста был
+  подкрашен цветом блока, а не цветом карточки, в которой он реально
+  лежит. Пойман на аудио-виджете (белые углы внутри цветной карточки
+  репоста, см. CLAUDE.md) — тот же класс, что и "белые треугольники" у
+  фото, но TAudioWidget/TFileWidget вообще не имели BackgroundColor:
+  предполагалось, что их собственная непрозрачная карточка покрывает
+  всё до края — ошибочно, скруглённая карточка «до края» не доходит по
+  определению, у неё как раз скруглённые (не залитые) углы. }
+function WidgetBackdropColor(ARow: TMsgRow): TColor;
+begin
+  if ARow.ForwardKind <> mfoNone then begin
+    Result := BlendWithBackground(ForwardSourceColor(ARow), SENDER_BG_OPACITY, clWindow);
+  end else begin
+    Result := BlendWithBackground(SenderColor(ARow), SENDER_BG_OPACITY, clWindow);
+  end;
+end;
+
 { ---------------- TAudioWidget ---------------- }
 
 constructor TAudioWidget.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   DoubleBuffered := True;
+  FBgColor := clWindow;   { запасной вариант до первого LayoutAudioWidgets }
 end;
 
 procedure TAudioWidget.SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
@@ -953,24 +1046,25 @@ var
   Frac: double;
 begin
   Box := ClientRect;
-  Radius := Min(FORWARD_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
+  Radius := Min(AUDIO_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
 
   { TAudioWidget — настоящий дочерний control, не рисуется "сквозь"
     canvas родителя, как цитаты/карточки репоста — вне скруглённых
-    углов нужен сплошной фон. clWindow — то же приближение, что и у
-    подложек цитат (BlendWithBackground(..., clWindow) там же): точный
-    цвет РОДИТЕЛЬСКОГО блока (с учётом тона отправителя) сюда не
-    протекает, разница на практике не заметна. }
+    углов нужен сплошной фон, FBgColor (WidgetBackdropColor,
+    LayoutAudioWidgets) — реальный цвет блока/карточки репоста под
+    виджетом в этой точке, не голый clWindow: тот был виден белыми
+    углами по краям скруглённой подложки, особенно заметно внутри
+    цветной карточки репоста — пойман пользователем по скриншоту. }
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
-  Canvas.Brush.Color := clWindow;
+  Canvas.Brush.Color := FBgColor;
   Canvas.FillRect(Box);
 
   { Подложка — тем же приёмом, что и у плашки цитаты ответа/карточки
     репоста (SENDER_BG_OPACITY), но своим цветом (AUDIO_COLOR), не
     завязанным на отправителя — один и тот же для любого аудио. }
-  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow);
-  Canvas.RoundRect(Box, Radius, Radius);
+  PaintRoundRectAA(Canvas, Box, Radius, [],
+    BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow), clNone);
 
   { Кнопка play/pause — левый край, по вертикали центрирована. }
   PlayRect := PlayButtonRect;
@@ -1061,11 +1155,8 @@ begin
 
   { Контур — последним, поверх содержимого, тем же приёмом, что и у
     прочих карточек (SENDER_BORDER_OPACITY). }
-  Canvas.Brush.Style := bsClear;
-  Canvas.Pen.Style := psSolid;
-  Canvas.Pen.Width := 1;
-  Canvas.Pen.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BORDER_OPACITY, clWindow);
-  Canvas.RoundRect(Box, Radius, Radius);
+  PaintRoundRectAA(Canvas, Box, Radius, [], clNone,
+    BlendWithBackground(AUDIO_COLOR, SENDER_BORDER_OPACITY, clWindow));
 end;
 
 { ---------------- TFileWidget ---------------- }
@@ -1174,6 +1265,7 @@ begin
   inherited Create(AOwner);
   DoubleBuffered := True;
   Cursor := crHandPoint;   { весь виджет кликабелен, не только значок }
+  FBgColor := clWindow;   { запасной вариант до первого LayoutFileWidgets }
 end;
 
 procedure TFileWidget.SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64;
@@ -1211,18 +1303,19 @@ var
   NameStr, SizeStr: string;
 begin
   Box := ClientRect;
-  Radius := Min(FORWARD_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
+  Radius := Min(FILE_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
 
   { Тот же приём, что у TAudioWidget — настоящий дочерний control, не
     просвечивает canvas родителя, поэтому сплошной фон вне скруглённых
-    углов обязателен. }
+    углов обязателен — FBgColor (WidgetBackdropColor), не голый
+    clWindow (см. комментарий в TAudioWidget.Paint). }
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
-  Canvas.Brush.Color := clWindow;
+  Canvas.Brush.Color := FBgColor;
   Canvas.FillRect(Box);
 
-  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow);
-  Canvas.RoundRect(Box, Radius, Radius);
+  PaintRoundRectAA(Canvas, Box, Radius, [],
+    BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow), clNone);
 
   IconR := IconRect;
   if not FDownloaded then begin
@@ -1263,11 +1356,8 @@ begin
   Canvas.Font.Color := AUDIO_COLOR;
   Canvas.TextOut(ContentX, IconR.Bottom - Canvas.TextHeight(SizeStr), SizeStr);
 
-  Canvas.Brush.Style := bsClear;
-  Canvas.Pen.Style := psSolid;
-  Canvas.Pen.Width := 1;
-  Canvas.Pen.Color := BlendWithBackground(AUDIO_COLOR, SENDER_BORDER_OPACITY, clWindow);
-  Canvas.RoundRect(Box, Radius, Radius);
+  PaintRoundRectAA(Canvas, Box, Radius, [], clNone,
+    BlendWithBackground(AUDIO_COLOR, SENDER_BORDER_OPACITY, clWindow));
 end;
 
 { ---------------- TPhotoWidget ---------------- }
@@ -2306,16 +2396,15 @@ begin
   Clr := ForwardSourceColor(ARow);
   Radius := Min(FORWARD_CORNER_RADIUS, (CardRect.Bottom - CardRect.Top) div 2);
 
-  Canvas.Brush.Style := bsSolid;
-  Canvas.Pen.Style := psClear;
-  Canvas.Brush.Color := BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow);
-  Canvas.RoundRect(CardRect, Radius, Radius);
+  PaintRoundRectAA(Canvas, CardRect, Radius, [],
+    BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow), clNone);
 
+  { Скруглены только верхние углы — своим набором AOptions вместо
+    прежнего трюка "нарисовать все 4 и спрямить низ FillRect'ом"
+    (GDI RoundRect не умел per-corner, BGRA умеет нативно). }
   HeaderRadius := Min(FORWARD_CORNER_RADIUS, HEADER_BAR_H div 2);
-  Canvas.Brush.Color := BlendWithBackground(Clr, SENDER_HEADER_OPACITY, clWindow);
-  Canvas.RoundRect(HeaderRect, HeaderRadius, HeaderRadius);
-  Canvas.FillRect(Rect(HeaderRect.Left, HeaderRect.Bottom - HeaderRadius,
-    HeaderRect.Right, HeaderRect.Bottom));
+  PaintRoundRectAA(Canvas, HeaderRect, HeaderRadius, [rrBottomLeftSquare, rrBottomRightSquare],
+    BlendWithBackground(Clr, SENDER_HEADER_OPACITY, clWindow), clNone);
 
   AvBmp := ForwardAvatarBmp(ARow, FreeAvBmp);
   if AvBmp = nil then begin
@@ -2400,12 +2489,12 @@ begin
 
   { Подложка — тем же приёмом, что и у карточки репоста (SENDER_BG_
     OPACITY, скруглённые углы с той же защитой от "капсулы", см.
-    PaintForwardCard). }
-  Radius := Min(FORWARD_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
-  Canvas.Brush.Style := bsSolid;
-  Canvas.Pen.Style := psClear;
-  Canvas.Brush.Color := BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow);
-  Canvas.RoundRect(Box, Radius, Radius);
+    PaintForwardCard) — но свой радиус, REPLY_CORNER_RADIUS, не
+    FORWARD_CORNER_RADIUS напрямую: по прямому запросу пользователя
+    каждая карточка получила свою ручку, раньше значение было общим. }
+  Radius := Min(REPLY_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
+  PaintRoundRectAA(Canvas, Box, Radius, [],
+    BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow), clNone);
 
   { Значок цитаты — из того же ImageList1, что и значки статуса
     сообщения/аватар источника репоста (FormMain.Chats.ImageList1, см.
@@ -2438,11 +2527,8 @@ begin
 
   { Контур — последним, поверх содержимого, тем же приёмом, что и у
     карточки репоста (SENDER_BORDER_OPACITY, тот же Radius). }
-  Canvas.Brush.Style := bsClear;
-  Canvas.Pen.Style := psSolid;
-  Canvas.Pen.Width := 1;
-  Canvas.Pen.Color := BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow);
-  Canvas.RoundRect(Box, Radius, Radius);
+  PaintRoundRectAA(Canvas, Box, Radius, [], clNone,
+    BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow));
 end;
 
 procedure TMsgScroller.Paint;
@@ -2509,14 +2595,12 @@ begin
 
       { Подложка блока — цвет отправителя приглушённо поверх фона,
         SENDER_BG_OPACITY. Заливаем ПЕРЕД заголовком/контентом, чтобы
-        текст и разделительная линия легли поверх, не под. Скруглённые
-        углы — RoundRect рисует и заливкой (Brush), и обводкой (Pen);
-        обводка не нужна вовсе, иначе кисть предыдущей строки
-        (разделительная линия, ниже по циклу) проступила бы рамкой. }
-      Canvas.Brush.Style := bsSolid;
-      Canvas.Pen.Style := psClear;
-      Canvas.Brush.Color := BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow);
-      Canvas.RoundRect(BR, MSG_CORNER_RADIUS, MSG_CORNER_RADIUS);
+        текст и разделительная линия легли поверх, не под. Только
+        заливка, без обводки — PaintRoundRectAA (BGRA-антиалиасинг
+        вместо GDI Canvas.RoundRect, см. её комментарий) сама не
+        трогает состояние Canvas.Brush/Pen. }
+      PaintRoundRectAA(Canvas, BR, MSG_CORNER_RADIUS, [],
+        BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow), clNone);
 
       { Подложка самой строки заголовка (значок+имя) — заметнее фона
         блока (SENDER_HEADER_OPACITY > SENDER_BG_OPACITY), поверх уже
@@ -2524,24 +2608,23 @@ begin
         нижнего края этой полосы — свой, HEADER_PAD_V, не MSG_GAP
         (HeaderY, а не BR.Top напрямую). Скруглены только ВЕРХНИЕ углы —
         те же, что у блока снаружи; нижние скруглённые превращали бы
-        короткую полосу в подобие таблетки, отдельной от блока под ней.
-        RoundRect умеет только все 4 угла разом, per-corner в чистом
-        TCanvas нет — рисуем со всеми скруглёнными, затем перекрываем
-        низ обычным прямоугольником того же цвета, "спрямляя" его.
-        Радиус для этой полосы — свой, HeaderRadius, не MSG_CORNER_RADIUS
-        напрямую: полоса всего HEADER_BAR_H пикселей высотой, и если
-        радиус блока больше её половины, RoundRect вместо скруглённых
-        углов рисует растянутую "таблетку" (оба конца — полукруги,
-        сходящиеся у середины) — источник и "овального" вида, и
-        артефактов на стыке с FillRect ниже (тот исходит из
-        предположения, что дуга не выходит за свои MSG_CORNER_RADIUS
-        нижних пикселей, что при слишком большом радиусе неверно). }
+        короткую полосу в подобие таблетки, отдельной от блока под ней
+        — раньше это требовало нарисовать все 4 скруглёнными и спрямить
+        низ отдельным FillRect (GDI RoundRect не умел per-corner),
+        теперь низ просто квадратный по built-in опциям BGRA
+        (rrBottomLeftSquare/rrBottomRightSquare). Радиус для этой
+        полосы — свой, HeaderRadius, не MSG_CORNER_RADIUS напрямую:
+        полоса всего HEADER_BAR_H пикселей высотой, и если радиус
+        блока больше её половины, скругление вместо аккуратных углов
+        превращается в растянутую "таблетку" (оба конца — полукруги,
+        сходящиеся у середины) — тот же класс проблемы, что уже был у
+        превью фото (см. TPhotoWidget.DrawBmpRounded/CLAUDE.md), не
+        исчезает сам по себе просто оттого, что рисуем через BGRA, а
+        не GDI — защита остаётся нужна. }
       HeaderRect := Rect(BR.Left, BR.Top, BR.Right, BR.Top + HEADER_BAR_H);
       HeaderRadius := Min(MSG_CORNER_RADIUS, HEADER_BAR_H div 2);
-      Canvas.Brush.Color := BlendWithBackground(SenderColor(R), SENDER_HEADER_OPACITY, clWindow);
-      Canvas.RoundRect(HeaderRect, HeaderRadius, HeaderRadius);
-      Canvas.FillRect(Rect(HeaderRect.Left, HeaderRect.Bottom - HeaderRadius,
-        HeaderRect.Right, HeaderRect.Bottom));
+      PaintRoundRectAA(Canvas, HeaderRect, HeaderRadius, [rrBottomLeftSquare, rrBottomRightSquare],
+        BlendWithBackground(SenderColor(R), SENDER_HEADER_OPACITY, clWindow), clNone);
       HeaderY := BR.Top + HEADER_PAD_V;
 
       Canvas.Brush.Style := bsClear;
@@ -2619,21 +2702,14 @@ begin
           после содержимого, поверх него. }
         FwdBR := ForwardCardRect(I);
         FwdRadius := Min(FORWARD_CORNER_RADIUS, (FwdBR.Bottom - FwdBR.Top) div 2);
-        Canvas.Brush.Style := bsClear;
-        Canvas.Pen.Style := psSolid;
-        Canvas.Pen.Width := 1;
-        Canvas.Pen.Color := BlendWithBackground(ForwardSourceColor(R), SENDER_BORDER_OPACITY, clWindow);
-        Canvas.RoundRect(FwdBR, FwdRadius, FwdRadius);
+        PaintRoundRectAA(Canvas, FwdBR, FwdRadius, [], clNone,
+          BlendWithBackground(ForwardSourceColor(R), SENDER_BORDER_OPACITY, clWindow));
       end;
 
       { Контур блока — рисуется последним, поверх содержимого: только
-        обводка (Brush.Style := bsClear), сам текст на MSG_PAD_H от края
-        и краем не задевается. }
-      Canvas.Brush.Style := bsClear;
-      Canvas.Pen.Style := psSolid;
-      Canvas.Pen.Width := 1;
-      Canvas.Pen.Color := BlendWithBackground(SenderColor(R), SENDER_BORDER_OPACITY, clWindow);
-      Canvas.RoundRect(BR, MSG_CORNER_RADIUS, MSG_CORNER_RADIUS);
+        обводка, сам текст на MSG_PAD_H от края и краем не задевается. }
+      PaintRoundRectAA(Canvas, BR, MSG_CORNER_RADIUS, [], clNone,
+        BlendWithBackground(SenderColor(R), SENDER_BORDER_OPACITY, clWindow));
     except
       { Молча пропускаем эту строку: статус-строка обновляется из
         ModelChanged, а не отсюда — Paint может вызываться десятками
@@ -2714,6 +2790,7 @@ begin
       не только при первом получении. }
     W.Images := FAudioImages;
     R := FModel[MIdx];
+    W.BackgroundColor := WidgetBackdropColor(R);
     W.SetTrack(R.Id, R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration);
     { Пока идёт перетаскивание ползунка — не трогаем состояние
       проигрывания этим заходом (LayoutAudioWidgets вызывается на
@@ -2811,6 +2888,7 @@ begin
     W.DownloadImages := FAudioImages;
     W.PopupMenu := FFilePopupMenu;
     R := FModel[MIdx];
+    W.BackgroundColor := WidgetBackdropColor(R);
     W.SetFile(R.Id, R.DocFileName, R.DocFileSize, R.DocLocalPath <> '');
     W.SetBounds(CR.Left, CR.Top, CR.Right - CR.Left, CR.Bottom - CR.Top);
     W.Visible := True;
@@ -3011,7 +3089,12 @@ begin
     W.DownloadImages := FAudioImages;
     W.PopupMenu := FFilePopupMenu;
     R := FModel[MIdx];
-    W.BackgroundColor := BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow);
+    { WidgetBackdropColor — не голый BlendWithBackground(SenderColor(R),
+      ...): та версия всегда брала цвет ВНЕШНЕГО блока, даже когда фото
+      внутри репоста (сидит на подложке карточки цитаты, свой,
+      независимый цвет — ForwardSourceColor). Тот же класс правки, что
+      и у аудио/файла — см. WidgetBackdropColor. }
+    W.BackgroundColor := WidgetBackdropColor(R);
     W.SetPhoto(R.Id, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
       R.PhotoLocalPath <> '', R.PhotoLocalPath, CR.Right - CR.Left);
     W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
