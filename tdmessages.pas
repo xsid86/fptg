@@ -10,7 +10,7 @@ uses
 
 type
   TMsgContentKind = (mckText, mckAudio, mckPhoto, mckAnimation, mckSticker,
-    mckVoiceNote, mckFile, mckOther);
+    mckVoiceNote, mckFile, mckVideo, mckOther);
 
   { Состояние доставки исходящего сообщения. Отдельное имя от
     tdchats.TMsgSendState: framehistory будет использовать оба юнита
@@ -165,6 +165,22 @@ type
       поведение, см. её же комментарий). Ручной клик пользователя это
       поле не трогает — только сама настройка автозагрузки. }
     AnimAutoPlay:          boolean;
+    { messageVideo.video — только для Kind=mckVideo. Тот же приём
+      двойного имени "video" в JSON (content.video.video — сам
+      скачиваемый TDLib-объект file, content.video — метаданные),
+      что и у content.animation.animation, проверено по tdlib_raw.log
+      (55 совпадений, не по памяти). В отличие от "гифки" — видео
+      реальное, со звуком, играется НЕ в цикле (framehistory.pas,
+      TMediaPlayer — mediaplayer.pas), поэтому здесь нет поля-аналога
+      AnimAutoPlay: автозагрузка для видео — только скачивание (см.
+      MaybeAutoDownload), автостарт воспроизведения со звуком без
+      клика пользователя не запрашивался и был бы навязчивым UX. }
+    VideoWidth, VideoHeight: integer;
+    VideoDuration:           integer;
+    VideoMinithumb:          RawByteString;
+    VideoFileId:             integer;
+    VideoLocalPath:          utf8string;
+    VideoDownloadRequested:  boolean;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -206,6 +222,9 @@ type
   { То же для "гифок" (messageAnimation) — своя карта, не общая с
     остальными (см. комментарий у TDocFileMap). }
   TAnimFileMap = specialize TFPGMap<integer, TMsgRow>;
+  { То же для видео-сообщений (messageVideo) — своя карта, не общая с
+    остальными (см. комментарий у TDocFileMap). }
+  TVideoFileMap = specialize TFPGMap<integer, TMsgRow>;
 
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
@@ -271,6 +290,8 @@ type
     FPhotoBestByFile: TPhotoFileMap;
     { Скачивание "гифок" — см. EnsureAnimFile/ApplyAnimFile. }
     FAnimByFile: TAnimFileMap;
+    { Скачивание видео-сообщений — см. EnsureVideoFile/ApplyVideoFile. }
+    FVideoByFile: TVideoFileMap;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -308,6 +329,11 @@ type
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadAnimDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyAnimFile(AFile: TJSONObject);
+    procedure ExtractVideoMeta(AContent: TJSONObject; const AType: utf8string;
+      out AWidth, AHeight, ADuration: integer; out AMinithumb: RawByteString;
+      out AFileId: integer; out ALocalPath: utf8string);
+    procedure DownloadVideoDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyVideoFile(AFile: TJSONObject);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -388,6 +414,8 @@ type
     procedure EnsurePhotoBestFile(ARow: TMsgRow);
     { То же самое для "гифки" (см. AnimFileId) — тем же приёмом. }
     procedure EnsureAnimFile(ARow: TMsgRow);
+    { То же самое для видео-сообщения (см. VideoFileId) — тем же приёмом. }
+    procedure EnsureVideoFile(ARow: TMsgRow);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -575,6 +603,8 @@ begin
     Result := mckVoiceNote;
   end else if AType = 'messageDocument' then begin
     Result := mckFile;
+  end else if AType = 'messageVideo' then begin
+    Result := mckVideo;
   end else begin
     Result := mckOther;
   end;
@@ -636,6 +666,8 @@ begin
   FPhotoBestByFile.Sorted := True;
   FAnimByFile := TAnimFileMap.Create;
   FAnimByFile.Sorted := True;
+  FVideoByFile := TVideoFileMap.Create;
+  FVideoByFile.Sorted := True;
   FLoadLimit := 50;
 
   FTimer := TTimer.Create(Self);
@@ -669,6 +701,7 @@ begin
   FPhotoByFile.Free;
   FPhotoBestByFile.Free;
   FAnimByFile.Free;
+  FVideoByFile.Free;
   inherited Destroy;
 end;
 
@@ -691,6 +724,7 @@ begin
   FPhotoByFile.Clear;
   FPhotoBestByFile.Clear;
   FAnimByFile.Clear;
+  FVideoByFile.Clear;
   SetLength(FReplyPending, 0);
   FLoadingOlder := False;
   FOldestLoaded := False;
@@ -1374,6 +1408,56 @@ begin
   end;
 end;
 
+{ messageVideo.video — тот же приём двойного имени "video" в JSON
+  (content.video.video — сам скачиваемый TDLib-объект file,
+  content.video — метаданные, включая content.video.minithumbnail —
+  крошечный JPEG, без скачивания), что и у content.animation.animation
+  — проверено по tdlib_raw.log (55 совпадений с реальными видео-
+  сообщениями), не по памяти. Один слой, как у "гифки", не массив
+  sizes, как у фото. }
+procedure TTdMessages.ExtractVideoMeta(AContent: TJSONObject; const AType: utf8string;
+  out AWidth, AHeight, ADuration: integer; out AMinithumb: RawByteString;
+  out AFileId: integer; out ALocalPath: utf8string);
+var
+  VideoObj, MiniObj, FileObj, LocalObj: TJSONObject;
+  B64: utf8string;
+begin
+  AWidth := 0;
+  AHeight := 0;
+  ADuration := 0;
+  AMinithumb := '';
+  AFileId := 0;
+  ALocalPath := '';
+  if (AContent = nil) or (AType <> 'messageVideo') then begin
+    Exit;
+  end;
+  VideoObj := JGetObj(AContent, 'video');
+  if VideoObj = nil then begin
+    Exit;
+  end;
+  AWidth := JGetInt(VideoObj, 'width');
+  AHeight := JGetInt(VideoObj, 'height');
+  ADuration := JGetInt(VideoObj, 'duration');
+
+  MiniObj := JGetObj(VideoObj, 'minithumbnail');
+  if MiniObj <> nil then begin
+    B64 := JGetStr(MiniObj, 'data');
+    if B64 <> '' then begin
+      AMinithumb := DecodeStringBase64(string(B64));
+    end;
+  end;
+
+  FileObj := JGetObj(VideoObj, 'video');
+  if FileObj = nil then begin
+    Exit;
+  end;
+  AFileId := JGetInt(FileObj, 'id');
+  LocalObj := JGetObj(FileObj, 'local');
+  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+    ALocalPath := JGetStr(LocalObj, 'path');
+  end;
+end;
+
 procedure TTdMessages.ApplyMessage(AMsg: TJSONObject);
 var
   R: TMsgRow;
@@ -1502,6 +1586,8 @@ begin
     R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
   ExtractAnimMeta(ContentObj, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
+  ExtractVideoMeta(ContentObj, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
+    R.VideoMinithumb, R.VideoFileId, R.VideoLocalPath);
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -1536,6 +1622,8 @@ begin
     R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
   ExtractAnimMeta(ANewContent, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
+  ExtractVideoMeta(ANewContent, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
+    R.VideoMinithumb, R.VideoFileId, R.VideoLocalPath);
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
@@ -2281,6 +2369,77 @@ begin
   Touch;
 end;
 
+{ Видео-сообщение — тот же приём, один файл, что и у "гифки" выше,
+  своя карта FVideoByFile. }
+procedure TTdMessages.EnsureVideoFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.VideoFileId = 0) or (ARow.VideoLocalPath <> '') or ARow.VideoDownloadRequested then begin
+    Exit;
+  end;
+  ARow.VideoDownloadRequested := True;
+  if FVideoByFile.IndexOf(ARow.VideoFileId) < 0 then begin
+    FVideoByFile.Add(ARow.VideoFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.VideoDownloadRequested := False;
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.VideoFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadVideoDone, ARow.VideoFileId);
+end;
+
+procedure TTdMessages.DownloadVideoDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyVideoFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FVideoByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FVideoByFile.Data[Idx].VideoDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyVideoFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FVideoByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FVideoByFile.Data[Idx];
+  if R.VideoLocalPath = Path then begin
+    Exit;
+  end;
+  R.VideoLocalPath := Path;
+  Touch;
+end;
+
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
   Obj: TJSONObject;
@@ -2318,6 +2477,7 @@ begin
       ApplyPhotoFile(JGetObj(Obj, 'file'));
       ApplyPhotoBestFile(JGetObj(Obj, 'file'));
       ApplyAnimFile(JGetObj(Obj, 'file'));
+      ApplyVideoFile(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));

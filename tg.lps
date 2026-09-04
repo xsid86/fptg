@@ -107,7 +107,7 @@
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
         <EditorIndex Value="4"/>
-        <TopLine Value="129"/>
+        <TopLine Value="63"/>
         <CursorPos X="24" Y="155"/>
         <UsageCount Value="43"/>
         <Loaded Value="True"/>
@@ -282,6 +282,11 @@
       </Unit>
       <Unit>
         <Filename Value="photodecoder.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="mediaplayer.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>
       </Unit>

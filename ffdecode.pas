@@ -203,6 +203,18 @@ procedure av_frame_free(var AFrame: PAVFrame); cdecl; external AVUTIL_LIB;
 procedure av_frame_unref(AFrame: PAVFrame); cdecl; external AVUTIL_LIB;
 function av_strerror(AErrNum: cint; ABuf: PAnsiChar; ABufSize: SizeUInt): cint; cdecl; external AVUTIL_LIB;
 procedure av_log_set_level(ALevel: cint); cdecl; external AVUTIL_LIB;
+{ Устанавливает опцию AVOption по имени, для ЛЮБОГО объекта с AVClass
+  первым полем (AVCodecContext — один из них) — не требует знания
+  раскладки самой структуры (первое поле AVClass у него уже общее для
+  этого механизма), поэтому безопасно вызывать через непрозрачный
+  pointer, как AVCodecContext и объявлен в этом юните. Используется
+  для pkt_timebase (см. её же комментарий у вызова в mediaplayer.pas/
+  videoplayer.pas) — единственный практичный способ выставить это поле
+  БЕЗ того, чтобы разворачивать AVCodecContext (самую большую и чаще
+  всего меняющуюся структуру FFmpeg) из полностью непрозрачного
+  pointer в частично объявленную запись. }
+function av_opt_set_q(AObj: pointer; AName: PAnsiChar; AVal: TAVRational;
+  ASearchFlags: cint): cint; cdecl; external AVUTIL_LIB;
 
 { ---------------- libavformat ---------------- }
 

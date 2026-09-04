@@ -564,18 +564,25 @@ type
     function WantsWidget: boolean; override;
   end;
 
-{ Натуральные (немасштабированные) размеры визуального превью — фото
-  или "гифки" (messageAnimation), у обоих один и тот же рендерер (см.
-  RendererFor): и то, и другое — картинка переменного размера с
-  опциональной подписью, отличается только тем, ОТКУДА берутся
-  width/height (PhotoWidth/Height у фото, AnimWidth/Height у анимации —
-  разные поля TMsgRow, см. её же комментарий). }
+{ Натуральные (немасштабированные) размеры визуального превью — фото,
+  "гифки" (messageAnimation) или видео-сообщения (messageVideo), у всех
+  трёх один и тот же рендерер (см. RendererFor): всё это — картинка
+  переменного размера с опциональной подписью, отличается только тем,
+  ОТКУДА берутся width/height (PhotoWidth/Height у фото, AnimWidth/
+  Height у анимации, VideoWidth/Height у видео — разные поля TMsgRow,
+  см. её же комментарий). }
 procedure NaturalMediaSize(ARow: TMsgRow; out AW, AH: integer);
 begin
-  if ARow.Kind = mckAnimation then begin
-    AW := ARow.AnimWidth;
-    AH := ARow.AnimHeight;
-  end else begin
+  case ARow.Kind of
+    mckAnimation: begin
+      AW := ARow.AnimWidth;
+      AH := ARow.AnimHeight;
+    end;
+    mckVideo: begin
+      AW := ARow.VideoWidth;
+      AH := ARow.VideoHeight;
+    end;
+  else
     AW := ARow.PhotoWidth;
     AH := ARow.PhotoHeight;
   end;
@@ -749,13 +756,13 @@ begin
       mckAudio, и mckVoiceNote). }
     mckAudio, mckVoiceNote: Result := GAudioRenderer;
     mckFile:      Result := GDocRenderer;
-    { "Гифка" (messageAnimation) — тот же реальный рендерер, что и
-      фото, тем же приёмом, что и голосовое с GAudioRenderer: и то, и
-      другое — картинка переменного размера с опциональной подписью,
-      NaturalMediaSize внутри TPhotoContentRenderer различает их по
-      ARow.Kind. Содержимым виджета (загрузка/зацикленное
-      воспроизведение) ведает framehistory.pas. }
-    mckPhoto, mckAnimation: Result := GPhotoRenderer;
+    { "Гифка" (messageAnimation) и видео-сообщение (messageVideo) — тот
+      же реальный рендерер, что и фото, тем же приёмом, что и голосовое
+      с GAudioRenderer: все три — картинка переменного размера с
+      опциональной подписью, NaturalMediaSize внутри
+      TPhotoContentRenderer различает их по ARow.Kind. Содержимым
+      виджета (загрузка/воспроизведение) ведает framehistory.pas. }
+    mckPhoto, mckAnimation, mckVideo: Result := GPhotoRenderer;
   else
     Result := GPlaceholderRenderer;
   end;

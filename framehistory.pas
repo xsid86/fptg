@@ -18,7 +18,7 @@ uses
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
-  uiframe, framechats, audioplayer, videoplayer, photodecoder;
+  uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer;
 
 type
   { TAudioWidget
@@ -310,6 +310,106 @@ type
 
   TAnimationWidgetMap = specialize TFPGMap<Int64, TAnimationWidget>;
 
+  { TVideoWidget
+
+    Видео-сообщение (messageVideo — настоящее видео со звуком, в
+    отличие от "гифки") — по прямому запросу пользователя: размер и
+    плейсхолдер-до-скачивания как у TPhotoWidget/TAnimationWidget
+    (натуральные пропорции, блюр из minithumbnail, значок "скачать"),
+    но по центру — кнопка play/pause, снизу — полоса прокрутки
+    "ровно такая же, как на аудио файле, с такой же визуализацией
+    времени" (те же AUDIO_TRACK_H/AUDIO_THUMB_H/W/AUDIO_PLAYED_OPACITY/
+    AUDIO_REMAIN_OPACITY/FormatAudioTime, что у TAudioWidget — не
+    отдельно придуманные числа).
+
+    Видимость по прямому ТЗ пользователя: кнопка PLAY (когда сейчас НЕ
+    играет — ни разу не запускали, либо на паузе) — ВСЕГДА, вне
+    зависимости от курсора. Кнопка PAUSE (когда играет) и полоса
+    прокрутки — ТОЛЬКО когда курсор над виджетом (MouseEnter/MouseLeave,
+    FHovering) — во время активного проигрывания видео ничем не
+    закрыто, пока пользователь явно не наведёт мышь.
+
+    Живое воспроизведение — TMediaPlayer (mediaplayer.pas), ОДИН
+    активный на весь скроллер (TMsgScroller.FActiveVideoPlayer, тот же
+    принцип, что и у аудио — не как у "гифок", которых может крутиться
+    сразу много: видео со звуком одновременно осмысленно только одно).
+    Виджет НЕ владеет плеером и не гоняет свой опрос — состояние
+    (играет/на паузе/позиция) и сами кадры ему передаёт скроллер
+    (SetPlayback/UpdateFrame), тем же разделением ответственности, что
+    уже принято для TAudioWidget. }
+  TVideoWidget = class(TCustomControl)
+  private
+    FRowId: Int64;
+    FNaturalW, FNaturalH: integer;
+    FTargetW, FTargetH: integer;
+    FLocalPath: utf8string;
+    FDownloaded: boolean;
+    FDuration: integer;
+    FBlurBmp: TBGRABitmap;      { плейсхолдер из minithumbnail, пока не показан ни один живой кадр }
+    FFrameBuf: PByte;           { последний живой кадр, BGRA, FTargetW*FTargetH*4 — под замороженным паузой видео тоже он же }
+    FHaveFrame: boolean;        { хоть один живой кадр когда-либо получен этим виджетом }
+    FDownloadImages: TImageList; { значок "скачать" }
+    FImages: TImageList;         { play/pause — тот же ImageList1, что у TAudioWidget }
+    FBgColor: TColor;
+    FHovering: boolean;
+    { Проигрывание — см. SetPlayback/UpdateFrame, тот же принцип, что
+      TAudioWidget.SetPlayback/FIsActive. }
+    FIsActive:    boolean;
+    FPlaying:     boolean;
+    FPositionSec: double;
+    FDraggingSeek: boolean;
+    FDragFraction: double;
+    FOnClick: TNotifyEvent;       { клик по недокачанному виджету целиком — скачать }
+    FOnPlayClick: TNotifyEvent;   { клик по центральной кнопке play/pause }
+    FOnSeek: TAudioSeekEvent;
+    function PlayButtonRect: TRect;
+    function ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
+    function TrackAreaRect: TRect;
+    function FractionFromX(AX: integer): double;
+    procedure ClearBitmap;
+  protected
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+    procedure MouseEnter; override;
+    procedure MouseLeave; override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    { Та же сигнатура/роль, что у TAnimationWidget.SetAnim, плюс
+      ADuration (секунды, как AudioDuration) — виджету нужен для
+      подписи времени на полосе прокрутки, даже пока видео не активно. }
+    procedure SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
+      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+      AMaxW: integer; ADuration: integer);
+    procedure SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
+    { Помечает, что FrameBuf только что обновился (сам плеер пишет
+      ПРЯМО в FrameBuf, см. её комментарий — TMsgScroller.
+      VideoPlaybackTick зовёт TryGetFrame(Widget.FrameBuf, ...), а
+      следом, если тот вернул True, — это) и просит перерисоваться. }
+    procedure NotifyNewFrame;
+    property TargetWidth: integer read FTargetW;
+    property TargetHeight: integer read FTargetH;
+    { Указатель на собственный буфер кадра — TryGetFrame плеера пишет
+      прямо сюда, не через промежуточную копию (тот же размер, что
+      TargetWidth*TargetHeight*4, актуален, пока виджет не переиспользован
+      под другой размер — см. SetVideo). }
+    property FrameBuf: PByte read FFrameBuf;
+    property DownloadImages: TImageList read FDownloadImages write FDownloadImages;
+    property Images: TImageList read FImages write FImages;
+    property RowId: Int64 read FRowId;
+    property Downloaded: boolean read FDownloaded;
+    property LocalPath: utf8string read FLocalPath;
+    property Dragging: boolean read FDraggingSeek;
+    property BackgroundColor: TColor read FBgColor write FBgColor;
+    property OnClick: TNotifyEvent read FOnClick write FOnClick;
+    property OnPlayClick: TNotifyEvent read FOnPlayClick write FOnPlayClick;
+    property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
+  end;
+
+  TVideoWidgetMap = specialize TFPGMap<Int64, TVideoWidget>;
+
   { Ключ — id пользователя или чата-источника репоста (см. поле у
     TMsgScroller, где заведены два разных инстанса этого типа). }
   TForwardAvatarMap = specialize TFPGMap<Int64, TBGRABitmap>;
@@ -425,6 +525,28 @@ type
     FPendingPlayMsgId:  Int64;
     FPlaybackTimer:     TTimer;
 
+    { Видео-сообщения (messageVideo) — recycled-пул, тем же приёмом,
+      что у фото/аудио/файла/"гифки". Воспроизведение — как у аудио
+      (ОДИН активный плеер на весь скроллер, не по одному на виджет:
+      видео со звуком одновременно осмысленно ровно одно), НЕ как у
+      "гифок" (там несколько независимых, беззвучных, каждая в своём
+      виджете). FDoneVideoPlayer/VideoPlaybackTick — та же схема, что
+      FDonePlayer/PlaybackTick у аудио (не освобождать TThread изнутри
+      его же Synchronize). FVideoFrameKnownVersion — версия последнего
+      кадра, который VideoPlaybackTick уже забрал у FActiveVideoPlayer
+      (TryGetFrame сверяет её сама, см. mediaplayer.pas). }
+    FVideoPool:   TFPList;       { of TVideoWidget }
+    FVideoActive: TVideoWidgetMap;
+    FActiveVideoPlayer:      TMediaPlayer;
+    FActiveVideoPlayerMsgId: Int64;
+    FDoneVideoPlayer:        TMediaPlayer;
+    FVideoFrameKnownVersion: cardinal;
+    { Тот же приём, что и FPendingPlayMsgId у аудио — клик по play на
+      ещё не скачанном видео сам ничего не запускает, только просит
+      загрузку; когда путь придёт, воспроизведение стартует само. }
+    FPendingVideoPlayMsgId:  Int64;
+    FVideoPlaybackTimer:     TTimer;
+
     { Аватарки источников репоста — маленькие (диаметр HEADER_H),
       свой кэш, а не avatarcache.TAvatarCache: тот заточен под
       AVATAR_SIZE=44 и TChatRow (список чатов), здесь же нужны и чаты
@@ -480,6 +602,19 @@ type
     procedure FlushDonePlayer;
     procedure StopActivePlayer;
     procedure StartPlayback(ARow: TMsgRow; AStartPositionSec: double = 0);
+
+    { То же самое для видео-сообщений — тем же приёмом, что и у аудио
+      (см. её же комментарии), плюс кадры (VideoPlaybackTick вдобавок
+      опрашивает TryGetFrame, PlaybackTick аудио этого не делает). }
+    procedure VideoPlayClick(Sender: TObject);
+    procedure VideoSeek(Sender: TObject; AFraction: double);
+    procedure VideoPlayerStateChanged(Sender: TObject);
+    procedure VideoPlaybackTick(Sender: TObject);
+    procedure FlushDoneVideoPlayer;
+    procedure StopActiveVideoPlayer;
+    procedure StartVideoPlayback(ARow: TMsgRow; AStartPositionSec: double = 0);
+    procedure LayoutVideoWidgets(ALo, AHi: integer);
+    function ObtainVideoWidget: TVideoWidget;
 
     procedure RebuildOffsets;
     { Левая/правая граница центрированной колонки сообщений — не шире
@@ -2030,6 +2165,399 @@ begin
   end;
 end;
 
+{ ---------------- TVideoWidget ---------------- }
+
+constructor TVideoWidget.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  Cursor := crDefault;   { меняется по месту наведения, см. MouseMove — как у TAudioWidget }
+  FBgColor := clWindow;
+end;
+
+destructor TVideoWidget.Destroy;
+begin
+  ClearBitmap;
+  if FFrameBuf <> nil then begin
+    FreeMem(FFrameBuf);
+  end;
+  inherited Destroy;
+end;
+
+procedure TVideoWidget.ClearBitmap;
+begin
+  FreeAndNil(FBlurBmp);
+end;
+
+procedure TVideoWidget.SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
+  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+  AMaxW: integer; ADuration: integer);
+var
+  Ms: TMemoryStream;
+  Src, Resized, Stretched: TBGRABitmap;
+  OldTargetW, OldTargetH: integer;
+begin
+  if ARowId <> FRowId then begin
+    { Виджет из пула переиспользован под ДРУГОЕ сообщение — тот же
+      приём, что у TAnimationWidget.SetAnim: старое состояние
+      проигрывания/декодированный плейсхолдер относятся не к этому
+      видео. }
+    ClearBitmap;
+    FLocalPath := '';
+    FHaveFrame := False;
+    FIsActive := False;
+    FPlaying := False;
+    FPositionSec := 0;
+    FDraggingSeek := False;
+  end;
+  FRowId := ARowId;
+  FNaturalW := ANaturalW;
+  FNaturalH := ANaturalH;
+  FDuration := ADuration;
+  OldTargetW := FTargetW;
+  OldTargetH := FTargetH;
+  ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, FTargetW, FTargetH);
+  if (FTargetW <> OldTargetW) or (FTargetH <> OldTargetH) then begin
+    { Размер поменялся — старый FrameBuf теперь не того размера; кто
+      угодно (плеер через FrameBuf-указатель) писавший в него по
+      старым FTargetW/FTargetH мог бы повредить память при следующей
+      записи, если бы буфер остался старого размера. }
+    ClearBitmap;
+    FLocalPath := '';
+    FHaveFrame := False;
+    if FFrameBuf <> nil then begin
+      FreeMem(FFrameBuf);
+      FFrameBuf := nil;
+    end;
+  end;
+  if FFrameBuf = nil then begin
+    GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
+  end;
+
+  if (FBlurBmp = nil) and (AMinithumb <> '') then begin
+    Ms := TMemoryStream.Create;
+    Src := nil;
+    Resized := nil;
+    Stretched := nil;
+    try
+      try
+        Ms.WriteBuffer(AMinithumb[1], Length(AMinithumb));
+        Ms.Position := 0;
+        Src := TBGRABitmap.Create(Ms);
+        Resized := TBGRABitmap(FilterBlurRadial(Src, 10, rbNormal));
+        Resized.ResampleFilter := rfBestQuality;
+        Stretched := Resized.Resample(FTargetW, FTargetH, rmFineResample);
+        FBlurBmp := TBGRABitmap(FilterBlurRadial(Stretched, 10, rbNormal));
+      except
+        ClearBitmap;
+      end;
+    finally
+      Stretched.Free;
+      Resized.Free;
+      Src.Free;
+      Ms.Free;
+    end;
+  end;
+
+  FDownloaded := ADownloaded;
+  FLocalPath := ALocalPath;
+  Invalidate;
+end;
+
+procedure TVideoWidget.SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
+begin
+  FIsActive := AIsActive;
+  FPlaying := APlaying;
+  FPositionSec := APositionSec;
+  Invalidate;
+end;
+
+procedure TVideoWidget.NotifyNewFrame;
+begin
+  FHaveFrame := True;
+  Invalidate;
+end;
+
+function TVideoWidget.PlayButtonRect: TRect;
+var
+  Box: TRect;
+begin
+  Box := ClientRect;
+  Result := Rect((Box.Right - AUDIO_BUTTON_SIZE) div 2, (Box.Bottom - AUDIO_BUTTON_SIZE) div 2,
+    (Box.Right + AUDIO_BUTTON_SIZE) div 2, (Box.Bottom + AUDIO_BUTTON_SIZE) div 2);
+end;
+
+function TVideoWidget.ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
+var
+  Box: TRect;
+  TimeH: integer;
+begin
+  Box := ClientRect;
+  AContentX := Box.Left + MSG_PAD_H;
+  AContentW := Box.Right - MSG_PAD_H - AContentX;
+  TimeH := Canvas.TextHeight('0');
+  AProgressTop := Box.Bottom - MSG_PAD_V - TimeH - HEADER_PAD_V - AUDIO_THUMB_H;
+  Result := AContentW >= 10;
+end;
+
+function TVideoWidget.TrackAreaRect: TRect;
+var
+  CX, CW, PT: integer;
+begin
+  if not ContentGeometry(CX, CW, PT) then begin
+    Result := Rect(0, 0, 0, 0);
+    Exit;
+  end;
+  { Хит-зона выше и ниже визуальной полосы/ползунка — тот же запас
+    (4px), что и у TAudioWidget.TrackAreaRect. }
+  Result := Rect(CX, PT - 4, CX + CW, PT + AUDIO_THUMB_H + 4);
+end;
+
+function TVideoWidget.FractionFromX(AX: integer): double;
+var
+  CX, CW, PT: integer;
+begin
+  Result := 0;
+  if not ContentGeometry(CX, CW, PT) or (CW <= 0) then begin
+    Exit;
+  end;
+  Result := (AX - CX) / CW;
+  if Result < 0 then begin
+    Result := 0;
+  end;
+  if Result > 1 then begin
+    Result := 1;
+  end;
+end;
+
+procedure TVideoWidget.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  if Button <> mbLeft then begin
+    Exit;
+  end;
+  if not FDownloaded then begin
+    { Весь виджет кликабелен для скачивания, тем же приёмом, что у
+      TFileWidget/TPhotoWidget — тут ещё нет ни play-кнопки, ни бара. }
+    if Assigned(FOnClick) then begin
+      FOnClick(Self);
+    end;
+    Exit;
+  end;
+  if PtInRect(PlayButtonRect, Point(X, Y)) then begin
+    if Assigned(FOnPlayClick) then begin
+      FOnPlayClick(Self);
+    end;
+    Exit;
+  end;
+  { Перемотка — только у активного видео (playing/paused) и только пока
+    полоса вообще видна (наведена мышь) — тем же приёмом, что и
+    TAudioWidget, плюс требование видимости, которого у аудио нет
+    (там полоса всегда на экране). }
+  if FIsActive and FHovering and PtInRect(TrackAreaRect, Point(X, Y)) then begin
+    FDraggingSeek := True;
+    FDragFraction := FractionFromX(X);
+    Invalidate;
+  end;
+end;
+
+procedure TVideoWidget.MouseMove(Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseMove(Shift, X, Y);
+  if FDraggingSeek then begin
+    FDragFraction := FractionFromX(X);
+    Invalidate;
+    Exit;
+  end;
+  if (not FDownloaded) or PtInRect(PlayButtonRect, Point(X, Y)) or
+     (FIsActive and FHovering and PtInRect(TrackAreaRect, Point(X, Y))) then begin
+    Cursor := crHandPoint;
+  end else begin
+    Cursor := crDefault;
+  end;
+end;
+
+procedure TVideoWidget.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseUp(Button, Shift, X, Y);
+  if FDraggingSeek and (Button = mbLeft) then begin
+    FDraggingSeek := False;
+    if Assigned(FOnSeek) then begin
+      FOnSeek(Self, FDragFraction);
+    end;
+    Invalidate;
+  end;
+end;
+
+procedure TVideoWidget.MouseEnter;
+begin
+  inherited MouseEnter;
+  FHovering := True;
+  Invalidate;
+end;
+
+procedure TVideoWidget.MouseLeave;
+begin
+  inherited MouseLeave;
+  FHovering := False;
+  { Перетаскивание НЕ обрывается — FDraggingSeek/ShowSeekBar в Paint
+    учитывают его отдельно от FHovering (см. Paint), иначе полоса
+    визуально исчезала бы прямо под удерживаемым ползунком, стоит
+    мыши на долю секунды выйти за пределы виджета во время протяжки. }
+  Invalidate;
+end;
+
+procedure TVideoWidget.Paint;
+var
+  Box, PlayRect, TrackRect, ThumbRect, PlayedRect, OverlayRect: TRect;
+  RgnRadius, ContentX, ContentW, ProgressTop, PlayedW, IconIdx, TimeH: integer;
+  Frac: double;
+  ElapsedStr, RemainStr: string;
+  Rgn: HRGN;
+  ShowPauseOverlay, ShowSeekBar: boolean;
+begin
+  Box := ClientRect;
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := FBgColor;
+  Canvas.FillRect(Box);
+
+  if (Box.Right > Box.Left) and (Box.Bottom > Box.Top) then begin
+    { Скругление — тем же дешёвым GDI-регионом, что и у TAnimationWidget
+      (см. её комментарий про SMOOTH_CORNERS), не BGRA-маской: живой
+      кадр обновляется часто, а плейсхолдер и живое видео должны
+      выглядеть одинаково скруглёнными — смешивать два разных способа
+      для одного виджета того же класса виджета визуально "мигнуло" бы
+      в момент старта воспроизведения. }
+    RgnRadius := Min(PHOTO_CORNER_RADIUS, Min(Box.Right - Box.Left, Box.Bottom - Box.Top) div 2);
+    Rgn := Windows.CreateRoundRectRgn(Box.Left, Box.Top, Box.Right, Box.Bottom,
+      RgnRadius * 2, RgnRadius * 2);
+    Windows.SelectClipRgn(Canvas.Handle, Rgn);
+    try
+      if FHaveFrame and (FFrameBuf <> nil) then begin
+        DrawBgraBuffer(Canvas, FFrameBuf, FTargetW, FTargetH);
+      end else if FBlurBmp <> nil then begin
+        FBlurBmp.Draw(Canvas, 0, 0, False);
+      end;
+    finally
+      Windows.SelectClipRgn(Canvas.Handle, 0);
+      Windows.DeleteObject(Rgn);
+    end;
+    Canvas.Pen.Style := psSolid;
+    Canvas.Pen.Color := PHOTO_BORDER_COLOR;
+    Canvas.Pen.Width := 1;
+    Canvas.Brush.Style := bsClear;
+    Canvas.RoundRect(Box.Left, Box.Top, Box.Right, Box.Bottom, RgnRadius * 2, RgnRadius * 2);
+  end;
+
+  if not FDownloaded then begin
+    if (FDownloadImages <> nil) and (AUDIO_ICON_DOWNLOAD < FDownloadImages.Count) then begin
+      PlayRect := PlayButtonRect;
+      FDownloadImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, AUDIO_ICON_DOWNLOAD, True);
+    end;
+    Exit;
+  end;
+
+  { PLAY — всегда видна, когда сейчас не играет (ни разу не запускали,
+    либо на паузе); PAUSE — только когда наведена мышь; полоса
+    прокрутки — тоже только под мышью (или пока идёт перетаскивание,
+    начатое под мышью — см. MouseLeave), по прямому ТЗ пользователя. }
+  ShowSeekBar := FHovering or FDraggingSeek;
+  ShowPauseOverlay := FIsActive and FPlaying and ShowSeekBar;
+  if FIsActive and FPlaying then begin
+    if not ShowSeekBar then begin
+      Exit;   { чистое видео, никаких контролов, пока не навели мышь }
+    end;
+    IconIdx := AUDIO_ICON_PAUSE;
+  end else begin
+    IconIdx := AUDIO_ICON_PLAY;
+  end;
+
+  if not ContentGeometry(ContentX, ContentW, ProgressTop) then begin
+    Exit;
+  end;
+
+  TimeH := Canvas.TextHeight('0');
+  if ShowSeekBar or ShowPauseOverlay then begin
+    { Тёмная плашка под баром/временем/кнопкой — иначе плохо читаются
+      на произвольном видео. Сплошная заливка, не полупрозрачная —
+      настоящий альфа-блендинг по кадру, который меняется десятки раз
+      в секунду, стоил бы заметно дороже (та же причина, что и у
+      дешёвого скругления выше). }
+    OverlayRect := Rect(Box.Left, ProgressTop - MSG_PAD_V, Box.Right, Box.Bottom);
+    Canvas.Brush.Style := bsSolid;
+    Canvas.Pen.Style := psClear;
+    Canvas.Brush.Color := RGBToColor(20, 20, 20);
+    Canvas.FillRect(OverlayRect);
+  end;
+
+  { Кнопка play/pause — по центру виджета (не слева, как у TAudioWidget
+    — там своё место занимает название трека, здесь просто видео). }
+  PlayRect := PlayButtonRect;
+  if (FImages <> nil) and (IconIdx < FImages.Count) then begin
+    FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, IconIdx, True);
+  end;
+
+  if not ShowSeekBar then begin
+    Exit;
+  end;
+
+  { Полоса прокрутки — та же геометрия/цвета/поведение, что у
+    TAudioWidget.Paint (AUDIO_TRACK_H/AUDIO_THUMB_H/W/AUDIO_PLAYED_
+    OPACITY/AUDIO_REMAIN_OPACITY/FormatAudioTime), по прямому ТЗ
+    пользователя "точно такая же". Блендится к чёрному (clBlack), не
+    к clWindow, как у аудио — здесь подложка тёмная (см. OverlayRect
+    выше), не светлый фон блока сообщения. }
+  TrackRect := Rect(ContentX, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2,
+    ContentX + ContentW, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2 + AUDIO_TRACK_H);
+  if FDraggingSeek then begin
+    PlayedW := Round(FDragFraction * ContentW);
+  end else if FIsActive and (FDuration > 0) then begin
+    Frac := FPositionSec / FDuration;
+    if Frac < 0 then begin
+      Frac := 0;
+    end;
+    if Frac > 1 then begin
+      Frac := 1;
+    end;
+    PlayedW := Round(Frac * ContentW);
+  end else begin
+    PlayedW := 0;
+  end;
+
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_REMAIN_OPACITY, clBlack);
+  Canvas.FillRect(TrackRect);
+  if PlayedW > 0 then begin
+    PlayedRect := Rect(TrackRect.Left, TrackRect.Top, TrackRect.Left + PlayedW, TrackRect.Bottom);
+    Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, clBlack);
+    Canvas.FillRect(PlayedRect);
+  end;
+
+  ThumbRect := Rect(ContentX + PlayedW - AUDIO_THUMB_W div 2, ProgressTop,
+    ContentX + PlayedW - AUDIO_THUMB_W div 2 + AUDIO_THUMB_W, ProgressTop + AUDIO_THUMB_H);
+  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, clBlack);
+  Canvas.FillRect(ThumbRect);
+
+  if FDraggingSeek then begin
+    ElapsedStr := FormatAudioTime(Round(FDragFraction * FDuration));
+    RemainStr := FormatAudioTime(Round(FDragFraction * FDuration) - FDuration);
+  end else if FIsActive then begin
+    ElapsedStr := FormatAudioTime(Round(FPositionSec));
+    RemainStr := FormatAudioTime(Round(FPositionSec) - FDuration);
+  end else begin
+    ElapsedStr := FormatAudioTime(0);
+    RemainStr := FormatAudioTime(-FDuration);
+  end;
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := -11;
+  Canvas.Font.Style := [];
+  Canvas.Font.Color := clWhite;
+  Canvas.TextOut(ContentX, ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, ElapsedStr);
+  Canvas.TextOut(ContentX + ContentW - Canvas.TextWidth(RemainStr),
+    ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, RemainStr);
+end;
+
 { ---------------- TMsgScroller ---------------- }
 
 constructor TMsgScroller.Create(AOwner: TComponent);
@@ -2050,6 +2578,9 @@ begin
   FAnimPool := TFPList.Create;
   FAnimActive := TAnimationWidgetMap.Create;
   FAnimActive.Sorted := True;
+  FVideoPool := TFPList.Create;
+  FVideoActive := TVideoWidgetMap.Create;
+  FVideoActive.Sorted := True;
   FForwardChatAvatars := TForwardAvatarMap.Create;
   FForwardChatAvatars.Sorted := True;
   FForwardUserAvatars := TForwardAvatarMap.Create;
@@ -2061,12 +2592,22 @@ begin
   FPlaybackTimer.Interval := 250;
   FPlaybackTimer.OnTimer := @PlaybackTick;
   FPlaybackTimer.Enabled := False;
+
+  { Интервал заметно меньше, чем у FPlaybackTimer (250мс) — тот только
+    двигает цифры позиции аудио, здесь ЕЩЁ и опрашивается новый живой
+    кадр видео (см. VideoPlaybackTick), а не только позиция. }
+  FVideoPlaybackTimer := TTimer.Create(Self);
+  FVideoPlaybackTimer.Interval := 33;
+  FVideoPlaybackTimer.OnTimer := @VideoPlaybackTick;
+  FVideoPlaybackTimer.Enabled := False;
 end;
 
 destructor TMsgScroller.Destroy;
 begin
   StopActivePlayer;
   FlushDonePlayer;
+  StopActiveVideoPlayer;
+  FlushDoneVideoPlayer;
   FAudioActive.Free;
   { Сами виджеты не освобождаем: они дочерние control'ы Self,
     их уничтожит LCL вместе с родителем. }
@@ -2077,6 +2618,8 @@ begin
   FPhotoPool.Free;
   FAnimActive.Free;
   FAnimPool.Free;
+  FVideoActive.Free;
+  FVideoPool.Free;
   ClearForwardAvatars;
   FForwardChatAvatars.Free;
   FForwardUserAvatars.Free;
@@ -2162,15 +2705,16 @@ end;
 function TMsgScroller.ContentPadV(ARow: TMsgRow): integer;
 begin
   { Обычный вертикальный отступ контента от заголовка блока/от нижнего
-    края блока — MSG_PAD_V, кроме аудио/голосового/файла/фото/"гифки":
-    у всех по месту пользователя этот отступ должен совпадать с
+    края блока — MSG_PAD_V, кроме аудио/голосового/файла/фото/"гифки"/
+    видео: у всех по месту пользователя этот отступ должен совпадать с
     MSG_PAD_H=11, не с обычным вертикальным (MSG_PAD_V=6). Список рос
     по одному правкой "по месту" на каждый новый тип виджета —
     ContentPadV затем единственное место, которое их всех и покрывает
-    разом (голосовое — тот же TAudioWidget, что и аудио, "гифка" —
-    тот же класс отступа, что у фото, тем же рассуждением). }
+    разом (голосовое — тот же TAudioWidget, что и аудио, "гифка"/видео
+    — тот же класс отступа, что у фото, тем же рассуждением — все три
+    используют NaturalMediaSize/ComputePhotoPreviewSize). }
   if (ARow <> nil) and
-    (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto, mckAnimation]) then begin
+    (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto, mckAnimation, mckVideo]) then begin
     Result := MSG_PAD_H;
   end else begin
     Result := MSG_PAD_V;
@@ -2317,10 +2861,11 @@ begin
     mckAudio, mckVoiceNote: MediaKind := 'audio';
     mckFile:  MediaKind := 'files';
     mckAnimation: MediaKind := 'gif';
+    mckVideo: MediaKind := 'video';
   else
-    { Видео/стикеры — по-прежнему только плейсхолдер (см. TODO.md),
-      скачивать заранее нечего: у них нет ни своего Ensure*File, ни
-      своего file_id на TMsgRow. }
+    { Стикеры — по-прежнему только плейсхолдер (см. TODO.md), скачивать
+      заранее нечего: у них нет ни своего Ensure*File, ни своего
+      file_id на TMsgRow. }
     Exit;
   end;
 
@@ -2355,6 +2900,12 @@ begin
       FModel.EnsureAnimFile(ARow);
       ARow.AnimAutoPlay := True;
     end;
+    mckVideo:
+      { В отличие от "гифки" — ТОЛЬКО скачивание, без автостарта: видео
+        со звуком, запускающееся само при прокрутке мимо, было бы
+        навязчивым UX (пользователь не просил автовоспроизведение для
+        видео, только автозагрузку — см. запрос). }
+      FModel.EnsureVideoFile(ARow);
   end;
 end;
 
@@ -2640,6 +3191,16 @@ begin
     if (PendingIdx >= 0) and (PlayableLocalPath(FModel[PendingIdx]) <> '') then begin
       StartPlayback(FModel[PendingIdx]);
       FPendingPlayMsgId := 0;
+    end;
+  end;
+
+  { То же самое для видео (клик по play на ещё не скачанном видео, см.
+    VideoPlayClick). }
+  if FPendingVideoPlayMsgId <> 0 then begin
+    PendingIdx := FModel.IndexOfId(FPendingVideoPlayMsgId);
+    if (PendingIdx >= 0) and (FModel[PendingIdx].VideoLocalPath <> '') then begin
+      StartVideoPlayback(FModel[PendingIdx]);
+      FPendingVideoPlayMsgId := 0;
     end;
   end;
 
@@ -3226,6 +3787,10 @@ begin
     LayoutAnimationWidgets(Lo, Hi);
   except
   end;
+  try
+    LayoutVideoWidgets(Lo, Hi);
+  except
+  end;
 end;
 
 procedure TMsgScroller.LayoutAudioWidgets(ALo, AHi: integer);
@@ -3795,6 +4360,112 @@ begin
   end;
 end;
 
+{ Копия LayoutAudioWidgets — тот же приём recycled-пула и та же
+  "не трогать состояние проигрывания при переиспользовании, показ
+  реального идёт через SetVideo/SetPlayback" логика, для видео вместо
+  аудио. Отличие от LayoutAnimationWidgets — здесь НЕТ StopLoop при
+  эвикшене: активный видео-плеер (со звуком) продолжает играть, даже
+  когда его строка прокручена за пределы видимого диапазона, тем же
+  принципом, что и у аудио (реальный Telegram не обрывает звук только
+  потому, что сообщение временно не на экране) — не тем же принципом,
+  что у "гифки" (та беззвучная, останавливать её при эвикшене не жалко
+  и экономит CPU/декод впустую невидимого). }
+procedure TMsgScroller.LayoutVideoWidgets(ALo, AHi: integer);
+var
+  I, N, MIdx, AIdx: integer;
+  R: TMsgRow;
+  W: TVideoWidget;
+  CR: TRect;
+  WantIds: array of Int64;
+
+  function IsWanted(AId: Int64): boolean;
+  var
+    K: integer;
+  begin
+    Result := False;
+    for K := 0 to N - 1 do begin
+      if WantIds[K] = AId then begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
+begin
+  N := 0;
+  if FModel <> nil then begin
+    SetLength(WantIds, AHi - ALo + 2);
+    for I := ALo to AHi do begin
+      R := FModel[I];
+      if R.Kind = mckVideo then begin
+        WantIds[N] := R.Id;
+        Inc(N);
+      end;
+    end;
+  end;
+
+  for AIdx := FVideoActive.Count - 1 downto 0 do begin
+    if not IsWanted(FVideoActive.Keys[AIdx]) then begin
+      FVideoActive.Data[AIdx].Visible := False;
+      FVideoActive.Delete(AIdx);
+    end;
+  end;
+
+  for I := 0 to N - 1 do begin
+    MIdx := FModel.IndexOfId(WantIds[I]);
+    if MIdx < 0 then begin
+      Continue;
+    end;
+    CR := ContentRect(MIdx);
+    AIdx := FVideoActive.IndexOf(WantIds[I]);
+    if AIdx >= 0 then begin
+      W := FVideoActive.Data[AIdx];
+    end else begin
+      W := ObtainVideoWidget;
+      FVideoActive.Add(WantIds[I], W);
+    end;
+    W.DownloadImages := FAudioImages;
+    W.Images := FAudioImages;
+    R := FModel[MIdx];
+    W.BackgroundColor := WidgetBackdropColor(R);
+    W.SetVideo(R.Id, R.VideoWidth, R.VideoHeight, R.VideoMinithumb,
+      R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left, R.VideoDuration);
+    { Та же защита от "перетаскивание сбрасывается на следующем же
+      Paint", что и у LayoutAudioWidgets — эта функция вызывается на
+      КАЖДЫЙ Paint, в т.ч. каждый тик FVideoPlaybackTimer. }
+    if not W.Dragging then begin
+      if (FActiveVideoPlayer <> nil) and (FActiveVideoPlayerMsgId = R.Id) then begin
+        W.SetPlayback(True, FActiveVideoPlayer.State = mpsPlaying, FActiveVideoPlayer.PositionSec);
+      end else begin
+        W.SetPlayback(False, False, 0);
+      end;
+    end;
+    W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
+    W.Visible := True;
+  end;
+end;
+
+function TMsgScroller.ObtainVideoWidget: TVideoWidget;
+var
+  I: integer;
+begin
+  for I := 0 to FVideoPool.Count - 1 do begin
+    Result := TVideoWidget(FVideoPool[I]);
+    if not Result.Visible then begin
+      Result.OnClick := @VideoPlayClick;
+      Result.OnPlayClick := @VideoPlayClick;
+      Result.OnSeek := @VideoSeek;
+      Exit;
+    end;
+  end;
+  Result := TVideoWidget.Create(Self);
+  Result.Parent := Self;
+  Result.OnClick := @VideoPlayClick;
+  Result.OnPlayClick := @VideoPlayClick;
+  Result.OnSeek := @VideoSeek;
+  FVideoPool.Add(Result);
+end;
+
 procedure TMsgScroller.PhotoWidgetSaveAsClick(Sender: TObject);
 var
   W: TPhotoWidget;
@@ -4008,6 +4679,172 @@ begin
   if FActivePlayer <> nil then begin
     Invalidate;
   end;
+end;
+
+{ Видео-эквиваленты FlushDonePlayer/StopActivePlayer/StartPlayback/
+  AudioPlayClick/AudioSeek/PlayerStateChanged/PlaybackTick выше — та же
+  логика, тот же порядок вызовов, тем же приёмом "не освобождать
+  TThread изнутри его же Synchronize" (FDoneVideoPlayer). Отличия:
+  StartVideoPlayback сама пересчитывает целевой размер кадра
+  (ComputePhotoPreviewSize, той же формулой, что и LayoutVideoWidgets —
+  тем самым они всегда совпадают) — плееру нужен размер буфера уже на
+  Create, у аудио такого параметра нет вовсе. VideoPlaybackTick
+  дополнительно опрашивает TryGetFrame и кормит новый кадр прямо в
+  буфер активного виджета (если тот сейчас существует/виден). }
+procedure TMsgScroller.FlushDoneVideoPlayer;
+begin
+  if FDoneVideoPlayer <> nil then begin
+    FDoneVideoPlayer.WaitFor;
+    FDoneVideoPlayer.Free;
+    FDoneVideoPlayer := nil;
+  end;
+end;
+
+procedure TMsgScroller.StopActiveVideoPlayer;
+begin
+  FlushDoneVideoPlayer;
+  if FActiveVideoPlayer <> nil then begin
+    FActiveVideoPlayer.StopPlayback;
+    FDoneVideoPlayer := FActiveVideoPlayer;
+    FActiveVideoPlayer := nil;
+    FActiveVideoPlayerMsgId := 0;
+  end;
+  FVideoPlaybackTimer.Enabled := False;
+end;
+
+procedure TMsgScroller.StartVideoPlayback(ARow: TMsgRow; AStartPositionSec: double = 0);
+var
+  Idx, TgtW, TgtH: integer;
+  CR: TRect;
+begin
+  if (ARow = nil) or (FModel = nil) then begin
+    Exit;
+  end;
+  Idx := FModel.IndexOfId(ARow.Id);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  StopActiveVideoPlayer;
+  CR := ContentRect(Idx);
+  ComputePhotoPreviewSize(ARow.VideoWidth, ARow.VideoHeight, CR.Right - CR.Left, TgtW, TgtH);
+  FActiveVideoPlayer := TMediaPlayer.Create(ARow.VideoLocalPath, utf8string(FormMain.AudioDeviceName),
+    TgtW, TgtH, AStartPositionSec);
+  FActiveVideoPlayer.OnStateChanged := @VideoPlayerStateChanged;
+  FActiveVideoPlayerMsgId := ARow.Id;
+  FVideoFrameKnownVersion := 0;
+  FVideoPlaybackTimer.Enabled := True;
+  Invalidate;
+end;
+
+procedure TMsgScroller.VideoPlayClick(Sender: TObject);
+var
+  W: TVideoWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TVideoWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  if (FActiveVideoPlayer <> nil) and (FActiveVideoPlayerMsgId = W.RowId) then begin
+    { То же видео — просто пауза/продолжить, не пересоздаём плеер. }
+    if FActiveVideoPlayer.State = mpsPlaying then begin
+      FActiveVideoPlayer.Pause;
+    end else if FActiveVideoPlayer.State = mpsPaused then begin
+      FActiveVideoPlayer.Resume;
+    end;
+    Invalidate;
+    Exit;
+  end;
+
+  { Другое видео (или ничего не играло) — прежнее останавливаем. }
+  FPendingVideoPlayMsgId := 0;
+
+  if Row.VideoLocalPath = '' then begin
+    { Файл ещё не скачан — тот же приём, что у AudioPlayClick: просим
+      загрузку, запоминаем, что запустить, как только путь придёт (см.
+      ModelChanged). }
+    StopActiveVideoPlayer;
+    FPendingVideoPlayMsgId := W.RowId;
+    FModel.EnsureVideoFile(Row);
+    Exit;
+  end;
+
+  StartVideoPlayback(Row);
+end;
+
+procedure TMsgScroller.VideoSeek(Sender: TObject; AFraction: double);
+var
+  W: TVideoWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  { Перемотка — только для АКТИВНОГО видео (виджет разрешает драг
+    ползунка только когда FIsActive, см. TVideoWidget.MouseDown), но
+    проверяем ещё раз, тем же приёмом, что и AudioSeek. }
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TVideoWidget(Sender);
+  if (FActiveVideoPlayer = nil) or (FActiveVideoPlayerMsgId <> W.RowId) then begin
+    Exit;
+  end;
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+  if (Row.VideoLocalPath = '') or (Row.VideoDuration <= 0) then begin
+    Exit;
+  end;
+  StartVideoPlayback(Row, AFraction * Row.VideoDuration);
+end;
+
+procedure TMsgScroller.VideoPlayerStateChanged(Sender: TObject);
+begin
+  if (Sender = FActiveVideoPlayer) and
+     ((FActiveVideoPlayer.State = mpsStopped) or (FActiveVideoPlayer.State = mpsError)) then begin
+    FDoneVideoPlayer := FActiveVideoPlayer;
+    FActiveVideoPlayer := nil;
+    FActiveVideoPlayerMsgId := 0;
+    FVideoPlaybackTimer.Enabled := False;
+  end;
+  Invalidate;
+end;
+
+procedure TMsgScroller.VideoPlaybackTick(Sender: TObject);
+var
+  Idx: integer;
+  W: TVideoWidget;
+begin
+  FlushDoneVideoPlayer;
+  if FActiveVideoPlayer = nil then begin
+    Exit;
+  end;
+  if FActiveVideoPlayer.HasVideo then begin
+    { Кормим новый кадр ПРЯМО в буфер виджета, если тот сейчас
+      существует (видим/представляет активную строку) — см.
+      TVideoWidget.FrameBuf/NotifyNewFrame. Если виджета сейчас нет
+      (строка прокручена за пределы видимого диапазона) — TryGetFrame
+      не вызывается вовсе, кадр просто не показывается никому; сам
+      плеер (и звук) при этом продолжает работать — воспроизведение НЕ
+      останавливается при эвикшене, см. комментарий у
+      LayoutVideoWidgets. }
+    Idx := FVideoActive.IndexOf(FActiveVideoPlayerMsgId);
+    if Idx >= 0 then begin
+      W := FVideoActive.Data[Idx];
+      if FActiveVideoPlayer.TryGetFrame(W.FrameBuf, FVideoFrameKnownVersion) then begin
+        W.NotifyNewFrame;
+      end;
+    end;
+  end;
+  Invalidate;
 end;
 
 function TMsgScroller.HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;

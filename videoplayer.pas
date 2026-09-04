@@ -260,6 +260,19 @@ begin
     Exit;
   end;
   CodecCtx := avcodec_alloc_context3(Codec);
+  if CodecCtx <> nil then begin
+    { pkt_timebase — "decoding: set by user" (libavcodec/avcodec.h) — та
+      же правка, что и в mediaplayer.pas (см. её подробный комментарий
+      там, найдено по отчёту пользователя о сильном торможении видео-
+      сообщений): без неё Frame.pts мог прийти в СВОЁМ таймбейсе
+      декодера, не в таймбейсе потока, которым HandleFrame ниже его
+      интерпретирует (TimeBase := Stream^.time_base) — несовпадение
+      раздувает вычисленную паузу между кадрами. У "гифки" это не было
+      замечено отдельно (не тестировалась на реальном сообщении), но
+      механизм тот же самый декодер/тот же путь чтения PTS — правка на
+      всякий случай, не только для видео-сообщений. }
+    av_opt_set_q(CodecCtx, 'pkt_timebase', Stream^.time_base, 0);
+  end;
   if (CodecCtx = nil) or (avcodec_parameters_to_context(CodecCtx, Stream^.codecpar) < 0) or
      (avcodec_open2(CodecCtx, Codec, nil) < 0) then begin
     FFailed := True;
