@@ -62,7 +62,6 @@
         <EditorIndex Value="13"/>
         <UsageCount Value="104"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -277,6 +276,16 @@
         <UsageCount Value="43"/>
       </Unit>
       <Unit>
+        <Filename Value="videoplayer.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="photodecoder.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="msglayout.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="53"/>
@@ -302,7 +311,6 @@
         <TopLine Value="3664"/>
         <UsageCount Value="53"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="settings.pas"/>

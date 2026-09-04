@@ -276,6 +276,16 @@ const
   AUTODL_MEDIA_CAPTIONS: array[0..4] of string = ('Images', 'Video', 'Audio', 'GIF', 'Files');
   AUTODL_CHAT_KINDS: array[0..4] of string = ('private', 'secret', 'groups', 'channels', 'bots');
   AUTODL_CHAT_CAPTIONS: array[0..4] of string = ('Private chats', 'Secret chats', 'Groups', 'Channels', 'Bots');
+  { Сколько сообщений за пределами видимой области упреждающе качать
+    при включённой автозагрузке (TMsgScroller.PrefetchAutoDownload,
+    framehistory.pas) — по прямому запросу пользователя ("загружать
+    изображения сильно заранее"), было 1 (буквально следующее
+    сообщение по направлению скролла). MaybeAutoDownload сам по себе
+    идемпотентен (Ensure*File — no-op, если уже скачано/уже запрошено),
+    так что пересканировать это окно на каждый тик скролла безопасно —
+    реальная работа запускается только для строк, впервые попавших в
+    окно. }
+  AUTODL_PREFETCH_MESSAGES = 30;
 
   { ================= msglayout.pas ================= }
 

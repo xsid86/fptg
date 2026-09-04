@@ -155,10 +155,12 @@ procedure TAudioPlayer.CloseDevice(AGraceful: boolean);
 var
   I: integer;
   WaitMs: integer;
+  AllDone: boolean;
 begin
   if FWaveOut = 0 then begin
     Exit;
   end;
+  AllDone := True;
   if AGraceful then begin
     { Конец файла сам по себе — не Stop пользователя: буферы, уже
       отданные в winmm, должны доиграть, иначе конец трека обрежется
@@ -172,9 +174,32 @@ begin
         Sleep(10);
         Inc(WaitMs, 10);
       end;
+      if ((FHeaders[I].dwFlags and WHDR_PREPARED) <> 0) and
+        ((FHeaders[I].dwFlags and WHDR_DONE) = 0) then begin
+        AllDone := False;   { залипший буфер — защитный таймаут сработал }
+      end;
     end;
   end;
-  waveOutReset(FWaveOut);
+  { Явный flush декодера (см. более раннюю правку) не убрал щелчки в
+    хвосте — по отчёту пользователя, тем же числом. Следующий кандидат,
+    не угадан, а по документированному поведению waveOutUnprepareHeader
+    (MSDN: "called after ... the buffer has finished playing, OR
+    waveOutReset has been called" — то есть Reset обязателен ТОЛЬКО
+    если буфер ЕЩЁ не доигран сам по себе) — сам вызов waveOutReset НА
+    УЖЕ ПОЛНОСТЬЮ ДОИГРАННОМ устройстве не бесплатен: WHDR_DONE
+    гарантирует лишь то, что ДРАЙВЕР забрал данные буфера, не то, что
+    физический вывод (DMA/аппаратный FIFO звуковой карты) уже
+    закончился — резкий Reset в этот момент может оборвать/щёлкнуть
+    остаточный аппаратный хвост, даже когда с точки зрения нашего кода
+    всё уже доиграно. Если ВСЕ буферы дождались WHDR_DONE без таймаута
+    (AllDone) — Reset вообще не вызываем, обходимся Unprepare+Close
+    (ровно та альтернатива, что и разрешает документация). Reset
+    оставлен для явного Stop пользователя (AGraceful=False) и на
+    случай залипшего драйвера (защитный таймаут сработал) — там
+    отбрасывать действительно нужно, не ждать вечно. }
+  if (not AGraceful) or (not AllDone) then begin
+    waveOutReset(FWaveOut);
+  end;
   for I := 0 to PLAYER_BUF_COUNT - 1 do begin
     if (FHeaders[I].dwFlags and WHDR_PREPARED) <> 0 then begin
       waveOutUnprepareHeader(FWaveOut, @FHeaders[I], SizeOf(TWAVEHDR));
@@ -410,6 +435,42 @@ begin
       end;
     end;
     av_packet_unref(Pkt);
+  end;
+
+  { Флашим ДЕКОДЕР явно — контейнерный EOF (av_read_frame < 0) не значит,
+    что декодер уже отдал ВСЕ кадры. По документированному контракту
+    avcodec_send_packet/avcodec_receive_frame — многие кодеки (AAC,
+    Opus и другие с внутренним lookahead/reorder) держат несколько
+    последних кадров во внутреннем буфере и отдают их ТОЛЬКО после
+    явного flush-пакета (send_packet с pkt=NULL), дальше receive_frame
+    вызывается в цикле, пока не вернёт < 0. Раньше этого шага не было —
+    последние декодированные кадры обрывались на границе внутреннего
+    состояния декодера, не долетая до ресемплера/FIFO вовсе — отчёт
+    пользователя ("три лёгких щелчка перед концом каждого трека") ровно
+    того рода артефакт, что даёт резкий обрыв на границе кадра вместо
+    штатного затухания декодера. }
+  if (not FStopRequested) and (avcodec_send_packet(CodecCtx, nil) >= 0) then begin
+    while True do begin
+      Ret := avcodec_receive_frame(CodecCtx, Frame);
+      if Ret < 0 then begin
+        Break;
+      end;
+      if not SwrReady then begin
+        InChLayout := Frame^.ch_layout;
+        Ret := swr_alloc_set_opts2(Swr, @OutChLayout, AV_SAMPLE_FMT_S16, PLAYER_OUT_RATE,
+          @InChLayout, Frame^.format, Frame^.sample_rate, 0, nil);
+        if (Ret >= 0) and (swr_init(Swr) >= 0) then begin
+          SwrReady := True;
+        end;
+      end;
+      if SwrReady then begin
+        OutSamples := swr_convert(Swr, @OutTmp, OutTmpCap, @Frame^.data[0], Frame^.nb_samples);
+        if OutSamples > 0 then begin
+          FifoAppend(OutTmp, cardinal(OutSamples) * PLAYER_OUT_CHANNELS * 2);
+        end;
+      end;
+      av_frame_unref(Frame);
+    end;
   end;
 
   { Слив ресемплера (может держать несколько сэмплов в запасе) и

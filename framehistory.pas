@@ -18,7 +18,7 @@ uses
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
-  uiframe, framechats, audioplayer;
+  uiframe, framechats, audioplayer, videoplayer, photodecoder;
 
 type
   { TAudioWidget
@@ -186,8 +186,19 @@ type
       ("белые треугольники по углам"). }
     FBgColor: TColor;
     FOnClick: TNotifyEvent;
+    { Декод настоящего (не блюр-плейсхолдера) фото — в фоновом потоке,
+      см. photodecoder.pas и комментарий у DecodeDone/SetPhoto.
+      FDecodeThread <> nil — декод для ЭТОГО виджета сейчас идёт;
+      старый декод, ставший неактуальным (виджет переиспользован под
+      другое сообщение/путь, или сам виджет уничтожается), ВСЕГДА
+      явно отменяется через Cancel ДО того, как заведут новый/
+      уничтожат виджет — тогда DoDone для него просто освободит
+      результат сам, ни разу не тронув поля этого объекта, и отдельная
+      проверка "для какого пути был этот декод" не нужна. }
+    FDecodeThread: TPhotoDecodeThread;
     procedure ClearBitmaps;
     procedure DrawBmpRounded(ABmp: TBGRABitmap);
+    procedure DecodeDone(Sender: TObject);
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
@@ -212,6 +223,92 @@ type
   end;
 
   TPhotoWidgetMap = specialize TFPGMap<Int64, TPhotoWidget>;
+
+  { TAnimationWidget
+
+    "Гифка" (messageAnimation — физически короткое MP4/H.264 без звука)
+    — тот же интерфейс, что у TPhotoWidget: курсор-рука на весь виджет,
+    скругление PHOTO_CORNER_RADIUS, БЕЗ подложки/контура-карточки. Пока
+    не скачано — блюр-плейсхолдер из content.animation.minithumbnail
+    (тот же пайплайн декодирования, что у фото), поверх — значок
+    "скачать".
+
+    Клики — по прямому запросу пользователя, как у файла: первый клик
+    по недокачанному — только скачивание, БЕЗ автопоказа; второй клик
+    по уже скачанному, ещё не играющему — запускает зацикленное
+    воспроизведение. Клик по УЖЕ играющему — ничего не делает: никаких
+    контролов запуска/остановки, "гифка" либо не играет, либо крутится
+    в цикле, пока виджет жив и виден (framehistory.pas это решает через
+    OnAnimClick/StartLoop/StopLoop).
+
+    Живое воспроизведение — TAnimationPlayer (videoplayer.pas), фоновый
+    поток-декодер, зацикленный сам по себе. У КАЖДОГО виджета — свой
+    независимый поток и свой TTimer-опрос нового кадра (PollTick), НЕ
+    общий с TMsgScroller.FPlaybackTimer (тот — про позицию ОДНОГО
+    активного аудио-плеера; "гифок" на экране одновременно может
+    крутиться сколько угодно, никакого "только один разом" ограничения
+    для видео нет).
+
+    Скругление — ВСЕГДА через дешёвый GDI-регион (CreateRoundRectRgn/
+    SelectClipRgn, тот же приём, что у TPhotoWidget при
+    SMOOTH_CORNERS=False), НЕЗАВИСИМО от глобального SMOOTH_CORNERS —
+    сознательное отличие от остальных 13 мест в файле: живой кадр видео
+    обновляется десятки раз в секунду на КАЖДУЮ одновременно играющую
+    "гифку", пересчитывать BGRA-маску (ApplyMask/RoundRectAntialias) на
+    каждый такой кадр — совсем другой порядок затрат CPU, чем та же
+    операция на статичном фото (там перерисовка не идёт непрерывным
+    потоком). Использовать РАЗНЫЕ способы скругления для плейсхолдера
+    и живого кадра ОДНОГО И ТОГО ЖЕ виджета тоже нежелательно — граница
+    заметно "мигнула" бы в момент старта воспроизведения — поэтому оба
+    состояния виджета красятся одним и тем же дешёвым способом. }
+  TAnimationWidget = class(TCustomControl)
+  private
+    FRowId: Int64;
+    FNaturalW, FNaturalH: integer;
+    FTargetW, FTargetH: integer;
+    FLocalPath: utf8string;
+    FDownloaded: boolean;
+    FBlurBmp: TBGRABitmap;
+    FDownloadImages: TImageList;
+    FBgColor: TColor;
+    FOnClick: TNotifyEvent;
+    FPlayer: TAnimationPlayer;
+    FPlaying: boolean;
+    FFrameBuf: PByte;           { BGRA, FTargetW*FTargetH*4 байт }
+    FFrameKnownVersion: cardinal;
+    FPollTimer: TTimer;
+    procedure ClearBitmap;
+    procedure PollTick(Sender: TObject);
+  protected
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    { Та же сигнатура/роль, что у TPhotoWidget.SetPhoto — AMinithumb
+      может быть '' (не пришёл/уже не нужен), ADownloaded/ALocalPath —
+      есть ли уже настоящий файл на диске, AMaxW — реальная доступная
+      ширина колонки (см. ComputePhotoPreviewSize). НЕ запускает
+      воспроизведение сама — только готовит плейсхолдер/состояние
+      "скачано"; старт — отдельно, StartLoop (framehistory.pas решает,
+      когда: второй клик или авто-воспроизведение по настройкам). }
+    procedure SetAnim(ARowId: Int64; ANaturalW, ANaturalH: integer;
+      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+      AMaxW: integer);
+    procedure StartLoop;
+    procedure StopLoop;
+    property Playing: boolean read FPlaying;
+    property TargetWidth: integer read FTargetW;
+    property TargetHeight: integer read FTargetH;
+    property DownloadImages: TImageList read FDownloadImages write FDownloadImages;
+    property BackgroundColor: TColor read FBgColor write FBgColor;
+    property RowId: Int64 read FRowId;
+    property Downloaded: boolean read FDownloaded;
+    property LocalPath: utf8string read FLocalPath;
+    property OnAnimClick: TNotifyEvent read FOnClick write FOnClick;
+  end;
+
+  TAnimationWidgetMap = specialize TFPGMap<Int64, TAnimationWidget>;
 
   { Ключ — id пользователя или чата-источника репоста (см. поле у
     TMsgScroller, где заведены два разных инстанса этого типа). }
@@ -295,6 +392,16 @@ type
     FPendingPhotoMsgId: Int64;
     FPendingPhotoAction: TPendingFileAction;
 
+    { "Гифки" (messageAnimation) — тот же recycled-пул, что у фото/
+      аудио/файла. Воспроизведение — НЕ здесь (в отличие от аудио, у
+      которого один активный плеер на весь скроллер): у каждого
+      TAnimationWidget свой независимый TAnimationPlayer, "гифок"
+      одновременно может крутиться сколько угодно — состояние
+      проигрывания живёт в самом виджете (см. TAnimationWidget.FPlayer),
+      скроллеру достаточно пула позиционирования. }
+    FAnimPool:   TFPList;       { of TAnimationWidget }
+    FAnimActive: TAnimationWidgetMap;
+
     { Проигрывание аудио — один активный плеер на весь скроллер (как и
       в самом Telegram, играет не более одного трека разом). Виджет —
       recycled-пул (см. FAudioActive/FAudioPool выше), состояние
@@ -353,12 +460,17 @@ type
       из ModelChanged (открытие чата, новые сообщения, догрузка истории). }
     procedure AutoDownloadVisible;
     { На каждое РЕАЛЬНОЕ изменение позиции скролла (см. ClampScrollTop) —
-      с упреждением на ОДНО сообщение в сторону скролла (ADirection>0 —
-      вниз/к новым, <0 — вверх/к старым), чтобы к моменту, когда
-      сообщение реально появится на экране, загрузка уже шла. Прямой
-      запрос пользователя — иначе доскроллить до сообщения с ещё не
-      скачанным медиа означало бы всегда ждать начала загрузки уже
-      ПОСЛЕ того, как оно стало видно. }
+      с упреждением на AUTODL_PREFETCH_MESSAGES сообщений в сторону
+      скролла (ADirection>0 — вниз/к новым, <0 — вверх/к старым), чтобы
+      к моменту, когда сообщение реально появится на экране, загрузка
+      уже давно шла или уже завершилась. Было ровно ОДНО сообщение
+      вперёд — по прямому запросу пользователя расширено до целого окна
+      ("загружать изображения сильно заранее", жалоба на подтормаживание
+      прокрутки: сеть — не единственная причина задержки, см. её же
+      запрос про декод в отдельном потоке, DecodeDone/photodecoder.pas
+      — но и сама сеть, когда файл ещё даже не запрошен к моменту
+      появления строки на экране, вносит свою задержку, окно шире её
+      устраняет тоже). }
     procedure PrefetchAutoDownload(ADirection: integer);
 
     procedure AudioPlayClick(Sender: TObject);
@@ -423,6 +535,9 @@ type
     function ObtainPhotoWidget: TPhotoWidget;
     procedure PhotoWidgetClick(Sender: TObject);
     procedure SavePhotoFile(ARow: TMsgRow);
+    procedure LayoutAnimationWidgets(ALo, AHi: integer);
+    function ObtainAnimationWidget: TAnimationWidget;
+    procedure AnimationWidgetClick(Sender: TObject);
     function HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;
     function ResolveSelection(out ALowIdx, AHighIdx, ALowChar, AHighChar: integer): boolean;
     procedure RangeForRow(AIndex, ALowIdx, AHighIdx, ALowChar, AHighChar,
@@ -1421,12 +1536,25 @@ end;
 
 destructor TPhotoWidget.Destroy;
 begin
+  { ClearBitmaps отменяет ещё не завершившийся фоновый декод (см. её
+    же комментарий) — без этого DecodeDone позже вызвала бы метод на
+    уже уничтоженном объекте. }
   ClearBitmaps;
   inherited Destroy;
 end;
 
 procedure TPhotoWidget.ClearBitmaps;
 begin
+  if FDecodeThread <> nil then begin
+    { Виджет переиспользован под другое сообщение/размер до того, как
+      прежний фоновый декод успел закончиться — тот больше не нужен;
+      Cancel гарантирует, что DoDone не тронет поля этого объекта
+      результатом, который уже никого не интересует (см. её же
+      комментарий). Указатель обнуляем сразу — виджет живёт дальше,
+      "декод для меня сейчас не идёт" должно быть верно немедленно. }
+    FDecodeThread.Cancel;
+    FDecodeThread := nil;
+  end;
   FreeAndNil(FBlurBmp);
   FreeAndNil(FRealBmp);
 end;
@@ -1496,27 +1624,51 @@ begin
   end;
 
   { Настоящее фото — декодируем, только когда путь реально появился/
-    сменился, не на каждый заход. }
+    сменился, не на каждый заход, и ТЕПЕРЬ В ФОНОВОМ ПОТОКЕ (photodecoder.
+    pas), не синхронно здесь — при агрессивной автозагрузке "далеко
+    вперёд" несколько строк с уже скачанным, но ещё ни разу не
+    показанным фото могут стать видимыми почти одновременно при
+    быстром скролле; полноразмерный JPEG-декод+ресемпл на каждую из
+    них синхронно внутри SetPhoto (а тот вызывается из LayoutPhotoWidgets,
+    из Paint) ощутимо подвешивал прокрутку — отчёт пользователя. Сам
+    результат применяется позже, в DecodeDone (Synchronize, главный
+    поток) — Invalidate ниже в этом методе картинку ещё не покажет,
+    только фон/блюр-плейсхолдер, актуальный кадр придёт отдельно. }
   if (ALocalPath <> '') and (ALocalPath <> FLocalPath) then begin
-    FreeAndNil(FRealBmp);
-    if FileExists(string(ALocalPath)) then begin
-      Src := nil;
-      try
-        try
-          Src := TBGRABitmap.Create(string(ALocalPath));
-          Src.ResampleFilter := rfBestQuality;
-          FRealBmp := Src.Resample(FTargetW, FTargetH, rmFineResample);
-        except
-          FreeAndNil(FRealBmp);
-        end;
-      finally
-        Src.Free;
-      end;
+    if FDecodeThread <> nil then begin
+      { Не должно случаться на практике (путь для одной и той же строки
+        меняется максимум один раз, с '' на реальный) — но если всё же
+        случится, прежний ещё не завершившийся декод больше не нужен. }
+      FDecodeThread.Cancel;
     end;
+    FreeAndNil(FRealBmp);
+    FDecodeThread := TPhotoDecodeThread.Create(ALocalPath, FTargetW, FTargetH, @DecodeDone);
   end;
 
   FDownloaded := ADownloaded;
   FLocalPath := ALocalPath;
+  Invalidate;
+end;
+
+{ Колбэк TPhotoDecodeThread — уже на главном потоке (Synchronize).
+  FDecodeThread обнуляется здесь безусловно: это ЕДИНСТВЕННОЕ место,
+  где декод завершается сам, естественным путём (ClearBitmaps —
+  единственное ДРУГОЕ место, трогающее это поле — само обнуляет его,
+  когда декод отменяется ДО этого момента, см. её комментарий, так что
+  к моменту, когда DoDone вызвал этот колбэк, если он вообще вызвал —
+  FCanceled уже был бы True и этот метод не вызвался бы, см.
+  TPhotoDecodeThread.DoDone). }
+procedure TPhotoWidget.DecodeDone(Sender: TObject);
+var
+  Bmp: TBGRABitmap;
+begin
+  Bmp := TPhotoDecodeThread(Sender).TakeResult;
+  FDecodeThread := nil;
+  if Bmp = nil then begin
+    Exit;
+  end;
+  FreeAndNil(FRealBmp);
+  FRealBmp := Bmp;
   Invalidate;
 end;
 
@@ -1650,6 +1802,234 @@ begin
   end;
 end;
 
+{ ---------------- TAnimationWidget ---------------- }
+
+{ Блит уже готового BGRA-буфера (AWidth*AHeight*4 байт, порядок строк
+  сверху вниз — тот же, что отдаёт swscale в videoplayer.pas) напрямую
+  на Canvas, без промежуточного TBGRABitmap — единственная причина
+  завести отдельную функцию, не переиспользовать TBGRABitmap.Draw:
+  тому пришлось бы каждый раз оборачивать чужую память во временный
+  объект, а SetDIBitsToDevice делает то же самое одним системным
+  вызовом. AV_PIX_FMT_BGRA (ffdecode.pas) — тот же порядок байт
+  (B,G,R,A) в памяти, что и стандартный 32-битный DIB Windows
+  (biBitCount=32, BI_RGB) — конвертация не нужна, только описать
+  формат. biHeight отрицательный — DIB "сверху вниз", без переворота
+  строк. }
+procedure DrawBgraBuffer(ACanvas: TCanvas; ABuf: PByte; AWidth, AHeight: integer);
+var
+  Bmi: Windows.BITMAPINFO;
+begin
+  { Windows.BITMAPINFO квалифицировано явно — LCLType тоже объявляет
+    свой TBitmapInfo (другой, нижнеуровнево несовместимый тип), а он
+    идёт позже Windows в uses этого файла и перекрывает имя при
+    неквалифицированном использовании (та же ловушка, что уже описана
+    в комментарии у самого uses) — SetDIBitsToDevice из модуля Windows
+    требует именно Windows.BITMAPINFO, не чужой одноимённый тип. }
+  FillChar(Bmi, SizeOf(Bmi), 0);
+  Bmi.bmiHeader.biSize := SizeOf(Bmi.bmiHeader);
+  Bmi.bmiHeader.biWidth := AWidth;
+  Bmi.bmiHeader.biHeight := -AHeight;
+  Bmi.bmiHeader.biPlanes := 1;
+  Bmi.bmiHeader.biBitCount := 32;
+  Bmi.bmiHeader.biCompression := BI_RGB;
+  Windows.SetDIBitsToDevice(ACanvas.Handle, 0, 0, AWidth, AHeight, 0, 0, 0, AHeight,
+    ABuf, Bmi, DIB_RGB_COLORS);
+end;
+
+constructor TAnimationWidget.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  Cursor := crHandPoint;
+  FBgColor := clWindow;
+  { Интервал опроса — частота "проверить, не появился ли новый кадр и
+    перерисоваться", НЕ пауза между кадрами исходного видео (ту решает
+    сам поток-декодер, см. TAnimationPlayer.ExecuteInner/HandleFrame) —
+    ~30 раз в секунду с запасом относительно типичного видео 24-30fps. }
+  FPollTimer := TTimer.Create(Self);
+  FPollTimer.Interval := 33;
+  FPollTimer.OnTimer := @PollTick;
+  FPollTimer.Enabled := False;
+end;
+
+destructor TAnimationWidget.Destroy;
+begin
+  StopLoop;
+  ClearBitmap;
+  if FFrameBuf <> nil then begin
+    FreeMem(FFrameBuf);
+  end;
+  inherited Destroy;
+end;
+
+procedure TAnimationWidget.ClearBitmap;
+begin
+  FreeAndNil(FBlurBmp);
+end;
+
+procedure TAnimationWidget.SetAnim(ARowId: Int64; ANaturalW, ANaturalH: integer;
+  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+  AMaxW: integer);
+var
+  Ms: TMemoryStream;
+  Src, Resized, Stretched: TBGRABitmap;
+  OldTargetW, OldTargetH: integer;
+begin
+  if ARowId <> FRowId then begin
+    { Виджет из пула переиспользован под ДРУГОЕ сообщение — тот же
+      приём, что у TPhotoWidget.SetPhoto: старое воспроизведение (если
+      играло) и старый декодированный плейсхолдер к этому сообщению
+      больше не относятся. }
+    StopLoop;
+    ClearBitmap;
+    FLocalPath := '';
+  end;
+  FRowId := ARowId;
+  FNaturalW := ANaturalW;
+  FNaturalH := ANaturalH;
+  OldTargetW := FTargetW;
+  OldTargetH := FTargetH;
+  ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, FTargetW, FTargetH);
+  if (FTargetW <> OldTargetW) or (FTargetH <> OldTargetH) then begin
+    { Ширина колонки поменялась — старые FFrameBuf/декодированный
+      плейсхолдер теперь не того размера. FFrameBuf освобождаем
+      (не просто оставляем) — иначе следующий TryGetFrame записал бы
+      кадр НОВОГО размера в буфер СТАРОГО размера, повреждая память. }
+    StopLoop;
+    ClearBitmap;
+    FLocalPath := '';
+    if FFrameBuf <> nil then begin
+      FreeMem(FFrameBuf);
+      FFrameBuf := nil;
+    end;
+  end;
+
+  if (FBlurBmp = nil) and (AMinithumb <> '') then begin
+    Ms := TMemoryStream.Create;
+    Src := nil;
+    Resized := nil;
+    Stretched := nil;
+    try
+      try
+        Ms.WriteBuffer(AMinithumb[1], Length(AMinithumb));
+        Ms.Position := 0;
+        Src := TBGRABitmap.Create(Ms);
+        Resized := TBGRABitmap(FilterBlurRadial(Src, 10, rbNormal));
+        Resized.ResampleFilter := rfBestQuality;
+        Stretched := Resized.Resample(FTargetW, FTargetH, rmFineResample);
+        { НЕ композитим маску/обводку в сам битмап (в отличие от
+          TPhotoWidget) — скругление у этого виджета всегда рисуется в
+          Paint через дешёвый GDI-регион, одинаково для плейсхолдера и
+          живого кадра (см. комментарий у класса) — FBlurBmp остаётся
+          простым прямоугольным битмапом. }
+        FBlurBmp := TBGRABitmap(FilterBlurRadial(Stretched, 10, rbNormal));
+      except
+        ClearBitmap;
+      end;
+    finally
+      Stretched.Free;
+      Resized.Free;
+      Src.Free;
+      Ms.Free;
+    end;
+  end;
+
+  FDownloaded := ADownloaded;
+  FLocalPath := ALocalPath;
+  Invalidate;
+end;
+
+procedure TAnimationWidget.StartLoop;
+begin
+  if FPlaying or (FLocalPath = '') or (FTargetW <= 0) or (FTargetH <= 0) then begin
+    Exit;
+  end;
+  if FFrameBuf = nil then begin
+    GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
+  end;
+  FFrameKnownVersion := 0;
+  FPlayer := TAnimationPlayer.Create(FLocalPath, FTargetW, FTargetH);
+  FPlaying := True;
+  FPollTimer.Enabled := True;
+end;
+
+procedure TAnimationWidget.StopLoop;
+begin
+  FPollTimer.Enabled := False;
+  if FPlayer <> nil then begin
+    { FreeOnTerminate=True на стороне TAnimationPlayer (videoplayer.pas,
+      см. её же комментарий про причину) — StopPlayback асинхронно
+      просит поток остановиться и забываем указатель сразу же, не
+      обращаемся к объекту после: он может быть уничтожен (сам собой,
+      из своего же потока) в любой момент после этого. }
+    FPlayer.StopPlayback;
+    FPlayer := nil;
+  end;
+  FPlaying := False;
+end;
+
+procedure TAnimationWidget.PollTick(Sender: TObject);
+begin
+  if (FPlayer = nil) or (FFrameBuf = nil) then begin
+    Exit;
+  end;
+  if FPlayer.TryGetFrame(FFrameBuf, FFrameKnownVersion) then begin
+    Invalidate;
+  end;
+end;
+
+procedure TAnimationWidget.Paint;
+var
+  IconR: TRect;
+  Rgn: HRGN;
+  RgnRadius: integer;
+begin
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := FBgColor;
+  Canvas.FillRect(ClientRect);
+
+  if (Width > 0) and (Height > 0) then begin
+    RgnRadius := Min(PHOTO_CORNER_RADIUS, Min(Width, Height) div 2);
+    Rgn := Windows.CreateRoundRectRgn(0, 0, Width, Height, RgnRadius * 2, RgnRadius * 2);
+    Windows.SelectClipRgn(Canvas.Handle, Rgn);
+    try
+      if FPlaying and (FFrameBuf <> nil) then begin
+        DrawBgraBuffer(Canvas, FFrameBuf, Width, Height);
+      end else if FBlurBmp <> nil then begin
+        FBlurBmp.Draw(Canvas, 0, 0, False);
+      end;
+    finally
+      Windows.SelectClipRgn(Canvas.Handle, 0);
+      Windows.DeleteObject(Rgn);
+    end;
+    Canvas.Pen.Style := psSolid;
+    Canvas.Pen.Color := PHOTO_BORDER_COLOR;
+    Canvas.Pen.Width := 1;
+    Canvas.Brush.Style := bsClear;
+    Canvas.RoundRect(0, 0, Width, Height, RgnRadius * 2, RgnRadius * 2);
+  end;
+
+  if not FDownloaded then begin
+    { Значок "скачать" — по центру превью, тот же кадр, что и у
+      TFileWidget/TPhotoWidget для недокачанного. Не рисуется, пока
+      играет (FPlaying) — если уже скачано и играет, показывать нечего:
+      никаких контролов, скачивание давно позади. }
+    if (FDownloadImages <> nil) and (AUDIO_ICON_DOWNLOAD < FDownloadImages.Count) then begin
+      IconR := Rect((ClientWidth - AUDIO_BUTTON_SIZE) div 2, (ClientHeight - AUDIO_BUTTON_SIZE) div 2,
+        (ClientWidth + AUDIO_BUTTON_SIZE) div 2, (ClientHeight + AUDIO_BUTTON_SIZE) div 2);
+      FDownloadImages.Draw(Canvas, IconR.Left, IconR.Top, AUDIO_ICON_DOWNLOAD, True);
+    end;
+  end;
+end;
+
+procedure TAnimationWidget.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  if (Button = mbLeft) and Assigned(FOnClick) then begin
+    FOnClick(Self);
+  end;
+end;
+
 { ---------------- TMsgScroller ---------------- }
 
 constructor TMsgScroller.Create(AOwner: TComponent);
@@ -1667,6 +2047,9 @@ begin
   FPhotoPool := TFPList.Create;
   FPhotoActive := TPhotoWidgetMap.Create;
   FPhotoActive.Sorted := True;
+  FAnimPool := TFPList.Create;
+  FAnimActive := TAnimationWidgetMap.Create;
+  FAnimActive.Sorted := True;
   FForwardChatAvatars := TForwardAvatarMap.Create;
   FForwardChatAvatars.Sorted := True;
   FForwardUserAvatars := TForwardAvatarMap.Create;
@@ -1692,6 +2075,8 @@ begin
   FFilePool.Free;
   FPhotoActive.Free;
   FPhotoPool.Free;
+  FAnimActive.Free;
+  FAnimPool.Free;
   ClearForwardAvatars;
   FForwardChatAvatars.Free;
   FForwardUserAvatars.Free;
@@ -1777,13 +2162,15 @@ end;
 function TMsgScroller.ContentPadV(ARow: TMsgRow): integer;
 begin
   { Обычный вертикальный отступ контента от заголовка блока/от нижнего
-    края блока — MSG_PAD_V, кроме аудио/голосового/файла/фото: у всех
-    по месту пользователя этот отступ должен совпадать с MSG_PAD_H=11,
-    не с обычным вертикальным (MSG_PAD_V=6). Список рос по одному
-    правкой "по месту" на каждый новый тип виджета — ContentPadV затем
-    единственное место, которое их всех и покрывает разом (голосовое —
-    тот же TAudioWidget, что и аудио, тот же случай). }
-  if (ARow <> nil) and (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto]) then begin
+    края блока — MSG_PAD_V, кроме аудио/голосового/файла/фото/"гифки":
+    у всех по месту пользователя этот отступ должен совпадать с
+    MSG_PAD_H=11, не с обычным вертикальным (MSG_PAD_V=6). Список рос
+    по одному правкой "по месту" на каждый новый тип виджета —
+    ContentPadV затем единственное место, которое их всех и покрывает
+    разом (голосовое — тот же TAudioWidget, что и аудио, "гифка" —
+    тот же класс отступа, что у фото, тем же рассуждением). }
+  if (ARow <> nil) and
+    (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto, mckAnimation]) then begin
     Result := MSG_PAD_H;
   end else begin
     Result := MSG_PAD_V;
@@ -1929,8 +2316,9 @@ begin
       voice note в настройках Auto download нет и не нужно. }
     mckAudio, mckVoiceNote: MediaKind := 'audio';
     mckFile:  MediaKind := 'files';
+    mckAnimation: MediaKind := 'gif';
   else
-    { Видео/GIF/стикеры — по-прежнему только плейсхолдер (см. TODO.md),
+    { Видео/стикеры — по-прежнему только плейсхолдер (см. TODO.md),
       скачивать заранее нечего: у них нет ни своего Ensure*File, ни
       своего file_id на TMsgRow. }
     Exit;
@@ -1957,6 +2345,16 @@ begin
       FModel.EnsurePlayableFile(ARow);
     mckFile:
       FModel.EnsureDocFile(ARow);
+    mckAnimation: begin
+      { По прямому запросу пользователя — при включённой автозагрузке
+        "гифка" не просто качается, а сразу зацикленно проигрывается.
+        AnimAutoPlay — постоянная пометка строки (не разовая команда):
+        сам запуск StartLoop делает LayoutAnimationWidgets на каждом
+        заходе раскладки, как только файл готов (см. её комментарий) —
+        здесь достаточно попросить загрузку и выставить флаг. }
+      FModel.EnsureAnimFile(ARow);
+      ARow.AnimAutoPlay := True;
+    end;
   end;
 end;
 
@@ -1979,20 +2377,26 @@ end;
 
 procedure TMsgScroller.PrefetchAutoDownload(ADirection: integer);
 var
-  Idx: integer;
+  Idx, EndIdx: integer;
 begin
   if (FModel = nil) or (ADirection = 0) then begin
     Exit;
   end;
   if ADirection > 0 then begin
     Idx := LastVisible + 1;
+    EndIdx := Min(FModel.Count - 1, LastVisible + AUTODL_PREFETCH_MESSAGES);
+    while Idx <= EndIdx do begin
+      MaybeAutoDownload(FModel[Idx]);
+      Inc(Idx);
+    end;
   end else begin
     Idx := FirstVisible - 1;
+    EndIdx := Max(0, FirstVisible - AUTODL_PREFETCH_MESSAGES);
+    while Idx >= EndIdx do begin
+      MaybeAutoDownload(FModel[Idx]);
+      Dec(Idx);
+    end;
   end;
-  if (Idx < 0) or (Idx >= FModel.Count) then begin
-    Exit;
-  end;
-  MaybeAutoDownload(FModel[Idx]);
 end;
 
 function TMsgScroller.BlockRect(AIndex: integer): TRect;
@@ -2129,10 +2533,11 @@ begin
   OldTop := FScrollTop;
   FScrollTop := AValue;
   Invalidate;
-  { Упреждающая автозагрузка на одно сообщение вперёд по направлению
-    скролла — единственное место, где ЛЮБОЕ реальное изменение позиции
-    (колесо, клавиши, драг скроллбара, программные правки вроде
-    ScrollToBottom) проходит, см. комментарий у SetScrollTop. }
+  { Упреждающая автозагрузка на AUTODL_PREFETCH_MESSAGES сообщений
+    вперёд по направлению скролла — единственное место, где ЛЮБОЕ
+    реальное изменение позиции (колесо, клавиши, драг скроллбара,
+    программные правки вроде ScrollToBottom) проходит, см. комментарий
+    у SetScrollTop. }
   if AValue > OldTop then begin
     PrefetchAutoDownload(1);
   end else if AValue < OldTop then begin
@@ -2269,7 +2674,7 @@ begin
   end;
 
   { Открытие чата и новые сообщения проходят ЗДЕСЬ, не через
-    ClampScrollTop — то упреждает на одно сообщение ТОЛЬКО при реальном
+    ClampScrollTop — то упреждает окном сообщений ТОЛЬКО при реальном
     изменении позиции скролла, а самая первая страница чата (и любое
     сообщение, прилетевшее сразу в уже видимую область без скролла)
     иначе не попала бы под автозагрузку вовсе. }
@@ -2817,6 +3222,10 @@ begin
     LayoutPhotoWidgets(Lo, Hi);
   except
   end;
+  try
+    LayoutAnimationWidgets(Lo, Hi);
+  except
+  end;
 end;
 
 procedure TMsgScroller.LayoutAudioWidgets(ALo, AHi: integer);
@@ -3250,6 +3659,140 @@ begin
     Exit;
   end;
   OpenDocument(string(Row.PhotoBestLocalPath));
+end;
+
+{ Копия LayoutPhotoWidgets — тот же приём recycled-пула, для "гифок"
+  (Kind=mckAnimation) вместо фото. Отличие — после обычного
+  позиционирования проверяет R.AnimAutoPlay (см. MaybeAutoDownload):
+  если автозагрузка для этого типа диалога включена и файл уже
+  скачан, а виджет ещё не играет — запускает луп сам, без клика. Эта
+  проверка выполняется на КАЖДЫЙ заход (дёшево — два boolean и
+  сравнение строки), а не только в момент, когда файл только что
+  докачался — самовосстанавливающееся поведение: если проигрывание
+  почему-то остановилось (пересоздание виджета при смене размера
+  колонки и т.п.), следующий же заход снова его запустит, пока
+  R.AnimAutoPlay не снят (а он не снимается никогда — это постоянное
+  свойство строки "эта настройка хотела, чтобы это крутилось", не
+  разовый флаг). }
+procedure TMsgScroller.LayoutAnimationWidgets(ALo, AHi: integer);
+var
+  I, N, MIdx, AIdx: integer;
+  R: TMsgRow;
+  W: TAnimationWidget;
+  CR: TRect;
+  WantIds: array of Int64;
+
+  function IsWanted(AId: Int64): boolean;
+  var
+    K: integer;
+  begin
+    Result := False;
+    for K := 0 to N - 1 do begin
+      if WantIds[K] = AId then begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
+begin
+  N := 0;
+  if FModel <> nil then begin
+    SetLength(WantIds, AHi - ALo + 2);
+    for I := ALo to AHi do begin
+      R := FModel[I];
+      if R.Kind = mckAnimation then begin
+        WantIds[N] := R.Id;
+        Inc(N);
+      end;
+    end;
+  end;
+
+  for AIdx := FAnimActive.Count - 1 downto 0 do begin
+    if not IsWanted(FAnimActive.Keys[AIdx]) then begin
+      { Виджет уходит из видимой области — останавливаем воспроизведение
+        (не пускаем "гифку" бесконечно крутиться в фоне после того, как
+        её прокрутили мимо), тем же StopLoop, что и при переиспользовании
+        под другое сообщение (см. SetAnim). }
+      FAnimActive.Data[AIdx].StopLoop;
+      FAnimActive.Data[AIdx].Visible := False;
+      FAnimActive.Delete(AIdx);
+    end;
+  end;
+
+  for I := 0 to N - 1 do begin
+    MIdx := FModel.IndexOfId(WantIds[I]);
+    if MIdx < 0 then begin
+      Continue;
+    end;
+    CR := ContentRect(MIdx);
+    AIdx := FAnimActive.IndexOf(WantIds[I]);
+    if AIdx >= 0 then begin
+      W := FAnimActive.Data[AIdx];
+    end else begin
+      W := ObtainAnimationWidget;
+      FAnimActive.Add(WantIds[I], W);
+    end;
+    W.DownloadImages := FAudioImages;
+    R := FModel[MIdx];
+    W.BackgroundColor := WidgetBackdropColor(R);
+    W.SetAnim(R.Id, R.AnimWidth, R.AnimHeight, R.AnimMinithumb,
+      R.AnimLocalPath <> '', R.AnimLocalPath, CR.Right - CR.Left);
+    W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
+    W.Visible := True;
+    if R.AnimAutoPlay and (R.AnimLocalPath <> '') and (not W.Playing) then begin
+      W.StartLoop;
+    end;
+  end;
+end;
+
+function TMsgScroller.ObtainAnimationWidget: TAnimationWidget;
+var
+  I: integer;
+begin
+  for I := 0 to FAnimPool.Count - 1 do begin
+    Result := TAnimationWidget(FAnimPool[I]);
+    if not Result.Visible then begin
+      Result.OnAnimClick := @AnimationWidgetClick;
+      Exit;
+    end;
+  end;
+  Result := TAnimationWidget.Create(Self);
+  Result.Parent := Self;
+  Result.OnAnimClick := @AnimationWidgetClick;
+  FAnimPool.Add(Result);
+end;
+
+{ Ровно два клика, по прямому запросу пользователя, тем же приёмом,
+  что и у файла (не как у фото — там дополнительно догружается
+  "оригинал" для сохранения, здесь ровно один файл): первый клик по
+  недокачанной — только запрашивает скачивание, БЕЗ автопоказа; второй
+  клик, когда уже скачано — запускает зацикленное воспроизведение.
+  Клик по уже играющей — намеренно ничего не делает: контролов
+  запуска/остановки у "гифки" нет вовсе. }
+procedure TMsgScroller.AnimationWidgetClick(Sender: TObject);
+var
+  W: TAnimationWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TAnimationWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  if Row.AnimLocalPath = '' then begin
+    FModel.EnsureAnimFile(Row);
+    Exit;
+  end;
+  if not W.Playing then begin
+    W.StartLoop;
+  end;
 end;
 
 procedure TMsgScroller.PhotoWidgetSaveAsClick(Sender: TObject);

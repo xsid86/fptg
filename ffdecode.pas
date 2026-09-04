@@ -38,11 +38,27 @@ const
   AVCODEC_LIB     = 'avcodec-63.dll';
   AVFORMAT_LIB    = 'avformat-63.dll';
   SWRESAMPLE_LIB  = 'swresample-7.dll';
+  SWSCALE_LIB     = 'swscale-10.dll';
   {$ENDIF}
 
+  AVMEDIA_TYPE_VIDEO = 0;
   AVMEDIA_TYPE_AUDIO = 1;
 
   AV_SAMPLE_FMT_S16 = 1;
+
+  { --- libavutil/pixfmt.h : enum AVPixelFormat ---
+    Значения ПЕРЕСЧИТАНЫ программно (awk по самому enum'у в заголовке
+    из того же архива gyan.dev, что и остальной биндинг — см. шапку
+    файла), не угаданы по памяти: AV_PIX_FMT_NONE=-1,
+    AV_PIX_FMT_YUV420P — первый элемент после него (0), AV_PIX_FMT_BGRA
+    — 29-й по счёту (индекс 28). Видео Telegram-"гифок" (H.264/MP4) на
+    выходе декодера почти всегда YUV420P; BGRA — формат назначения
+    swscale, тот же порядок байт, что и TBGRABitmap/GDI DIB. }
+  AV_PIX_FMT_YUV420P = 0;
+  AV_PIX_FMT_BGRA     = 28;
+
+  { --- libswscale/swscale.h --- }
+  SWS_BILINEAR = 1 shl 1;
 
   AV_CHANNEL_ORDER_NATIVE = 1;
   AV_CH_LAYOUT_STEREO_MASK: UInt64 = 3;   { AV_CH_FRONT_LEFT(1) | AV_CH_FRONT_RIGHT(2) }
@@ -140,13 +156,21 @@ type
   end;
 
   { --- libavformat/avformat.h : AVStream ---
-    Вплоть до codecpar (включительно). }
+    Вплоть до time_base (включительно) — нужен видео-плееру (videoplayer.
+    pas) для перевода Frame.pts (в единицах time_base этого потока) в
+    реальные секунды и паузы между кадрами при зацикленном
+    воспроизведении "гифок". Поля между codecpar и time_base
+    (priv_data) — тоже объявлены, просто чтобы смещение time_base не
+    съехало, сами не читаются. Сверено построчно с настоящим
+    заголовком (см. шапку файла), не угадано. }
   PAVStream = ^TAVStream;
   TAVStream = record
     av_class: pointer;
     index: cint;
     id: cint;
     codecpar: PAVCodecParameters;
+    priv_data: pointer;
+    time_base: TAVRational;
   end;
   PPAVStream = ^PAVStream;
 
@@ -202,6 +226,12 @@ procedure av_packet_free(var APkt: PAVPacket); cdecl; external AVCODEC_LIB;
 procedure av_packet_unref(APkt: PAVPacket); cdecl; external AVCODEC_LIB;
 function avcodec_send_packet(ACtx: pointer; APkt: PAVPacket): cint; cdecl; external AVCODEC_LIB;
 function avcodec_receive_frame(ACtx: pointer; AFrame: PAVFrame): cint; cdecl; external AVCODEC_LIB;
+{ Сбрасывает внутреннее состояние декодера (кадры в очереди на
+  переупорядочивание и т.п.) — обязателен после av_seek_frame, иначе
+  декодер продолжит попытки достроить кадры из данных ДО прыжка;
+  videoplayer.pas зовёт его на каждом витке зацикленного
+  воспроизведения "гифки" (см. её же комментарий). }
+procedure avcodec_flush_buffers(ACtx: pointer); cdecl; external AVCODEC_LIB;
 
 { ---------------- libswresample ---------------- }
 
@@ -214,6 +244,17 @@ procedure swr_free(var ASwr: pointer); cdecl; external SWRESAMPLE_LIB;
 function swr_convert(ASwr: pointer; AOut: PPByte; AOutCount: cint;
   AIn: PPByte; AInCount: cint): cint; cdecl; external SWRESAMPLE_LIB;
 function swr_get_delay(ASwr: pointer; ABase: Int64): Int64; cdecl; external SWRESAMPLE_LIB;
+
+{ ---------------- libswscale ----------------
+  Непрозрачный SwsContext (pointer) — как и AVCodecContext у аудио,
+  ни одно его поле нигде не читается напрямую, только передаётся между
+  функциями библиотеки. }
+
+function sws_getContext(ASrcW, ASrcH, ASrcFormat: cint; ADstW, ADstH, ADstFormat: cint;
+  AFlags: cint; ASrcFilter, ADstFilter: pointer; AParam: pointer): pointer; cdecl; external SWSCALE_LIB;
+function sws_scale(AC: pointer; const ASrcSlice: PPByte; const ASrcStride: PCInt;
+  ASrcSliceY, ASrcSliceH: cint; const ADst: PPByte; const ADstStride: PCInt): cint; cdecl; external SWSCALE_LIB;
+procedure sws_freeContext(AC: pointer); cdecl; external SWSCALE_LIB;
 
 function FFErrorText(AErrNum: cint): utf8string;
 

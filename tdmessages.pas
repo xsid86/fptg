@@ -137,6 +137,34 @@ type
     PhotoBestFileId:            integer;
     PhotoBestLocalPath:         utf8string;
     PhotoBestDownloadRequested: boolean;
+    { messageAnimation.animation — только для Kind=mckAnimation.
+      AnimWidth/Height/Duration — натуральные размеры (пиксели) и
+      длительность (секунды) исходного видео, тот же приём, что
+      PhotoWidth/Height у фото (для расчёта превью тем же
+      ComputePhotoPreviewSize). AnimMinithumb — та же роль, что
+      PhotoMinithumb (крошечный JPEG прямо в контенте, для
+      плейсхолдера, без скачивания). Сам скачиваемый файл —
+      content.animation.animation (TDLib-объект file — тот же приём
+      двойного имени "animation" в JSON, что у content.audio.audio,
+      проверено по tdlib_raw.log) — ОДИН слой, не два, как у фото:
+      Telegram отдаёт "гифку" одним MP4-файлом, без набора
+      превью-размеров, поэтому один file_id/путь, без деления на
+      "превью"/"оригинал". }
+    AnimWidth, AnimHeight: integer;
+    AnimDuration:          integer;
+    AnimMinithumb:         RawByteString;
+    AnimFileId:            integer;
+    AnimLocalPath:         utf8string;
+    AnimDownloadRequested: boolean;
+    { True — постоянное свойство СТРОКИ (не разовый флаг, не снимается
+      после первого срабатывания): настройки автозагрузки для этого
+      типа диалога хотят, чтобы эта "гифка" не просто скачивалась, а
+      сразу зацикленно проигрывалась (framehistory.pas,
+      TMsgScroller.MaybeAutoDownload/LayoutAnimationWidgets — проверка
+      идёт на КАЖДЫЙ заход раскладки, самовосстанавливающееся
+      поведение, см. её же комментарий). Ручной клик пользователя это
+      поле не трогает — только сама настройка автозагрузки. }
+    AnimAutoPlay:          boolean;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -175,6 +203,9 @@ type
   { То же для фото — своя карта, не общая с аудио/документом (см.
     комментарий у TDocFileMap). }
   TPhotoFileMap = specialize TFPGMap<integer, TMsgRow>;
+  { То же для "гифок" (messageAnimation) — своя карта, не общая с
+    остальными (см. комментарий у TDocFileMap). }
+  TAnimFileMap = specialize TFPGMap<integer, TMsgRow>;
 
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
@@ -238,6 +269,8 @@ type
       ApplyPhotoBestFile. Отдельная карта: разные file_id, разный кэш-файл
       TDLib, чем у превью-загрузки выше (см. комментарий у TMsgRow.PhotoBestFileId). }
     FPhotoBestByFile: TPhotoFileMap;
+    { Скачивание "гифок" — см. EnsureAnimFile/ApplyAnimFile. }
+    FAnimByFile: TAnimFileMap;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -270,6 +303,11 @@ type
     procedure ApplyPhotoFile(AFile: TJSONObject);
     procedure DownloadPhotoBestDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyPhotoBestFile(AFile: TJSONObject);
+    procedure ExtractAnimMeta(AContent: TJSONObject; const AType: utf8string;
+      out AWidth, AHeight, ADuration: integer; out AMinithumb: RawByteString;
+      out AFileId: integer; out ALocalPath: utf8string);
+    procedure DownloadAnimDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyAnimFile(AFile: TJSONObject);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -348,6 +386,8 @@ type
     { Оригинал фото (см. PhotoBestFileId) — для "Save as"/"Show in
       folder", отдельно от превью выше (см. комментарий у поля). }
     procedure EnsurePhotoBestFile(ARow: TMsgRow);
+    { То же самое для "гифки" (см. AnimFileId) — тем же приёмом. }
+    procedure EnsureAnimFile(ARow: TMsgRow);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -594,6 +634,8 @@ begin
   FPhotoByFile.Sorted := True;
   FPhotoBestByFile := TPhotoFileMap.Create;
   FPhotoBestByFile.Sorted := True;
+  FAnimByFile := TAnimFileMap.Create;
+  FAnimByFile.Sorted := True;
   FLoadLimit := 50;
 
   FTimer := TTimer.Create(Self);
@@ -626,6 +668,7 @@ begin
   FDocByFile.Free;
   FPhotoByFile.Free;
   FPhotoBestByFile.Free;
+  FAnimByFile.Free;
   inherited Destroy;
 end;
 
@@ -647,6 +690,7 @@ begin
   FDocByFile.Clear;
   FPhotoByFile.Clear;
   FPhotoBestByFile.Clear;
+  FAnimByFile.Clear;
   SetLength(FReplyPending, 0);
   FLoadingOlder := False;
   FOldestLoaded := False;
@@ -1280,6 +1324,56 @@ begin
   end;
 end;
 
+{ messageAnimation.animation — content.animation.minithumbnail — тот же
+  крошечный JPEG, что и у фото (base64, поле data), без скачивания;
+  content.animation.animation — сам скачиваемый TDLib-объект file (тот
+  же приём двойного имени, что content.audio.audio) — проверено по
+  tdlib_raw.log (реальные сообщения с "гифками" уже встречались там),
+  не по памяти. В отличие от фото — ОДИН слой, не массив sizes: Telegram
+  отдаёт "гифку" одним MP4-файлом целиком, набора превью-размеров нет. }
+procedure TTdMessages.ExtractAnimMeta(AContent: TJSONObject; const AType: utf8string;
+  out AWidth, AHeight, ADuration: integer; out AMinithumb: RawByteString;
+  out AFileId: integer; out ALocalPath: utf8string);
+var
+  AnimObj, MiniObj, FileObj, LocalObj: TJSONObject;
+  B64: utf8string;
+begin
+  AWidth := 0;
+  AHeight := 0;
+  ADuration := 0;
+  AMinithumb := '';
+  AFileId := 0;
+  ALocalPath := '';
+  if (AContent = nil) or (AType <> 'messageAnimation') then begin
+    Exit;
+  end;
+  AnimObj := JGetObj(AContent, 'animation');
+  if AnimObj = nil then begin
+    Exit;
+  end;
+  AWidth := JGetInt(AnimObj, 'width');
+  AHeight := JGetInt(AnimObj, 'height');
+  ADuration := JGetInt(AnimObj, 'duration');
+
+  MiniObj := JGetObj(AnimObj, 'minithumbnail');
+  if MiniObj <> nil then begin
+    B64 := JGetStr(MiniObj, 'data');
+    if B64 <> '' then begin
+      AMinithumb := DecodeStringBase64(string(B64));
+    end;
+  end;
+
+  FileObj := JGetObj(AnimObj, 'animation');
+  if FileObj = nil then begin
+    Exit;
+  end;
+  AFileId := JGetInt(FileObj, 'id');
+  LocalObj := JGetObj(FileObj, 'local');
+  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+    ALocalPath := JGetStr(LocalObj, 'path');
+  end;
+end;
+
 procedure TTdMessages.ApplyMessage(AMsg: TJSONObject);
 var
   R: TMsgRow;
@@ -1406,6 +1500,8 @@ begin
   ExtractDocMeta(ContentObj, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   ExtractPhotoMeta(ContentObj, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
     R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
+  ExtractAnimMeta(ContentObj, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
+    R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -1438,6 +1534,8 @@ begin
   ExtractDocMeta(ANewContent, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   ExtractPhotoMeta(ANewContent, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
     R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
+  ExtractAnimMeta(ANewContent, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
+    R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
@@ -2110,6 +2208,79 @@ begin
   Touch;
 end;
 
+{ "Гифка" — один файл, точная копия EnsureDocFile/DownloadDocDone/
+  ApplyDocFile по форме (не EnsurePhotoFile — у той два слоя, animation
+  устроен проще), своя карта FAnimByFile. priority 32 — то же самое
+  "явный интерес пользователя, не фон", что и у остальных Ensure*File. }
+procedure TTdMessages.EnsureAnimFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.AnimFileId = 0) or (ARow.AnimLocalPath <> '') or ARow.AnimDownloadRequested then begin
+    Exit;
+  end;
+  ARow.AnimDownloadRequested := True;
+  if FAnimByFile.IndexOf(ARow.AnimFileId) < 0 then begin
+    FAnimByFile.Add(ARow.AnimFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.AnimDownloadRequested := False;
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.AnimFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadAnimDone, ARow.AnimFileId);
+end;
+
+procedure TTdMessages.DownloadAnimDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyAnimFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FAnimByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FAnimByFile.Data[Idx].AnimDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyAnimFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FAnimByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FAnimByFile.Data[Idx];
+  if R.AnimLocalPath = Path then begin
+    Exit;
+  end;
+  R.AnimLocalPath := Path;
+  Touch;
+end;
+
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
   Obj: TJSONObject;
@@ -2146,6 +2317,7 @@ begin
       ApplyDocFile(JGetObj(Obj, 'file'));
       ApplyPhotoFile(JGetObj(Obj, 'file'));
       ApplyPhotoBestFile(JGetObj(Obj, 'file'));
+      ApplyAnimFile(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));

@@ -13,7 +13,8 @@ uses
   Forms, Dialogs,
   constants,
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
-  tdusers, tdaccentcolors, tdaccount, tdcore, audiodevices, ffdecode, audioplayer,
+  tdusers, tdaccentcolors, tdaccount, tdcore, audiodevices, ffdecode, audioplayer, videoplayer,
+  photodecoder,
   uiframe, avatarcache, qrrender, msglayout,
   main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
   framesettingsautodownload, framelog, framewelcome, framechats, framehistory

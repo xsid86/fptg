@@ -564,11 +564,29 @@ type
     function WantsWidget: boolean; override;
   end;
 
+{ Натуральные (немасштабированные) размеры визуального превью — фото
+  или "гифки" (messageAnimation), у обоих один и тот же рендерер (см.
+  RendererFor): и то, и другое — картинка переменного размера с
+  опциональной подписью, отличается только тем, ОТКУДА берутся
+  width/height (PhotoWidth/Height у фото, AnimWidth/Height у анимации —
+  разные поля TMsgRow, см. её же комментарий). }
+procedure NaturalMediaSize(ARow: TMsgRow; out AW, AH: integer);
+begin
+  if ARow.Kind = mckAnimation then begin
+    AW := ARow.AnimWidth;
+    AH := ARow.AnimHeight;
+  end else begin
+    AW := ARow.PhotoWidth;
+    AH := ARow.PhotoHeight;
+  end;
+end;
+
 function TPhotoContentRenderer.Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer;
 var
-  ImgW, ImgH: integer;
+  NatW, NatH, ImgW, ImgH: integer;
 begin
-  ComputePhotoPreviewSize(ARow.PhotoWidth, ARow.PhotoHeight, ACtx.AvailWidth, ImgW, ImgH);
+  NaturalMediaSize(ARow, NatW, NatH);
+  ComputePhotoPreviewSize(NatW, NatH, ACtx.AvailWidth, ImgW, ImgH);
   if ARow.PlainText = '' then begin
     Result := ImgH;
   end else begin
@@ -581,15 +599,17 @@ end;
 procedure TPhotoContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
   ASelStart, ASelEnd: integer);
 var
-  ImgW, ImgH: integer;
+  NatW, NatH, ImgW, ImgH: integer;
   L: TMsgLayout;
   Ctx: TMsgLayoutCtx;
 begin
   { Подложка на случай кадра до того, как framehistory успеет
-    позиционировать поверх настоящий TPhotoWidget из пула — тот же
-    приём, что и у аудио/файла. Только под превью, не во всю ширину:
-    у фото свой натуральный размер, не "во всю колонку". }
-  ComputePhotoPreviewSize(ARow.PhotoWidth, ARow.PhotoHeight, ARect.Right - ARect.Left, ImgW, ImgH);
+    позиционировать поверх настоящий виджет из пула (TPhotoWidget/
+    TAnimationWidget) — тот же приём, что и у аудио/файла. Только под
+    превью, не во всю ширину: у картинки свой натуральный размер, не
+    "во всю колонку". }
+  NaturalMediaSize(ARow, NatW, NatH);
+  ComputePhotoPreviewSize(NatW, NatH, ARect.Right - ARect.Left, ImgW, ImgH);
   ACanvas.Brush.Style := bsSolid;
   ACanvas.Brush.Color := clBtnFace;
   ACanvas.FillRect(Rect(ARect.Left, ARect.Top, ARect.Left + ImgW, ARect.Top + ImgH));
@@ -636,12 +656,11 @@ type
 
 function PlaceholderLabel(AKind: TMsgContentKind): string;
 begin
-  { mckVoiceNote убран отсюда — теперь реальный виджет (GAudioRenderer,
-    см. RendererFor), эта ветка для него больше недостижима. }
+  { mckVoiceNote/mckPhoto/mckAnimation убраны отсюда — теперь реальные
+    виджеты (GAudioRenderer/GPhotoRenderer, см. RendererFor), эти ветки
+    для них больше недостижимы. }
   case AKind of
-    mckPhoto:     Result := 'Photo';
-    mckAnimation: Result := 'GIF / video';
-    mckSticker:   Result := 'Sticker';
+    mckSticker: Result := 'Sticker';
   else
     Result := 'Unsupported';
   end;
@@ -730,7 +749,13 @@ begin
       mckAudio, и mckVoiceNote). }
     mckAudio, mckVoiceNote: Result := GAudioRenderer;
     mckFile:      Result := GDocRenderer;
-    mckPhoto:     Result := GPhotoRenderer;
+    { "Гифка" (messageAnimation) — тот же реальный рендерер, что и
+      фото, тем же приёмом, что и голосовое с GAudioRenderer: и то, и
+      другое — картинка переменного размера с опциональной подписью,
+      NaturalMediaSize внутри TPhotoContentRenderer различает их по
+      ARow.Kind. Содержимым виджета (загрузка/зацикленное
+      воспроизведение) ведает framehistory.pas. }
+    mckPhoto, mckAnimation: Result := GPhotoRenderer;
   else
     Result := GPlaceholderRenderer;
   end;
