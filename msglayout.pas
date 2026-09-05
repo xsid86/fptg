@@ -703,6 +703,8 @@ end;
 
 procedure TStickerContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
   ASelStart, ASelEnd: integer);
+var
+  ImgW, ImgH: integer;
 begin
   { Подложка на случай кадра до того, как framehistory успеет
     позиционировать поверх настоящий TStickerWidget — тот же приём, что
@@ -710,10 +712,21 @@ begin
     ЧЕМ-ТО всё равно нужно, иначе виден пиксельный мусор предыдущего
     кадра под ещё не поднятым виджетом; clWindow, не clBtnFace — фон
     стикера должен сливаться с окном, а не выглядеть отдельной серой
-    плашкой (у стикера нет своей "карточки"). }
+    плашкой (у стикера нет своей "карточки").
+    Только под самим стикером (его натуральный размер, тот же расчёт,
+    что и у LayoutStickerWidgets/SetSticker — ComputeStickerSize с той
+    же AMaxW), НЕ во всю ширину ARect — раньше красили ARect целиком,
+    из-за чего справа от маленького стикера был виден белый
+    прямоугольник ВМЕСТО тонировки блока (баг, пойманный по скриншоту
+    пользователя, не зависит от new_style — этот Paint вызывается на
+    КАЖДУЮ перерисовку, даже когда настоящий виджет уже поднят поверх,
+    и белый фон под ним просвечивал везде, где виджет физически меньше
+    ARect). TPhotoContentRenderer.Paint уже делает именно так — тот же
+    приём, перенесён сюда. }
+  ComputeStickerSize(ARow.StickerWidth, ARow.StickerHeight, ARect.Right - ARect.Left, ImgW, ImgH);
   ACanvas.Brush.Style := bsSolid;
   ACanvas.Brush.Color := clWindow;
-  ACanvas.FillRect(ARect);
+  ACanvas.FillRect(Rect(ARect.Left, ARect.Top, ARect.Left + ImgW, ARect.Top + ImgH));
 end;
 
 function TStickerContentRenderer.WantsWidget: boolean;

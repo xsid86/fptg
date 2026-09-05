@@ -150,12 +150,16 @@ type
   { TPhotoWidget
 
     Превью фото — по прямому запросу пользователя. В отличие от
-    TAudioWidget/TFileWidget — БЕЗ подложки/контура-карточки (только
-    само изображение, скруглённое PHOTO_CORNER_RADIUS): "рамки вокруг
-    предпросмотра не нужно". Взаимодействие — тот же приём, что у
-    TFileWidget: курсор-рука на весь виджет, левый клик качает
-    (молча, если не скачано) либо открывает системным приложением
-    (если уже скачано), контекстное меню — тот же общий FilePopupMenu.
+    TAudioWidget/TFileWidget — БЕЗ подложки/контура-карточки: "рамки
+    вокруг предпросмотра не нужно". Скругление и серая обводка, что
+    были здесь раньше (PHOTO_CORNER_RADIUS/PHOTO_BORDER_COLOR), убраны
+    целиком по прямому запросу пользователя (2026-09-06) — само
+    изображение теперь рисуется как есть, прямоугольным, см.
+    DrawBmpRounded (имя — по историческим причинам). Взаимодействие —
+    тот же приём, что у TFileWidget: курсор-рука на весь виджет, левый
+    клик качает (молча, если не скачано) либо открывает встроенный
+    просмотрщик (mediaviewer.pas, если уже скачано), контекстное меню
+    — тот же общий FilePopupMenu.
 
     Пока файл не скачан — показываем блюр-плейсхолдер из
     content.photo.minithumbnail (крошечный JPEG, приходит сразу в
@@ -329,14 +333,16 @@ type
     FHovering) — во время активного проигрывания видео ничем не
     закрыто, пока пользователь явно не наведёт мышь.
 
-    Живое воспроизведение — TMediaPlayer (mediaplayer.pas), ОДИН
-    активный на весь скроллер (TMsgScroller.FActiveVideoPlayer, тот же
-    принцип, что и у аудио — не как у "гифок", которых может крутиться
-    сразу много: видео со звуком одновременно осмысленно только одно).
-    Виджет НЕ владеет плеером и не гоняет свой опрос — состояние
-    (играет/на паузе/позиция) и сами кадры ему передаёт скроллер
-    (SetPlayback/UpdateFrame), тем же разделением ответственности, что
-    уже принято для TAudioWidget. }
+    Живое воспроизведение — TMediaPlayer (mediaplayer.pas), но НЕ
+    отсюда: по прямому запросу пользователя (2026-09-06) инлайн-
+    проигрывание в чате убрано целиком — клик по play-кнопке ИЛИ по
+    самому кадру открывает встроенный просмотрщик (mediaviewer.pas,
+    TMsgScroller.VideoBodyClick), тот и держит свой, независимый
+    TMediaPlayer. Здесь, в чате, виджет — просто кликабельный превью
+    (та же роль, что у TPhotoWidget): своего плеера не имеет, никогда
+    не оказывается "активным" (FIsActive всегда False, см. SetPlayback
+    в LayoutVideoWidgets), полоса прокрутки/пауза поэтому никогда не
+    показывается — только неизменная play-иконка. }
   TVideoWidget = class(TCustomControl)
   private
     FRowId: Int64;
@@ -362,11 +368,20 @@ type
     FOnClick: TNotifyEvent;       { клик по недокачанному виджету целиком — скачать }
     FOnPlayClick: TNotifyEvent;   { клик по центральной кнопке play/pause }
     FOnSeek: TAudioSeekEvent;
+    { Клик по уже скачанному видео, НЕ по кнопке play/pause и НЕ по
+      полосе прокрутки — то есть по самому кадру/превью. Инлайн-плеер
+      в чате на это никак не реагировал (только play/pause) — заведено
+      специально для просмотрщика (mediaviewer.pas): "открыть покрупнее"
+      должно быть отдельным от "проиграть тут же, маленьким" жестом. }
+    FOnBodyClick: TNotifyEvent;
     function PlayButtonRect: TRect;
     function ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
     function TrackAreaRect: TRect;
     function FractionFromX(AX: integer): double;
     procedure ClearBitmap;
+    procedure SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
+      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+      ATargetW, ATargetH, ADuration: integer);
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
@@ -383,11 +398,21 @@ type
     procedure SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
       AMaxW: integer; ADuration: integer);
+    { Тот же SetVideo, но с ЯВНО заданным целевым размером — не через
+      ComputePhotoPreviewSize/AMaxW (тот всегда клампит к PHOTO_MAX_
+      WIDTH/HEIGHT, маленькому потолку инлайн-превью в чате). Нужен
+      просмотрщику (mediaviewer.pas) — там видео показывается БОЛЬШИМ,
+      вписанным в размер окна программы, не в размер строки в чате. }
+    procedure SetVideoSized(ARowId: Int64; ANaturalW, ANaturalH: integer;
+      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+      ATargetW, ATargetH, ADuration: integer);
     procedure SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
     { Помечает, что FrameBuf только что обновился (сам плеер пишет
-      ПРЯМО в FrameBuf, см. её комментарий — TMsgScroller.
-      VideoPlaybackTick зовёт TryGetFrame(Widget.FrameBuf, ...), а
-      следом, если тот вернул True, — это) и просит перерисоваться. }
+      ПРЯМО в FrameBuf, см. её комментарий — вызывающий зовёт
+      TryGetFrame(Widget.FrameBuf, ...), а следом, если тот вернул
+      True, — это) и просит перерисоваться. В чате этот виджет своего
+      плеера не имеет и сюда не приходит вовсе (см. шапку класса) —
+      метод используется только просмотрщиком (mediaviewer.pas). }
     procedure NotifyNewFrame;
     property TargetWidth: integer read FTargetW;
     property TargetHeight: integer read FTargetH;
@@ -406,6 +431,7 @@ type
     property OnClick: TNotifyEvent read FOnClick write FOnClick;
     property OnPlayClick: TNotifyEvent read FOnPlayClick write FOnPlayClick;
     property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
+    property OnBodyClick: TNotifyEvent read FOnBodyClick write FOnBodyClick;
   end;
 
   TVideoWidgetMap = specialize TFPGMap<Int64, TVideoWidget>;
@@ -626,26 +652,19 @@ type
     FPlaybackTimer:     TTimer;
 
     { Видео-сообщения (messageVideo) — recycled-пул, тем же приёмом,
-      что у фото/аудио/файла/"гифки". Воспроизведение — как у аудио
-      (ОДИН активный плеер на весь скроллер, не по одному на виджет:
-      видео со звуком одновременно осмысленно ровно одно), НЕ как у
-      "гифок" (там несколько независимых, беззвучных, каждая в своём
-      виджете). FDoneVideoPlayer/VideoPlaybackTick — та же схема, что
-      FDonePlayer/PlaybackTick у аудио (не освобождать TThread изнутри
-      его же Synchronize). FVideoFrameKnownVersion — версия последнего
-      кадра, который VideoPlaybackTick уже забрал у FActiveVideoPlayer
-      (TryGetFrame сверяет её сама, см. mediaplayer.pas). }
+      что у фото/аудио/файла/"гифки". По прямому запросу пользователя
+      (2026-09-06) видео БОЛЬШЕ НЕ проигрывается инлайн вовсе — клик
+      по кадру ИЛИ по кнопке play (уже скачанному видео) открывает
+      просмотрщик (mediaviewer.pas, свой независимый TMediaPlayer);
+      здесь, в чате, виджет — просто кликабельный превью, тем же путём,
+      что и TPhotoWidget. Раньше был "один активный плеер на весь
+      скроллер" (тот же приём, что у аудио) — вся эта инфраструктура
+      (FActiveVideoPlayer/StartVideoPlayback/VideoSeek/VideoPlaybackTick
+      и т.д.) убрана целиком вместе с этой правкой: без клика,
+      который её запускал, она была бы мёртвым, никогда не
+      достижимым кодом. }
     FVideoPool:   TFPList;       { of TVideoWidget }
     FVideoActive: TVideoWidgetMap;
-    FActiveVideoPlayer:      TMediaPlayer;
-    FActiveVideoPlayerMsgId: Int64;
-    FDoneVideoPlayer:        TMediaPlayer;
-    FVideoFrameKnownVersion: cardinal;
-    { Тот же приём, что и FPendingPlayMsgId у аудио — клик по play на
-      ещё не скачанном видео сам ничего не запускает, только просит
-      загрузку; когда путь придёт, воспроизведение стартует само. }
-    FPendingVideoPlayMsgId:  Int64;
-    FVideoPlaybackTimer:     TTimer;
 
     { Аватарки источников репоста — маленькие (диаметр HEADER_H),
       свой кэш, а не avatarcache.TAvatarCache: тот заточен под
@@ -703,16 +722,16 @@ type
     procedure StopActivePlayer;
     procedure StartPlayback(ARow: TMsgRow; AStartPositionSec: double = 0);
 
-    { То же самое для видео-сообщений — тем же приёмом, что и у аудио
-      (см. её же комментарии), плюс кадры (VideoPlaybackTick вдобавок
-      опрашивает TryGetFrame, PlaybackTick аудио этого не делает). }
+    { Видео (messageVideo) — БЕЗ инлайн-проигрывания вовсе (см.
+      комментарий у FVideoPool): и клик по кнопке play (уже
+      скачанному видео), и клик по самому кадру ведут в один и тот же
+      VideoBodyClick — просмотрщик (mediaviewer.pas). Недокачанное —
+      VideoPlayClick только просит загрузку (EnsureVideoFile), без
+      автозапуска чего-либо по готовности — повторный клик, когда файл
+      уже готов, откроет просмотрщик, тот же принцип "строго два
+      клика", что и у фото (PhotoWidgetClick). }
     procedure VideoPlayClick(Sender: TObject);
-    procedure VideoSeek(Sender: TObject; AFraction: double);
-    procedure VideoPlayerStateChanged(Sender: TObject);
-    procedure VideoPlaybackTick(Sender: TObject);
-    procedure FlushDoneVideoPlayer;
-    procedure StopActiveVideoPlayer;
-    procedure StartVideoPlayback(ARow: TMsgRow; AStartPositionSec: double = 0);
+    procedure VideoBodyClick(Sender: TObject);
     procedure LayoutVideoWidgets(ALo, AHi: integer);
     function ObtainVideoWidget: TVideoWidget;
 
@@ -1911,18 +1930,14 @@ end;
 
 { Заливает клиентскую область (уже настоящим цветом фона clWindow —
   реальный дочерний control, не просвечивает canvas родителя) и рисует
-  переданный битмап, растянутый на весь TargetW x TargetH, с маской
-  скругления PHOTO_CORNER_RADIUS — тем же приёмом, что и круглые
-  аватарки (avatarcache.ApplyRoundMaskTo), только прямоугольная маска
-  вместо круглой. }
+  переданный битмап как есть. Раньше здесь была маска скругления
+  (PHOTO_CORNER_RADIUS) — BGRA-маска на SMOOTH_CORNERS=True, GDI-регион
+  на False, плюс серая обводка поверх — оба убраны по прямому запросу
+  пользователя (2026-09-06, обводка и скругление превью фото/видео).
+  Имя метода ("Rounded") — по историческим причинам, не переименовано:
+  риск задеть остальные вызовы не стоил переименования ради одного
+  слова. }
 procedure TPhotoWidget.DrawBmpRounded(ABmp: TBGRABitmap);
-const
-  BORDER_W = 1;
-var
-  Mask, Masked: TBGRABitmap;
-  Radius, RgnRadius: integer;
-  NearXY, FarX, FarY: single;
-  Rgn: HRGN;
 begin
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
@@ -1932,82 +1947,7 @@ begin
   if (ABmp = nil) or (ABmp.Width <= 0) or (ABmp.Height <= 0) then begin
     Exit;
   end;
-
-  if not SMOOTH_CORNERS then begin
-    { Старый метод — без BGRABitmap-маски (тест влияния сглаженной
-      отрисовки на плавность скролла, см. SMOOTH_CORNERS), но углы
-      всё равно должны оставаться скруглёнными — ПРАВКА ПО МЕСТУ:
-      первая версия рисовала битмап прямоугольным вовсе без скругления,
-      пользователь указал, что скругление именно фото-превью потерялось
-      при переходе на этот флаг, попросил вернуть. GDI не умеет
-      альфа-маскировать произвольное изображение (ApplyMask — только
-      BGRABitmap), но умеет ограничить область вывода регионом —
-      CreateRoundRectRgn/SelectClipRgn (тот же приём, что уже
-      использовался в этом файле для похожей задачи — клип-регион под
-      полосу цитаты ответа, впоследствии убранную вместе с самой
-      полосой, см. CLAUDE.md). Регион — временный, снимается и
-      освобождается сразу после отрисовки. Обводка поверх — обычный
-      GDI Canvas.RoundRect, тем же радиусом, без антиалиасинга. }
-    RgnRadius := Min(PHOTO_CORNER_RADIUS, Min(ABmp.Width, ABmp.Height) div 2);
-    Rgn := Windows.CreateRoundRectRgn(0, 0, ABmp.Width, ABmp.Height,
-      RgnRadius * 2, RgnRadius * 2);
-    Windows.SelectClipRgn(Canvas.Handle, Rgn);
-    try
-      ABmp.Draw(Canvas, 0, 0, False);
-    finally
-      Windows.SelectClipRgn(Canvas.Handle, 0);
-      Windows.DeleteObject(Rgn);
-    end;
-    Canvas.Pen.Style := psSolid;
-    Canvas.Pen.Color := PHOTO_BORDER_COLOR;
-    Canvas.Pen.Width := BORDER_W;
-    Canvas.Brush.Style := bsClear;
-    Canvas.RoundRect(0, 0, ABmp.Width, ABmp.Height, RgnRadius * 2, RgnRadius * 2);
-    Exit;
-  end;
-
-  Radius := Min(PHOTO_CORNER_RADIUS, Min(ABmp.Width, ABmp.Height) div 2);
-
-  { Корень трёх последовательных правок этой функции (белый зазор в
-    углу, потом обрезанная обводка справа/снизу, потом мутная обводка
-    слева/сверху) — один и тот же факт, каждый раз понятый чуть
-    точнее: BGRABitmap считает координаты "по центру пикселя"
-    (APixelCenteredCoordinates=True — это ЗНАЧЕНИЕ ПО УМОЛЧАНИЮ и у
-    FillRoundRectAntialias, и у RoundRectAntialias, проверено чтением
-    исходника bgrapolygon.pas, не угадано) — целая координата N это
-    ЦЕНТР пикселя N, а не граница между пикселями N-1 и N, как в GDI
-    (тем способом координаты читал я, отсюда все три правки). Из-за
-    этого (0,0,Width,Height) — не "весь битмап", а сдвинуто на +0.5
-    пикселя вправо/вниз от истинных границ: левый/верхний край задевает
-    мягкую антиалиасинговую кромку (мутно), правый/нижний уходит ЗА
-    истинный край, там сглаживать уже нечему (чётко, но обрезано у
-    обводки — обводка ведь ограничена самим битмапом). Верная граница
-    заливки для FillRoundRectAntialias (пиксель-центрированные
-    координаты) — не (0,0,W,H), а (-0.5,-0.5,W-0.5,H-0.5): ровно
-    середина между "здесь есть пиксель" и "здесь уже нет". }
-  Masked := ABmp.Duplicate as TBGRABitmap;
-  Mask := TBGRABitmap.Create(ABmp.Width, ABmp.Height, BGRABlack);
-  try
-    Mask.FillRoundRectAntialias(-0.5, -0.5, ABmp.Width - 0.5, ABmp.Height - 0.5,
-      Radius, Radius, BGRAWhite);
-    Masked.ApplyMask(Mask);
-
-    { Обводка — та же поправка, плюс сам путь линии (она рисуется
-      ЦЕНТРИРОВАННОЙ на своих координатах) сдвинут так, чтобы вся её
-      толщина BORDER_W легла внутрь битмапа: путь ближнего края —
-      BORDER_W/2 минус та же поправка на пиксель-центрирование (0.5),
-      дальнего — Width минус то же самое. При BORDER_W=1 это ровно
-      (0, 0, Width-1, Height-1) — путь через центры крайних пикселей. }
-    NearXY := BORDER_W / 2 - 0.5;
-    FarX := ABmp.Width - BORDER_W / 2 - 0.5;
-    FarY := ABmp.Height - BORDER_W / 2 - 0.5;
-    Masked.RoundRectAntialias(NearXY, NearXY, FarX, FarY, Radius, Radius,
-      ColorToBGRA(PHOTO_BORDER_COLOR), BORDER_W);
-    Masked.Draw(Canvas, 0, 0, False);
-  finally
-    Mask.Free;
-    Masked.Free;
-  end;
+  ABmp.Draw(Canvas, 0, 0, False);
 end;
 
 procedure TPhotoWidget.Paint;
@@ -2294,6 +2234,23 @@ procedure TVideoWidget.SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
   const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
   AMaxW: integer; ADuration: integer);
 var
+  TgtW, TgtH: integer;
+begin
+  ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, TgtW, TgtH);
+  SetVideoCore(ARowId, ANaturalW, ANaturalH, AMinithumb, ADownloaded, ALocalPath, TgtW, TgtH, ADuration);
+end;
+
+procedure TVideoWidget.SetVideoSized(ARowId: Int64; ANaturalW, ANaturalH: integer;
+  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+  ATargetW, ATargetH, ADuration: integer);
+begin
+  SetVideoCore(ARowId, ANaturalW, ANaturalH, AMinithumb, ADownloaded, ALocalPath, ATargetW, ATargetH, ADuration);
+end;
+
+procedure TVideoWidget.SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
+  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+  ATargetW, ATargetH, ADuration: integer);
+var
   Ms: TMemoryStream;
   Src, Resized, Stretched: TBGRABitmap;
   OldTargetW, OldTargetH: integer;
@@ -2317,7 +2274,8 @@ begin
   FDuration := ADuration;
   OldTargetW := FTargetW;
   OldTargetH := FTargetH;
-  ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, FTargetW, FTargetH);
+  FTargetW := ATargetW;
+  FTargetH := ATargetH;
   if (FTargetW <> OldTargetW) or (FTargetH <> OldTargetH) then begin
     { Размер поменялся — старый FrameBuf теперь не того размера; кто
       угодно (плеер через FrameBuf-указатель) писавший в него по
@@ -2336,6 +2294,11 @@ begin
   end;
 
   if (FBlurBmp = nil) and (AMinithumb <> '') then begin
+    { Блюр-плейсхолдер — тот же двухпроходный FilterBlurRadial, что и
+      у фото/"гифки" (см. запись про блюр превью фото в CLAUDE.md за
+      2026-09-03). Убирался по запросу пользователя (2026-09-06), затем
+      возвращён обратно тем же днём — без него растянутый крошечный
+      minithumbnail выглядел блочным. }
     Ms := TMemoryStream.Create;
     Src := nil;
     Resized := nil;
@@ -2459,6 +2422,12 @@ begin
     FDraggingSeek := True;
     FDragFraction := FractionFromX(X);
     Invalidate;
+    Exit;
+  end;
+  { Клик по самому кадру — не по play/pause, не по полосе — "открыть
+    покрупнее" (просмотрщик, mediaviewer.pas), см. FOnBodyClick. }
+  if Assigned(FOnBodyClick) then begin
+    FOnBodyClick(Self);
   end;
 end;
 
@@ -2511,10 +2480,9 @@ end;
 procedure TVideoWidget.Paint;
 var
   Box, PlayRect, TrackRect, ThumbRect, PlayedRect, OverlayRect: TRect;
-  RgnRadius, ContentX, ContentW, ProgressTop, PlayedW, IconIdx, TimeH: integer;
+  ContentX, ContentW, ProgressTop, PlayedW, IconIdx, TimeH: integer;
   Frac: double;
   ElapsedStr, RemainStr: string;
-  Rgn: HRGN;
   ShowPauseOverlay, ShowSeekBar: boolean;
 begin
   Box := ClientRect;
@@ -2523,32 +2491,18 @@ begin
   Canvas.Brush.Color := FBgColor;
   Canvas.FillRect(Box);
 
+  { Раньше здесь было скругление (клип-регион PHOTO_CORNER_RADIUS,
+    переключаемое свойством Rounded — True в чате, False в
+    просмотрщике) + серая обводка. Оба убраны по прямому запросу
+    пользователя (2026-09-06) — теперь чат и просмотрщик рисуют кадр
+    одинаково, во весь прямоугольник виджета, различать их стало
+    незачем, свойство Rounded удалено вместе с веткой. }
   if (Box.Right > Box.Left) and (Box.Bottom > Box.Top) then begin
-    { Скругление — тем же дешёвым GDI-регионом, что и у TAnimationWidget
-      (см. её комментарий про SMOOTH_CORNERS), не BGRA-маской: живой
-      кадр обновляется часто, а плейсхолдер и живое видео должны
-      выглядеть одинаково скруглёнными — смешивать два разных способа
-      для одного виджета того же класса виджета визуально "мигнуло" бы
-      в момент старта воспроизведения. }
-    RgnRadius := Min(PHOTO_CORNER_RADIUS, Min(Box.Right - Box.Left, Box.Bottom - Box.Top) div 2);
-    Rgn := Windows.CreateRoundRectRgn(Box.Left, Box.Top, Box.Right, Box.Bottom,
-      RgnRadius * 2, RgnRadius * 2);
-    Windows.SelectClipRgn(Canvas.Handle, Rgn);
-    try
-      if FHaveFrame and (FFrameBuf <> nil) then begin
-        DrawBgraBuffer(Canvas, FFrameBuf, FTargetW, FTargetH);
-      end else if FBlurBmp <> nil then begin
-        FBlurBmp.Draw(Canvas, 0, 0, False);
-      end;
-    finally
-      Windows.SelectClipRgn(Canvas.Handle, 0);
-      Windows.DeleteObject(Rgn);
+    if FHaveFrame and (FFrameBuf <> nil) then begin
+      DrawBgraBuffer(Canvas, FFrameBuf, FTargetW, FTargetH);
+    end else if FBlurBmp <> nil then begin
+      FBlurBmp.Draw(Canvas, 0, 0, False);
     end;
-    Canvas.Pen.Style := psSolid;
-    Canvas.Pen.Color := PHOTO_BORDER_COLOR;
-    Canvas.Pen.Width := 1;
-    Canvas.Brush.Style := bsClear;
-    Canvas.RoundRect(Box.Left, Box.Top, Box.Right, Box.Bottom, RgnRadius * 2, RgnRadius * 2);
   end;
 
   if not FDownloaded then begin
@@ -2938,22 +2892,12 @@ begin
   FPlaybackTimer.Interval := 250;
   FPlaybackTimer.OnTimer := @PlaybackTick;
   FPlaybackTimer.Enabled := False;
-
-  { Интервал заметно меньше, чем у FPlaybackTimer (250мс) — тот только
-    двигает цифры позиции аудио, здесь ЕЩЁ и опрашивается новый живой
-    кадр видео (см. VideoPlaybackTick), а не только позиция. }
-  FVideoPlaybackTimer := TTimer.Create(Self);
-  FVideoPlaybackTimer.Interval := 33;
-  FVideoPlaybackTimer.OnTimer := @VideoPlaybackTick;
-  FVideoPlaybackTimer.Enabled := False;
 end;
 
 destructor TMsgScroller.Destroy;
 begin
   StopActivePlayer;
   FlushDonePlayer;
-  StopActiveVideoPlayer;
-  FlushDoneVideoPlayer;
   FAudioActive.Free;
   { Сами виджеты не освобождаем: они дочерние control'ы Self,
     их уничтожит LCL вместе с родителем. }
@@ -3552,16 +3496,6 @@ begin
     end;
   end;
 
-  { То же самое для видео (клик по play на ещё не скачанном видео, см.
-    VideoPlayClick). }
-  if FPendingVideoPlayMsgId <> 0 then begin
-    PendingIdx := FModel.IndexOfId(FPendingVideoPlayMsgId);
-    if (PendingIdx >= 0) and (FModel[PendingIdx].VideoLocalPath <> '') then begin
-      StartVideoPlayback(FModel[PendingIdx]);
-      FPendingVideoPlayMsgId := 0;
-    end;
-  end;
-
   { То же самое для "Save as..."/"Show in folder" на ещё не скачанном
     файле, см. FileWidgetSaveAsClick/FileWidgetShowInFolderClick. }
   if FPendingSaveMsgId <> 0 then begin
@@ -3808,8 +3742,14 @@ begin
   Clr := ForwardSourceColor(ARow);
   Radius := Min(FORWARD_CORNER_RADIUS, (CardRect.Bottom - CardRect.Top) div 2);
 
-  PaintRoundRectAA(Canvas, CardRect, Radius, [],
-    BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow), clNone);
+  { NEW_STYLE (см. константу new_style, constants.pas) — по прямому
+    запросу пользователя фон ВСЕЙ карточки репоста не рисуется вовсе,
+    остаётся только подложка её строки заголовка ниже (+ своя обводка,
+    в конце функции). Старая ветка не убрана — сравнение на лету. }
+  if not new_style then begin
+    PaintRoundRectAA(Canvas, CardRect, Radius, [],
+      BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow), clNone);
+  end;
 
   { Скруглены только верхние углы — своим набором AOptions вместо
     прежнего трюка "нарисовать все 4 и спрямить низ FillRect'ом"
@@ -3856,6 +3796,14 @@ begin
   Canvas.Font.Color := Clr;
   Canvas.Brush.Style := bsClear;
   Canvas.TextOut(NameX, HeaderRect.Top + HEADER_PAD_V, S);
+
+  if new_style then begin
+    { NEW_STYLE: обводка вместо целой карточки — только у её строки
+      заголовка, той же формы (скруглены только верхние углы), что и
+      подложка выше; рисуется последней, поверх аватара/текста. }
+    PaintRoundRectAA(Canvas, HeaderRect, HeaderRadius, [rrBottomLeftSquare, rrBottomRightSquare],
+      clNone, BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow));
+  end;
 end;
 
 { Цитата ответа (reply_to) — компактная плашка: значок цитаты + имя
@@ -3878,6 +3826,8 @@ var
   NameStr, SnippetStr: string;
   TextX, MaxW, NlPos, Radius, IconX, IconY: integer;
   IconList: TImageList;
+  HdrRect: TRect;
+  HdrRadius: integer;
 begin
   Box := ReplyBoxRect(AIndex);
   Have := (FModel <> nil) and FModel.ReplyPreview(ARow.ReplyChatId, ARow.ReplyMessageId,
@@ -3905,8 +3855,22 @@ begin
     FORWARD_CORNER_RADIUS напрямую: по прямому запросу пользователя
     каждая карточка получила свою ручку, раньше значение было общим. }
   Radius := Min(REPLY_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
-  PaintRoundRectAA(Canvas, Box, Radius, [],
-    BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow), clNone);
+  { NEW_STYLE (см. константу new_style, constants.pas) — по прямому
+    запросу пользователя ("то же самое про цитаты") — фон получает
+    только строка "значок+имя" (первая строка, HdrRect), тем же приёмом,
+    что и у заголовка блока/карточки репоста (скруглены только верхние
+    углы); вторая строка (текст цитируемого сообщения, SnippetStr) —
+    без фона, прямо на фоне окна. Старая ветка (фон+обводка на весь
+    Box) не убрана — сравнение на лету. }
+  if new_style then begin
+    HdrRect := Rect(Box.Left, Box.Top, Box.Right, Box.Top + HEADER_PAD_V + REPLY_LINE_H);
+    HdrRadius := Min(Radius, (HdrRect.Bottom - HdrRect.Top) div 2);
+    PaintRoundRectAA(Canvas, HdrRect, HdrRadius, [rrBottomLeftSquare, rrBottomRightSquare],
+      BlendWithBackground(Clr, SENDER_HEADER_OPACITY, clWindow), clNone);
+  end else begin
+    PaintRoundRectAA(Canvas, Box, Radius, [],
+      BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow), clNone);
+  end;
 
   { Значок цитаты — из того же ImageList1, что и значки статуса
     сообщения/аватар источника репоста (FormMain.Chats.ImageList1, см.
@@ -3938,9 +3902,16 @@ begin
   end;
 
   { Контур — последним, поверх содержимого, тем же приёмом, что и у
-    карточки репоста (SENDER_BORDER_OPACITY, тот же Radius). }
-  PaintRoundRectAA(Canvas, Box, Radius, [], clNone,
-    BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow));
+    карточки репоста (SENDER_BORDER_OPACITY, тот же Radius).
+    NEW_STYLE — обводка только у HdrRect (той же формы, что и её
+    подложка выше), не у всей плашки целиком. }
+  if new_style then begin
+    PaintRoundRectAA(Canvas, HdrRect, HdrRadius, [rrBottomLeftSquare, rrBottomRightSquare],
+      clNone, BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow));
+  end else begin
+    PaintRoundRectAA(Canvas, Box, Radius, [], clNone,
+      BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow));
+  end;
 end;
 
 procedure TMsgScroller.Paint;
@@ -4010,9 +3981,15 @@ begin
         текст и разделительная линия легли поверх, не под. Только
         заливка, без обводки — PaintRoundRectAA (BGRA-антиалиасинг
         вместо GDI Canvas.RoundRect, см. её комментарий) сама не
-        трогает состояние Canvas.Brush/Pen. }
-      PaintRoundRectAA(Canvas, BR, MSG_CORNER_RADIUS, [],
-        BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow), clNone);
+        трогает состояние Canvas.Brush/Pen.
+        NEW_STYLE (см. константу new_style, constants.pas) — по прямому
+        запросу пользователя тестируем более лёгкий вид: фон ТЕЛА
+        блока не рисуется вовсе, остаётся только подложка строки
+        заголовка ниже. Старая ветка не убрана — сравнение на лету. }
+      if not new_style then begin
+        PaintRoundRectAA(Canvas, BR, MSG_CORNER_RADIUS, [],
+          BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow), clNone);
+      end;
 
       { Подложка самой строки заголовка (значок+имя) — заметнее фона
         блока (SENDER_HEADER_OPACITY > SENDER_BG_OPACITY), поверх уже
@@ -4109,9 +4086,11 @@ begin
 
       RendererFor(R.Kind).Paint(R, Canvas, CR, SelStart, SelEnd);
 
-      if R.ForwardKind <> mfoNone then begin
+      if (R.ForwardKind <> mfoNone) and not new_style then begin
         { Контур цитаты — тем же порядком, что и у внешнего блока ниже:
-          после содержимого, поверх него. }
+          после содержимого, поверх него.
+          NEW_STYLE: карточка репоста целиком без обводки — своя
+          обводка есть только у её заголовка, см. PaintForwardCard. }
         FwdBR := ForwardCardRect(I);
         FwdRadius := Min(FORWARD_CORNER_RADIUS, (FwdBR.Bottom - FwdBR.Top) div 2);
         PaintRoundRectAA(Canvas, FwdBR, FwdRadius, [], clNone,
@@ -4119,9 +4098,17 @@ begin
       end;
 
       { Контур блока — рисуется последним, поверх содержимого: только
-        обводка, сам текст на MSG_PAD_H от края и краем не задевается. }
-      PaintRoundRectAA(Canvas, BR, MSG_CORNER_RADIUS, [], clNone,
-        BlendWithBackground(SenderColor(R), SENDER_BORDER_OPACITY, clWindow));
+        обводка, сам текст на MSG_PAD_H от края и краем не задевается.
+        NEW_STYLE — по прямому запросу пользователя тело блока вообще
+        без обводки; вместо неё — обводка строки заголовка (та же форма,
+        что и её подложка выше: скруглены только верхние углы). }
+      if new_style then begin
+        PaintRoundRectAA(Canvas, HeaderRect, HeaderRadius, [rrBottomLeftSquare, rrBottomRightSquare],
+          clNone, BlendWithBackground(SenderColor(R), SENDER_BORDER_OPACITY, clWindow));
+      end else begin
+        PaintRoundRectAA(Canvas, BR, MSG_CORNER_RADIUS, [], clNone,
+          BlendWithBackground(SenderColor(R), SENDER_BORDER_OPACITY, clWindow));
+      end;
     except
       { Молча пропускаем эту строку: статус-строка обновляется из
         ModelChanged, а не отсюда — Paint может вызываться десятками
@@ -4585,7 +4572,13 @@ begin
     FModel.EnsurePhotoBestFile(Row);
     Exit;
   end;
-  OpenDocument(string(Row.PhotoBestLocalPath));
+  { Раньше — OpenDocument (системный просмотрщик); по прямому запросу
+    пользователя теперь открывается ВСТРОЕННЫЙ просмотрщик
+    (mediaviewer.pas), тем же приёмом, что и у видео (VideoBodyClick). }
+  if (FormMain <> nil) and (FormMain.MediaViewer <> nil) then begin
+    FormMain.MediaViewer.ShowMessage(FModel, Row.Id, FAudioImages,
+      utf8string(FormMain.AudioDeviceName));
+  end;
 end;
 
 { Копия LayoutPhotoWidgets — тот же приём recycled-пула, для "гифок"
@@ -4792,16 +4785,11 @@ begin
     W.BackgroundColor := WidgetBackdropColor(R);
     W.SetVideo(R.Id, R.VideoWidth, R.VideoHeight, R.VideoMinithumb,
       R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left, R.VideoDuration);
-    { Та же защита от "перетаскивание сбрасывается на следующем же
-      Paint", что и у LayoutAudioWidgets — эта функция вызывается на
-      КАЖДЫЙ Paint, в т.ч. каждый тик FVideoPlaybackTimer. }
-    if not W.Dragging then begin
-      if (FActiveVideoPlayer <> nil) and (FActiveVideoPlayerMsgId = R.Id) then begin
-        W.SetPlayback(True, FActiveVideoPlayer.State = mpsPlaying, FActiveVideoPlayer.PositionSec);
-      end else begin
-        W.SetPlayback(False, False, 0);
-      end;
-    end;
+    { Инлайн-проигрывания больше нет (см. комментарий у FVideoPool) —
+      виджет в чате всегда в "неактивном" состоянии (play-иконка,
+      никакой полосы прокрутки без наведения); настоящее проигрывание
+      — только в просмотрщике, см. VideoBodyClick. }
+    W.SetPlayback(False, False, 0);
     W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
     W.Visible := True;
   end;
@@ -4816,7 +4804,7 @@ begin
     if not Result.Visible then begin
       Result.OnClick := @VideoPlayClick;
       Result.OnPlayClick := @VideoPlayClick;
-      Result.OnSeek := @VideoSeek;
+      Result.OnBodyClick := @VideoBodyClick;
       Exit;
     end;
   end;
@@ -4824,7 +4812,7 @@ begin
   Result.Parent := Self;
   Result.OnClick := @VideoPlayClick;
   Result.OnPlayClick := @VideoPlayClick;
-  Result.OnSeek := @VideoSeek;
+  Result.OnBodyClick := @VideoBodyClick;
   FVideoPool.Add(Result);
 end;
 
@@ -5131,61 +5119,14 @@ begin
   end;
 end;
 
-{ Видео-эквиваленты FlushDonePlayer/StopActivePlayer/StartPlayback/
-  AudioPlayClick/AudioSeek/PlayerStateChanged/PlaybackTick выше — та же
-  логика, тот же порядок вызовов, тем же приёмом "не освобождать
-  TThread изнутри его же Synchronize" (FDoneVideoPlayer). Отличия:
-  StartVideoPlayback сама пересчитывает целевой размер кадра
-  (ComputePhotoPreviewSize, той же формулой, что и LayoutVideoWidgets —
-  тем самым они всегда совпадают) — плееру нужен размер буфера уже на
-  Create, у аудио такого параметра нет вовсе. VideoPlaybackTick
-  дополнительно опрашивает TryGetFrame и кормит новый кадр прямо в
-  буфер активного виджета (если тот сейчас существует/виден). }
-procedure TMsgScroller.FlushDoneVideoPlayer;
-begin
-  if FDoneVideoPlayer <> nil then begin
-    FDoneVideoPlayer.WaitFor;
-    FDoneVideoPlayer.Free;
-    FDoneVideoPlayer := nil;
-  end;
-end;
-
-procedure TMsgScroller.StopActiveVideoPlayer;
-begin
-  FlushDoneVideoPlayer;
-  if FActiveVideoPlayer <> nil then begin
-    FActiveVideoPlayer.StopPlayback;
-    FDoneVideoPlayer := FActiveVideoPlayer;
-    FActiveVideoPlayer := nil;
-    FActiveVideoPlayerMsgId := 0;
-  end;
-  FVideoPlaybackTimer.Enabled := False;
-end;
-
-procedure TMsgScroller.StartVideoPlayback(ARow: TMsgRow; AStartPositionSec: double = 0);
-var
-  Idx, TgtW, TgtH: integer;
-  CR: TRect;
-begin
-  if (ARow = nil) or (FModel = nil) then begin
-    Exit;
-  end;
-  Idx := FModel.IndexOfId(ARow.Id);
-  if Idx < 0 then begin
-    Exit;
-  end;
-  StopActiveVideoPlayer;
-  CR := ContentRect(Idx);
-  ComputePhotoPreviewSize(ARow.VideoWidth, ARow.VideoHeight, CR.Right - CR.Left, TgtW, TgtH);
-  FActiveVideoPlayer := TMediaPlayer.Create(ARow.VideoLocalPath, utf8string(FormMain.AudioDeviceName),
-    TgtW, TgtH, AStartPositionSec);
-  FActiveVideoPlayer.OnStateChanged := @VideoPlayerStateChanged;
-  FActiveVideoPlayerMsgId := ARow.Id;
-  FVideoFrameKnownVersion := 0;
-  FVideoPlaybackTimer.Enabled := True;
-  Invalidate;
-end;
-
+{ Видео (messageVideo) — по прямому запросу пользователя (2026-09-06)
+  БОЛЬШЕ НЕ проигрывается инлайн вовсе: и клик по кнопке play, и клик
+  по самому кадру ведут в просмотрщик (VideoBodyClick, mediaviewer.pas)
+  — тот держит свой, независимый TMediaPlayer. Вся прежняя
+  инфраструктура "один активный плеер на весь скроллер" (FActiveVideoPlayer/
+  StartVideoPlayback/VideoSeek/VideoPlayerStateChanged/VideoPlaybackTick/
+  FVideoPlaybackTimer) убрана целиком — без клика, который её запускал,
+  она была бы мёртвым кодом, никогда не достижимым ни из одного пути. }
 procedure TMsgScroller.VideoPlayClick(Sender: TObject);
 var
   W: TVideoWidget;
@@ -5201,100 +5142,33 @@ begin
     Exit;
   end;
   Row := FModel[Idx];
-
-  if (FActiveVideoPlayer <> nil) and (FActiveVideoPlayerMsgId = W.RowId) then begin
-    { То же видео — просто пауза/продолжить, не пересоздаём плеер. }
-    if FActiveVideoPlayer.State = mpsPlaying then begin
-      FActiveVideoPlayer.Pause;
-    end else if FActiveVideoPlayer.State = mpsPaused then begin
-      FActiveVideoPlayer.Resume;
-    end;
-    Invalidate;
-    Exit;
-  end;
-
-  { Другое видео (или ничего не играло) — прежнее останавливаем. }
-  FPendingVideoPlayMsgId := 0;
-
   if Row.VideoLocalPath = '' then begin
-    { Файл ещё не скачан — тот же приём, что у AudioPlayClick: просим
-      загрузку, запоминаем, что запустить, как только путь придёт (см.
-      ModelChanged). }
-    StopActiveVideoPlayer;
-    FPendingVideoPlayMsgId := W.RowId;
+    { Не скачано — только качаем, тот же принцип "строго два клика",
+      что и у фото (PhotoWidgetClick): без файла открывать нечего,
+      повторный клик, когда он уже готов, откроет просмотрщик сам. }
     FModel.EnsureVideoFile(Row);
     Exit;
   end;
-
-  StartVideoPlayback(Row);
+  VideoBodyClick(Sender);
 end;
 
-procedure TMsgScroller.VideoSeek(Sender: TObject; AFraction: double);
+procedure TMsgScroller.VideoBodyClick(Sender: TObject);
 var
   W: TVideoWidget;
-  Row: TMsgRow;
   Idx: integer;
 begin
-  { Перемотка — только для АКТИВНОГО видео (виджет разрешает драг
-    ползунка только когда FIsActive, см. TVideoWidget.MouseDown), но
-    проверяем ещё раз, тем же приёмом, что и AudioSeek. }
   if FModel = nil then begin
     Exit;
   end;
   W := TVideoWidget(Sender);
-  if (FActiveVideoPlayer = nil) or (FActiveVideoPlayerMsgId <> W.RowId) then begin
-    Exit;
-  end;
   Idx := FModel.IndexOfId(W.RowId);
   if Idx < 0 then begin
     Exit;
   end;
-  Row := FModel[Idx];
-  if (Row.VideoLocalPath = '') or (Row.VideoDuration <= 0) then begin
-    Exit;
+  if (FormMain <> nil) and (FormMain.MediaViewer <> nil) then begin
+    FormMain.MediaViewer.ShowMessage(FModel, W.RowId, FAudioImages,
+      utf8string(FormMain.AudioDeviceName));
   end;
-  StartVideoPlayback(Row, AFraction * Row.VideoDuration);
-end;
-
-procedure TMsgScroller.VideoPlayerStateChanged(Sender: TObject);
-begin
-  if (Sender = FActiveVideoPlayer) and
-     ((FActiveVideoPlayer.State = mpsStopped) or (FActiveVideoPlayer.State = mpsError)) then begin
-    FDoneVideoPlayer := FActiveVideoPlayer;
-    FActiveVideoPlayer := nil;
-    FActiveVideoPlayerMsgId := 0;
-    FVideoPlaybackTimer.Enabled := False;
-  end;
-  Invalidate;
-end;
-
-procedure TMsgScroller.VideoPlaybackTick(Sender: TObject);
-var
-  Idx: integer;
-  W: TVideoWidget;
-begin
-  FlushDoneVideoPlayer;
-  if FActiveVideoPlayer = nil then begin
-    Exit;
-  end;
-  if FActiveVideoPlayer.HasVideo then begin
-    { Кормим новый кадр ПРЯМО в буфер виджета, если тот сейчас
-      существует (видим/представляет активную строку) — см.
-      TVideoWidget.FrameBuf/NotifyNewFrame. Если виджета сейчас нет
-      (строка прокручена за пределы видимого диапазона) — TryGetFrame
-      не вызывается вовсе, кадр просто не показывается никому; сам
-      плеер (и звук) при этом продолжает работать — воспроизведение НЕ
-      останавливается при эвикшене, см. комментарий у
-      LayoutVideoWidgets. }
-    Idx := FVideoActive.IndexOf(FActiveVideoPlayerMsgId);
-    if Idx >= 0 then begin
-      W := FVideoActive.Data[Idx];
-      if FActiveVideoPlayer.TryGetFrame(W.FrameBuf, FVideoFrameKnownVersion) then begin
-        W.NotifyNewFrame;
-      end;
-    end;
-  end;
-  Invalidate;
 end;
 
 function TMsgScroller.HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;

@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, IniFiles, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
   Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome,
-  framechats, framehistory, constants;
+  framechats, framehistory, mediaviewer, constants;
 
 type
 
@@ -51,10 +51,18 @@ type
     procedure welcomeScreen(Sender: TObject);
     procedure menuQuitClick(Sender: TObject);
     procedure SettingsMenuClick(Sender: TObject);
+    procedure FormResize(Sender: TObject);
   private
     FTdClosed:     boolean;
     FNav:          TFrameNavigator;
     FChats:        TFrameChats;
+    { Полноэкранный просмотрщик фото/видео (mediaviewer.pas) — родитель
+      сама форма (не pnlWork), во весь клиентский прямоугольник, чтобы
+      перекрывать и список чатов слева, и верхнюю панель, не только
+      область истории переписки. Невидим (Visible=False) в обычном
+      режиме — этого достаточно, чтобы не перехватывать мышь/клавиши,
+      никакого отдельного "click-through" не требуется. }
+    FMediaViewer:  TMediaViewerPanel;
     FAccMenuCount: integer;   { сколько пунктов меню создано динамически }
     FGlyphs: TStringList;   { кэш глифов меню: ключ -> TBitmap }
     FAudioDeviceName: string;   { выбранное устройство вывода звука, из config.ini [audio] }
@@ -86,6 +94,10 @@ type
       framehistory.pas, чтобы взять ImageList1 со значками статуса
       сообщений, не заводя вторую копию тех же иконок. }
     property Chats: TFrameChats read FChats;
+    { Просмотрщик фото/видео — нужен framehistory.pas (клик по фото/
+      видео в чате открывает его), тем же приёмом доступа через
+      глобальный FormMain, что уже применяется для Chats/Nav. }
+    property MediaViewer: TMediaViewerPanel read FMediaViewer;
     { Выбранное в Settings устройство вывода звука — нужен
       framehistory.pas (TAudioPlayer.Create), чтобы не заводить второй
       источник правды поверх уже существующего config.ini/[audio]. }
@@ -150,6 +162,16 @@ begin
   FGlyphs.Duplicates := dupIgnore;
   FGlyphs.OwnsObjects := False;
 
+  { Родитель — сама форма (Self), не pnlWork — см. комментарий у поля.
+    Align не используем (alClient заполнил бы только "остаток" после
+    pnlTop/pnlLeft/StatusBar1, а нужно перекрыть их тоже) — вместо
+    этого явные границы, обновляемые в FormResize. }
+  FMediaViewer := TMediaViewerPanel.Create(Self);
+  FMediaViewer.Parent := Self;
+  FMediaViewer.SetBounds(0, 0, ClientWidth, ClientHeight);
+  FMediaViewer.Visible := False;
+  OnResize := @FormResize;
+
   TdApp.Subscribe(Self);
   TdApp.SubscribeActive(Self);
   RebuildAccountsMenu;
@@ -174,6 +196,17 @@ begin
     он заодно убирает его из списка, как в Telegram. }
   if MenuItem12 <> nil then begin
     MenuItem12.OnClick := @btnLogoutClick;
+  end;
+end;
+
+procedure TFormMain.FormResize(Sender: TObject);
+begin
+  { FMediaViewer сам подхватывает новый размер через собственный Resize
+    (framehistory-виджет/фото внутри пересчитываются там же) — этой
+    форме достаточно просто держать его границы синхронными с клиентской
+    областью формы. }
+  if FMediaViewer <> nil then begin
+    FMediaViewer.SetBounds(0, 0, ClientWidth, ClientHeight);
   end;
 end;
 

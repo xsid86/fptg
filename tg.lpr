@@ -17,7 +17,8 @@ uses
   photodecoder, mediaplayer, rlottie, lottieplayer,
   uiframe, avatarcache, qrrender, msglayout,
   main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
-  framesettingsautodownload, framelog, framewelcome, framechats, framehistory
+  framesettingsautodownload, framelog, framewelcome, framechats, framehistory,
+  mediaviewer
   { you can add units after this };
 
 {$R *.res}
