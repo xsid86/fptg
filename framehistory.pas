@@ -18,7 +18,7 @@ uses
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
-  uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer;
+  uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer, lottieplayer;
 
 type
   { TAudioWidget
@@ -410,6 +410,97 @@ type
 
   TVideoWidgetMap = specialize TFPGMap<Int64, TVideoWidget>;
 
+  { TStickerWidget
+
+    Стикер (messageSticker) — три формата TDLib (см. TStickerFormat,
+    tdmessages.pas), каждый со своим декодером, но одним и тем же
+    внешним видом/интерфейсом: БЕЗ подложки/контура/скругления (стикер
+    сам по себе уже правильной формы — прозрачная картинка/вектор, не
+    нужно ни маскировать, ни обрамлять, в отличие от фото/видео/
+    "гифки") и БЕЗ кликов вовсе — ни скачивание, ни запуск анимации не
+    требуют клика пользователя (см. MaybeAutoDownload/
+    LayoutStickerWidgets, framehistory.pas): по прямому выбору
+    пользователя ("полная анимация, включая TGS") стикеры ведут себя
+    так же, как в официальном клиенте — появляются и сразу играют сами.
+
+      sfTgs (Lottie/вектор) — TLottiePlayer (lottieplayer.pas, свой
+      поток на виджет, тот же принцип, что и TAnimationPlayer у
+      "гифки" — стикеров на экране может быть сколько угодно
+      одновременно, каждый со своим независимым потоком). Формат вывода
+      — ARGB32_Premultiplied (см. rlottie.pas) — рисуется через
+      DrawPremultipliedArgbBuffer (GDI AlphaBlend, ниже), не через
+      DrawBgraBuffer: та не умеет альфу, стикеры почти всегда
+      прозрачные.
+
+      sfWebm (видео, VP9) — TAnimationPlayer, тот же класс и тот же
+      декодер, что и у "гифки" (videoplayer.pas) — контейнер ему
+      безразличен, ffmpeg открывает файл как обычное видео независимо
+      от расширения. Рисуется через DrawBgraBuffer (opaque блит, как у
+      "гифки") — альфа-канал VP9 (WebM alpha extension) через этот путь
+      НЕ композитится (открытый вопрос, см. CLAUDE.md) — редкий формат
+      на практике (единственный живой пример в tdlib_raw.log за всю
+      сессию — TGS), решили не блокировать весь заход на нём.
+
+      sfWebp (статика) — TBGRABitmap.Create(путь) один раз (декодер уже
+      в комплекте BGRABitmapPack, см. её же комментарий в rlottie.pas
+      про libwebp64.dll), без потока — рисуется через FStaticBmp.Draw,
+      та же альфа-композиция, что уже используется для FBlurBmp у
+      фото/"гифки" в других виджетах.
+
+    Опрос нового кадра (FPollTimer/PollTick) — тот же приём, что у
+    TAnimationWidget, но нужен только для sfTgs/sfWebm (у sfWebp кадр
+    один, опрашивать нечего). }
+  TStickerWidget = class(TCustomControl)
+  private
+    FRowId: Int64;
+    FFormat: TStickerFormat;
+    FTargetW, FTargetH: integer;
+    FLocalPath: utf8string;
+    FBgColor: TColor;
+    FPlaying: boolean;
+    FLottiePlayer: TLottiePlayer;
+    FAnimPlayer: TAnimationPlayer;
+    FStaticBmp: TBGRABitmap;
+    FFrameBuf: PByte;           { sfTgs — ARGB32_Premultiplied; sfWebm — BGRA; sfWebp не используется }
+    FFrameKnownVersion: cardinal;
+    { True, только если хотя бы один настоящий кадр УЖЕ скопирован в
+      FFrameBuf через TryGetFrame — GetMem НЕ обнуляет память: между
+      StartLoop (буфер только выделен) и первым успешным PollTick окно
+      в несколько миллисекунд, и LCL вполне может позвать Paint внутри
+      этого окна (сразу после SetBounds/Visible:=True в
+      LayoutStickerWidgets, ДО первого тика 33мс-таймера) — без этой
+      проверки Paint нарисовал бы мусор из ещё не инициализированной
+      памяти (пойман по диагностике sticker_paint_input.bmp: реальный
+      дамп из работающего приложения оказался чистым шумом, не
+      стикером). Тот же класс защиты, что уже есть у TVideoWidget
+      (FHaveFrame) — здесь заведена отдельно, не проверялась при
+      портировании паттерна с TAnimationWidget (у того такой защиты
+      нет вовсе, тот же риск теоретически есть и там, не исправлялся
+      в этом заходе — см. TODO). }
+    FHaveFrame: boolean;
+    FPollTimer: TTimer;
+    procedure ClearBitmaps;
+    procedure PollTick(Sender: TObject);
+  protected
+    procedure Paint; override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    { Та же роль, что TAnimationWidget.SetAnim — готовит состояние
+      "скачано"/размер, НЕ запускает анимацию сама (см. StartLoop). }
+    procedure SetSticker(ARowId: Int64; AFormat: TStickerFormat;
+      ANaturalW, ANaturalH: integer; const ALocalPath: utf8string; AMaxW: integer);
+    procedure StartLoop;
+    procedure StopLoop;
+    property Playing: boolean read FPlaying;
+    property TargetWidth: integer read FTargetW;
+    property TargetHeight: integer read FTargetH;
+    property BackgroundColor: TColor read FBgColor write FBgColor;
+    property RowId: Int64 read FRowId;
+  end;
+
+  TStickerWidgetMap = specialize TFPGMap<Int64, TStickerWidget>;
+
   { Ключ — id пользователя или чата-источника репоста (см. поле у
     TMsgScroller, где заведены два разных инстанса этого типа). }
   TForwardAvatarMap = specialize TFPGMap<Int64, TBGRABitmap>;
@@ -501,6 +592,15 @@ type
       скроллеру достаточно пула позиционирования. }
     FAnimPool:   TFPList;       { of TAnimationWidget }
     FAnimActive: TAnimationWidgetMap;
+
+    { Стикеры (messageSticker) — тот же приём recycled-пула, что и у
+      "гифок" (см. FAnimPool/FAnimActive выше): своя, независимая
+      анимация на каждый видимый стикер, состояние живёт в самом
+      TStickerWidget. В отличие от "гифки" — БЕЗ клика: скачивание
+      (EnsureStickerFile) и старт анимации оба безусловные, см.
+      MaybeAutoDownload/LayoutStickerWidgets. }
+    FStickerPool:   TFPList;       { of TStickerWidget }
+    FStickerActive: TStickerWidgetMap;
 
     { Проигрывание аудио — один активный плеер на весь скроллер (как и
       в самом Telegram, играет не более одного трека разом). Виджет —
@@ -673,6 +773,8 @@ type
     procedure LayoutAnimationWidgets(ALo, AHi: integer);
     function ObtainAnimationWidget: TAnimationWidget;
     procedure AnimationWidgetClick(Sender: TObject);
+    procedure LayoutStickerWidgets(ALo, AHi: integer);
+    function ObtainStickerWidget: TStickerWidget;
     function HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;
     function ResolveSelection(out ALowIdx, AHighIdx, ALowChar, AHighChar: integer): boolean;
     procedure RangeForRow(AIndex, ALowIdx, AHighIdx, ALowChar, AHighChar,
@@ -2558,6 +2660,247 @@ begin
     ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, RemainStr);
 end;
 
+{ ---------------- TStickerWidget ---------------- }
+
+{ Композитит уже готовый ARGB32_Premultiplied-буфер (AWidth*AHeight*4
+  байт) через GDI AlphaBlend — в отличие от DrawBgraBuffer/
+  SetDIBitsToDevice (тот просто заменяет пиксели, без альфы), здесь
+  нужна настоящая прозрачность: стикеры (в первую очередь rlottie/TGS)
+  почти всегда рисуются на прозрачном фоне. AlphaBlend требует
+  ИСХОДНЫЙ HDC, не сырой буфер напрямую — оборачиваем буфер во
+  временную DIB-секцию (CreateDIBSection), выбираем её в совместимый
+  memory DC, блендим, освобождаем. AC_SRC_ALPHA ожидает ПРЕУМНОЖЕННУЮ
+  альфу — ровно то, что отдаёт rlottie (см. rlottie.pas), конвертация
+  не нужна. AlphaBlend — не из FPC Windows-юнита (там есть только тип
+  TBlendFunction/константы AC_SRC_*, самой функции нет, проверено
+  чтением rtl/win исходников) — биндинг ниже, msimg32.dll, стандартная
+  часть Windows, новых DLL/зависимостей не требует. }
+function AlphaBlend(hdcDest: HDC; nXOriginDest, nYOriginDest, nWidthDest, nHeightDest: longint;
+  hdcSrc: HDC; nXOriginSrc, nYOriginSrc, nWidthSrc, nHeightSrc: longint;
+  ABlendFunction: TBlendFunction): BOOL; stdcall; external 'msimg32.dll' name 'AlphaBlend';
+
+procedure DrawPremultipliedArgbBuffer(ACanvas: TCanvas; ABuf: PByte; AWidth, AHeight: integer);
+var
+  Bmi: Windows.BITMAPINFO;
+  MemDC: HDC;
+  Dib: HBITMAP;
+  OldBmp: HGDIOBJ;
+  Bits: pointer;
+  Blend: TBlendFunction;
+begin
+  FillChar(Bmi, SizeOf(Bmi), 0);
+  Bmi.bmiHeader.biSize := SizeOf(Bmi.bmiHeader);
+  Bmi.bmiHeader.biWidth := AWidth;
+  Bmi.bmiHeader.biHeight := -AHeight;
+  Bmi.bmiHeader.biPlanes := 1;
+  Bmi.bmiHeader.biBitCount := 32;
+  Bmi.bmiHeader.biCompression := BI_RGB;
+
+  MemDC := Windows.CreateCompatibleDC(ACanvas.Handle);
+  if MemDC = 0 then begin
+    Exit;
+  end;
+  Dib := Windows.CreateDIBSection(MemDC, Bmi, DIB_RGB_COLORS, Bits, 0, 0);
+  if (Dib = 0) or (Bits = nil) then begin
+    Windows.DeleteDC(MemDC);
+    Exit;
+  end;
+  Move(ABuf^, Bits^, cardinal(AWidth) * cardinal(AHeight) * 4);
+  OldBmp := Windows.SelectObject(MemDC, Dib);
+
+  FillChar(Blend, SizeOf(Blend), 0);
+  Blend.BlendOp := AC_SRC_OVER;
+  Blend.SourceConstantAlpha := 255;
+  Blend.AlphaFormat := AC_SRC_ALPHA;
+  AlphaBlend(ACanvas.Handle, 0, 0, AWidth, AHeight, MemDC, 0, 0, AWidth, AHeight, Blend);
+
+  Windows.SelectObject(MemDC, OldBmp);
+  Windows.DeleteObject(Dib);
+  Windows.DeleteDC(MemDC);
+end;
+
+constructor TStickerWidget.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  Cursor := crDefault;
+  FBgColor := clWindow;
+  { Тот же интервал опроса, что у TAnimationWidget/TVideoWidget — см. их
+    же комментарий. }
+  FPollTimer := TTimer.Create(Self);
+  FPollTimer.Interval := 33;
+  FPollTimer.OnTimer := @PollTick;
+  FPollTimer.Enabled := False;
+end;
+
+destructor TStickerWidget.Destroy;
+begin
+  StopLoop;
+  ClearBitmaps;
+  if FFrameBuf <> nil then begin
+    FreeMem(FFrameBuf);
+  end;
+  inherited Destroy;
+end;
+
+procedure TStickerWidget.ClearBitmaps;
+begin
+  FreeAndNil(FStaticBmp);
+end;
+
+procedure TStickerWidget.SetSticker(ARowId: Int64; AFormat: TStickerFormat;
+  ANaturalW, ANaturalH: integer; const ALocalPath: utf8string; AMaxW: integer);
+var
+  OldTargetW, OldTargetH: integer;
+begin
+  if (ARowId <> FRowId) or (AFormat <> FFormat) then begin
+    { Виджет из пула переиспользован под ДРУГОЕ сообщение (или тот же
+      файл, но другого формата — теоретически не встречается на
+      практике, но дешевле проверить, чем предполагать) — тот же приём,
+      что и у TAnimationWidget.SetAnim. }
+    StopLoop;
+    ClearBitmaps;
+    FLocalPath := '';
+  end;
+  FRowId := ARowId;
+  FFormat := AFormat;
+  OldTargetW := FTargetW;
+  OldTargetH := FTargetH;
+  ComputeStickerSize(ANaturalW, ANaturalH, AMaxW, FTargetW, FTargetH);
+  if (FTargetW <> OldTargetW) or (FTargetH <> OldTargetH) then begin
+    StopLoop;
+    ClearBitmaps;
+    FLocalPath := '';
+    if FFrameBuf <> nil then begin
+      FreeMem(FFrameBuf);
+      FFrameBuf := nil;
+    end;
+  end;
+  FLocalPath := ALocalPath;
+  Invalidate;
+end;
+
+procedure TStickerWidget.StartLoop;
+var
+  Resized: TBGRABitmap;
+begin
+  if FPlaying or (FLocalPath = '') or (FTargetW <= 0) or (FTargetH <= 0) then begin
+    Exit;
+  end;
+  case FFormat of
+    sfTgs: begin
+      if FFrameBuf = nil then begin
+        GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
+      end;
+      FFrameKnownVersion := 0;
+      FHaveFrame := False;
+      FLottiePlayer := TLottiePlayer.Create(FLocalPath, FTargetW, FTargetH);
+      FPlaying := True;
+      FPollTimer.Enabled := True;
+    end;
+    sfWebm: begin
+      if FFrameBuf = nil then begin
+        GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
+      end;
+      FFrameKnownVersion := 0;
+      FHaveFrame := False;
+      FAnimPlayer := TAnimationPlayer.Create(FLocalPath, FTargetW, FTargetH);
+      FPlaying := True;
+      FPollTimer.Enabled := True;
+    end;
+    sfWebp: begin
+      { Статика — декодируется ОДИН раз (не в фоновом потоке: файлы
+        стикеров на порядки меньше полноразмерных фото, синхронный
+        декод здесь не тот дорогой случай, что оправдывал
+        TPhotoDecodeThread у фото). }
+      if FStaticBmp = nil then begin
+        try
+          FStaticBmp := TBGRABitmap.Create(FLocalPath);
+          if (FStaticBmp.Width <> FTargetW) or (FStaticBmp.Height <> FTargetH) then begin
+            Resized := FStaticBmp.Resample(FTargetW, FTargetH, rmFineResample) as TBGRABitmap;
+            FStaticBmp.Free;
+            FStaticBmp := Resized;
+          end;
+        except
+          FreeAndNil(FStaticBmp);
+        end;
+      end;
+      FPlaying := True;
+      Invalidate;
+    end;
+  end;
+end;
+
+procedure TStickerWidget.StopLoop;
+begin
+  FPollTimer.Enabled := False;
+  if FLottiePlayer <> nil then begin
+    { FreeOnTerminate=True (lottieplayer.pas) — та же конвенция, что и
+      TAnimationPlayer: StopPlayback асинхронно просит поток
+      остановиться, указатель забываем сразу, не обращаемся к объекту
+      после. }
+    FLottiePlayer.StopPlayback;
+    FLottiePlayer := nil;
+  end;
+  if FAnimPlayer <> nil then begin
+    FAnimPlayer.StopPlayback;
+    FAnimPlayer := nil;
+  end;
+  FPlaying := False;
+end;
+
+procedure TStickerWidget.PollTick(Sender: TObject);
+begin
+  if FFrameBuf = nil then begin
+    Exit;
+  end;
+  if (FLottiePlayer <> nil) and FLottiePlayer.TryGetFrame(FFrameBuf, FFrameKnownVersion) then begin
+    FHaveFrame := True;
+    Invalidate;
+  end else if (FAnimPlayer <> nil) and FAnimPlayer.TryGetFrame(FFrameBuf, FFrameKnownVersion) then begin
+    FHaveFrame := True;
+    Invalidate;
+  end;
+end;
+
+procedure TStickerWidget.Paint;
+begin
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := FBgColor;
+  Canvas.FillRect(ClientRect);
+  if (FTargetW <= 0) or (FTargetH <= 0) or (not FPlaying) then begin
+    Exit;
+  end;
+  { sfWebp у FHaveFrame не нуждается вовсе (FStaticBmp декодируется
+    синхронно в StartLoop, готов сразу целиком, не по кадрам) — гейт
+    касается только живых, поступающих по таймеру буферов. }
+  if (FFormat in [sfTgs, sfWebm]) and (not FHaveFrame) then begin
+    Exit;
+  end;
+  { FTargetW/FTargetH, НЕ Width/Height — тот же класс правки, что уже
+    документирован для видео-виджета в другом заходе (буфер выделен и
+    заполнен РОВНО под FTargetW*FTargetH*4 байт; если контрол когда-либо
+    сообщает Width/Height, отличные от того, что реально просили при
+    SetBounds — например, из-за пересчёта размеров LCL/DPI между
+    SetBounds и Paint — AlphaBlend получил бы destination-прямоугольник
+    другого размера, чем есть данных в буфере, и растянул/сжал бы кадр
+    средствами самого AlphaBlend, куда более грубыми, чем наш собственный
+    BoxDownscaleArgb — ровно тот класс "куда-то пропадают детали",
+    который не удалось объяснить ничем другим при разборе жалобы
+    пользователя на TGS-рендер). }
+  case FFormat of
+    sfTgs: if FFrameBuf <> nil then begin
+      DrawPremultipliedArgbBuffer(Canvas, FFrameBuf, FTargetW, FTargetH);
+    end;
+    sfWebm: if FFrameBuf <> nil then begin
+      DrawBgraBuffer(Canvas, FFrameBuf, FTargetW, FTargetH);
+    end;
+    sfWebp: if FStaticBmp <> nil then begin
+      FStaticBmp.Draw(Canvas, 0, 0, False);
+    end;
+  end;
+end;
+
 { ---------------- TMsgScroller ---------------- }
 
 constructor TMsgScroller.Create(AOwner: TComponent);
@@ -2581,6 +2924,9 @@ begin
   FVideoPool := TFPList.Create;
   FVideoActive := TVideoWidgetMap.Create;
   FVideoActive.Sorted := True;
+  FStickerPool := TFPList.Create;
+  FStickerActive := TStickerWidgetMap.Create;
+  FStickerActive.Sorted := True;
   FForwardChatAvatars := TForwardAvatarMap.Create;
   FForwardChatAvatars.Sorted := True;
   FForwardUserAvatars := TForwardAvatarMap.Create;
@@ -2620,6 +2966,8 @@ begin
   FAnimPool.Free;
   FVideoActive.Free;
   FVideoPool.Free;
+  FStickerActive.Free;
+  FStickerPool.Free;
   ClearForwardAvatars;
   FForwardChatAvatars.Free;
   FForwardUserAvatars.Free;
@@ -2714,7 +3062,7 @@ begin
     — тот же класс отступа, что у фото, тем же рассуждением — все три
     используют NaturalMediaSize/ComputePhotoPreviewSize). }
   if (ARow <> nil) and
-    (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto, mckAnimation, mckVideo]) then begin
+    (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto, mckAnimation, mckVideo, mckSticker]) then begin
     Result := MSG_PAD_H;
   end else begin
     Result := MSG_PAD_V;
@@ -2853,6 +3201,19 @@ begin
   if (ARow = nil) or (FModel = nil) or (FormMain = nil) then begin
     Exit;
   end;
+
+  { Стикеры — БЕЗ гейта настроек Auto download вовсе, по прямому
+    запросу пользователя (см. её же комментарий у
+    TTdMessages.EnsureStickerFile, tdmessages.pas): файлы крошечные,
+    сама суть стикера — мгновенный визуальный отклик. Загрузка
+    достаточна сама по себе — старт анимации делает
+    LayoutStickerWidgets на каждом заходе раскладки, как только файл
+    готов, той же безусловной логикой, что уже есть там. }
+  if ARow.Kind = mckSticker then begin
+    FModel.EnsureStickerFile(ARow);
+    Exit;
+  end;
+
   case ARow.Kind of
     mckPhoto: MediaKind := 'images';
     { Голосовое — тот же виджет и та же настройка "Audio", что и
@@ -2863,9 +3224,6 @@ begin
     mckAnimation: MediaKind := 'gif';
     mckVideo: MediaKind := 'video';
   else
-    { Стикеры — по-прежнему только плейсхолдер (см. TODO.md), скачивать
-      заранее нечего: у них нет ни своего Ensure*File, ни своего
-      file_id на TMsgRow. }
     Exit;
   end;
 
@@ -3791,6 +4149,10 @@ begin
     LayoutVideoWidgets(Lo, Hi);
   except
   end;
+  try
+    LayoutStickerWidgets(Lo, Hi);
+  except
+  end;
 end;
 
 procedure TMsgScroller.LayoutAudioWidgets(ALo, AHi: integer);
@@ -4464,6 +4826,94 @@ begin
   Result.OnPlayClick := @VideoPlayClick;
   Result.OnSeek := @VideoSeek;
   FVideoPool.Add(Result);
+end;
+
+{ Копия LayoutAnimationWidgets — тот же приём recycled-пула и та же
+  StopLoop-при-эвикшене (стикеры, как и "гифки", беззвучные — не жалко
+  останавливать анимацию, когда строка ушла с экрана, экономит CPU).
+  Отличие — БЕЗ клика вовсе: скачивание и старт анимации оба
+  безусловные (см. MaybeAutoDownload), не ждут никакого взаимодействия
+  пользователя, в отличие от "гифки" (там нужны ровно два клика). }
+procedure TMsgScroller.LayoutStickerWidgets(ALo, AHi: integer);
+var
+  I, N, MIdx, AIdx: integer;
+  R: TMsgRow;
+  W: TStickerWidget;
+  CR: TRect;
+  WantIds: array of Int64;
+
+  function IsWanted(AId: Int64): boolean;
+  var
+    K: integer;
+  begin
+    Result := False;
+    for K := 0 to N - 1 do begin
+      if WantIds[K] = AId then begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
+begin
+  N := 0;
+  if FModel <> nil then begin
+    SetLength(WantIds, AHi - ALo + 2);
+    for I := ALo to AHi do begin
+      R := FModel[I];
+      if R.Kind = mckSticker then begin
+        WantIds[N] := R.Id;
+        Inc(N);
+      end;
+    end;
+  end;
+
+  for AIdx := FStickerActive.Count - 1 downto 0 do begin
+    if not IsWanted(FStickerActive.Keys[AIdx]) then begin
+      FStickerActive.Data[AIdx].StopLoop;
+      FStickerActive.Data[AIdx].Visible := False;
+      FStickerActive.Delete(AIdx);
+    end;
+  end;
+
+  for I := 0 to N - 1 do begin
+    MIdx := FModel.IndexOfId(WantIds[I]);
+    if MIdx < 0 then begin
+      Continue;
+    end;
+    CR := ContentRect(MIdx);
+    AIdx := FStickerActive.IndexOf(WantIds[I]);
+    if AIdx >= 0 then begin
+      W := FStickerActive.Data[AIdx];
+    end else begin
+      W := ObtainStickerWidget;
+      FStickerActive.Add(WantIds[I], W);
+    end;
+    R := FModel[MIdx];
+    W.BackgroundColor := WidgetBackdropColor(R);
+    W.SetSticker(R.Id, R.StickerFormat, R.StickerWidth, R.StickerHeight,
+      R.StickerLocalPath, CR.Right - CR.Left);
+    W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
+    W.Visible := True;
+    if (R.StickerLocalPath <> '') and (not W.Playing) then begin
+      W.StartLoop;
+    end;
+  end;
+end;
+
+function TMsgScroller.ObtainStickerWidget: TStickerWidget;
+var
+  I: integer;
+begin
+  for I := 0 to FStickerPool.Count - 1 do begin
+    Result := TStickerWidget(FStickerPool[I]);
+    if not Result.Visible then begin
+      Exit;
+    end;
+  end;
+  Result := TStickerWidget.Create(Self);
+  Result.Parent := Self;
+  FStickerPool.Add(Result);
 end;
 
 procedure TMsgScroller.PhotoWidgetSaveAsClick(Sender: TObject);

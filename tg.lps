@@ -26,7 +26,7 @@
         <ComponentName Value="FormLogin"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <EditorIndex Value="8"/>
+        <EditorIndex Value="9"/>
         <TopLine Value="89"/>
         <CursorPos X="5" Y="109"/>
         <UsageCount Value="104"/>
@@ -48,7 +48,7 @@
         <ComponentName Value="FormSplash"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <EditorIndex Value="7"/>
+        <EditorIndex Value="8"/>
         <TopLine Value="92"/>
         <CursorPos X="5" Y="125"/>
         <UsageCount Value="104"/>
@@ -59,7 +59,7 @@
         <Filename Value="main.lfm"/>
         <IsPartOfProject Value="True"/>
         <HasResources Value="True"/>
-        <EditorIndex Value="13"/>
+        <EditorIndex Value="14"/>
         <UsageCount Value="104"/>
         <Loaded Value="True"/>
       </Unit>
@@ -69,7 +69,7 @@
         <ComponentName Value="FormMain"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <EditorIndex Value="9"/>
+        <EditorIndex Value="10"/>
         <TopLine Value="361"/>
         <CursorPos X="32" Y="404"/>
         <UsageCount Value="104"/>
@@ -79,7 +79,7 @@
       <Unit>
         <Filename Value="tdauth.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="11"/>
+        <EditorIndex Value="12"/>
         <TopLine Value="21"/>
         <CursorPos X="14" Y="21"/>
         <UsageCount Value="104"/>
@@ -88,7 +88,7 @@
       <Unit>
         <Filename Value="tdclient.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="12"/>
+        <EditorIndex Value="13"/>
         <CursorPos X="10" Y="21"/>
         <UsageCount Value="104"/>
         <Loaded Value="True"/>
@@ -105,17 +105,15 @@
       <Unit>
         <Filename Value="constants.pas"/>
         <IsPartOfProject Value="True"/>
-        <IsVisibleTab Value="True"/>
-        <EditorIndex Value="4"/>
-        <TopLine Value="63"/>
-        <CursorPos X="24" Y="155"/>
+        <EditorIndex Value="5"/>
+        <CursorPos X="26" Y="76"/>
         <UsageCount Value="43"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdjson.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="6"/>
+        <EditorIndex Value="7"/>
         <TopLine Value="7"/>
         <CursorPos X="43" Y="17"/>
         <UsageCount Value="104"/>
@@ -148,7 +146,7 @@
       <Unit>
         <Filename Value="qrrender.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="20"/>
+        <EditorIndex Value="21"/>
         <CursorPos X="95" Y="25"/>
         <UsageCount Value="104"/>
         <Loaded Value="True"/>
@@ -156,7 +154,7 @@
       <Unit>
         <Filename Value="tdreq.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="21"/>
+        <EditorIndex Value="22"/>
         <CursorPos X="24" Y="27"/>
         <UsageCount Value="92"/>
         <Loaded Value="True"/>
@@ -175,7 +173,7 @@
         <ComponentName Value="FrameLog"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <EditorIndex Value="14"/>
+        <EditorIndex Value="15"/>
         <TopLine Value="44"/>
         <CursorPos X="27" Y="79"/>
         <UsageCount Value="92"/>
@@ -188,7 +186,7 @@
         <ComponentName Value="FrameWelcome"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <EditorIndex Value="15"/>
+        <EditorIndex Value="16"/>
         <CursorPos X="15" Y="22"/>
         <UsageCount Value="92"/>
         <Loaded Value="True"/>
@@ -197,7 +195,7 @@
       <Unit>
         <Filename Value="tdchats.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="16"/>
+        <EditorIndex Value="17"/>
         <TopLine Value="202"/>
         <CursorPos X="5" Y="1167"/>
         <UsageCount Value="91"/>
@@ -209,7 +207,7 @@
         <ComponentName Value="FrameChats"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <EditorIndex Value="18"/>
+        <EditorIndex Value="19"/>
         <TopLine Value="232"/>
         <CursorPos X="63" Y="206"/>
         <UsageCount Value="90"/>
@@ -226,7 +224,7 @@
       <Unit>
         <Filename Value="avatarcache.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="19"/>
+        <EditorIndex Value="20"/>
         <TopLine Value="366"/>
         <CursorPos X="7" Y="401"/>
         <UsageCount Value="90"/>
@@ -244,7 +242,7 @@
       <Unit>
         <Filename Value="tdmessages.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="17"/>
+        <EditorIndex Value="18"/>
         <TopLine Value="198"/>
         <CursorPos X="63" Y="219"/>
         <UsageCount Value="53"/>
@@ -291,6 +289,21 @@
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
+        <Filename Value="rlottie.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="lottieplayer.pas"/>
+        <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="162"/>
+        <CursorPos Y="180"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="msglayout.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="53"/>
@@ -312,7 +325,7 @@
         <Filename Value="framehistory.lfm"/>
         <IsPartOfProject Value="True"/>
         <HasResources Value="True"/>
-        <EditorIndex Value="5"/>
+        <EditorIndex Value="6"/>
         <TopLine Value="3664"/>
         <UsageCount Value="53"/>
         <Loaded Value="True"/>
@@ -323,7 +336,7 @@
         <ComponentName Value="FormSettings"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <EditorIndex Value="10"/>
+        <EditorIndex Value="11"/>
         <UsageCount Value="23"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>

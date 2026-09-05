@@ -12,6 +12,15 @@ type
   TMsgContentKind = (mckText, mckAudio, mckPhoto, mckAnimation, mckSticker,
     mckVoiceNote, mckFile, mckVideo, mckOther);
 
+  { Три формата стикеров Telegram — проверено по официальным TDLib docs
+    (classtd_1_1td__api_1_1sticker_format*.html), не угадано:
+    stickerFormatWebp (статичная картинка), stickerFormatTgs
+    (Lottie-вектор, gzip-сжатый JSON — см. lottieplayer.pas),
+    stickerFormatWebm (видео, кодек VP9 в контейнере webm — тот же
+    ffmpeg-декодер, что и у "гифки", videoplayer.pas, контейнер ему
+    безразличен). }
+  TStickerFormat = (sfWebp, sfTgs, sfWebm);
+
   { Состояние доставки исходящего сообщения. Отдельное имя от
     tdchats.TMsgSendState: framehistory будет использовать оба юнита
     разом, и совпадающее имя типа только путало бы. }
@@ -181,6 +190,29 @@ type
     VideoFileId:             integer;
     VideoLocalPath:          utf8string;
     VideoDownloadRequested:  boolean;
+    { messageSticker.sticker — только для Kind=mckSticker. Тот же приём
+      двойного имени "sticker" в JSON (content.sticker.sticker — сам
+      скачиваемый TDLib-объект file, content.sticker — метаданные),
+      что и у content.video.video, проверено по tdlib_raw.log, не по
+      памяти — включая порядок полей (сверено дополнительно с
+      официальными docs.core.telegram.org/tdlib, classtd_1_1td__api_
+      1_1sticker.html: sticker_ (file) идёт ПОСЛЕ thumbnail_, в отличие
+      от video/audio/animation, где скачиваемый file — единственное
+      поле с таким именем). Ширина/высота — "как задумано отправителем"
+      (обычно 512x512 у TGS, произвольные у webp/webm) — реальный
+      размер на экране определяет ComputeStickerSize (msglayout.pas),
+      не эти цифры напрямую. Нет поля-аналога Minithumbnail: у стикера
+      нет инлайн base64-превью (в отличие от фото/видео/"гифки") —
+      только ОТДЕЛЬНЫЙ скачиваемый thumbnail.file (128x128 WebP), не
+      используется в этом заходе (по выбору пользователя — сразу полная
+      анимация, без промежуточного статичного плейсхолдера из
+      thumbnail); до скачивания StickerLocalPath виджет просто пустой,
+      как и остальные типы медиа до первого клика/автозагрузки. }
+    StickerFormat:           TStickerFormat;
+    StickerWidth, StickerHeight: integer;
+    StickerFileId:           integer;
+    StickerLocalPath:        utf8string;
+    StickerDownloadRequested: boolean;
     { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
       TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
       получился бы цикл юнитов. Освобождается в деструкторе через
@@ -225,6 +257,9 @@ type
   { То же для видео-сообщений (messageVideo) — своя карта, не общая с
     остальными (см. комментарий у TDocFileMap). }
   TVideoFileMap = specialize TFPGMap<integer, TMsgRow>;
+  { То же для стикеров (messageSticker) — своя карта, не общая с
+    остальными (см. комментарий у TDocFileMap). }
+  TStickerFileMap = specialize TFPGMap<integer, TMsgRow>;
 
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
@@ -292,6 +327,8 @@ type
     FAnimByFile: TAnimFileMap;
     { Скачивание видео-сообщений — см. EnsureVideoFile/ApplyVideoFile. }
     FVideoByFile: TVideoFileMap;
+    { Скачивание стикеров — см. EnsureStickerFile/ApplyStickerFile. }
+    FStickerByFile: TStickerFileMap;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -334,6 +371,11 @@ type
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadVideoDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyVideoFile(AFile: TJSONObject);
+    procedure ExtractStickerMeta(AContent: TJSONObject; const AType: utf8string;
+      out AWidth, AHeight: integer; out AFormat: TStickerFormat;
+      out AFileId: integer; out ALocalPath: utf8string);
+    procedure DownloadStickerDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyStickerFile(AFile: TJSONObject);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -416,6 +458,8 @@ type
     procedure EnsureAnimFile(ARow: TMsgRow);
     { То же самое для видео-сообщения (см. VideoFileId) — тем же приёмом. }
     procedure EnsureVideoFile(ARow: TMsgRow);
+    { То же самое для стикера (см. StickerFileId) — тем же приёмом. }
+    procedure EnsureStickerFile(ARow: TMsgRow);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -599,6 +643,15 @@ begin
     Result := mckAnimation;
   end else if AType = 'messageSticker' then begin
     Result := mckSticker;
+  end else if AType = 'messageAnimatedEmoji' then begin
+    { Большая анимированная эмодзи-реакция (просто эмодзи в сообщении,
+      без текста вокруг) — TDLib заворачивает её В ТОЧНОСТИ в тот же
+      sticker-объект, что и обычный стикер, просто на один уровень
+      глубже (content.animated_emoji.sticker вместо content.sticker,
+      см. ExtractStickerMeta) — проверено по tdlib_raw.log (106
+      вхождений за сессию, заметно ЧАЩЕ обычных стикеров, 32) — тот же
+      виджет, тот же рендер, никакого отдельного Kind не нужно. }
+    Result := mckSticker;
   end else if AType = 'messageVoiceNote' then begin
     Result := mckVoiceNote;
   end else if AType = 'messageDocument' then begin
@@ -668,6 +721,8 @@ begin
   FAnimByFile.Sorted := True;
   FVideoByFile := TVideoFileMap.Create;
   FVideoByFile.Sorted := True;
+  FStickerByFile := TStickerFileMap.Create;
+  FStickerByFile.Sorted := True;
   FLoadLimit := 50;
 
   FTimer := TTimer.Create(Self);
@@ -702,6 +757,7 @@ begin
   FPhotoBestByFile.Free;
   FAnimByFile.Free;
   FVideoByFile.Free;
+  FStickerByFile.Free;
   inherited Destroy;
 end;
 
@@ -725,6 +781,7 @@ begin
   FPhotoBestByFile.Clear;
   FAnimByFile.Clear;
   FVideoByFile.Clear;
+  FStickerByFile.Clear;
   SetLength(FReplyPending, 0);
   FLoadingOlder := False;
   FOldestLoaded := False;
@@ -1458,6 +1515,66 @@ begin
   end;
 end;
 
+procedure TTdMessages.ExtractStickerMeta(AContent: TJSONObject; const AType: utf8string;
+  out AWidth, AHeight: integer; out AFormat: TStickerFormat;
+  out AFileId: integer; out ALocalPath: utf8string);
+var
+  StickerObj, EmojiObj, FormatObj, FileObj, LocalObj: TJSONObject;
+  FmtType: utf8string;
+begin
+  AWidth := 0;
+  AHeight := 0;
+  AFormat := sfWebp;
+  AFileId := 0;
+  ALocalPath := '';
+  if AContent = nil then begin
+    Exit;
+  end;
+  if AType = 'messageSticker' then begin
+    StickerObj := JGetObj(AContent, 'sticker');
+  end else if AType = 'messageAnimatedEmoji' then begin
+    { content.animated_emoji.sticker — тот же sticker-объект, что и у
+      обычного стикера, на один уровень глубже (см. её же комментарий
+      в ContentKindFromType). animated_emoji может в принципе прийти
+      без стикера вовсе (TDLib формально допускает sticker=null, если
+      для этого эмодзи анимация не настроена) — JGetObj вернёт nil,
+      обработано ниже тем же общим Exit, что и у обычного стикера. }
+    EmojiObj := JGetObj(AContent, 'animated_emoji');
+    StickerObj := JGetObj(EmojiObj, 'sticker');
+  end else begin
+    Exit;
+  end;
+  if StickerObj = nil then begin
+    Exit;
+  end;
+  AWidth := JGetInt(StickerObj, 'width');
+  AHeight := JGetInt(StickerObj, 'height');
+
+  FormatObj := JGetObj(StickerObj, 'format');
+  FmtType := JGetStr(FormatObj, '@type');
+  if FmtType = 'stickerFormatTgs' then begin
+    AFormat := sfTgs;
+  end else if FmtType = 'stickerFormatWebm' then begin
+    AFormat := sfWebm;
+  end else begin
+    AFormat := sfWebp;
+  end;
+
+  { content.sticker.sticker — тот же приём двойного имени, что и у
+    video/audio/animation, но ЗДЕСЬ поле идёт ПОСЛЕ thumbnail (сверено
+    по официальным docs.core.telegram.org/tdlib, не угадано и не по
+    аналогии с остальными типами — там порядок другой). }
+  FileObj := JGetObj(StickerObj, 'sticker');
+  if FileObj = nil then begin
+    Exit;
+  end;
+  AFileId := JGetInt(FileObj, 'id');
+  LocalObj := JGetObj(FileObj, 'local');
+  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+    ALocalPath := JGetStr(LocalObj, 'path');
+  end;
+end;
+
 procedure TTdMessages.ApplyMessage(AMsg: TJSONObject);
 var
   R: TMsgRow;
@@ -1588,6 +1705,8 @@ begin
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   ExtractVideoMeta(ContentObj, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
     R.VideoMinithumb, R.VideoFileId, R.VideoLocalPath);
+  ExtractStickerMeta(ContentObj, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
+    R.StickerFileId, R.StickerLocalPath);
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -1624,6 +1743,8 @@ begin
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   ExtractVideoMeta(ANewContent, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
     R.VideoMinithumb, R.VideoFileId, R.VideoLocalPath);
+  ExtractStickerMeta(ANewContent, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
+    R.StickerFileId, R.StickerLocalPath);
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
@@ -2440,6 +2561,83 @@ begin
   Touch;
 end;
 
+{ Стикеры — по прямому запросу пользователя ("полная анимация, включая
+  TGS") качаются БЕЗ гейта настроек Auto download вовсе (см.
+  TMsgScroller.MaybeAutoDownload, framehistory.pas) — файлы стикеров
+  типично крошечные (единицы-десятки КБ у TGS/webp, редко больше у
+  webm), сама суть стикера — мгновенный визуальный отклик, а не
+  осознанное "хочу посмотреть", как у видео/файла. EnsureStickerFile/
+  DownloadStickerDone/ApplyStickerFile — точная копия EnsureVideoFile/
+  DownloadVideoDone/ApplyVideoFile по форме, своя карта FStickerByFile. }
+procedure TTdMessages.EnsureStickerFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.StickerFileId = 0) or (ARow.StickerLocalPath <> '') or ARow.StickerDownloadRequested then begin
+    Exit;
+  end;
+  ARow.StickerDownloadRequested := True;
+  if FStickerByFile.IndexOf(ARow.StickerFileId) < 0 then begin
+    FStickerByFile.Add(ARow.StickerFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.StickerDownloadRequested := False;
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.StickerFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadStickerDone, ARow.StickerFileId);
+end;
+
+procedure TTdMessages.DownloadStickerDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyStickerFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FStickerByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FStickerByFile.Data[Idx].StickerDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyStickerFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FStickerByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FStickerByFile.Data[Idx];
+  if R.StickerLocalPath = Path then begin
+    Exit;
+  end;
+  R.StickerLocalPath := Path;
+  Touch;
+end;
+
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
   Obj: TJSONObject;
@@ -2478,6 +2676,7 @@ begin
       ApplyPhotoBestFile(JGetObj(Obj, 'file'));
       ApplyAnimFile(JGetObj(Obj, 'file'));
       ApplyVideoFile(JGetObj(Obj, 'file'));
+      ApplyStickerFile(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));

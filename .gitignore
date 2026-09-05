@@ -2,3 +2,7 @@ config.ini
 tdlib/
 tdlib_raw.log
 video_debug.log
+sticker_debug*.bmp
+sticker_debug.txt
+sticker_paint_input.bmp
+sticker_paint_result.bmp

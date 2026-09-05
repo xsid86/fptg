@@ -70,9 +70,7 @@ type
     function WantsWidget: boolean; virtual;
   end;
 
-{ Реестр — простой lookup по виду контента. Сюда позже подключатся
-  TAnimationContentRenderer/TStickerContentRenderer без изменений в
-  framehistory. }
+{ Реестр — простой lookup по виду контента. }
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
 
 { Целевой размер превью фото по натуральным ANaturalW/ANaturalH —
@@ -89,6 +87,16 @@ function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
   пользователем по скриншоту). AMaxW<=0 — ограничение не действует
   (вызывающий ещё не знает реальную ширину, напр. до первого layout). }
 procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
+
+{ Целевой размер стикера — тот же приём, что ComputePhotoPreviewSize
+  (клампится к максимальному боксу STICKER_MAX_SIZE, второй проход по
+  реальной ширине колонки), но БЕЗ отдельной ширины/высоты — стикеры в
+  Telegram вписываются в КВАДРАТНЫЙ бокс по большей стороне, не в
+  прямоугольник PHOTO_MAX_WIDTH/PHOTO_MAX_HEIGHT (тот отличает
+  портретную/альбомную ориентацию, у стикеров эта разница не нужна —
+  и TGS/webm, и webp у Telegram практически всегда близки к квадрату,
+  официальный клиент тоже вписывает по одной стороне). }
+procedure ComputeStickerSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
 
 implementation
 
@@ -650,7 +658,70 @@ begin
   Result := True;
 end;
 
-{ ---------------- видео/анимации/стикеры: плейсхолдер ---------------- }
+{ ---------------- стикер: реальный виджет (framehistory.TStickerWidget) ---------------- }
+
+procedure ComputeStickerSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
+begin
+  if (ANaturalW <= 0) or (ANaturalH <= 0) then begin
+    AOutW := STICKER_MAX_SIZE;
+    AOutH := STICKER_MAX_SIZE;
+  end else if ANaturalH > ANaturalW then begin
+    AOutW := Min(ANaturalW, STICKER_MAX_SIZE);
+    AOutH := Round(ANaturalH * (AOutW / ANaturalW));
+  end else begin
+    AOutH := Min(ANaturalH, STICKER_MAX_SIZE);
+    AOutW := Round(ANaturalW * (AOutH / ANaturalH));
+  end;
+  if (AMaxW > 0) and (AOutW > AMaxW) then begin
+    AOutH := Round(AOutH * (AMaxW / AOutW));
+    AOutW := AMaxW;
+  end;
+end;
+
+type
+  { Стикер — БЕЗ подписи (у messageSticker нет поля caption вовсе,
+    проверено по официальным docs.core.telegram.org/tdlib — в отличие
+    от фото/видео/"гифки", у которых caption есть всегда, даже если
+    пустой), поэтому Measure/Paint здесь проще, чем у
+    TPhotoContentRenderer — ни ветки "текст есть/нет", ни
+    EnsureTextLayout. }
+  TStickerContentRenderer = class(TMsgContentRenderer)
+  public
+    function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
+    procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
+      ASelStart, ASelEnd: integer); override;
+    function WantsWidget: boolean; override;
+  end;
+
+function TStickerContentRenderer.Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer;
+var
+  ImgW, ImgH: integer;
+begin
+  ComputeStickerSize(ARow.StickerWidth, ARow.StickerHeight, ACtx.AvailWidth, ImgW, ImgH);
+  Result := ImgH;
+end;
+
+procedure TStickerContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
+  ASelStart, ASelEnd: integer);
+begin
+  { Подложка на случай кадра до того, как framehistory успеет
+    позиционировать поверх настоящий TStickerWidget — тот же приём, что
+    у фото/аудио/файла. Стикер сам по себе прозрачный — тут красить
+    ЧЕМ-ТО всё равно нужно, иначе виден пиксельный мусор предыдущего
+    кадра под ещё не поднятым виджетом; clWindow, не clBtnFace — фон
+    стикера должен сливаться с окном, а не выглядеть отдельной серой
+    плашкой (у стикера нет своей "карточки"). }
+  ACanvas.Brush.Style := bsSolid;
+  ACanvas.Brush.Color := clWindow;
+  ACanvas.FillRect(ARect);
+end;
+
+function TStickerContentRenderer.WantsWidget: boolean;
+begin
+  Result := True;
+end;
+
+{ ---------------- контент без своего рендерера: плейсхолдер ---------------- }
 
 type
   TPlaceholderContentRenderer = class(TMsgContentRenderer)
@@ -661,16 +732,13 @@ type
     function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; override;
   end;
 
+{ mckVoiceNote/mckPhoto/mckAnimation/mckVideo/mckSticker убраны отсюда
+  — все они теперь реальные виджеты (см. RendererFor), эта ветка
+  недостижима для них; параметр оставлен ради будущих типов контента,
+  которым однажды тоже понадобится не-заглушка. }
 function PlaceholderLabel(AKind: TMsgContentKind): string;
 begin
-  { mckVoiceNote/mckPhoto/mckAnimation убраны отсюда — теперь реальные
-    виджеты (GAudioRenderer/GPhotoRenderer, см. RendererFor), эти ветки
-    для них больше недостижимы. }
-  case AKind of
-    mckSticker: Result := 'Sticker';
-  else
-    Result := 'Unsupported';
-  end;
+  Result := 'Unsupported';
 end;
 
 function TPlaceholderContentRenderer.Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer;
@@ -742,6 +810,7 @@ var
   GAudioRenderer:        TAudioContentRenderer;
   GDocRenderer:         TDocContentRenderer;
   GPhotoRenderer:       TPhotoContentRenderer;
+  GStickerRenderer:     TStickerContentRenderer;
   GPlaceholderRenderer: TPlaceholderContentRenderer;
 
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
@@ -763,6 +832,7 @@ begin
       TPhotoContentRenderer различает их по ARow.Kind. Содержимым
       виджета (загрузка/воспроизведение) ведает framehistory.pas. }
     mckPhoto, mckAnimation, mckVideo: Result := GPhotoRenderer;
+    mckSticker: Result := GStickerRenderer;
   else
     Result := GPlaceholderRenderer;
   end;
@@ -773,6 +843,7 @@ initialization
   GAudioRenderer := TAudioContentRenderer.Create;
   GDocRenderer := TDocContentRenderer.Create;
   GPhotoRenderer := TPhotoContentRenderer.Create;
+  GStickerRenderer := TStickerContentRenderer.Create;
   GPlaceholderRenderer := TPlaceholderContentRenderer.Create;
 
 finalization
@@ -780,6 +851,7 @@ finalization
   GAudioRenderer.Free;
   GDocRenderer.Free;
   GPhotoRenderer.Free;
+  GStickerRenderer.Free;
   GPlaceholderRenderer.Free;
 
 end.
