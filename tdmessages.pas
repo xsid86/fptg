@@ -188,15 +188,31 @@ type
       Превью — НЕ minithumbnail (крошечный ~40×22 base64-JPEG, при
       растяжении+блюре на весь превью выглядел "ублюдски", по прямому
       отзыву пользователя, 2026-09-06) — а content.video.thumbnail,
-      отдельный скачиваемый JPEG 320×180 (реальный кадр, не заглушка).
+      отдельный скачиваемый JPEG (реальный кадр, не заглушка, размер —
+      свой на каждое видео, в примерах из tdlib_raw.log 320×180).
       Качается БЕЗ гейта настроек Auto download, безусловно, как только
       строка становится видимой (framehistory.pas, LayoutVideoWidgets)
       — тот же принцип, что уже принят для стикеров: файл крошечный
       (десятки КБ), смысл в мгновенном отклике на скролл, а не в
-      осознанном решении "хочу скачать видео целиком". }
+      осознанном решении "хочу скачать видео целиком".
+
+      VideoThumbWidth/Height — из МЕТАДАННЫХ content.video.thumbnail
+      (поля width/height лежат рядом с file, известны СРАЗУ при разборе
+      сообщения, не только после скачивания самого JPEG) — по прямому
+      запросу пользователя (2026-09-06) используются вместо VideoWidth/
+      VideoHeight (реальное разрешение видео, часто 720p/1080p) для
+      расчёта размера ПРЕВЬЮ в чате (framehistory.pas, LayoutVideoWidgets):
+      раз превью — просто статичная картинка из thumbnail, а не
+      декодированный кадр видео, растягивать бокс превью по разрешению
+      ИСХОДНОГО видео нет смысла — thumbnail всё равно только этого,
+      меньшего, размера, крупнее не покажет ничего, только размажет
+      Resample'ом. VideoWidth/VideoHeight остались как были — нужны
+      просмотрщику (mediaviewer.pas) для вписывания РЕАЛЬНОГО
+      декодированного видео в размер окна. }
     VideoWidth, VideoHeight:     integer;
     VideoDuration:               integer;
     VideoThumbFileId:            integer;
+    VideoThumbWidth, VideoThumbHeight: integer;
     VideoThumbLocalPath:         utf8string;
     VideoThumbDownloadRequested: boolean;
     VideoFileId:                 integer;
@@ -386,7 +402,7 @@ type
     procedure ApplyAnimFile(AFile: TJSONObject);
     procedure ExtractVideoMeta(AContent: TJSONObject; const AType: utf8string;
       out AWidth, AHeight, ADuration: integer;
-      out AThumbFileId: integer; out AThumbLocalPath: utf8string;
+      out AThumbFileId, AThumbWidth, AThumbHeight: integer; out AThumbLocalPath: utf8string;
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadVideoDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyVideoFile(AFile: TJSONObject);
@@ -1503,14 +1519,16 @@ end;
   sizes, как у фото.
 
   content.video.thumbnail — ОТДЕЛЬНЫЙ объект, не то же самое, что
-  content.video.video: это фиксированный 320×180 JPEG-кадр (не base64,
-  свой скачиваемый file, вложенный на уровень глубже —
-  thumbnail.file.id/thumbnail.file.local), используется для превью в
-  чате вместо прежнего блюра из minithumbnail (см. комментарий у
-  TMsgRow.VideoThumbFileId, почему). }
+  content.video.video: это фиксированный JPEG-кадр (не base64, свой
+  скачиваемый file, вложенный на уровень глубже — thumbnail.file.id/
+  thumbnail.file.local), используется для превью в чате вместо прежнего
+  блюра из minithumbnail (см. комментарий у TMsgRow.VideoThumbFileId,
+  почему). thumbnail.width/height — на том же уровне, что и file, а не
+  внутри него — известны сразу из метаданных сообщения, без ожидания
+  скачивания самого JPEG. }
 procedure TTdMessages.ExtractVideoMeta(AContent: TJSONObject; const AType: utf8string;
   out AWidth, AHeight, ADuration: integer;
-  out AThumbFileId: integer; out AThumbLocalPath: utf8string;
+  out AThumbFileId, AThumbWidth, AThumbHeight: integer; out AThumbLocalPath: utf8string;
   out AFileId: integer; out ALocalPath: utf8string);
 var
   VideoObj, ThumbObj, ThumbFileObj, FileObj, LocalObj: TJSONObject;
@@ -1519,6 +1537,8 @@ begin
   AHeight := 0;
   ADuration := 0;
   AThumbFileId := 0;
+  AThumbWidth := 0;
+  AThumbHeight := 0;
   AThumbLocalPath := '';
   AFileId := 0;
   ALocalPath := '';
@@ -1535,6 +1555,8 @@ begin
 
   ThumbObj := JGetObj(VideoObj, 'thumbnail');
   if ThumbObj <> nil then begin
+    AThumbWidth := JGetInt(ThumbObj, 'width');
+    AThumbHeight := JGetInt(ThumbObj, 'height');
     ThumbFileObj := JGetObj(ThumbObj, 'file');
     if ThumbFileObj <> nil then begin
       AThumbFileId := JGetInt(ThumbFileObj, 'id');
@@ -1745,7 +1767,8 @@ begin
   ExtractAnimMeta(ContentObj, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   ExtractVideoMeta(ContentObj, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
-    R.VideoThumbFileId, R.VideoThumbLocalPath, R.VideoFileId, R.VideoLocalPath);
+    R.VideoThumbFileId, R.VideoThumbWidth, R.VideoThumbHeight, R.VideoThumbLocalPath,
+    R.VideoFileId, R.VideoLocalPath);
   ExtractStickerMeta(ContentObj, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
 
@@ -1783,7 +1806,8 @@ begin
   ExtractAnimMeta(ANewContent, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   ExtractVideoMeta(ANewContent, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
-    R.VideoThumbFileId, R.VideoThumbLocalPath, R.VideoFileId, R.VideoLocalPath);
+    R.VideoThumbFileId, R.VideoThumbWidth, R.VideoThumbHeight, R.VideoThumbLocalPath,
+    R.VideoFileId, R.VideoLocalPath);
   ExtractStickerMeta(ANewContent, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
   if R.LayoutCache <> nil then begin

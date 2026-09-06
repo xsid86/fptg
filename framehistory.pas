@@ -4729,7 +4729,7 @@ end;
   и экономит CPU/декод впустую невидимого). }
 procedure TMsgScroller.LayoutVideoWidgets(ALo, AHi: integer);
 var
-  I, N, MIdx, AIdx: integer;
+  I, N, MIdx, AIdx, NatW, NatH: integer;
   R: TMsgRow;
   W: TVideoWidget;
   CR: TRect;
@@ -4789,7 +4789,23 @@ begin
       download (см. комментарий у TMsgRow.VideoThumbFileId) — как
       только строка видна, не только когда пользователь явно кликнул. }
     FModel.EnsureVideoThumbFile(R);
-    W.SetVideo(R.Id, R.VideoWidth, R.VideoHeight, R.VideoThumbLocalPath,
+    { Размер превью в чате — по разрешению САМОГО thumbnail (известно
+      из метаданных сразу, без ожидания скачивания), не по реальному
+      разрешению видео (часто 720p/1080p) — по прямому запросу
+      пользователя (2026-09-06, см. комментарий у TMsgRow.
+      VideoThumbWidth): показываем статичную картинку из thumbnail,
+      крупнее неё всё равно ничего нет, растягивать бокс под разрешение
+      видео значило бы просто размазывать Resample'ом ту же картинку.
+      Резерв на VideoWidth/VideoHeight — на случай отсутствия thumbnail
+      в контенте (в теории возможно, вживую не встречалось). }
+    if (R.VideoThumbWidth > 0) and (R.VideoThumbHeight > 0) then begin
+      NatW := R.VideoThumbWidth;
+      NatH := R.VideoThumbHeight;
+    end else begin
+      NatW := R.VideoWidth;
+      NatH := R.VideoHeight;
+    end;
+    W.SetVideo(R.Id, NatW, NatH, R.VideoThumbLocalPath,
       R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left, R.VideoDuration);
     { Инлайн-проигрывания больше нет (см. комментарий у FVideoPool) —
       виджет в чате всегда в "неактивном" состоянии (play-иконка,
