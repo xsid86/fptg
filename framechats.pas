@@ -61,7 +61,22 @@ type
     FOnListMode: TListModeEvent;
     FMode:     TChatListMode;
     FOnAvatar: TAvatarClickEvent;
+    { Клик по значку/аватарке (chaBell/chaAvatar) — CanSelect:=False,
+      выделение вообще не двигаем, FOnSelect не зовём. }
     FSuppressSelect: Boolean;
+    { Идёт переключение режима списка (chaHeader) — в отличие от
+      FSuppressSelect, выделение ДВИГАТЬ нужно (CanSelect остаётся
+      True — выделенным должен стать заголовок нового списка,
+      "Архив"/"Все чаты", не прежняя строка из старого списка), но
+      FOnSelect всё равно не зовём — переключение списка само по себе
+      не должно открывать чат. Оба флага — "липкие": не сбрасывают
+      себя изнутри GridSelectCell на первый же вызов, единственное
+      место сброса — начало GridMouseDown, см. её же комментарий и
+      CLAUDE.md за 2026-09-06 про то, почему одноразовый вариант не
+      работал (Grid.RowCount:=... в ModelChanged может само по себе,
+      независимо от Grid.Row:=0, синхронно перевызвать GridSelectCell
+      ещё раз через CheckPosition в LCL). }
+    FSwitchingMode: Boolean;
     procedure BindModel;
     procedure UnbindModel;
     { Архив — не чат: индекс 0 отдан ему, чаты сдвинуты на единицу.
@@ -787,10 +802,14 @@ end;
 procedure TFrameChats.GridSelectCell(Sender: TObject; ACol, ARow: Integer; var CanSelect: Boolean);
 begin
   CanSelect := True;
-  { Клик пришёлся по значку или аватарке — выделение не двигаем
-    и чат не открываем. }
+  { Клик пришёлся по значку/аватарке — выделение вообще не двигаем,
+    чат не открываем. НЕ сбрасываем флаг здесь — см. её же объявление
+    и CLAUDE.md за 2026-09-06 про то, почему одноразовый, сбрасывающий
+    себя вариант не работал (Grid.RowCount:=... в ModelChanged может,
+    независимо от Grid.Row:=0, синхронно перевызвать это же событие
+    ещё раз через CheckPosition в LCL — заранее неизвестно, сколько
+    именно раз). }
   if FSuppressSelect then begin
-    FSuppressSelect := False;
     CanSelect := False;
     Exit;
   end;
@@ -800,6 +819,13 @@ begin
   if ARow < ARCHIVE_ROWS then begin
     { Заголовок обрабатывается в GridMouseDown — сюда попадаем
       только при выборе с клавиатуры. }
+    Exit;
+  end;
+  if FSwitchingMode then begin
+    { Идёт переключение режима списка (GridMouseDown/chaHeader) —
+      CanSelect остаётся True (см. выше) — выделенным должен стать сам
+      заголовок нового списка ("Архив"/"Все чаты"), а не прежняя
+      строка из старого — но чат при этом не открываем. }
     Exit;
   end;
   if Assigned(FOnSelect) then begin
@@ -878,6 +904,7 @@ var
   R: TChatRow;
 begin
   FSuppressSelect := False;
+  FSwitchingMode := False;
   if Button <> mbLeft then begin
     Exit;
   end;
@@ -886,7 +913,16 @@ begin
     наш обработчик успевает отработать до смены выделения. }
   case HitArea(X, Y, R) of
     chaHeader: begin
-      FSuppressSelect := True;
+      { FSwitchingMode (в отличие от FSuppressSelect у chaBell/chaAvatar
+        ниже) НЕ мешает выделению двигаться — оно ДОЛЖНО переехать на
+        заголовок нового списка, см. FSwitchingMode/GridSelectCell.
+        Держится True вплоть до начала СЛЕДУЮЩЕГО реального MouseDown,
+        не потребляется по одному разу за вызов — и Grid.Row:=0, и
+        Grid.RowCount:=... внутри SetMode/ModelChanged МОГУТ, независимо
+        друг от друга, синхронно перевызвать GridSelectCell ещё раз
+        (CheckPosition в LCL перепроверяет текущую ячейку на каждое
+        такое присваивание) — заранее неизвестно, сколько именно раз. }
+      FSwitchingMode := True;
       if FMode = clmArchive then begin
         SetMode(clmMain);
       end
