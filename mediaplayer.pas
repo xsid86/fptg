@@ -47,7 +47,9 @@ unit mediaplayer;
 
   FreeOnTerminate=False у TMediaPlayer, как у TAudioPlayer (НЕ как у
   TAnimationPlayer) — по той же причине: одновременно играет НЕ БОЛЕЕ
-  ОДНОГО видео со звуком (см. TMsgScroller.FActiveVideoPlayer), Stop —
+  ОДНОГО видео со звуком (единственный владелец — TMediaViewerPanel,
+  mediaviewer.pas, один слот на всё приложение; инлайн-проигрывания
+  видео в чате больше нет вовсе, см. framehistory.pas), Stop —
   осознанное действие пользователя, синхронный WaitFor там не проблема.
   TVideoDecodeThread тоже FreeOnTerminate=False — его WaitFor/Free
   вызывается из ExecuteInner самого TMediaPlayer (не из UI-потока, не
@@ -114,7 +116,7 @@ type
       на ЭТОМ (главном для TMediaPlayer) потоке. }
     FWaveOut: HWAVEOUT;
     { FWaveOut читается/закрывается с ДВУХ потоков — этот (аудио-декод,
-      закрывает по концу файла) и UI-поток (VideoPlaybackTick →
+      закрывает по концу файла) и UI-поток (TMediaViewerPanel.VideoTick →
       PositionSec → AudioClockSec, раз в 33мс, пока видео активно, плюс
       Pause/Resume по клику). Без блокировки закрытие устройства
       (waveOutClose) могло гонку с чтением его же хендла в
@@ -413,8 +415,8 @@ begin
   FStartPositionSec := AStartPositionSec;
   { Тот же приём, что у TAudioPlayer.Create — позиция выставляется
     здесь же, до Start, чтобы PositionSec, прочитанный сразу вслед за
-    Create (LayoutVideoWidgets), не увидел окно в несколько
-    миллисекунд с позицией 0 до места перемотки. }
+    Create (TMediaViewerPanel.StartVideoPlayer/VideoTick), не увидел
+    окно в несколько миллисекунд с позицией 0 до места перемотки. }
   FAudioPositionSamples := Round(AStartPositionSec * MEDIA_OUT_RATE);
   FVideoPositionSec := AStartPositionSec;
   FFrameLock := SyncObjs.TCriticalSection.Create;
@@ -428,7 +430,7 @@ destructor TMediaPlayer.Destroy;
 begin
   { К моменту вызова Destroy Execute уже гарантированно завершился (см.
     контракт FreeOnTerminate=False — вызывающая сторона обязана
-    WaitFor перед Free, TMsgScroller.FlushDoneVideoPlayer так и
+    WaitFor перед Free, TMediaViewerPanel.FlushDonePlayer так и
     делает), а значит ExecuteInner уже сам дождался и освободил
     FVideoThread на обычном пути. Проверка здесь — только защитная
     сетка на случай раннего Exit по ошибке ДО того, как видео-поток
