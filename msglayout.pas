@@ -577,8 +577,22 @@ type
   трёх один и тот же рендерер (см. RendererFor): всё это — картинка
   переменного размера с опциональной подписью, отличается только тем,
   ОТКУДА берутся width/height (PhotoWidth/Height у фото, AnimWidth/
-  Height у анимации, VideoWidth/Height у видео — разные поля TMsgRow,
-  см. её же комментарий). }
+  Height у анимации — разные поля TMsgRow, см. её же комментарий).
+
+  mckVideo — ИСКЛЮЧЕНИЕ, с 2026-09-06: инлайн-виджет в чате
+  (TVideoWidget, framehistory.pas) показывает не декодированное видео,
+  а статичный кадр из content.video.thumbnail — и framehistory.pas
+  (LayoutVideoWidgets) считает его РЕАЛЬНЫЙ размер на экране от
+  VideoThumbWidth/Height (разрешение самого thumbnail), не от
+  VideoWidth/Height (разрешение исходного видео). Если здесь оставить
+  VideoWidth/Height — эта функция (через Measure/Paint ниже) резервирует
+  под блок сообщения БОЛЬШЕ места, чем реально занимает виджет, и
+  разница остаётся пустой серой полосой фона блока сбоку/снизу от
+  картинки — тот самый баг, пойманный по скриншоту пользователя. Оба
+  места должны считать по ОДНОЙ и той же величине — резерв на
+  VideoWidth/Height ниже нужен только пока VideoThumbWidth/Height ещё
+  не пришли ни разу (в теории — видео без thumbnail в контенте
+  вообще). }
 procedure NaturalMediaSize(ARow: TMsgRow; out AW, AH: integer);
 begin
   case ARow.Kind of
@@ -587,8 +601,13 @@ begin
       AH := ARow.AnimHeight;
     end;
     mckVideo: begin
-      AW := ARow.VideoWidth;
-      AH := ARow.VideoHeight;
+      if (ARow.VideoThumbWidth > 0) and (ARow.VideoThumbHeight > 0) then begin
+        AW := ARow.VideoThumbWidth;
+        AH := ARow.VideoThumbHeight;
+      end else begin
+        AW := ARow.VideoWidth;
+        AH := ARow.VideoHeight;
+      end;
     end;
   else
     AW := ARow.PhotoWidth;
