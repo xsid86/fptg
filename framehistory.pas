@@ -319,12 +319,23 @@ type
     Видео-сообщение (messageVideo — настоящее видео со звуком, в
     отличие от "гифки") — по прямому запросу пользователя: размер и
     плейсхолдер-до-скачивания как у TPhotoWidget/TAnimationWidget
-    (натуральные пропорции, блюр из minithumbnail, значок "скачать"),
-    но по центру — кнопка play/pause, снизу — полоса прокрутки
+    (натуральные пропорции, значок "скачать"), но по центру — кнопка
+    play/pause, снизу — полоса прокрутки
     "ровно такая же, как на аудио файле, с такой же визуализацией
     времени" (те же AUDIO_TRACK_H/AUDIO_THUMB_H/W/AUDIO_PLAYED_OPACITY/
     AUDIO_REMAIN_OPACITY/FormatAudioTime, что у TAudioWidget — не
     отдельно придуманные числа).
+
+    Плейсхолдер до появления первого живого кадра — резкий статичный
+    кадр из content.video.thumbnail (320×180 JPEG, качается безусловно,
+    см. TTdMessages.EnsureVideoThumbFile), НЕ блюр из minithumbnail —
+    тот убран по прямому отзыву пользователя (2026-09-06, "блюр при
+    включённой автозагрузке выглядит по-ублюдски"): раз реальный кадр
+    теперь качается сразу при показе строки, независимо от настроек
+    автозагрузки самого видео, окно, в котором вообще есть что
+    показать вместо блюра, стало достаточно узким, чтобы блюр просто
+    выкинуть, а не городить условную логику "блюрить только если
+    автозагрузка выключена".
 
     Видимость по прямому ТЗ пользователя: кнопка PLAY (когда сейчас НЕ
     играет — ни разу не запускали, либо на паузе) — ВСЕГДА, вне
@@ -351,7 +362,7 @@ type
     FLocalPath: utf8string;
     FDownloaded: boolean;
     FDuration: integer;
-    FBlurBmp: TBGRABitmap;      { плейсхолдер из minithumbnail, пока не показан ни один живой кадр }
+    FThumbBmp: TBGRABitmap;     { резкий кадр из content.video.thumbnail, пока не показан ни один живой кадр — см. SetVideoCore }
     FFrameBuf: PByte;           { последний живой кадр, BGRA, FTargetW*FTargetH*4 — под замороженным паузой видео тоже он же }
     FHaveFrame: boolean;        { хоть один живой кадр когда-либо получен этим виджетом }
     FDownloadImages: TImageList; { значок "скачать" }
@@ -380,7 +391,7 @@ type
     function FractionFromX(AX: integer): double;
     procedure ClearBitmap;
     procedure SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
-      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+      const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
       ATargetW, ATargetH, ADuration: integer);
   protected
     procedure Paint; override;
@@ -394,9 +405,12 @@ type
     destructor Destroy; override;
     { Та же сигнатура/роль, что у TAnimationWidget.SetAnim, плюс
       ADuration (секунды, как AudioDuration) — виджету нужен для
-      подписи времени на полосе прокрутки, даже пока видео не активно. }
+      подписи времени на полосе прокрутки, даже пока видео не активно.
+      AThumbLocalPath — путь к уже скачанному content.video.thumbnail
+      (320×180 JPEG), '' пока ещё не скачан (см. TMsgRow.VideoThumbFileId
+      и класс-комментарий выше про отказ от блюра). }
     procedure SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
-      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+      const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
       AMaxW: integer; ADuration: integer);
     { Тот же SetVideo, но с ЯВНО заданным целевым размером — не через
       ComputePhotoPreviewSize/AMaxW (тот всегда клампит к PHOTO_MAX_
@@ -404,7 +418,7 @@ type
       просмотрщику (mediaviewer.pas) — там видео показывается БОЛЬШИМ,
       вписанным в размер окна программы, не в размер строки в чате. }
     procedure SetVideoSized(ARowId: Int64; ANaturalW, ANaturalH: integer;
-      const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+      const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
       ATargetW, ATargetH, ADuration: integer);
     procedure SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
     { Помечает, что FrameBuf только что обновился (сам плеер пишет
@@ -2227,32 +2241,31 @@ end;
 
 procedure TVideoWidget.ClearBitmap;
 begin
-  FreeAndNil(FBlurBmp);
+  FreeAndNil(FThumbBmp);
 end;
 
 procedure TVideoWidget.SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
-  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+  const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
   AMaxW: integer; ADuration: integer);
 var
   TgtW, TgtH: integer;
 begin
   ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, TgtW, TgtH);
-  SetVideoCore(ARowId, ANaturalW, ANaturalH, AMinithumb, ADownloaded, ALocalPath, TgtW, TgtH, ADuration);
+  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, TgtW, TgtH, ADuration);
 end;
 
 procedure TVideoWidget.SetVideoSized(ARowId: Int64; ANaturalW, ANaturalH: integer;
-  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+  const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
   ATargetW, ATargetH, ADuration: integer);
 begin
-  SetVideoCore(ARowId, ANaturalW, ANaturalH, AMinithumb, ADownloaded, ALocalPath, ATargetW, ATargetH, ADuration);
+  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, ATargetW, ATargetH, ADuration);
 end;
 
 procedure TVideoWidget.SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
-  const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
+  const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
   ATargetW, ATargetH, ADuration: integer);
 var
-  Ms: TMemoryStream;
-  Src, Resized, Stretched: TBGRABitmap;
+  Src: TBGRABitmap;
   OldTargetW, OldTargetH: integer;
 begin
   if ARowId <> FRowId then begin
@@ -2293,33 +2306,22 @@ begin
     GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
   end;
 
-  if (FBlurBmp = nil) and (AMinithumb <> '') then begin
-    { Блюр-плейсхолдер — тот же двухпроходный FilterBlurRadial, что и
-      у фото/"гифки" (см. запись про блюр превью фото в CLAUDE.md за
-      2026-09-03). Убирался по запросу пользователя (2026-09-06), затем
-      возвращён обратно тем же днём — без него растянутый крошечный
-      minithumbnail выглядел блочным. }
-    Ms := TMemoryStream.Create;
+  if (FThumbBmp = nil) and (AThumbLocalPath <> '') then begin
+    { Резкий кадр из content.video.thumbnail (320×180 JPEG, уже на диске
+      к этому моменту, см. класс-комментарий про отказ от блюра) — файл
+      маленький, декод+ресемпл синхронный, отдельный поток (как у
+      TPhotoDecodeThread для полноразмерных фото) не оправдан. }
     Src := nil;
-    Resized := nil;
-    Stretched := nil;
     try
       try
-        Ms.WriteBuffer(AMinithumb[1], Length(AMinithumb));
-        Ms.Position := 0;
-        Src := TBGRABitmap.Create(Ms);
-        Resized := TBGRABitmap(FilterBlurRadial(Src, 10, rbNormal));
-        Resized.ResampleFilter := rfBestQuality;
-        Stretched := Resized.Resample(FTargetW, FTargetH, rmFineResample);
-        FBlurBmp := TBGRABitmap(FilterBlurRadial(Stretched, 10, rbNormal));
+        Src := TBGRABitmap.Create(string(AThumbLocalPath));
+        Src.ResampleFilter := rfBestQuality;
+        FThumbBmp := Src.Resample(FTargetW, FTargetH, rmFineResample);
       except
         ClearBitmap;
       end;
     finally
-      Stretched.Free;
-      Resized.Free;
       Src.Free;
-      Ms.Free;
     end;
   end;
 
@@ -2500,8 +2502,8 @@ begin
   if (Box.Right > Box.Left) and (Box.Bottom > Box.Top) then begin
     if FHaveFrame and (FFrameBuf <> nil) then begin
       DrawBgraBuffer(Canvas, FFrameBuf, FTargetW, FTargetH);
-    end else if FBlurBmp <> nil then begin
-      FBlurBmp.Draw(Canvas, 0, 0, False);
+    end else if FThumbBmp <> nil then begin
+      FThumbBmp.Draw(Canvas, 0, 0, False);
     end;
   end;
 
@@ -4783,7 +4785,11 @@ begin
     W.Images := FAudioImages;
     R := FModel[MIdx];
     W.BackgroundColor := WidgetBackdropColor(R);
-    W.SetVideo(R.Id, R.VideoWidth, R.VideoHeight, R.VideoMinithumb,
+    { Превью-кадр — качается БЕЗУСЛОВНО, независимо от настроек Auto
+      download (см. комментарий у TMsgRow.VideoThumbFileId) — как
+      только строка видна, не только когда пользователь явно кликнул. }
+    FModel.EnsureVideoThumbFile(R);
+    W.SetVideo(R.Id, R.VideoWidth, R.VideoHeight, R.VideoThumbLocalPath,
       R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left, R.VideoDuration);
     { Инлайн-проигрывания больше нет (см. комментарий у FVideoPool) —
       виджет в чате всегда в "неактивном" состоянии (play-иконка,

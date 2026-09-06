@@ -527,7 +527,7 @@ begin
   FitToBox(ARow.VideoWidth, ARow.VideoHeight, AvailW, AvailH, TgtW, TgtH);
   FVideoWidget.Images := FImages;
   FVideoWidget.BackgroundColor := clBlack;
-  FVideoWidget.SetVideoSized(ARow.Id, ARow.VideoWidth, ARow.VideoHeight, ARow.VideoMinithumb,
+  FVideoWidget.SetVideoSized(ARow.Id, ARow.VideoWidth, ARow.VideoHeight, ARow.VideoThumbLocalPath,
     True, ARow.VideoLocalPath, TgtW, TgtH, ARow.VideoDuration);
   FVideoWidget.SetBounds((ClientWidth - TgtW) div 2, (ClientHeight - TgtH) div 2, TgtW, TgtH);
   FVideoWidget.Visible := True;

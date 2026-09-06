@@ -183,13 +183,25 @@ type
       TMediaPlayer — mediaplayer.pas), поэтому здесь нет поля-аналога
       AnimAutoPlay: автозагрузка для видео — только скачивание (см.
       MaybeAutoDownload), автостарт воспроизведения со звуком без
-      клика пользователя не запрашивался и был бы навязчивым UX. }
-    VideoWidth, VideoHeight: integer;
-    VideoDuration:           integer;
-    VideoMinithumb:          RawByteString;
-    VideoFileId:             integer;
-    VideoLocalPath:          utf8string;
-    VideoDownloadRequested:  boolean;
+      клика пользователя не запрашивался и был бы навязчивым UX.
+
+      Превью — НЕ minithumbnail (крошечный ~40×22 base64-JPEG, при
+      растяжении+блюре на весь превью выглядел "ублюдски", по прямому
+      отзыву пользователя, 2026-09-06) — а content.video.thumbnail,
+      отдельный скачиваемый JPEG 320×180 (реальный кадр, не заглушка).
+      Качается БЕЗ гейта настроек Auto download, безусловно, как только
+      строка становится видимой (framehistory.pas, LayoutVideoWidgets)
+      — тот же принцип, что уже принят для стикеров: файл крошечный
+      (десятки КБ), смысл в мгновенном отклике на скролл, а не в
+      осознанном решении "хочу скачать видео целиком". }
+    VideoWidth, VideoHeight:     integer;
+    VideoDuration:               integer;
+    VideoThumbFileId:            integer;
+    VideoThumbLocalPath:         utf8string;
+    VideoThumbDownloadRequested: boolean;
+    VideoFileId:                 integer;
+    VideoLocalPath:              utf8string;
+    VideoDownloadRequested:      boolean;
     { messageSticker.sticker — только для Kind=mckSticker. Тот же приём
       двойного имени "sticker" в JSON (content.sticker.sticker — сам
       скачиваемый TDLib-объект file, content.sticker — метаданные),
@@ -257,6 +269,9 @@ type
   { То же для видео-сообщений (messageVideo) — своя карта, не общая с
     остальными (см. комментарий у TDocFileMap). }
   TVideoFileMap = specialize TFPGMap<integer, TMsgRow>;
+  { Превью-кадр видео (content.video.thumbnail.file) — отдельный file_id
+    от самого видео (TVideoFileMap выше), своя карта по той же причине. }
+  TVideoThumbFileMap = specialize TFPGMap<integer, TMsgRow>;
   { То же для стикеров (messageSticker) — своя карта, не общая с
     остальными (см. комментарий у TDocFileMap). }
   TStickerFileMap = specialize TFPGMap<integer, TMsgRow>;
@@ -327,6 +342,9 @@ type
     FAnimByFile: TAnimFileMap;
     { Скачивание видео-сообщений — см. EnsureVideoFile/ApplyVideoFile. }
     FVideoByFile: TVideoFileMap;
+    { Скачивание превью-кадра видео — см. EnsureVideoThumbFile/
+      ApplyVideoThumbFile. }
+    FVideoThumbByFile: TVideoThumbFileMap;
     { Скачивание стикеров — см. EnsureStickerFile/ApplyStickerFile. }
     FStickerByFile: TStickerFileMap;
 
@@ -367,10 +385,13 @@ type
     procedure DownloadAnimDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyAnimFile(AFile: TJSONObject);
     procedure ExtractVideoMeta(AContent: TJSONObject; const AType: utf8string;
-      out AWidth, AHeight, ADuration: integer; out AMinithumb: RawByteString;
+      out AWidth, AHeight, ADuration: integer;
+      out AThumbFileId: integer; out AThumbLocalPath: utf8string;
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadVideoDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyVideoFile(AFile: TJSONObject);
+    procedure DownloadVideoThumbDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyVideoThumbFile(AFile: TJSONObject);
     procedure ExtractStickerMeta(AContent: TJSONObject; const AType: utf8string;
       out AWidth, AHeight: integer; out AFormat: TStickerFormat;
       out AFileId: integer; out ALocalPath: utf8string);
@@ -458,6 +479,11 @@ type
     procedure EnsureAnimFile(ARow: TMsgRow);
     { То же самое для видео-сообщения (см. VideoFileId) — тем же приёмом. }
     procedure EnsureVideoFile(ARow: TMsgRow);
+    { Превью-кадр видео (см. VideoThumbFileId) — БЕЗ гейта настроек Auto
+      download, тот же принцип, что у стикеров (см. комментарий у поля
+      TMsgRow.VideoThumbFileId) — framehistory.pas зовёт безусловно,
+      как только строка видна. }
+    procedure EnsureVideoThumbFile(ARow: TMsgRow);
     { То же самое для стикера (см. StickerFileId) — тем же приёмом. }
     procedure EnsureStickerFile(ARow: TMsgRow);
 
@@ -721,6 +747,8 @@ begin
   FAnimByFile.Sorted := True;
   FVideoByFile := TVideoFileMap.Create;
   FVideoByFile.Sorted := True;
+  FVideoThumbByFile := TVideoThumbFileMap.Create;
+  FVideoThumbByFile.Sorted := True;
   FStickerByFile := TStickerFileMap.Create;
   FStickerByFile.Sorted := True;
   FLoadLimit := 50;
@@ -757,6 +785,7 @@ begin
   FPhotoBestByFile.Free;
   FAnimByFile.Free;
   FVideoByFile.Free;
+  FVideoThumbByFile.Free;
   FStickerByFile.Free;
   inherited Destroy;
 end;
@@ -781,6 +810,7 @@ begin
   FPhotoBestByFile.Clear;
   FAnimByFile.Clear;
   FVideoByFile.Clear;
+  FVideoThumbByFile.Clear;
   FStickerByFile.Clear;
   SetLength(FReplyPending, 0);
   FLoadingOlder := False;
@@ -1467,22 +1497,29 @@ end;
 
 { messageVideo.video — тот же приём двойного имени "video" в JSON
   (content.video.video — сам скачиваемый TDLib-объект file,
-  content.video — метаданные, включая content.video.minithumbnail —
-  крошечный JPEG, без скачивания), что и у content.animation.animation
-  — проверено по tdlib_raw.log (55 совпадений с реальными видео-
+  content.video — метаданные), что и у content.animation.animation —
+  проверено по tdlib_raw.log (55 совпадений с реальными видео-
   сообщениями), не по памяти. Один слой, как у "гифки", не массив
-  sizes, как у фото. }
+  sizes, как у фото.
+
+  content.video.thumbnail — ОТДЕЛЬНЫЙ объект, не то же самое, что
+  content.video.video: это фиксированный 320×180 JPEG-кадр (не base64,
+  свой скачиваемый file, вложенный на уровень глубже —
+  thumbnail.file.id/thumbnail.file.local), используется для превью в
+  чате вместо прежнего блюра из minithumbnail (см. комментарий у
+  TMsgRow.VideoThumbFileId, почему). }
 procedure TTdMessages.ExtractVideoMeta(AContent: TJSONObject; const AType: utf8string;
-  out AWidth, AHeight, ADuration: integer; out AMinithumb: RawByteString;
+  out AWidth, AHeight, ADuration: integer;
+  out AThumbFileId: integer; out AThumbLocalPath: utf8string;
   out AFileId: integer; out ALocalPath: utf8string);
 var
-  VideoObj, MiniObj, FileObj, LocalObj: TJSONObject;
-  B64: utf8string;
+  VideoObj, ThumbObj, ThumbFileObj, FileObj, LocalObj: TJSONObject;
 begin
   AWidth := 0;
   AHeight := 0;
   ADuration := 0;
-  AMinithumb := '';
+  AThumbFileId := 0;
+  AThumbLocalPath := '';
   AFileId := 0;
   ALocalPath := '';
   if (AContent = nil) or (AType <> 'messageVideo') then begin
@@ -1496,11 +1533,15 @@ begin
   AHeight := JGetInt(VideoObj, 'height');
   ADuration := JGetInt(VideoObj, 'duration');
 
-  MiniObj := JGetObj(VideoObj, 'minithumbnail');
-  if MiniObj <> nil then begin
-    B64 := JGetStr(MiniObj, 'data');
-    if B64 <> '' then begin
-      AMinithumb := DecodeStringBase64(string(B64));
+  ThumbObj := JGetObj(VideoObj, 'thumbnail');
+  if ThumbObj <> nil then begin
+    ThumbFileObj := JGetObj(ThumbObj, 'file');
+    if ThumbFileObj <> nil then begin
+      AThumbFileId := JGetInt(ThumbFileObj, 'id');
+      LocalObj := JGetObj(ThumbFileObj, 'local');
+      if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+        AThumbLocalPath := JGetStr(LocalObj, 'path');
+      end;
     end;
   end;
 
@@ -1704,7 +1745,7 @@ begin
   ExtractAnimMeta(ContentObj, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   ExtractVideoMeta(ContentObj, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
-    R.VideoMinithumb, R.VideoFileId, R.VideoLocalPath);
+    R.VideoThumbFileId, R.VideoThumbLocalPath, R.VideoFileId, R.VideoLocalPath);
   ExtractStickerMeta(ContentObj, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
 
@@ -1742,7 +1783,7 @@ begin
   ExtractAnimMeta(ANewContent, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   ExtractVideoMeta(ANewContent, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
-    R.VideoMinithumb, R.VideoFileId, R.VideoLocalPath);
+    R.VideoThumbFileId, R.VideoThumbLocalPath, R.VideoFileId, R.VideoLocalPath);
   ExtractStickerMeta(ANewContent, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
   if R.LayoutCache <> nil then begin
@@ -2561,6 +2602,80 @@ begin
   Touch;
 end;
 
+{ Превью-кадр видео — БЕЗ гейта настроек Auto download (см. комментарий
+  у TMsgRow.VideoThumbFileId) — точная копия EnsureVideoFile/
+  DownloadVideoDone/ApplyVideoFile по форме, своя карта
+  FVideoThumbByFile (свой file_id, не пересекается с самим видео). }
+procedure TTdMessages.EnsureVideoThumbFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.VideoThumbFileId = 0) or (ARow.VideoThumbLocalPath <> '') or
+     ARow.VideoThumbDownloadRequested then begin
+    Exit;
+  end;
+  ARow.VideoThumbDownloadRequested := True;
+  if FVideoThumbByFile.IndexOf(ARow.VideoThumbFileId) < 0 then begin
+    FVideoThumbByFile.Add(ARow.VideoThumbFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.VideoThumbDownloadRequested := False;
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.VideoThumbFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadVideoThumbDone, ARow.VideoThumbFileId);
+end;
+
+procedure TTdMessages.DownloadVideoThumbDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyVideoThumbFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FVideoThumbByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FVideoThumbByFile.Data[Idx].VideoThumbDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyVideoThumbFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FVideoThumbByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FVideoThumbByFile.Data[Idx];
+  if R.VideoThumbLocalPath = Path then begin
+    Exit;
+  end;
+  R.VideoThumbLocalPath := Path;
+  Touch;
+end;
+
 { Стикеры — по прямому запросу пользователя ("полная анимация, включая
   TGS") качаются БЕЗ гейта настроек Auto download вовсе (см.
   TMsgScroller.MaybeAutoDownload, framehistory.pas) — файлы стикеров
@@ -2676,6 +2791,7 @@ begin
       ApplyPhotoBestFile(JGetObj(Obj, 'file'));
       ApplyAnimFile(JGetObj(Obj, 'file'));
       ApplyVideoFile(JGetObj(Obj, 'file'));
+      ApplyVideoThumbFile(JGetObj(Obj, 'file'));
       ApplyStickerFile(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
