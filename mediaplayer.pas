@@ -131,6 +131,23 @@ type
     FBufMem: array[0..MEDIA_BUF_COUNT - 1] of PByte;
     FHasAudio: boolean;
     FAudioPositionSamples: Int64;   { сэмплов, УЖЕ ОТДАННЫХ в очередь winmm — запасные часы, см. AudioClockSec }
+    { Смещение (в сэмплах) точки перемотки от начала файла — выставляется
+      ОДИН раз в конструкторе, НИКОГДА не меняется дальше (в отличие от
+      FAudioPositionSamples, который растёт по мере отдачи данных в
+      winmm). Нужно для AudioClockSec: waveOutGetPosition/TIME_SAMPLES
+      считает сэмплы ОТНОСИТЕЛЬНО МОМЕНТА waveOutOpen — winmm понятия не
+      имеет, что мы стартовали не с начала файла, а с 10-й/20-й секунды
+      (перемотка). Без прибавления этого смещения AudioClockSec после
+      КАЖДОЙ перемотки начинала бы отсчёт заново от 0 — реальный,
+      воспроизводимый баг (пользователь, 2026-09-07: "перемотка на 10
+      секунд не работает, видео тормозит и ползунок возвращается к
+      началу") — часы "переставали знать" про перемотку, видео-поток
+      считал Delay относительно них (NowPtsSec с места перемотки минус
+      AClock, отсчитывающие от 0) — искусственный разрыв ~10с упирался
+      в защитный кап (1с на кадр) и держался, пока AClock КАЖДУЮ
+      секунду реального времени не нагонял бы этот разрыв сам по себе —
+      воспринималось как "тормозит и стоит в начале" ровно те же 10с. }
+    FSeekBaseSamples: Int64;
     { Момент (GetTickCount64), когда FWaveOut закрылся насовсем (см.
       CloseAudioDevice) — то есть аудио-трек полностью доигран. Нужен
       AudioClockSec: без него часы после закрытия устройства оставались
@@ -424,6 +441,7 @@ begin
     Create (TMediaViewerPanel.StartVideoPlayer/VideoTick), не увидел
     окно в несколько миллисекунд с позицией 0 до места перемотки. }
   FAudioPositionSamples := Round(AStartPositionSec * MEDIA_OUT_RATE);
+  FSeekBaseSamples := FAudioPositionSamples;
   FVideoPositionSec := AStartPositionSec;
   FFrameLock := SyncObjs.TCriticalSection.Create;
   FWaveLock := SyncObjs.TCriticalSection.Create;
@@ -640,7 +658,10 @@ begin
     end;
     Mmt.wType := TIME_SAMPLES;
     if (waveOutGetPosition(FWaveOut, @Mmt, SizeOf(Mmt)) = 0) and (Mmt.wType = TIME_SAMPLES) then begin
-      Result := Mmt.sample / MEDIA_OUT_RATE;
+      { Mmt.sample — сэмплы, сыгранные С МОМЕНТА waveOutOpen, НЕ с начала
+        файла — плюс FSeekBaseSamples обязателен (см. её комментарий),
+        без него это и был баг "перемотка не работает". }
+      Result := (FSeekBaseSamples + Mmt.sample) / MEDIA_OUT_RATE;
     end;
   finally
     FWaveLock.Leave;
