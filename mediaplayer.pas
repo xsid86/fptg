@@ -131,6 +131,12 @@ type
     FBufMem: array[0..MEDIA_BUF_COUNT - 1] of PByte;
     FHasAudio: boolean;
     FAudioPositionSamples: Int64;   { сэмплов, УЖЕ ОТДАННЫХ в очередь winmm — запасные часы, см. AudioClockSec }
+    { Момент (GetTickCount64), когда FWaveOut закрылся насовсем (см.
+      CloseAudioDevice) — то есть аудио-трек полностью доигран. Нужен
+      AudioClockSec: без него часы после закрытия устройства оставались
+      бы ЗАМОРОЖЕНЫ на FAudioPositionSamples навсегда, см. её же
+      комментарий про баг "видео зависает за секунду до конца". }
+    FAudioEndTick: QWord;
 
     FState: TMediaPlayerState;
     FDurationSec: double;
@@ -562,6 +568,7 @@ begin
     end;
     waveOutClose(FWaveOut);
     FWaveOut := 0;
+    FAudioEndTick := GetTickCount64;
   finally
     FWaveLock.Leave;
   end;
@@ -610,6 +617,25 @@ begin
   FWaveLock.Enter;
   try
     if FWaveOut = 0 then begin
+      { Устройство уже закрыто — аудио-трек весь доигран (пока FHasAudio,
+        к моменту, когда TVideoDecodeThread вообще начинает звать эту
+        функцию, устройство уже гарантированно ОТКРЫТО — см. порядок в
+        ExecuteInner, OpenAudioDevice раньше FVideoThread.Create — значит
+        FWaveOut=0 здесь не "ещё не открыто", а именно "уже закрыто").
+        Раньше здесь просто возвращался ЗАМОРОЖЕННЫЙ FAudioPositionSamples
+        — если аудио-трек короче видео (обычное дело при муксинге,
+        разница может быть ~1с и больше), хвостовые кадры видео считали
+        Delay относительно часов, которые НИКОГДА больше не двигаются:
+        Delay рос с каждым кадром, упирался в кап (1с) и там оставался —
+        КАЖДЫЙ хвостовой кадр спал целую секунду вместо мгновенного
+        показа, что и выглядело как "видео зависает за секунду до конца"
+        (реальный, воспроизводимый баг, пользователь, 2026-09-07). Правка
+        — часы продолжают идти обычным настенным временем от момента
+        закрытия (FAudioEndTick, выставлен в CloseAudioDevice под тем же
+        локом) — хвост без звука доигрывает в реальном темпе, Delay
+        быстро становится ≤0, дальше кадры показываются без ожидания. }
+      Result := FAudioPositionSamples / MEDIA_OUT_RATE +
+        (GetTickCount64 - FAudioEndTick) / 1000.0;
       Exit;
     end;
     Mmt.wType := TIME_SAMPLES;

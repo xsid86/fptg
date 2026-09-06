@@ -545,6 +545,20 @@ begin
     FDonePlayer := FPlayer;
     FPlayer := nil;
     FVideoTimer.Enabled := False;
+    { Без этого виджет оставался бы навсегда в последнем состоянии,
+      выставленном VideoTick ДО остановки (FIsActive=True, FPlaying=True
+      — тот тик, что был последним перед тем, как таймер выше
+      выключился) — застывший кадр с виду "играющего" видео, и клик по
+      play/pause ничего не делал (VideoWidgetPlayClick сразу выходит,
+      если FPlayer=nil) — реальная причина "не перезапускается" из
+      отчёта пользователя (2026-09-07), отдельная от самого зависания
+      на хвосте (см. AudioClockSec/mediaplayer.pas). Сброс в неактивное
+      состояние — тот же вид, что у ещё не запущенного видео, плюс
+      VideoWidgetPlayClick теперь запускает проигрывание заново с нуля,
+      если FPlayer=nil. }
+    if FVideoWidget <> nil then begin
+      FVideoWidget.SetPlayback(False, False, 0);
+    end;
   end;
   Invalidate;
 end;
@@ -570,8 +584,21 @@ begin
 end;
 
 procedure TMediaViewerPanel.VideoWidgetPlayClick(Sender: TObject);
+var
+  Idx: integer;
 begin
   if FPlayer = nil then begin
+    { Уже доиграно естественным образом (см. VideoPlayerStateChanged) —
+      клик по play должен запускать заново с начала, не быть no-op'ом,
+      тем же путём, что и открытие видео впервые (StartVideoPlayer). }
+    if FModel = nil then begin
+      Exit;
+    end;
+    Idx := FModel.IndexOfId(FMessageId);
+    if Idx < 0 then begin
+      Exit;
+    end;
+    StartVideoPlayer(FModel[Idx]);
     Exit;
   end;
   if FPlayer.State = mpsPlaying then begin
