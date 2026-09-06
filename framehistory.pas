@@ -337,12 +337,18 @@ type
     выкинуть, а не городить условную логику "блюрить только если
     автозагрузка выключена".
 
-    Видимость по прямому ТЗ пользователя: кнопка PLAY (когда сейчас НЕ
-    играет — ни разу не запускали, либо на паузе) — ВСЕГДА, вне
-    зависимости от курсора. Кнопка PAUSE (когда играет) и полоса
-    прокрутки — ТОЛЬКО когда курсор над виджетом (MouseEnter/MouseLeave,
-    FHovering) — во время активного проигрывания видео ничем не
-    закрыто, пока пользователь явно не наведёт мышь.
+    Видимость: в ЧАТЕ (FIsActive всегда False) — ВСЕГДА одна и та же
+    большая PLAY-иконка по центру, вне зависимости от курсора, тем же
+    приёмом, что и раньше. В ПРОСМОТРЩИКЕ (FIsActive всегда True, см.
+    класс-комментарий ниже) — по прямому запросу пользователя
+    (2026-09-07) центральная иконка убрана вовсе, play/pause переехал в
+    ряд транспортных кнопок под полосой прокрутки (см. PlaybackButtonRect/
+    ControlsVisible): полоса/время/весь ряд кнопок показываются ВСЕГДА,
+    пока видео НЕ играет (пауза/ещё не запущено — тот же случай, когда
+    раньше показывалась одинокая центральная иконка), и ТОЛЬКО под
+    курсором (MouseEnter/MouseLeave, FHovering), пока видео активно
+    играет — чистая картинка, ничем не закрытая, пока пользователь явно
+    не наведёт мышь.
 
     Живое воспроизведение — TMediaPlayer (mediaplayer.pas), но НЕ
     отсюда: по прямому запросу пользователя (2026-09-06) инлайн-
@@ -377,7 +383,7 @@ type
     FDraggingSeek: boolean;
     FDragFraction: double;
     FOnClick: TNotifyEvent;       { клик по недокачанному виджету целиком — скачать }
-    FOnPlayClick: TNotifyEvent;   { клик по центральной кнопке play/pause }
+    FOnPlayClick: TNotifyEvent;   { клик по кнопке play/pause (центр виджета в чате, ряд транспорта в просмотрщике) }
     FOnSeek: TAudioSeekEvent;
     { Клик по уже скачанному видео, НЕ по кнопке play/pause и НЕ по
       полосе прокрутки — то есть по самому кадру/превью. Инлайн-плеер
@@ -385,10 +391,41 @@ type
       специально для просмотрщика (mediaviewer.pas): "открыть покрупнее"
       должно быть отдельным от "проиграть тут же, маленьким" жестом. }
     FOnBodyClick: TNotifyEvent;
+    { Ряд транспортных кнопок под полосой прокрутки — по прямому запросу
+      пользователя (2026-09-07), только для просмотрщика (см. класс-
+      комментарий и ControlsVisible ниже). Prev/next/repeat не может
+      решить сам виджет (не знает про соседние сообщения/режим повтора)
+      — три новых события у владельца (mediaviewer.pas), тем же приёмом,
+      что уже есть OnPlayClick/OnSeek/OnBodyClick. Skip ±10с переиспользует
+      УЖЕ существующий OnSeek (виджет сам считает целевую долю от
+      FPositionSec/FDuration, см. SkipBy) — новое событие под это не
+      заводили. }
+    FPlaybackImages: TImageList;
+    FHasPrevVideo, FHasNextVideo: boolean;
+    FRepeatOn: boolean;
+    FOnPrevClick, FOnNextClick, FOnRepeatClick: TNotifyEvent;
     function PlayButtonRect: TRect;
     function ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
     function TrackAreaRect: TRect;
     function FractionFromX(AX: integer): double;
+    { Верхний край ряда транспортных кнопок — общий источник и для
+      Paint (где рисовать), и для PlaybackButtonRect (где хит-тест). }
+    function ButtonsRowTop: integer;
+    { Прямоугольник кнопки AIndex (0=prev,1=-10с,2=play/pause,3=repeat,
+      4=+10с,5=next) — ряд из 6 кнопок PLAYBACK_BTN_SIZE, с зазором
+      PLAYBACK_BTN_GAP, отцентрированный по горизонтали в ClientRect. }
+    function PlaybackButtonRect(AIndex: integer): TRect;
+    { Показывать ли ряд транспортных кнопок/полосу/время СЕЙЧАС — то же
+      условие, что и решает видимость этого блока в Paint (см. её же
+      комментарий), вынесено отдельно, чтобы MouseDown/MouseMove не
+      могли разойтись с тем, что реально нарисовано (не кликать по
+      невидимой кнопке). }
+    function ControlsVisible: boolean;
+    { Перемотка на ADeltaSec секунд от текущей позиции (отрицательное —
+      назад), с клампом в [0, FDuration] — через уже существующий
+      OnSeek (тот же путь, что и перетаскивание ползунка), новой
+      инфраструктуры не потребовалось. }
+    procedure SkipBy(ADeltaSec: double);
     procedure ClearBitmap;
     procedure SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
@@ -446,6 +483,19 @@ type
     property OnPlayClick: TNotifyEvent read FOnPlayClick write FOnPlayClick;
     property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
     property OnBodyClick: TNotifyEvent read FOnBodyClick write FOnBodyClick;
+    property PlaybackImages: TImageList read FPlaybackImages write FPlaybackImages;
+    { Серый/цветной вариант кнопок prev/next ряда — владелец (mediaviewer.
+      pas) сам знает про соседние видео-сообщения, виджет — нет. }
+    property HasPrevVideo: boolean read FHasPrevVideo write FHasPrevVideo;
+    property HasNextVideo: boolean read FHasNextVideo write FHasNextVideo;
+    { Состояние кнопки повтора — сознательно НЕ сбрасывается в
+      SetVideoCore при переключении на другое сообщение (см. её же
+      комментарий) — липкий режим на весь просмотрщик, как и положено
+      "повтору" в обычных плеерах, не разовая настройка одного видео. }
+    property RepeatOn: boolean read FRepeatOn write FRepeatOn;
+    property OnPrevClick: TNotifyEvent read FOnPrevClick write FOnPrevClick;
+    property OnNextClick: TNotifyEvent read FOnNextClick write FOnNextClick;
+    property OnRepeatClick: TNotifyEvent read FOnRepeatClick write FOnRepeatClick;
   end;
 
   TVideoWidgetMap = specialize TFPGMap<Int64, TVideoWidget>;
@@ -592,6 +642,11 @@ type
       сразу после создания FScroller (см. её конструктор), свой список
       на форме (не framechats.ImageList1 — те 16x16, эти 32x32). }
     FAudioImages: TImageList;
+    { Ряд транспортных кнопок TVideoWidget (в просмотрщике) — только
+      прокидывается дальше в TMediaViewerPanel.ShowMessage, сам
+      TMsgScroller его нигде не использует (в чате виджет никогда не
+      активен, ряд не рисуется, см. TVideoWidget). }
+    FPlaybackImages: TImageList;
 
     { Виджет файла-документа — тот же пул-приём, что у аудио. }
     FFilePool:   TFPList;       { of TFileWidget }
@@ -849,6 +904,7 @@ type
     property OnScrollRangeChanged: TNotifyEvent read FOnScrollRangeChanged write FOnScrollRangeChanged;
     property OnNearTop: TNotifyEvent read FOnNearTop write FOnNearTop;
     property AudioImages: TImageList read FAudioImages write FAudioImages;
+    property PlaybackImages: TImageList read FPlaybackImages write FPlaybackImages;
     property FileImages: TImageList read FFileImages write FFileImages;
     property FilePopupMenu: TPopupMenu read FFilePopupMenu write FFilePopupMenu;
     { Обработчики пунктов TFrameHistory.FilePopupMenu — вызываются
@@ -872,6 +928,7 @@ type
     FileTypes: TImageList;
     Actions16: TImageList;
     FilePopupMenu: TPopupMenu;
+    playback: TImageList;
     MenuItemFileSaveAs: TMenuItem;
     MenuItemFileShowInFolder: TMenuItem;
     { Пункты FilePopupMenu (LFM, редактируется в дизайнере) — LFM
@@ -2362,8 +2419,56 @@ begin
   AContentX := Box.Left + MSG_PAD_H;
   AContentW := Box.Right - MSG_PAD_H - AContentX;
   TimeH := Canvas.TextHeight('0');
-  AProgressTop := Box.Bottom - MSG_PAD_V - TimeH - HEADER_PAD_V - AUDIO_THUMB_H;
+  { Снизу вверх: MSG_PAD_V (нижний отступ), ряд транспортных кнопок
+    (PLAYBACK_BTN_SIZE, см. ButtonsRowTop/PlaybackButtonRect — только в
+    просмотрщике, FIsActive, по прямому запросу пользователя,
+    2026-09-07), HEADER_PAD_V (зазор), строка времени (TimeH),
+    HEADER_PAD_V (зазор), полоса прокрутки (AUDIO_THUMB_H). }
+  AProgressTop := Box.Bottom - MSG_PAD_V - PLAYBACK_BTN_SIZE - HEADER_PAD_V -
+    TimeH - HEADER_PAD_V - AUDIO_THUMB_H;
   Result := AContentW >= 10;
+end;
+
+function TVideoWidget.ButtonsRowTop: integer;
+begin
+  Result := ClientRect.Bottom - MSG_PAD_V - PLAYBACK_BTN_SIZE;
+end;
+
+function TVideoWidget.PlaybackButtonRect(AIndex: integer): TRect;
+var
+  Box: TRect;
+  TotalW, StartX, RowTop: integer;
+begin
+  Box := ClientRect;
+  TotalW := 6 * PLAYBACK_BTN_SIZE + 5 * PLAYBACK_BTN_GAP;
+  StartX := Box.Left + (Box.Right - Box.Left - TotalW) div 2;
+  RowTop := ButtonsRowTop;
+  Result := Rect(StartX + AIndex * (PLAYBACK_BTN_SIZE + PLAYBACK_BTN_GAP), RowTop,
+    StartX + AIndex * (PLAYBACK_BTN_SIZE + PLAYBACK_BTN_GAP) + PLAYBACK_BTN_SIZE,
+    RowTop + PLAYBACK_BTN_SIZE);
+end;
+
+function TVideoWidget.ControlsVisible: boolean;
+begin
+  Result := FIsActive and (FHovering or FDraggingSeek or (not FPlaying));
+end;
+
+procedure TVideoWidget.SkipBy(ADeltaSec: double);
+var
+  NewPos, Frac: double;
+begin
+  if (FDuration <= 0) or (not Assigned(FOnSeek)) then begin
+    Exit;
+  end;
+  NewPos := FPositionSec + ADeltaSec;
+  if NewPos < 0 then begin
+    NewPos := 0;
+  end;
+  if NewPos > FDuration then begin
+    NewPos := FDuration;
+  end;
+  Frac := NewPos / FDuration;
+  FOnSeek(Self, Frac);
 end;
 
 function TVideoWidget.TrackAreaRect: TRect;
@@ -2397,6 +2502,8 @@ begin
 end;
 
 procedure TVideoWidget.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+var
+  I: integer;
 begin
   inherited MouseDown(Button, Shift, X, Y);
   if Button <> mbLeft then begin
@@ -2410,30 +2517,58 @@ begin
     end;
     Exit;
   end;
-  if PtInRect(PlayButtonRect, Point(X, Y)) then begin
-    if Assigned(FOnPlayClick) then begin
-      FOnPlayClick(Self);
+  if not FIsActive then begin
+    { Чат — единственная кликабельная зона поверх кадра (см. Paint —
+      здесь виджет никогда не показывает ряд транспортных кнопок). }
+    if PtInRect(PlayButtonRect, Point(X, Y)) then begin
+      if Assigned(FOnPlayClick) then begin
+        FOnPlayClick(Self);
+      end;
     end;
     Exit;
   end;
-  { Перемотка — только у активного видео (playing/paused) и только пока
-    полоса вообще видна (наведена мышь) — тем же приёмом, что и
-    TAudioWidget, плюс требование видимости, которого у аудио нет
-    (там полоса всегда на экране). }
-  if FIsActive and FHovering and PtInRect(TrackAreaRect, Point(X, Y)) then begin
+  { Просмотрщик — ряд транспортных кнопок, только пока реально виден
+    (см. ControlsVisible/Paint) — иначе можно было бы кликнуть по
+    невидимой кнопке. Skip ±10с — через SkipBy (уже существующий
+    OnSeek, см. её комментарий), остальные четыре — свои события,
+    prev/next/repeat решает владелец (mediaviewer.pas). }
+  if ControlsVisible then begin
+    for I := 0 to 5 do begin
+      if PtInRect(PlaybackButtonRect(I), Point(X, Y)) then begin
+        case I of
+          0: if Assigned(FOnPrevClick) then FOnPrevClick(Self);
+          1: SkipBy(-PLAYBACK_SKIP_SEC);
+          2: if Assigned(FOnPlayClick) then FOnPlayClick(Self);
+          3: if Assigned(FOnRepeatClick) then FOnRepeatClick(Self);
+          4: SkipBy(PLAYBACK_SKIP_SEC);
+        else
+          if Assigned(FOnNextClick) then FOnNextClick(Self);
+        end;
+        Exit;
+      end;
+    end;
+  end;
+  { Перемотка — только пока полоса реально видна (см. ControlsVisible),
+    тем же приёмом, что и TAudioWidget, плюс требование видимости,
+    которого у аудио нет (там полоса всегда на экране). }
+  if ControlsVisible and PtInRect(TrackAreaRect, Point(X, Y)) then begin
     FDraggingSeek := True;
     FDragFraction := FractionFromX(X);
     Invalidate;
     Exit;
   end;
-  { Клик по самому кадру — не по play/pause, не по полосе — "открыть
-    покрупнее" (просмотрщик, mediaviewer.pas), см. FOnBodyClick. }
+  { Клик по самому кадру — не по play/pause, не по полосе, не по ряду
+    кнопок — "открыть покрупнее" (см. FOnBodyClick). В самом
+    просмотрщике этот колбэк не назначен — безопасный no-op. }
   if Assigned(FOnBodyClick) then begin
     FOnBodyClick(Self);
   end;
 end;
 
 procedure TVideoWidget.MouseMove(Shift: TShiftState; X, Y: integer);
+var
+  I: integer;
+  OverControl: boolean;
 begin
   inherited MouseMove(Shift, X, Y);
   if FDraggingSeek then begin
@@ -2441,8 +2576,31 @@ begin
     Invalidate;
     Exit;
   end;
-  if (not FDownloaded) or PtInRect(PlayButtonRect, Point(X, Y)) or
-     (FIsActive and FHovering and PtInRect(TrackAreaRect, Point(X, Y))) then begin
+  if not FDownloaded then begin
+    Cursor := crHandPoint;
+    Exit;
+  end;
+  if not FIsActive then begin
+    if PtInRect(PlayButtonRect, Point(X, Y)) then begin
+      Cursor := crHandPoint;
+    end else begin
+      Cursor := crDefault;
+    end;
+    Exit;
+  end;
+  OverControl := False;
+  if ControlsVisible then begin
+    OverControl := PtInRect(TrackAreaRect, Point(X, Y));
+    if not OverControl then begin
+      for I := 0 to 5 do begin
+        if PtInRect(PlaybackButtonRect(I), Point(X, Y)) then begin
+          OverControl := True;
+          Break;
+        end;
+      end;
+    end;
+  end;
+  if OverControl then begin
     Cursor := crHandPoint;
   end else begin
     Cursor := crDefault;
@@ -2481,11 +2639,10 @@ end;
 
 procedure TVideoWidget.Paint;
 var
-  Box, PlayRect, TrackRect, ThumbRect, PlayedRect, OverlayRect: TRect;
-  ContentX, ContentW, ProgressTop, PlayedW, IconIdx, TimeH: integer;
+  Box, PlayRect, TrackRect, ThumbRect, PlayedRect, OverlayRect, BtnRect: TRect;
+  ContentX, ContentW, ProgressTop, PlayedW, IconIdx, TimeH, I: integer;
   Frac: double;
   ElapsedStr, RemainStr: string;
-  ShowPauseOverlay, ShowSeekBar: boolean;
 begin
   Box := ClientRect;
   Canvas.Brush.Style := bsSolid;
@@ -2515,28 +2672,28 @@ begin
     Exit;
   end;
 
-  { PLAY — всегда видна, когда сейчас не играет (ни разу не запускали,
-    либо на паузе); PAUSE — только когда наведена мышь; полоса
-    прокрутки — тоже только под мышью (или пока идёт перетаскивание,
-    начатое под мышью — см. MouseLeave), по прямому ТЗ пользователя.
-    Плюс FIsActive — по прямому запросу пользователя (2026-09-07):
-    инлайн-превью в чате (FIsActive всегда False, см. класс-комментарий)
-    не должно показывать НИКАКИХ контролов, кроме play-иконки, даже под
-    наведённой мышью — реальный баг, не только правка формулировки: до
-    этой строки ShowSeekBar не проверял FIsActive вовсе, и наведение на
-    неактивный виджет в чате рисовало тёмную плашку/бар/00:00 поверх
-    превью, хотя семантически перематывать там нечего (перемотка и так
-    уже требует FIsActive, см. MouseDown) — контролы должны жить только
-    в просмотрщике (mediaviewer.pas), где виджет всегда активен. }
-  ShowSeekBar := FIsActive and (FHovering or FDraggingSeek);
-  ShowPauseOverlay := FIsActive and FPlaying and ShowSeekBar;
-  if FIsActive and FPlaying then begin
-    if not ShowSeekBar then begin
-      Exit;   { чистое видео, никаких контролов, пока не навели мышь }
+  if not FIsActive then begin
+    { Чат — виджет здесь НИКОГДА не активен, своего плеера/ряда
+      транспортных кнопок не имеет (см. класс-комментарий) — просто
+      одна большая PLAY-иконка по центру, ВСЕГДА, тем же приёмом, что
+      и раньше. }
+    PlayRect := PlayButtonRect;
+    if (FImages <> nil) and (AUDIO_ICON_PLAY < FImages.Count) then begin
+      FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, AUDIO_ICON_PLAY, True);
     end;
-    IconIdx := AUDIO_ICON_PAUSE;
-  end else begin
-    IconIdx := AUDIO_ICON_PLAY;
+    Exit;
+  end;
+
+  { Просмотрщик (дошли сюда — FIsActive точно True). Весь блок (плашка+
+    полоса+время+ряд транспортных кнопок) — единым целым: показывается
+    ВСЕГДА, пока видео не играет (пауза/ещё не запущено — тот же
+    случай, когда раньше показывалась одинокая центральная PLAY, теперь
+    её роль перешла кнопке play/pause в ряду), и ТОЛЬКО под курсором
+    (или пока идёт перетаскивание, начатое под курсором — см.
+    MouseLeave), пока видео активно играет — чистая картинка, ничем не
+    закрытая, по прямому ТЗ пользователя (2026-09-07). }
+  if FPlaying and (not ControlsVisible) then begin
+    Exit;   { чистое видео, никаких контролов, пока не навели мышь }
   end;
 
   if not ContentGeometry(ContentX, ContentW, ProgressTop) then begin
@@ -2544,29 +2701,19 @@ begin
   end;
 
   TimeH := Canvas.TextHeight('0');
-  if ShowSeekBar or ShowPauseOverlay then begin
-    { Тёмная плашка под баром/временем/кнопкой — иначе плохо читаются
-      на произвольном видео. Сплошная заливка, не полупрозрачная —
-      настоящий альфа-блендинг по кадру, который меняется десятки раз
-      в секунду, стоил бы заметно дороже (та же причина, что и у
-      дешёвого скругления выше). }
-    OverlayRect := Rect(Box.Left, ProgressTop - MSG_PAD_V, Box.Right, Box.Bottom);
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Pen.Style := psClear;
-    Canvas.Brush.Color := RGBToColor(20, 20, 20);
-    Canvas.FillRect(OverlayRect);
-  end;
 
-  { Кнопка play/pause — по центру виджета (не слева, как у TAudioWidget
-    — там своё место занимает название трека, здесь просто видео). }
-  PlayRect := PlayButtonRect;
-  if (FImages <> nil) and (IconIdx < FImages.Count) then begin
-    FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, IconIdx, True);
-  end;
-
-  if not ShowSeekBar then begin
-    Exit;
-  end;
+  { Тёмная плашка под баром/временем/рядом кнопок — иначе плохо читаются
+    на произвольном видео. Сплошная заливка, не полупрозрачная —
+    настоящий альфа-блендинг по кадру, который меняется десятки раз в
+    секунду, стоил бы заметно дороже (та же причина, что и у дешёвого
+    скругления в других виджетах). Раз мы вообще дошли досюда — весь
+    блок показывается целиком, отдельного условия на сам факт заливки
+    больше нет. }
+  OverlayRect := Rect(Box.Left, ProgressTop - MSG_PAD_V, Box.Right, Box.Bottom);
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := RGBToColor(20, 20, 20);
+  Canvas.FillRect(OverlayRect);
 
   { Полоса прокрутки — та же геометрия/цвета/поведение, что у
     TAudioWidget.Paint (AUDIO_TRACK_H/AUDIO_THUMB_H/W/AUDIO_PLAYED_
@@ -2578,7 +2725,7 @@ begin
     ContentX + ContentW, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2 + AUDIO_TRACK_H);
   if FDraggingSeek then begin
     PlayedW := Round(FDragFraction * ContentW);
-  end else if FIsActive and (FDuration > 0) then begin
+  end else if FDuration > 0 then begin
     Frac := FPositionSec / FDuration;
     if Frac < 0 then begin
       Frac := 0;
@@ -2608,12 +2755,9 @@ begin
   if FDraggingSeek then begin
     ElapsedStr := FormatAudioTime(Round(FDragFraction * FDuration));
     RemainStr := FormatAudioTime(Round(FDragFraction * FDuration) - FDuration);
-  end else if FIsActive then begin
+  end else begin
     ElapsedStr := FormatAudioTime(Round(FPositionSec));
     RemainStr := FormatAudioTime(Round(FPositionSec) - FDuration);
-  end else begin
-    ElapsedStr := FormatAudioTime(0);
-    RemainStr := FormatAudioTime(-FDuration);
   end;
   Canvas.Brush.Style := bsClear;
   Canvas.Font.Name := 'default';
@@ -2623,6 +2767,31 @@ begin
   Canvas.TextOut(ContentX, ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, ElapsedStr);
   Canvas.TextOut(ContentX + ContentW - Canvas.TextWidth(RemainStr),
     ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, RemainStr);
+
+  { Ряд транспортных кнопок — по прямому запросу пользователя
+    (2026-09-07): слева направо prev / -10с / play-pause / repeat /
+    +10с / next. Серый/цветной вариант — недоступность (prev/next без
+    соседнего видео, -10с/+10с уже у границы) либо режим (repeat
+    вкл/выкл), не hover-состояние самой кнопки (отдельных "нажатых"
+    кадров в playback-списке нет). }
+  if FPlaybackImages <> nil then begin
+    for I := 0 to 5 do begin
+      case I of
+        0: IconIdx := IfThen(FHasPrevVideo, PLAYBACK_ICON_PREV_ON, PLAYBACK_ICON_PREV_OFF);
+        1: IconIdx := IfThen(FPositionSec > 0.01, PLAYBACK_ICON_BACK10_ON, PLAYBACK_ICON_BACK10_OFF);
+        2: IconIdx := IfThen(FPlaying, PLAYBACK_ICON_PAUSE, PLAYBACK_ICON_PLAY);
+        3: IconIdx := IfThen(FRepeatOn, PLAYBACK_ICON_REPEAT_ON, PLAYBACK_ICON_REPEAT_OFF);
+        4: IconIdx := IfThen((FDuration > 0) and (FPositionSec < FDuration - 0.01),
+             PLAYBACK_ICON_FWD10_ON, PLAYBACK_ICON_FWD10_OFF);
+      else
+        IconIdx := IfThen(FHasNextVideo, PLAYBACK_ICON_NEXT_ON, PLAYBACK_ICON_NEXT_OFF);
+      end;
+      if IconIdx < FPlaybackImages.Count then begin
+        BtnRect := PlaybackButtonRect(I);
+        FPlaybackImages.Draw(Canvas, BtnRect.Left, BtnRect.Top, IconIdx, True);
+      end;
+    end;
+  end;
 end;
 
 { ---------------- TStickerWidget ---------------- }
@@ -4587,7 +4756,7 @@ begin
     пользователя теперь открывается ВСТРОЕННЫЙ просмотрщик
     (mediaviewer.pas), тем же приёмом, что и у видео (VideoBodyClick). }
   if (FormMain <> nil) and (FormMain.MediaViewer <> nil) then begin
-    FormMain.MediaViewer.ShowMessage(FModel, Row.Id, FAudioImages,
+    FormMain.MediaViewer.ShowMessage(FModel, Row.Id, FAudioImages, FPlaybackImages,
       utf8string(FormMain.AudioDeviceName));
   end;
 end;
@@ -5197,7 +5366,7 @@ begin
     Exit;
   end;
   if (FormMain <> nil) and (FormMain.MediaViewer <> nil) then begin
-    FormMain.MediaViewer.ShowMessage(FModel, W.RowId, FAudioImages,
+    FormMain.MediaViewer.ShowMessage(FModel, W.RowId, FAudioImages, FPlaybackImages,
       utf8string(FormMain.AudioDeviceName));
   end;
 end;
@@ -5487,6 +5656,7 @@ begin
   { ImageList1/FileTypes — компоненты фрейма (LFM), к этому моменту уже
     созданы inherited-стримингом, до тела этого конструктора. }
   FScroller.AudioImages := ImageList1;
+  FScroller.PlaybackImages := playback;
   FScroller.FileImages := FileTypes;
   FScroller.FilePopupMenu := FilePopupMenu;
 

@@ -266,6 +266,33 @@ const
   VIEWER_ICON_NEXT  = 4;
   VIEWER_ICON_CLOSE = 5;
   AUDIO_BUTTON_SIZE = 32;
+
+  { Ряд транспортных кнопок под полосой прокрутки видео-виджета
+    (TVideoWidget, framehistory.pas) — по прямому запросу пользователя
+    (2026-09-07), только в просмотрщике (там FIsActive=True; в чате
+    виджет никогда не активен и ряд не рисуется вовсе). Кадры — новый
+    TFrameHistory.playback (16x16, отдельный ImageList, добавлен
+    пользователем в дизайнере) — 6 позиций слева направо (пред. видео /
+    -10с / play-pause / повтор / +10с / след. видео), у четырёх из
+    шести — пара "серый/синий" (недоступно/доступно, выкл/вкл), у
+    play/pause — просто две разные иконки состояния, не пара
+    доступности. }
+  PLAYBACK_ICON_PREV_OFF    = 0;
+  PLAYBACK_ICON_PREV_ON     = 1;
+  PLAYBACK_ICON_BACK10_OFF  = 2;
+  PLAYBACK_ICON_BACK10_ON   = 3;
+  PLAYBACK_ICON_PAUSE       = 4;
+  PLAYBACK_ICON_PLAY        = 5;
+  PLAYBACK_ICON_REPEAT_OFF  = 6;
+  PLAYBACK_ICON_REPEAT_ON   = 7;
+  PLAYBACK_ICON_FWD10_OFF   = 8;
+  PLAYBACK_ICON_FWD10_ON    = 9;
+  PLAYBACK_ICON_NEXT_OFF    = 10;
+  PLAYBACK_ICON_NEXT_ON     = 11;
+  { Сколько секунд перематывает кнопка -10с/+10с. }
+  PLAYBACK_SKIP_SEC   = 10;
+  PLAYBACK_BTN_SIZE   = 16;   { нативный размер кадра playback-списка }
+  PLAYBACK_BTN_GAP    = 16;   { зазор МЕЖДУ соседними кнопками ряда }
   { Полоса прогресса и её ползунок. }
   AUDIO_TRACK_H = 2;
   AUDIO_THUMB_W = 3;

@@ -58,6 +58,7 @@ type
     FKind: TMediaViewerKind;
     FMessageId: Int64;
     FImages: TImageList;
+    FPlaybackImages: TImageList;
     FAudioDeviceName: utf8string;
 
     { Фото }
@@ -65,6 +66,9 @@ type
     FPhotoW, FPhotoH: integer;
     FDecodeThread: TPhotoDecodeThread;
     FHasPrev, FHasNext: boolean;
+    { То же самое, но для видео — своя пара, не общая с фото (разные
+      Kind, разный проход по FModel, см. FindAdjacentVideoId). }
+    FHasPrevVideo, FHasNextVideo: boolean;
 
     { Видео — один слот, не пул (см. шапку юнита). }
     FVideoWidget: TVideoWidget;
@@ -104,6 +108,18 @@ type
     procedure VideoTick(Sender: TObject);
     procedure VideoWidgetPlayClick(Sender: TObject);
     procedure VideoWidgetSeek(Sender: TObject; AFraction: double);
+    { Транспортные кнопки видео (TVideoWidget, framehistory.pas) — по
+      прямому запросу пользователя (2026-09-07). Prev/next — тот же
+      приём, что у фото (FindAdjacentPhotoId/NavigatePhoto), отдельная
+      копия под mckVideo (см. её же комментарий у FHasPrevVideo).
+      Repeat — просто читает/пишет TVideoWidget.RepeatOn, авто-рестарт
+      по достижении конца — VideoPlayerStateChanged. }
+    procedure UpdateVideoNavFlags(ACurrentId: Int64);
+    function FindAdjacentVideoId(AFromId: Int64; ADirection: integer): Int64;
+    procedure NavigateVideo(ADirection: integer);
+    procedure VideoWidgetPrevClick(Sender: TObject);
+    procedure VideoWidgetNextClick(Sender: TObject);
+    procedure VideoWidgetRepeatClick(Sender: TObject);
 
     procedure PollTick(Sender: TObject);
   protected
@@ -119,11 +135,13 @@ type
       AImages — ImageList с кадрами play/pause для встроенного
       TVideoWidget (тот же список, что уже использует чат, см.
       TMsgScroller.FAudioImages) — для фото не используется, безопасно
-      передать тот же список всегда. AAudioDeviceName — см.
+      передать тот же список всегда. APlaybackImages — ряд транспортных
+      кнопок под полосой прокрутки (TMsgScroller.FPlaybackImages) — тем
+      же приёмом, тоже не используется для фото. AAudioDeviceName — см.
       FormMain.AudioDeviceName, тем же приёмом передаётся явно, чтобы
       этот юнит не тянул main.pas (циклическая зависимость). }
     procedure ShowMessage(AModel: TTdMessages; AMessageId: Int64;
-      AImages: TImageList; const AAudioDeviceName: utf8string = '');
+      AImages, APlaybackImages: TImageList; const AAudioDeviceName: utf8string = '');
     procedure CloseViewer;
   end;
 
@@ -178,6 +196,9 @@ begin
     рисуют одинаково). }
   FVideoWidget.OnPlayClick := @VideoWidgetPlayClick;
   FVideoWidget.OnSeek := @VideoWidgetSeek;
+  FVideoWidget.OnPrevClick := @VideoWidgetPrevClick;
+  FVideoWidget.OnNextClick := @VideoWidgetNextClick;
+  FVideoWidget.OnRepeatClick := @VideoWidgetRepeatClick;
 
   FVideoTimer := TTimer.Create(Self);
   FVideoTimer.Interval := 33;
@@ -526,6 +547,7 @@ begin
   GetAvailArea(AvailW, AvailH);
   FitToBox(ARow.VideoWidth, ARow.VideoHeight, AvailW, AvailH, TgtW, TgtH);
   FVideoWidget.Images := FImages;
+  FVideoWidget.PlaybackImages := FPlaybackImages;
   FVideoWidget.BackgroundColor := clBlack;
   FVideoWidget.SetVideoSized(ARow.Id, ARow.VideoWidth, ARow.VideoHeight, ARow.VideoThumbLocalPath,
     True, ARow.VideoLocalPath, TgtW, TgtH, ARow.VideoDuration);
@@ -540,8 +562,29 @@ begin
 end;
 
 procedure TMediaViewerPanel.VideoPlayerStateChanged(Sender: TObject);
+var
+  Idx: integer;
 begin
   if (Sender = FPlayer) and ((FPlayer.State = mpsStopped) or (FPlayer.State = mpsError)) then begin
+    if (FPlayer.State = mpsStopped) and (FVideoWidget <> nil) and FVideoWidget.RepeatOn and
+       (FModel <> nil) then begin
+      { Повтор включён (кнопка ряда транспорта, TVideoWidget.RepeatOn) —
+        по прямому запросу пользователя (2026-09-07): естественный конец
+        файла перезапускает с начала, тем же путём, что и обычный клик
+        play после остановки (VideoWidgetPlayClick) — не сброс в
+        состояние "остановлено". Только для настоящего конца (mpsStopped),
+        не для mpsError — ошибку декодирования зацикливать незачем.
+        Безопасно вызывать StartVideoPlayer прямо здесь: мы внутри
+        Synchronize САМОГО FPlayer, но StopVideoInternal внутри нового
+        StartVideoPlayer лишь перекладывает FPlayer в FDonePlayer
+        (WaitFor/Free — отложенно, на следующий тик/вызов, не сейчас) —
+        тот же приём, что уже применяется во всём этом файле. }
+      Idx := FModel.IndexOfId(FMessageId);
+      if Idx >= 0 then begin
+        StartVideoPlayer(FModel[Idx]);
+        Exit;
+      end;
+    end;
     FDonePlayer := FPlayer;
     FPlayer := nil;
     FVideoTimer.Enabled := False;
@@ -628,6 +671,85 @@ begin
   StartVideoPlayer(Row, AFraction * Row.VideoDuration);
 end;
 
+{ Prev/next видео — та же схема, что FindAdjacentPhotoId/NavigatePhoto
+  выше, отдельная копия под mckVideo (см. комментарий у FHasPrevVideo:
+  разные Kind, разный проход по FModel, раздельные копии проще для
+  чтения, чем одна с параметром типа). }
+function TMediaViewerPanel.FindAdjacentVideoId(AFromId: Int64; ADirection: integer): Int64;
+var
+  Idx: integer;
+begin
+  Result := 0;
+  if FModel = nil then begin
+    Exit;
+  end;
+  Idx := FModel.IndexOfId(AFromId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Inc(Idx, ADirection);
+  while (Idx >= 0) and (Idx < FModel.Count) do begin
+    if FModel[Idx].Kind = mckVideo then begin
+      Result := FModel[Idx].Id;
+      Exit;
+    end;
+    Inc(Idx, ADirection);
+  end;
+end;
+
+procedure TMediaViewerPanel.UpdateVideoNavFlags(ACurrentId: Int64);
+begin
+  FHasPrevVideo := FindAdjacentVideoId(ACurrentId, -1) <> 0;
+  FHasNextVideo := FindAdjacentVideoId(ACurrentId, 1) <> 0;
+  if FVideoWidget <> nil then begin
+    FVideoWidget.HasPrevVideo := FHasPrevVideo;
+    FVideoWidget.HasNextVideo := FHasNextVideo;
+  end;
+end;
+
+procedure TMediaViewerPanel.NavigateVideo(ADirection: integer);
+var
+  NewId: Int64;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  NewId := FindAdjacentVideoId(FMessageId, ADirection);
+  if NewId = 0 then begin
+    Exit;
+  end;
+  Idx := FModel.IndexOfId(NewId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  FMessageId := NewId;
+  OpenRow(FModel[Idx]);
+end;
+
+procedure TMediaViewerPanel.VideoWidgetPrevClick(Sender: TObject);
+begin
+  NavigateVideo(-1);
+end;
+
+procedure TMediaViewerPanel.VideoWidgetNextClick(Sender: TObject);
+begin
+  NavigateVideo(1);
+end;
+
+procedure TMediaViewerPanel.VideoWidgetRepeatClick(Sender: TObject);
+begin
+  if FVideoWidget = nil then begin
+    Exit;
+  end;
+  { Липкий тумблер на весь просмотрщик, не сбрасывается при переключении
+    между видео (см. комментарий у TVideoWidget.RepeatOn) — авто-
+    перезапуск по достижении конца читает это же поле, см.
+    VideoPlayerStateChanged. }
+  FVideoWidget.RepeatOn := not FVideoWidget.RepeatOn;
+  FVideoWidget.Invalidate;
+end;
+
 { ---------------- общее ---------------- }
 
 procedure TMediaViewerPanel.PollTick(Sender: TObject);
@@ -680,6 +802,7 @@ begin
     mckVideo: begin
       FKind := mvkVideo;
       ClearPhoto;
+      UpdateVideoNavFlags(ARow.Id);
       if ARow.VideoLocalPath = '' then begin
         FModel.EnsureVideoFile(ARow);
         FPollTimer.Enabled := True;
@@ -694,7 +817,7 @@ begin
 end;
 
 procedure TMediaViewerPanel.ShowMessage(AModel: TTdMessages; AMessageId: Int64;
-  AImages: TImageList; const AAudioDeviceName: utf8string);
+  AImages, APlaybackImages: TImageList; const AAudioDeviceName: utf8string);
 var
   Idx: integer;
   Row: TMsgRow;
@@ -713,6 +836,7 @@ begin
   FModel := AModel;
   FMessageId := AMessageId;
   FImages := AImages;
+  FPlaybackImages := APlaybackImages;
   FAudioDeviceName := AAudioDeviceName;
   Layout;
   OpenRow(Row);
