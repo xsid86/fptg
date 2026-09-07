@@ -25,7 +25,7 @@ unit msginput;
 interface
 
 uses
-  Classes, SysUtils, Controls, StdCtrls, ExtCtrls, Buttons, Graphics;
+  Classes, SysUtils, Controls, StdCtrls, ExtCtrls, Buttons, Graphics, LCLType;
 
 type
   TMessageInputPanel = class(TCustomControl)
@@ -38,6 +38,9 @@ type
     function GetText: string;
     procedure SetText(const AValue: string);
     procedure SendBtnClick(Sender: TObject);
+    { Enter — отправить (тем же путём, что клик по Send); Ctrl+Enter —
+      обычный перевод строки, штатное поведение TMemo, не трогаем. }
+    procedure MemoKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
   public
     constructor Create(AOwner: TComponent); override;
     procedure ClearText;
@@ -86,7 +89,9 @@ begin
   FToolbar.Parent := Self;
   FToolbar.Align := alTop;
   FToolbar.Height := MSGINPUT_TOOLBAR_H;
-  FToolbar.BevelOuter := bvNone;
+  { Raised — по прямому запросу пользователя, отличает панель (задел
+    под будущие кнопки) от плоского фона остального поля ввода. }
+  FToolbar.BevelOuter := bvRaised;
 
   FMemo := TMemo.Create(Self);
   FMemo.Parent := Self;
@@ -94,6 +99,7 @@ begin
   FMemo.ScrollBars := ssVertical;
   FMemo.WordWrap := True;
   FMemo.BorderStyle := bsNone;
+  FMemo.OnKeyDown := @MemoKeyDown;
 end;
 
 function TMessageInputPanel.GetText: string;
@@ -116,6 +122,18 @@ begin
   if Assigned(FOnSend) then begin
     FOnSend(Self);
   end;
+end;
+
+procedure TMessageInputPanel.MemoKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
+begin
+  if Key <> VK_RETURN then begin
+    Exit;
+  end;
+  if ssCtrl in Shift then begin
+    Exit;   { Ctrl+Enter — обычный перевод строки }
+  end;
+  Key := 0;   { подавляем перевод строки — вместо него отправляем }
+  SendBtnClick(Self);
 end;
 
 end.
