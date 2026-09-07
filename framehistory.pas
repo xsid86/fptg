@@ -985,6 +985,12 @@ type
     { ITdActiveListener }
     procedure TdActiveChanged(ANew: TTdAccount);
     procedure TdAccountsChanged;
+
+    { Модель ОТКРЫТОГО СЕЙЧАС чата — nil, если ни один чат ещё не
+      открывали. Нужен main.pas (панель ввода сообщения, msginput.pas):
+      та ничего не знает про TTdMessages сама, отправку решает
+      владелец — см. комментарий у TMessageInputPanel. }
+    property Model: TTdMessages read FModel;
   end;
 
 implementation

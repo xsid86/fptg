@@ -18,7 +18,7 @@ uses
   uiframe, avatarcache, qrrender, msglayout,
   main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
   framesettingsautodownload, framelog, framewelcome, framechats, framehistory,
-  mediaviewer
+  mediaviewer, msginput
   { you can add units after this };
 
 {$R *.res}

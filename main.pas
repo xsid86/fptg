@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, IniFiles, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
   Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome,
-  framechats, framehistory, mediaviewer, constants;
+  framechats, framehistory, mediaviewer, msginput, constants;
 
 type
 
@@ -63,6 +63,14 @@ type
       режиме — этого достаточно, чтобы не перехватывать мышь/клавиши,
       никакого отдельного "click-through" не требуется. }
     FMediaViewer:  TMediaViewerPanel;
+    { pnlWork разделён по вертикали (2026-09-08, по прямому запросу
+      пользователя, первый набросок layout'а): FNavHost — верхняя часть,
+      контейнер FNav (был сразу pnlWork); FInputSplitter — перетаскиваемая
+      граница; FMessageInput — поле ввода снизу. Порядок создания в
+      FormCreate важен для Align, см. её же комментарий. }
+    FNavHost:       TPanel;
+    FInputSplitter: TSplitter;
+    FMessageInput:  TMessageInputPanel;
     FAccMenuCount: integer;   { сколько пунктов меню создано динамически }
     FGlyphs: TStringList;   { кэш глифов меню: ключ -> TBitmap }
     FAudioDeviceName: string;   { выбранное устройство вывода звука, из config.ini [audio] }
@@ -80,6 +88,11 @@ type
     procedure ChatSelected(Sender: TObject; ARow: TChatRow);
     procedure ListModeChanged(Sender: TObject; AMode: TChatListMode);
     procedure AvatarClicked(Sender: TObject; ARow: TChatRow);
+    { Нажали Send в панели ввода (msginput.pas) — та сама не знает про
+      TTdMessages, отправку решает здесь: берём модель ОТКРЫТОГО СЕЙЧАС
+      чата (FNav.Current, если это TFrameHistory), см. её же комментарий
+      у TFrameHistory.Model. }
+    procedure MessageInputSend(Sender: TObject);
   public
     { ITdActiveListener }
     procedure TdActiveChanged(ANew: TTdAccount);
@@ -142,7 +155,33 @@ begin
   FTdClosed := False;
   lblState.Caption := '';
 
-  FNav := TFrameNavigator.Create(pnlWork);
+  { pnlWork поделён по вертикали: область фреймов сверху, поле ввода
+    сообщения снизу, см. комментарий у полей FNavHost/FInputSplitter/
+    FMessageInput. Порядок Parent:= ниже важен для Align — LCL
+    раздаёт место в порядке добавления в Controls: сначала снизу
+    (FMessageInput, alBottom), потом сплиттер вплотную над ним (тоже
+    alBottom), и только последним — то, что заполняет остаток
+    (FNavHost, alClient). }
+  FMessageInput := TMessageInputPanel.Create(pnlWork);
+  FMessageInput.Parent := pnlWork;
+  FMessageInput.Align := alBottom;
+  FMessageInput.Height := 150;
+  FMessageInput.OnSend := @MessageInputSend;
+
+  FInputSplitter := TSplitter.Create(pnlWork);
+  FInputSplitter.Parent := pnlWork;
+  FInputSplitter.Align := alBottom;
+
+  FNavHost := TPanel.Create(pnlWork);
+  FNavHost.Parent := pnlWork;
+  FNavHost.Align := alClient;
+  FNavHost.BevelOuter := bvNone;
+  { Тот же минимум, что и у FMessageInput (см. TMessageInputPanel.Create)
+    — иначе сплиттер можно утащить вниз до нуля, полностью спрятав
+    область истории переписки. }
+  FNavHost.Constraints.MinHeight := 100;
+
+  FNav := TFrameNavigator.Create(FNavHost);
 
   { Список чатов живёт в левой панели постоянно и навигатором
     не управляется — это не сменный экран. }
@@ -262,6 +301,26 @@ begin
   end;
   { Заглушка: здесь откроется панель сведений о контакте. }
   lblState.Caption := Format('Info: %s (id %d)', [string(ARow.Title), ARow.Id]);
+end;
+
+procedure TFormMain.MessageInputSend(Sender: TObject);
+var
+  MsgText: string;
+  F: TFrameHistory;
+begin
+  MsgText := Trim(FMessageInput.Text);
+  if MsgText = '' then begin
+    Exit;
+  end;
+  if not (FNav.Current is TFrameHistory) then begin
+    Exit;
+  end;
+  F := TFrameHistory(FNav.Current);
+  if F.Model = nil then begin
+    Exit;
+  end;
+  F.Model.SendText(utf8string(MsgText));
+  FMessageInput.ClearText;
 end;
 
 procedure TFormMain.ListModeChanged(Sender: TObject; AMode: TChatListMode);

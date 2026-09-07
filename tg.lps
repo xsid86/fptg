@@ -337,6 +337,11 @@
         <UsageCount Value="23"/>
       </Unit>
       <Unit>
+        <Filename Value="msginput.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="settings.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="FormSettings"/>
