@@ -25,10 +25,10 @@ type
 
   { TAvatarCache
 
-    Отдаёт готовый к отрисовке битмап для строки списка. Порядок
-    предпочтения: скачанный файл -> мини-превью из апдейта -> инициалы.
-    Пока настоящая аватарка качается, показывается размытое превью —
-    пустых кружков не будет. }
+    Returns a ready-to-draw bitmap for a list row. Preference order:
+    downloaded file -> mini-thumbnail from the update -> initials.
+    While the real avatar is downloading, a blurred preview is shown
+    instead of an empty circle. }
 
   TAvatarCache = class
   private
@@ -42,35 +42,34 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    { Битмап для строки. Владелец — кэш, освобождать не нужно.
-      Может вернуть nil, если отрисовать не удалось.
-      Рисовать через Bmp.Draw(Canvas, X, Y, False) — False включает
-      смешивание по альфе, ради которого всё и затевалось. }
+    { The bitmap for a row. Owned by the cache, do not free it.
+      May return nil if rendering failed. Draw it with
+      Bmp.Draw(Canvas, X, Y, False) — False enables alpha blending. }
     function Get(ARow: TChatRow): TBGRABitmap;
-    { Выбросить запись — зовётся, когда докачалась настоящая аватарка. }
+    { Drops an entry — called once the real avatar has downloaded. }
     procedure Drop(AChatId: Int64);
     procedure Clear;
 
     property Capacity: integer read FCapacity write FCapacity;
-    { Круглые аватарки. Форма задаётся сглаженной альфа-маской,
-      поэтому края мягкие на любом фоне. }
+    { Round avatars: the shape comes from an antialiased alpha mask,
+      giving soft edges on any background. }
     property RoundAvatars: boolean read FRound write FRound;
   end;
 
-{ Устойчивый цвет по id чата — как в Telegram, чтобы у собеседника
-  без фото кружок всегда был одного цвета. }
+{ A color derived deterministically from the chat id, so a contact
+  without a photo always gets the same colored circle, as in Telegram. }
 function AvatarColor(AId: Int64): TColor;
-{ До двух заглавных букв из заголовка, с учётом UTF-8. }
+{ Up to two capital letters from the title, UTF-8 aware. }
 function AvatarInitials(const ATitle: utf8string): utf8string;
 
-{ Отрисовка аватарки без всякого кэша — нужна и списку чатов,
-  и меню аккаунтов. Порядок предпочтения: скачанный файл,
-  мини-превью из апдейта, инициалы на цветном круге.
-  Результат принадлежит вызывающему. }
+{ Renders an avatar with no caching — used by both the chat list and
+  the account menu. Preference order: downloaded file, mini-thumbnail
+  from the update, initials on a colored circle. The result belongs to
+  the caller. }
 function RenderAvatarBmp(const APath: utf8string; const AThumb: RawByteString;
   const ATitle: utf8string; AId: Int64; ASize: integer; ARound: boolean): TBGRABitmap;
 
-{ Круглая альфа-маска указанного размера. }
+{ A round alpha mask of the given size. }
 procedure ApplyRoundMaskTo(ABmp: TBGRABitmap; ASize: integer);
 
 implementation
@@ -92,13 +91,13 @@ begin
   Result := PALETTE[K mod Length(PALETTE)];
 end;
 
-{ Длина UTF-8 символа по ведущему байту. }
+{ UTF-8 character length from its leading byte. }
 function Utf8CharLen(AByte: byte): integer;
 begin
   if AByte < $80 then begin
     Result := 1;
   end else if AByte < $C0 then begin
-    Result := 1;   { байт-продолжение в начале — строка битая, берём один }
+    Result := 1;   { a continuation byte at the start — malformed string, take one }
   end else if AByte < $E0 then begin
     Result := 2;
   end else if AByte < $F0 then begin
@@ -114,8 +113,9 @@ var
   Ch: utf8string;
   InWord: boolean;
 begin
-  { Работаем строго в utf8string и по байтам. Заход в string и обратно
-    зависел бы от DefaultSystemCodePage и резал многобайтные символы. }
+  { Operates strictly on utf8string, byte by byte. Converting to
+    string and back would depend on DefaultSystemCodePage and could
+    cut multi-byte characters. }
   Result := '';
   Words := 0;
   I := 1;
@@ -137,9 +137,9 @@ begin
     if not InWord then begin
       InWord := True;
       Ch := Copy(ATitle, I, N);
-      { Заглавную делаем только для ASCII: правила для кириллицы
-        и прочего потребовали бы таблиц, а первая буква имени
-        и так почти всегда заглавная. }
+      { Uppercased only for ASCII: rules for Cyrillic and other
+        scripts would require lookup tables, and a name's first letter
+        is already capitalized in most cases. }
       if (N = 1) and (Ch[1] >= 'a') and (Ch[1] <= 'z') then begin
         Ch[1] := UpCase(Ch[1]);
       end;
@@ -152,7 +152,7 @@ begin
 end;
 
 
-{ ---------------- отрисовка без кэша ---------------- }
+{ ---------------- rendering without a cache ---------------- }
 
 procedure ApplyRoundMaskTo(ABmp: TBGRABitmap; ASize: integer);
 var
@@ -162,8 +162,9 @@ begin
   if ABmp = nil then begin
     Exit;
   end;
-  { Координаты центрированы по пикселю: центр — (N-1)/2, радиус — N/2.
-    Иначе круг вылезает за правый и нижний край и срезается. }
+  { Coordinates are pixel-centered: center is (N-1)/2, radius is N/2.
+    Otherwise the circle would extend past the right/bottom edge and
+    get clipped. }
   C := (ASize - 1) / 2;
   R := ASize / 2;
   Mask := TBGRABitmap.Create(ASize, ASize, BGRABlack);
@@ -248,7 +249,7 @@ var
 begin
   Result := nil;
 
-  { 1. Настоящая аватарка, если уже скачана. }
+  { 1. The real avatar, if already downloaded. }
   if (APath <> '') and FileExists(string(APath)) then begin
     Src := nil;
     try
@@ -269,7 +270,8 @@ begin
     end;
   end;
 
-  { 2. Мини-превью — приходит прямо в апдейте, качать нечего. }
+  { 2. Mini-thumbnail — arrives directly in the update, nothing to
+    download. }
   if AThumb <> '' then begin
     Ms := TMemoryStream.Create;
     Src := nil;
@@ -294,7 +296,7 @@ begin
     end;
   end;
 
-  { 3. Инициалы на цветном круге. }
+  { 3. Initials on a colored circle. }
   Result := RenderInitialsBmp(ATitle, AId, ASize, ARound);
 end;
 
@@ -359,8 +361,8 @@ end;
 
 function TAvatarCache.Render(ARow: TChatRow; out AKind: TAvatarKind): TBGRABitmap;
 begin
-  { Вся отрисовка вынесена в RenderAvatarBmp — её же использует
-    меню аккаунтов для своих глифов. }
+  { All rendering is delegated to RenderAvatarBmp — also used by the
+    account menu for its own glyphs. }
   Result := RenderAvatarBmp(ARow.PhotoPath, ARow.Minithumb, ARow.Title,
     ARow.Id, AVATAR_SIZE, FRound);
 
@@ -389,8 +391,8 @@ begin
   Idx := FMap.IndexOf(ARow.Id);
   if Idx >= 0 then begin
     E := FMap.Data[Idx];
-    { Если в кэше лежит превью, а настоящая уже скачалась —
-      перерисовываем. }
+    { If the cache holds a preview but the real avatar has now
+      downloaded, redraw. }
     if (E.Kind <> akReal) and (ARow.PhotoPath <> '') then begin
       FMap.Data[Idx].Free;
       FMap.Delete(Idx);

@@ -18,19 +18,16 @@ type
 
   { TTdAccentColors
 
-    Пассивный кэш «id акцентного цвета -> RGB» из updateAccentColors —
-    TDLib присылает его сам, без отдельного RPC-запроса (в схеме
-    td_api.tl нет функции getAccentColors, только апдейт). Проверено
-    напрямую по схеме (github.com/tdlib/td, td_api.tl) и по
-    tdlib_raw.log этого проекта — не предположение.
+    Passive cache of "accent color id -> RGB" from updateAccentColors —
+    TDLib pushes it on its own, with no dedicated RPC call.
 
-    id 0..6 — зарезервированные "базовые" цвета: red/orange/violet/
-    green/cyan/blue/pink, в этом порядке (core.telegram.org/api/colors).
-    Для них TDLib НЕ шлёт отдельных записей с RGB вообще — только id 7
-    и выше приходят в updateAccentColors.colors с реальными
-    light_theme_colors/dark_theme_colors. Точных официальных hex для
-    0..6 нигде в схеме/документации нет — ниже разумное приближение по
-    названию цвета, не официальное значение. }
+    Ids 0..6 are the reserved "built-in" colors: red/orange/violet/
+    green/cyan/blue/pink, in this order (core.telegram.org/api/colors).
+    TDLib never sends explicit RGB entries for these — only id 7 and
+    above arrive in updateAccentColors.colors with real
+    light_theme_colors/dark_theme_colors. No official hex values for
+    0..6 are published anywhere; BUILT_IN_COLORS below is a reasonable
+    approximation by color name, not an official value. }
   TTdAccentColors = class(TComponent, ITdUpdateListener, ITdStateListener)
   private
     FSession: ITdSession;
@@ -41,9 +38,9 @@ type
     constructor Create(AOwner: TComponent; const ASession: ITdSession); reintroduce;
     destructor Destroy; override;
 
-    { False, если id ещё не известен вовсе (апдейт updateAccentColors
-      ещё не приходил и это не 0..6) — вызывающий сам решает, чем
-      закрашивать взамен (см. framehistory.pas: падает на
+    { Returns False if the id is not known yet (no updateAccentColors
+      for it has arrived, and it's not 0..6) — the caller decides what
+      fallback color to use (see framehistory.pas: falls back to
       SENDER_PALETTE). }
     function TryGetColor(AId: integer; out AColor: TColor): boolean;
 
@@ -115,8 +112,8 @@ begin
     if (Colors = nil) or (Colors.Count = 0) then begin
       Continue;
     end;
-    { Первый цвет — основной; остальные (у некоторых записей 2-3) —
-      градиент, не нужен для сплошной заливки. }
+    { The first color is the main one; the rest (2-3 in some entries)
+      form a gradient, not needed for a solid fill. }
     PackedRGB := Colors.Items[0].AsInteger;
     FEntries[N].Id := Id;
     FEntries[N].Color := RGBToColor((PackedRGB shr 16) and $FF, (PackedRGB shr 8) and $FF, PackedRGB and $FF);
@@ -147,7 +144,7 @@ end;
 
 procedure TTdAccentColors.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  { Ошибки авторизации модели не касаются. }
+  { Authorization errors don't concern this model. }
 end;
 
 end.

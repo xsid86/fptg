@@ -24,28 +24,28 @@ type
     tasClosed
     );
 
-  { Куда именно Telegram отправил код подтверждения. }
+  { Where Telegram sent the confirmation code. }
   TTdCodeDelivery = (
     tcdUnknown,
-    tcdTelegramMessage,   // в другой активный клиент
+    tcdTelegramMessage,   // to another active client
     tcdSms,
-    tcdSmsWord,           // код = первое слово SMS
-    tcdSmsPhrase,         // код = первая фраза SMS
-    tcdCall,              // голосовой звонок, код продиктуют
-    tcdFlashCall,         // код в номере звонящего
-    tcdMissedCall,        // код в последних цифрах номера
+    tcdSmsWord,           // code is the SMS's first word
+    tcdSmsPhrase,         // code is the SMS's first phrase
+    tcdCall,              // a voice call reads the code out
+    tcdFlashCall,         // code is in the caller's number
+    tcdMissedCall,        // code is in the last digits of the number
     tcdFragment,
     tcdFirebaseAndroid,
     tcdFirebaseIos
     );
 
   TTdCodeInfo = record
-    PhonePattern: utf8string;      // маска номера, например +7 *** *** 12 34
+    PhonePattern: utf8string;      // number mask, e.g. +7 *** *** 12 34
     Delivery: TTdCodeDelivery;
     CodeLength: integer;
-    Hint:    utf8string;           // first_word / first_phrase / префикс номера
-    NextDelivery: TTdCodeDelivery; // чем повторить, tcdUnknown = повтор недоступен
-    Timeout: integer;              // секунд до разрешённого resend
+    Hint:    utf8string;           // first_word / first_phrase / number prefix
+    NextDelivery: TTdCodeDelivery; // what to resend with, tcdUnknown = resend unavailable
+    Timeout: integer;              // seconds until resend is allowed
   end;
 
   TTdAuthStateEvent = procedure(Sender: TObject; AState: TTdAuthState) of object;
@@ -104,7 +104,7 @@ type
     constructor Create(AClient: TTdClient);
     destructor Destroy; override;
 
-    { Ответы автомату }
+    { Responses to the auth flow }
     procedure SubmitPhone(const APhone: utf8string);
     procedure RequestQr;
     procedure SubmitCode(const ACode: utf8string);
@@ -155,7 +155,7 @@ function CodeDeliveryToStr(ADelivery: TTdCodeDelivery): string;
 
 implementation
 
-{ ---------------- утилиты ---------------- }
+{ ---------------- utilities ---------------- }
 
 function JsonEsc(const S: utf8string): utf8string;
 var
@@ -194,7 +194,7 @@ begin
         end else begin
           Result := Result + C;
         end;
-      end;   { байты UTF-8 >= #128 проходят как есть }
+      end;   { UTF-8 bytes >= #128 pass through unchanged }
     end;
   end;
 end;
@@ -541,8 +541,8 @@ begin
     FSavedUpdate(Sender, AJson, AData);
   end;
 
-  { AData уже разобран приёмным потоком (tdrecv.pas) — раньше здесь
-    был свой отдельный GetJSON той же строки. }
+  { AData is already parsed by the receive thread (tdrecv.pas) — this
+    used to have its own separate GetJSON call on the same string. }
   if AData = nil then begin
     Exit;
   end;
@@ -709,7 +709,7 @@ begin
   end;
 end;
 
-{ ---------------- ответы автомату ---------------- }
+{ ---------------- auth flow responses ---------------- }
 
 procedure TTdAuth.SubmitPhone(const APhone: utf8string);
 begin

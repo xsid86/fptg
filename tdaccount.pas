@@ -12,18 +12,18 @@ type
 
   { TTdAccount
 
-    Один аккаунт Telegram со всем своим хозяйством. Наследник
-    TComponent, а не TInterfacedObject: интерфейс ITdSession не должен
-    быть подсчётным, иначе объект самоуничтожится, когда модели
-    отпустят ссылку.
+    One Telegram account with everything it owns. Descends from
+    TComponent rather than TInterfacedObject: the ITdSession interface
+    must not be reference-counted, or the object would self-destruct
+    once the models release their reference.
 
-    Списки подписчиков живут здесь, а не в реестре: форма подписывается
-    на КОНКРЕТНЫЙ аккаунт, и при пересоздании клиента после logOut
-    подписки не теряются. }
+    Subscriber lists live here rather than in the registry: a form
+    subscribes to a SPECIFIC account, and subscriptions survive the
+    client being recreated after logOut. }
 
   TTdAccount = class(TComponent, ITdSession)
   private
-    FSlot:     integer;      { порядковый номер, он же имя каталога }
+    FSlot:     integer;      { sequence number, also the directory name }
     FDataDir:  string;
     FFilesDir: string;
     FTitle:    string;
@@ -38,7 +38,7 @@ type
     FPhotoAsked:   boolean;
     FOnInfoChanged: TNotifyEvent;
     FOnStateNotify: TNotifyEvent;
-    FForget: boolean;   { после logOut аккаунт не пересоздавать, а убрать }
+    FForget: boolean;   { after logOut, remove the account instead of recreating it }
 
     FClient:   TTdClient;
     FAuth:     TTdAuth;
@@ -68,7 +68,7 @@ type
     procedure PhotoDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyPhotoFile(AFile: TJSONObject);
 
-    { приёмники событий TTdAuth }
+    { TTdAuth event handlers }
     procedure HandleUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
     procedure HandleStateChanged(Sender: TObject; AState: TTdAuthState);
     procedure HandleError(Sender: TObject; ACode: integer;
@@ -92,22 +92,24 @@ type
 
     procedure Start;
 
-    { Выход из аккаунта. Клиент пересоздаётся, флоу вернётся
-      к вводу номера. Другие аккаунты не затрагиваются. }
+    { Logs out of the account. The client is recreated, and the flow
+      returns to phone entry. Other accounts are unaffected. }
     procedure LogOut;
 
-    { То же, но аккаунт после выхода подлежит удалению из реестра —
-      как в Telegram. Пересоздания клиента не будет. }
+    { Same, but the account is removed from the registry after logging
+      out, matching Telegram. The client is not recreated. }
     procedure LogOutAndForget;
 
-    { Закрыть клиента и убрать аккаунт, НЕ выходя из сессии.
-      Нужно при отмене добавления: без close клиент TDLib остаётся
-      жив и держит каталог базы, и следующая попытка занять тот же
-      слот упирается в заблокированную базу. }
+    { Closes the client and removes the account WITHOUT logging out of
+      the session. Needed when canceling adding an account: without
+      closing, the TDLib client stays alive and keeps the database
+      directory locked, and the next attempt to reuse that slot hits a
+      locked database. }
     procedure CloseAndForget;
 
-    { Просит TDLib закрыть клиента. Ждать окончания — забота реестра:
-      закрывать надо все аккаунты, а таймаут разумно иметь общий. }
+    { Asks TDLib to close the client. Waiting for completion is the
+      registry's job: every account has to be closed together, and a
+      shared timeout makes sense. }
     procedure RequestClose;
 
     { ITdSession }
@@ -124,14 +126,15 @@ type
     property UserId: Int64 read FUserId;
     property Phone: utf8string read FPhone;
     property Username: utf8string read FUsername;
-    { Своя аватарка — для меню аккаунтов. Мини-превью приходит
-      вместе с getMe, полноразмерная докачивается. }
+    { Own avatar — for the account menu. The mini-thumbnail arrives
+      with getMe, the full-size image is downloaded afterward. }
     property PhotoPath: utf8string read FPhotoPath;
     property PhotoThumb: RawByteString read FPhotoThumb;
-    { Реестр подписывается, чтобы сохранить манифест и обновить меню. }
+    { The registry subscribes to save the manifest and refresh the menu. }
     property OnInfoChanged: TNotifyEvent read FOnInfoChanged write FOnInfoChanged;
-    { Любая смена состояния — реестру, чтобы обновить меню:
-      неактивный аккаунт мог разлогиниться, и это надо показать. }
+    { Any state change goes to the registry so it can refresh the menu
+      — an inactive account may have logged out, and that needs to
+      show. }
     property OnStateNotify: TNotifyEvent read FOnStateNotify write FOnStateNotify;
     property Forget: boolean read FForget;
     property Title: string read FTitle write FTitle;
@@ -149,7 +152,7 @@ type
 
 implementation
 
-{ ---------------- жизненный цикл ---------------- }
+{ ---------------- lifecycle ---------------- }
 
 constructor TTdAccount.Create(AOwner: TComponent; ASlot: integer;
   const ABaseDir, ATitle: string; AApiId: integer; const AApiHash: utf8string);
@@ -161,8 +164,8 @@ begin
   FApiHash := AApiHash;
   FState := tasNone;
 
-  { У каждого аккаунта свой каталог. Общий привёл бы к тому, что
-    клиенты затирают базы друг друга. }
+  { Each account has its own directory. Sharing one would make the
+    clients overwrite each other's databases. }
   FDataDir := ABaseDir + 'tdlib' + PathDelim + 'acc' + IntToStr(ASlot);
   FFilesDir := FDataDir + PathDelim + 'files';
 
@@ -171,9 +174,10 @@ begin
   FRestartTimer.OnTimer := @RestartTick;
   FRestartTimer.Enabled := False;
 
-  { Объекты создаём сразу, а не в Start: формы обращаются к Chats
-    и подписываются ещё в FormCreate, то есть до запуска клиента.
-    Сам клиент TDLib при этом ещё спит — его будит Start. }
+  { The objects are created immediately, not in Start: forms access
+    Chats and subscribe already in FormCreate, before the client is
+    started. The TDLib client itself stays dormant until Start wakes
+    it. }
   CreateEngine;
 end;
 
@@ -190,7 +194,8 @@ end;
 procedure TTdAccount.CreateEngine;
 begin
   FClient := TTdClient.Create;
-  { Порядок важен: TTdAuth в конструкторе встраивается в цепочку OnUpdate. }
+  { Order matters: TTdAuth's constructor inserts itself into the
+    OnUpdate chain. }
   FClient.OnUpdate := @HandleUpdate;
 
   FAuth := TTdAuth.Create(FClient);
@@ -213,8 +218,8 @@ begin
   FAuth.OnPasswordRecovery := @HandlePasswordRecovery;
   FAuth.OnNeedRegistration := @HandleNeedRegistration;
 
-  { Резолвер и модель подписываются на сам аккаунт, а не на клиента:
-    при пересоздании клиента они переживают смену. }
+  { The resolver and models subscribe to the account itself, not the
+    client: they survive the client being recreated. }
   FReq := TTdRequests.Create(Self, Self);
   FChats := TTdChats.Create(Self, Self, FReq);
   FMessages := TTdMessages.Create(Self, Self, FReq);
@@ -385,17 +390,18 @@ begin
   end;
 end;
 
-{ ---------------- раздача событий ----------------
-  Списки копируются перед обходом: подписчик вправе отписаться
-  прямо в обработчике. }
+{ ---------------- event dispatch ----------------
+  Lists are copied before iterating: a subscriber is allowed to
+  unsubscribe from within its own handler. }
 
 procedure TTdAccount.HandleUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
 var
   Snap: array of ITdUpdateListener;
   I: integer;
 begin
-  { Своя аватарка докачалась. AData уже разобран приёмным потоком
-    (tdrecv.pas) — раньше здесь был свой отдельный GetJSON. }
+  { Own avatar finished downloading. AData is already parsed by the
+    receive thread (tdrecv.pas) — this used to have its own separate
+    GetJSON call. }
   if (FPhotoFileId <> 0) and (FPhotoPath = '') and (AData <> nil)
      and (JGetStr(AData, '@type') = 'updateFile') then begin
     ApplyPhotoFile(JGetObj(AData, 'file'));
@@ -419,8 +425,8 @@ begin
     Snap[I].TdStateChanged(AState);
   end;
 
-  { Как только вошли — спрашиваем, кто мы. Заголовок нужен
-    переключателю аккаунтов, а user_id пригодится дальше. }
+  { As soon as we're signed in, ask who we are. The title is needed by
+    the account switcher, and user_id is useful later on. }
   if AState = tasReady then begin
     RequestMe;
   end;
@@ -431,8 +437,9 @@ begin
 
   if AState = tasClosed then begin
     if FLoggingOut or FForget then begin
-      { Пересоздание отложено: мы внутри разбора пачки апдейтов,
-        сносить клиента из-под себя нельзя. }
+      { Recreation is deferred: we're inside a batch of update
+        dispatch, and the client cannot be torn down out from under
+        itself. }
       FRestartTimer.Enabled := True;
     end else if FClosing then begin
       FClosed := True;
@@ -545,7 +552,7 @@ begin
   end;
 end;
 
-{ ---------------- сведения о себе ---------------- }
+{ ---------------- self info ---------------- }
 
 procedure TTdAccount.RequestMe;
 begin
@@ -581,8 +588,8 @@ begin
   First := JGetStr(AResp.Obj, 'first_name');
   Last := JGetStr(AResp.Obj, 'last_name');
 
-  { Порядок предпочтения тот же, что в клиентах Telegram:
-    имя, потом @username, потом номер. }
+  { Same preference order as Telegram's own clients: name, then
+    @username, then phone number. }
   NewTitle := utf8string(Trim(string(First) + ' ' + string(Last)));
   if NewTitle = '' then begin
     if FUsername <> '' then begin
@@ -629,7 +636,8 @@ begin
     FOnInfoChanged(Self);
   end;
 
-  { Мини-превью уже можно показывать, а настоящую докачиваем. }
+  { The mini-thumbnail can already be shown; the real photo is
+    downloaded next. }
   if (FPhotoFileId <> 0) and (FPhotoPath = '') and (not FPhotoAsked)
      and (FReq <> nil) then begin
     FPhotoAsked := True;
@@ -670,7 +678,7 @@ begin
   end;
 end;
 
-{ ---------------- выход и закрытие ---------------- }
+{ ---------------- logout and shutdown ---------------- }
 
 procedure TTdAccount.LogOut;
 begin
@@ -691,7 +699,8 @@ procedure TTdAccount.CloseAndForget;
 begin
   FForget := True;
   if (FAuth = nil) or (not FStarted) then begin
-    { Клиента и не было — сразу сообщаем реестру. }
+    { There was no client to begin with — notify the registry right
+      away. }
     DestroyEngine;
     FState := tasNone;
     if Assigned(FOnStateNotify) then begin
@@ -714,9 +723,9 @@ begin
   FLoggingOut := False;
 
   if FForget then begin
-    { Аккаунт уходит из реестра — пересоздавать клиента незачем.
-      Само удаление делает реестр, и делает отложенно: освобождать
-      объект изнутри его собственного обработчика нельзя. }
+    { The account is leaving the registry — no point recreating the
+      client. The registry performs the actual removal, deferred: the
+      object cannot be freed from within its own event handler. }
     DestroyEngine;
     FState := tasNone;
     if Assigned(FOnStateNotify) then begin

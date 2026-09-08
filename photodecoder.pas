@@ -2,19 +2,18 @@ unit photodecoder;
 
 {$mode objfpc}{$H+}
 
-{ Разовое (не зацикленное, в отличие от audioplayer.pas/videoplayer.pas)
-  декодирование одного файла-фото в фоновом потоке — JPEG-декод уже
-  скачанного файла (TBGRABitmap.Create) и ресемпл в целевой размер
-  превью (BGRAFilters). Раньше это делала TPhotoWidget.SetPhoto
-  синхронно, прямо на главном потоке, в момент показа новой строки —
-  при агрессивной автозагрузке "далеко вперёд" несколько новых фото
-  становятся видны почти одновременно при быстром скролле, и этот
-  декод (полноразмерный JPEG + ресемпл, не крошечный minithumbnail)
-  ощутимо подвешивал прокрутку. См. CLAUDE.md.
+{ One-shot (not looping, unlike audioplayer.pas/videoplayer.pas)
+  background decode of a single photo file: JPEG decode of an already
+  downloaded file (TBGRABitmap.Create) and resample to the target
+  preview size (BGRAFilters). Runs off the main thread, since decoding
+  a full-size JPEG and resampling it is expensive enough to stall
+  scrolling if done synchronously when several new photos become
+  visible at once.
 
-  Блюр-плейсхолдер из minithumbnail (TPhotoWidget.SetPhoto) сюда НЕ
-  вынесен — источник крошечный (~30×40), цена декода+блюра на нём
-  пренебрежимо мала, не стоит сложности отдельного потока. }
+  The blur placeholder from the minithumbnail (TPhotoWidget.SetPhoto)
+  is not moved here — its source is tiny (~30x40), so the cost of
+  decoding and blurring it is negligible and does not warrant a
+  separate thread. }
 
 interface
 
@@ -28,12 +27,11 @@ type
     FTargetW, FTargetH: integer;
     FResult: TBGRABitmap;
     FOnDone: TNotifyEvent;
-    { Пишется и читается ТОЛЬКО на главном потоке (виджет — из своего
-      Destroy/при переиспользовании ДО того, как Synchronize успел
-      сработать; DoDone — уже гарантированно на главном потоке, изнутри
-      самого Synchronize) — обычной, не atomic, переменной достаточно:
-      конкурентного доступа с двух потоков к этому полю не бывает в
-      принципе, см. комментарий у Cancel. }
+    { Written and read ONLY on the main thread (the widget, from its
+      own Destroy/reuse path, before Synchronize has run; DoDone, which
+      already runs on the main thread inside Synchronize itself) — a
+      plain, non-atomic field is sufficient since there is never
+      concurrent access to it from two threads, see the Cancel comment. }
     FCanceled: boolean;
     procedure DoDone;
   protected
@@ -41,18 +39,18 @@ type
   public
     constructor Create(const ASourcePath: utf8string; ATargetW, ATargetH: integer;
       AOnDone: TNotifyEvent);
-    { Вызывающий (виджет) обязан звать это в своём Destroy, если декод
-      этого потока ещё не завершился (FDecodeThread <> nil) — иначе
-      DoDone вызовет AOnDone на уже уничтоженном объекте. Безопасно
-      звать с главного потока в ЛЮБОЙ момент до того, как AOnDone
-      реально сработал: пока Synchronize не дошёл до выполнения
-      колбэка на главном потоке, сам поток гарантированно жив (он
-      заблокирован внутри Synchronize, ожидая своей очереди) — FreeOn
-      Terminate не может сработать раньше этого момента. }
+    { The caller (widget) must call this from its own Destroy if this
+      thread's decode has not finished yet (FDecodeThread <> nil) —
+      otherwise DoDone would call AOnDone on an already-destroyed
+      object. Safe to call from the main thread at any point before
+      AOnDone has actually fired: until Synchronize reaches the
+      callback on the main thread, the thread itself is guaranteed
+      alive (blocked inside Synchronize, waiting its turn) —
+      FreeOnTerminate cannot fire earlier than that. }
     procedure Cancel;
-    { Забирает владение результатом (может быть nil, если декод не
-      удался/отменён) — вызывающий обязан освободить сам. Вызывать
-      только изнутри AOnDone. }
+    { Takes ownership of the result (may be nil if decoding failed or
+      was canceled) — the caller must free it. Call only from within
+      AOnDone. }
     function TakeResult: TBGRABitmap;
     property SourcePath: utf8string read FSourcePath;
   end;
@@ -84,12 +82,12 @@ end;
 
 procedure TPhotoDecodeThread.DoDone;
 begin
-  { FCanceled проверяется ЗДЕСЬ, не в Execute перед вызовом Synchronize
-    — эта функция сама уже выполняется на главном потоке (это и есть
-    смысл Synchronize), поэтому чтение поля, которое пишет только
-    главный поток (см. Cancel), не требует никакой дополнительной
-    синхронизации. Если отменено — просто освобождаем результат сами
-    (виджет, которому он предназначался, больше не спросит TakeResult). }
+  { FCanceled is checked HERE, not in Execute before calling
+    Synchronize — this method already runs on the main thread (that is
+    the point of Synchronize), so reading a field that only the main
+    thread writes (see Cancel) needs no extra synchronization. If
+    canceled, the result is freed here — the widget it was meant for
+    will never call TakeResult. }
   if FCanceled then begin
     FreeAndNil(FResult);
     Exit;

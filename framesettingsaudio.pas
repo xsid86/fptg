@@ -11,12 +11,10 @@ type
 
   { TFrameSettingsAudio
 
-    Раздел "Audio" окна настроек — выбор устройства вывода звука.
-    Перенесено из главного меню (было: TFormMain.RebuildAudioDeviceMenu/
-    AudioDeviceItemClick, пункты прямо в пустом MenuItem5 "Settings") —
-    то же самое поведение (клик по устройству сразу его выбирает и
-    персистит в config.ini/[audio] через FormMain.SetAudioDeviceName),
-    просто TListBox вместо подменю с TRadioItem/GroupIndex. }
+    The "Audio" section of the settings window — selects the audio
+    output device. Clicking a device selects it immediately and
+    persists the choice to config.ini/[audio] via
+    FormMain.SetAudioDeviceName. }
 
   TFrameSettingsAudio = class(TFrameBase)
     lbDevices: TListBox;
@@ -24,9 +22,9 @@ type
   protected
     procedure DoActivate; override;
   private
-    { Подавляет запись в config.ini, пока список переcтраивается
-      программно (RefreshDevices сама выставляет ItemIndex) — писать
-      нужно только на настоящий выбор пользователя. }
+    { Suppresses writing to config.ini while the list is being rebuilt
+      programmatically (RefreshDevices sets ItemIndex itself) — only a
+      real user selection should be written. }
     FLoading: boolean;
     procedure RefreshDevices;
   end;
@@ -35,10 +33,9 @@ implementation
 
 {$R *.lfm}
 
-{ main — только в реализации, не в интерфейсе: тот же приём, что и у
-  framehistory.pas (FormMain.Chats/FormMain.Nav) — FormMain уже хранит
-  единственный источник правды для выбранного устройства
-  (AudioDeviceName/SetAudioDeviceName), второй не заводим. }
+{ main is used only in the implementation section, not the interface,
+  to avoid a circular unit dependency — FormMain is the single source
+  of truth for the selected device (AudioDeviceName/SetAudioDeviceName). }
 uses
   main;
 
@@ -69,10 +66,8 @@ begin
         Exit;
       end;
       lbDevices.Enabled := True;
-      { Ничего не сохранено (первый запуск) — по умолчанию первое
-        устройство в системном списке, как обычно и есть устройство
-        "по умолчанию" в Windows. Та же логика, что была в
-        AudioDeviceItemClick/RebuildAudioDeviceMenu. }
+      { Nothing saved yet (first run) — default to the first device in
+        the system list, which is usually Windows' own default device. }
       Sel := 0;
       for I := 0 to High(Devs) do begin
         lbDevices.Items.Add(Devs[I].Name);

@@ -14,9 +14,9 @@ type
 
   { TFormMain
 
-    Application.MainForm: её закрытие завершает приложение, поэтому
-    рукопожатие с TDLib живёт здесь. Форма намеренно тонкая —
-    содержимое рабочей области целиком в фреймах. }
+    Application.MainForm: closing it ends the application, so the TDLib
+    handshake lives here. The form itself stays thin — the work area's
+    content lives entirely in frames. }
 
   TFormMain = class(TForm, ITdStateListener, ITdActiveListener)
     ImageList1: TImageList;
@@ -56,29 +56,30 @@ type
     FTdClosed:     boolean;
     FNav:          TFrameNavigator;
     FChats:        TFrameChats;
-    { Полноэкранный просмотрщик фото/видео (mediaviewer.pas) — родитель
-      сама форма (не pnlWork), во весь клиентский прямоугольник, чтобы
-      перекрывать и список чатов слева, и верхнюю панель, не только
-      область истории переписки. Невидим (Visible=False) в обычном
-      режиме — этого достаточно, чтобы не перехватывать мышь/клавиши,
-      никакого отдельного "click-through" не требуется. }
+    { Full-screen photo/video viewer (mediaviewer.pas) — parented to the
+      form itself (not pnlWork), covering the whole client rect, so it
+      overlays the chat list on the left and the top panel too, not
+      just the history area. Hidden (Visible=False) in normal mode is
+      enough to stop it intercepting mouse/keyboard — no separate
+      click-through handling is needed. }
     FMediaViewer:  TMediaViewerPanel;
-    { pnlWork разделён по вертикали (2026-09-08, по прямому запросу
-      пользователя, первый набросок layout'а): FNavHost — верхняя часть,
-      контейнер FNav (был сразу pnlWork); FInputSplitter — перетаскиваемая
-      граница; FMessageInput — поле ввода снизу. Порядок создания в
-      FormCreate важен для Align, см. её же комментарий. }
+    { pnlWork is split vertically: FNavHost is the upper part, the
+      container for FNav (used to be pnlWork itself); FInputSplitter is
+      the draggable divider; FMessageInput is the input box at the
+      bottom. Creation order in FormCreate matters for Align, see its
+      own comment. }
     FNavHost:       TPanel;
     FInputSplitter: TSplitter;
     FMessageInput:  TMessageInputPanel;
-    FAccMenuCount: integer;   { сколько пунктов меню создано динамически }
-    FGlyphs: TStringList;   { кэш глифов меню: ключ -> TBitmap }
-    FAudioDeviceName: string;   { выбранное устройство вывода звука, из config.ini [audio] }
-    { FAutoDownload[медиа][чат] — кэш сетки из config.ini/[autodownload]
-      (см. framesettingsautodownload.pas), тот же принцип, что и у
-      FAudioDeviceName: единственный источник правды в памяти на время
-      сессии, config.ini — только персистенс. Индексы — позиции в
-      AUTODL_MEDIA_KINDS/AUTODL_CHAT_KINDS (constants.pas). }
+    FAccMenuCount: integer;   { number of dynamically created menu items }
+    FGlyphs: TStringList;   { menu glyph cache: key -> TBitmap }
+    FAudioDeviceName: string;   { selected audio output device, from config.ini [audio] }
+    { FAutoDownload[media][chat] — a cache of the grid from
+      config.ini/[autodownload] (see framesettingsautodownload.pas),
+      same principle as FAudioDeviceName: the single in-memory source
+      of truth for the session, config.ini is persistence only. Indices
+      are positions in AUTODL_MEDIA_KINDS/AUTODL_CHAT_KINDS
+      (constants.pas). }
     FAutoDownload: array[0..High(AUTODL_MEDIA_KINDS)] of array[0..High(AUTODL_CHAT_KINDS)] of boolean;
     function  AccountGlyph(AAcc: TTdAccount; AActive, ANeedLogin: boolean): TBitmap;
     procedure RebuildAccountsMenu;
@@ -88,10 +89,10 @@ type
     procedure ChatSelected(Sender: TObject; ARow: TChatRow);
     procedure ListModeChanged(Sender: TObject; AMode: TChatListMode);
     procedure AvatarClicked(Sender: TObject; ARow: TChatRow);
-    { Нажали Send в панели ввода (msginput.pas) — та сама не знает про
-      TTdMessages, отправку решает здесь: берём модель ОТКРЫТОГО СЕЙЧАС
-      чата (FNav.Current, если это TFrameHistory), см. её же комментарий
-      у TFrameHistory.Model. }
+    { Handles Send from the input panel (msginput.pas) — that panel has
+      no knowledge of TTdMessages; sending is resolved here using the
+      model of the CURRENTLY OPEN chat (FNav.Current, if it's a
+      TFrameHistory), see the comment on TFrameHistory.Model. }
     procedure MessageInputSend(Sender: TObject);
   public
     { ITdActiveListener }
@@ -102,35 +103,37 @@ type
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
     property Nav: TFrameNavigator read FNav;
-    { Список чатов не сменный экран навигатора (см. FormCreate) — свой
-      собственный публичный доступ, а не через Nav.Find. Нужен
-      framehistory.pas, чтобы взять ImageList1 со значками статуса
-      сообщений, не заводя вторую копию тех же иконок. }
+    { The chat list is not a swappable navigator screen (see FormCreate)
+      — it gets its own public accessor instead of going through
+      Nav.Find. Needed by framehistory.pas to reach ImageList1's
+      message-status icons without a second copy of the same icons. }
     property Chats: TFrameChats read FChats;
-    { Просмотрщик фото/видео — нужен framehistory.pas (клик по фото/
-      видео в чате открывает его), тем же приёмом доступа через
-      глобальный FormMain, что уже применяется для Chats/Nav. }
+    { Photo/video viewer — needed by framehistory.pas (clicking a
+      photo/video in a chat opens it), same global-FormMain access
+      pattern already used for Chats/Nav. }
     property MediaViewer: TMediaViewerPanel read FMediaViewer;
-    { Выбранное в Settings устройство вывода звука — нужен
-      framehistory.pas (TAudioPlayer.Create), чтобы не заводить второй
-      источник правды поверх уже существующего config.ini/[audio]. }
+    { Audio output device selected in Settings — needed by
+      framehistory.pas (TAudioPlayer.Create) so it doesn't need a
+      second source of truth on top of config.ini/[audio]. }
     property AudioDeviceName: string read FAudioDeviceName;
-    { Меняет выбранное устройство и сразу же персистит его в
-      config.ini/[audio] — вызывается из TFrameSettingsAudio (окно
-      настроек), тем же приёмом доступа через глобальный FormMain, что
-      framehistory.pas уже применяет для Chats/Nav. }
+    { Changes the selected device and immediately persists it to
+      config.ini/[audio] — called from TFrameSettingsAudio (the
+      settings dialog), same global-FormMain access pattern already
+      used by framehistory.pas for Chats/Nav. }
     procedure SetAudioDeviceName(const AName: string);
-    { Читает config.ini/[autodownload] в FAutoDownload — вызывается при
-      старте (FormCreate) и заново из TFrameSettingsAutoDownload.SaveSettings
-      после сохранения (тот же приём переиспользования, что и у
-      SetAudioDeviceName — единственная запись, освежающая единственный
-      источник правды). }
+    { Reads config.ini/[autodownload] into FAutoDownload — called at
+      startup (FormCreate) and again from
+      TFrameSettingsAutoDownload.SaveSettings after saving (the same
+      reuse pattern as SetAudioDeviceName: a single write refreshing
+      the single source of truth). }
     procedure LoadAutoDownloadSettings;
-    { Включена ли автозагрузка для пары (тип медиа, тип чата) — ключи
-      те же строки, что в AUTODL_MEDIA_KINDS/AUTODL_CHAT_KINDS
-      (constants.pas), напр. ('images','private'). Неизвестный ключ —
-      False, не исключение: вызывающему (framehistory.pas) не из чего
-      понять, что чат ещё неизвестного типа — это norm, не ошибка. }
+    { Whether auto-download is enabled for a (media type, chat type)
+      pair — keys are the same strings as AUTODL_MEDIA_KINDS/
+      AUTODL_CHAT_KINDS (constants.pas), e.g. ('images','private'). An
+      unknown key returns False rather than raising — the caller
+      (framehistory.pas) has no way to tell an unrecognized chat type
+      apart from a legitimate "off", and treating it as off is correct
+      either way. }
     function AutoDownloadEnabled(const AMediaKind, AChatKind: string): boolean;
   end;
 
@@ -139,10 +142,11 @@ var
 
 implementation
 
-{ login/settings в реализации, а не в интерфейсе: оба сами используют
-  main (login — для RequestAppClose, settings — транзитивно, через
-  framesettingsaudio.pas и FormMain.AudioDeviceName/SetAudioDeviceName),
-  и в интерфейсе это дало бы цикл. }
+{ login/settings are used in the implementation section, not the
+  interface: both use main themselves (login for RequestAppClose,
+  settings transitively via framesettingsaudio.pas and
+  FormMain.AudioDeviceName/SetAudioDeviceName), which would create a
+  cycle if used from the interface. }
 uses
   login, settings;
 
@@ -155,13 +159,13 @@ begin
   FTdClosed := False;
   lblState.Caption := '';
 
-  { pnlWork поделён по вертикали: область фреймов сверху, поле ввода
-    сообщения снизу, см. комментарий у полей FNavHost/FInputSplitter/
-    FMessageInput. Порядок Parent:= ниже важен для Align — LCL
-    раздаёт место в порядке добавления в Controls: сначала снизу
-    (FMessageInput, alBottom), потом сплиттер вплотную над ним (тоже
-    alBottom), и только последним — то, что заполняет остаток
-    (FNavHost, alClient). }
+  { pnlWork is split vertically: the frame area on top, the message
+    input at the bottom, see the comment on the FNavHost/
+    FInputSplitter/FMessageInput fields. The Parent:= order below
+    matters for Align — LCL hands out space in the order controls are
+    added to Controls: bottom first (FMessageInput, alBottom), then the
+    splitter directly above it (also alBottom), and only last whatever
+    fills the remainder (FNavHost, alClient). }
   FMessageInput := TMessageInputPanel.Create(pnlWork);
   FMessageInput.Parent := pnlWork;
   FMessageInput.Align := alBottom;
@@ -176,15 +180,15 @@ begin
   FNavHost.Parent := pnlWork;
   FNavHost.Align := alClient;
   FNavHost.BevelOuter := bvNone;
-  { Тот же минимум, что и у FMessageInput (см. TMessageInputPanel.Create)
-    — иначе сплиттер можно утащить вниз до нуля, полностью спрятав
-    область истории переписки. }
+  { Same minimum as FMessageInput (see TMessageInputPanel.Create) —
+    otherwise the splitter could be dragged down to zero, hiding the
+    history area entirely. }
   FNavHost.Constraints.MinHeight := 100;
 
   FNav := TFrameNavigator.Create(FNavHost);
 
-  { Список чатов живёт в левой панели постоянно и навигатором
-    не управляется — это не сменный экран. }
+  { The chat list lives permanently in the left panel and is not
+    managed by the navigator — it's not a swappable screen. }
   FChats := TFrameChats.Create(pnlLeft);
   FChats.Parent := pnlLeft;
   FChats.Align := alClient;
@@ -192,8 +196,8 @@ begin
   FChats.OnListMode := @ListModeChanged;
   FChats.OnAvatar := @AvatarClicked;
 
-  { Резолвер создаётся здесь, чтобы он успел подписаться на ядро
-    до первых запросов. Обращение к синглтону его и конструирует. }
+  { Created here so it subscribes to the core before the first
+    requests. Touching the singleton is what constructs it. }
   TdRequests.DefaultTimeout := 30000;
 
   FGlyphs := TStringList.Create;
@@ -201,10 +205,11 @@ begin
   FGlyphs.Duplicates := dupIgnore;
   FGlyphs.OwnsObjects := False;
 
-  { Родитель — сама форма (Self), не pnlWork — см. комментарий у поля.
-    Align не используем (alClient заполнил бы только "остаток" после
-    pnlTop/pnlLeft/StatusBar1, а нужно перекрыть их тоже) — вместо
-    этого явные границы, обновляемые в FormResize. }
+  { Parented to the form itself (Self), not pnlWork — see the field
+    comment. Align is not used (alClient would only fill the leftover
+    space after pnlTop/pnlLeft/StatusBar1, but those need to be
+    overlaid too) — explicit bounds are kept in sync in FormResize
+    instead. }
   FMediaViewer := TMediaViewerPanel.Create(Self);
   FMediaViewer.Parent := Self;
   FMediaViewer.SetBounds(0, 0, ClientWidth, ClientHeight);
@@ -215,9 +220,10 @@ begin
   TdApp.SubscribeActive(Self);
   RebuildAccountsMenu;
 
-  { Выбор устройства вывода звука персистится в тот же config.ini, где
-    уже лежат api_id/api_hash, секцией [audio] — сам выбор теперь в
-    окне настроек (settings.pas, раздел Audio), не в главном меню. }
+  { The audio output device selection persists in the same config.ini
+    that already holds api_id/api_hash, under [audio] — the picker
+    itself now lives in the settings dialog (settings.pas, Audio
+    section), not the main menu. }
   with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
     try
       FAudioDeviceName := ReadString('audio', 'device', '');
@@ -227,12 +233,12 @@ begin
   end;
   LoadAutoDownloadSettings;
 
-  { «New» из меню Account заводит ещё один аккаунт. }
+  { "New" in the Account menu creates another account. }
   if MenuItem11 <> nil then begin
     MenuItem11.OnClick := @AddAccountClick;
   end;
-  { «Logout» — выход из активного; при нескольких аккаунтах
-    он заодно убирает его из списка, как в Telegram. }
+  { "Logout" signs out of the active account; with multiple accounts
+    it also removes it from the list, matching Telegram. }
   if MenuItem12 <> nil then begin
     MenuItem12.OnClick := @btnLogoutClick;
   end;
@@ -240,10 +246,9 @@ end;
 
 procedure TFormMain.FormResize(Sender: TObject);
 begin
-  { FMediaViewer сам подхватывает новый размер через собственный Resize
-    (framehistory-виджет/фото внутри пересчитываются там же) — этой
-    форме достаточно просто держать его границы синхронными с клиентской
-    областью формы. }
+  { FMediaViewer picks up the new size through its own Resize (the
+    framehistory widget/photo inside recompute there) — this form only
+    needs to keep its bounds in sync with the form's client area. }
   if FMediaViewer <> nil then begin
     FMediaViewer.SetBounds(0, 0, ClientWidth, ClientHeight);
   end;
@@ -299,7 +304,7 @@ begin
   if ARow = nil then begin
     Exit;
   end;
-  { Заглушка: здесь откроется панель сведений о контакте. }
+  { Placeholder: the contact-info panel will open here. }
   lblState.Caption := Format('Info: %s (id %d)', [string(ARow.Title), ARow.Id]);
 end;
 
@@ -370,8 +375,9 @@ begin
   if AState = tasReady then begin
     if not Visible then begin
       Show;
-      { Первый экран показываем только когда форма реально появилась:
-        фреймы создаются лениво, раньше это было бы впустую. }
+      { The first screen is shown only once the form has actually
+        appeared: frames are created lazily, doing it earlier would be
+        wasted work. }
       if FNav.Current = nil then begin
         FNav.ShowFrame(TFrameWelcome);
       end;
@@ -383,7 +389,7 @@ begin
   end;
 end;
 
-{ ---------------- меню аккаунтов ---------------- }
+{ ---------------- account menu ---------------- }
 
 function TFormMain.AccountGlyph(AAcc: TTdAccount; AActive, ANeedLogin: boolean): TBitmap;
 const
@@ -394,7 +400,8 @@ var
   B, Av: TBGRABitmap;
   AX, AY, AR: single;
 begin
-  { Ключ включает путь к аватарке: докачалась — глиф перерисуется. }
+  { The key includes the avatar path: once it finishes downloading, the
+    glyph gets redrawn. }
   Key := IntToStr(AAcc.Slot) + '|' + BoolToStr(AActive, '1', '0') +
          BoolToStr(ANeedLogin, '1', '0') + '|' + string(AAcc.PhotoPath) +
          '|' + IntToStr(Length(AAcc.PhotoThumb)) + '|' + AAcc.Title;
@@ -405,8 +412,9 @@ begin
     Exit;
   end;
 
-  { Аватарка аккаунта: скачанная, иначе мини-превью, иначе инициалы
-    на цветном круге. Ровно та же отрисовка, что в списке чатов. }
+  { Account avatar: the downloaded photo, else the mini-thumbnail, else
+    initials on a colored circle. The exact same rendering as the chat
+    list. }
   Av := RenderAvatarBmp(AAcc.PhotoPath, AAcc.PhotoThumb,
     utf8string(AAcc.Title), AAcc.UserId, SZ, True);
 
@@ -419,7 +427,7 @@ begin
     B.LineCap := pecRound;
     B.JoinStyle := pjsRound;
 
-    { Нужен вход — красная звёздочка в правом нижнем углу. }
+    { Sign-in required — a red asterisk in the bottom-right corner. }
     if ANeedLogin then begin
       AX := SZ - 4.5;
       AY := SZ - 4.5;
@@ -433,9 +441,10 @@ begin
       end;
     end;
 
-    { clNone — MakeBitmapCopy отдаёт TBitmap с сохранённым альфа-каналом.
-      Запекать сюда цвет меню нельзя: при наведении фон пункта меняется,
-      и запечённые углы остаются светлыми квадратами. }
+    { clNone: MakeBitmapCopy produces a TBitmap with the alpha channel
+      preserved. Baking a menu background color in here would be wrong
+      — the item background changes on hover, and the baked-in corners
+      would stay light squares. }
     Result := B.MakeBitmapCopy(clNone);
   finally
     B.Free;
@@ -460,8 +469,8 @@ begin
     Exit;
   end;
 
-  { Сносим прежние динамические пункты. Статические (New/Edit/Logout)
-    лежат ниже и не трогаются. }
+  { Drops the previous dynamic items. The static ones (New/Edit/Logout)
+    sit below and are left untouched. }
   for I := FAccMenuCount - 1 downto 0 do begin
     MenuItem10.Delete(I);
   end;
@@ -473,8 +482,8 @@ begin
     NeedLogin := A.State <> tasReady;
 
     MI := TMenuItem.Create(MenuItem10);
-    { Имя и аватарка у разных аккаунтов могут совпадать, поэтому
-      в подписи всегда есть id — иначе их не различить. }
+    { Different accounts can share a name and avatar, so the id is
+      always in the label — otherwise they'd be indistinguishable. }
     if A.UserId <> 0 then begin
       MI.Caption := Format('%s  (%d)', [A.Title, A.UserId]);
     end else begin
@@ -484,8 +493,8 @@ begin
       MI.Caption := MI.Caption + '  (sign-in required)';
     end;
     MI.Tag := I;
-    { Активный выделяем жирным: это не трогает слот значка,
-      который занят аватаркой. }
+    { The active account is bolded — this doesn't touch the icon slot,
+      which is occupied by the avatar. }
     MI.Default := IsActive;
     MI.OnClick := @AccountItemClick;
     MI.Bitmap.Assign(AccountGlyph(A, IsActive, NeedLogin));
@@ -506,7 +515,7 @@ begin
   TdApp.ActiveIndex := TMenuItem(Sender).Tag;
 end;
 
-{ ---------------- окно настроек ---------------- }
+{ ---------------- settings dialog ---------------- }
 
 procedure TFormMain.SettingsMenuClick(Sender: TObject);
 var
@@ -535,7 +544,7 @@ begin
   end;
 end;
 
-{ ---------------- автозагрузка ---------------- }
+{ ---------------- auto-download ---------------- }
 
 function AutoDownloadMediaIndex(const AKind: string): integer;
 var
@@ -602,19 +611,18 @@ begin
   Acc := TdApp.AddAccount('New account');
   Acc.Start;
 
-  { Отдельный экземпляр формы, а не глобальный FormLogin: тот привязан
-    к активному аккаунту и обслуживает стартовый сценарий. }
+  { A separate form instance, not the global FormLogin: that one is
+    bound to the active account and serves the startup flow. }
   Dlg := TFormLogin.Create(nil);
   try
     Dlg.AttachTo(Acc, True);
     Dlg.ShowModal;
     if not Dlg.Succeeded then begin
-      { Отмена: убираем недоделанный аккаунт. Каталог на диске
-        остаётся, слот переиспользуется. }
-      { Именно Discard, а не Remove: клиента TDLib надо сначала
-        закрыть, иначе он продолжит держать каталог базы, и
-        следующая попытка занять тот же слот упрётся
-        в заблокированную базу. }
+      { Canceled: discard the unfinished account. The on-disk directory
+        stays, the slot gets reused. }
+      { Discard, not Remove: the TDLib client must be closed first,
+        otherwise it keeps holding the database directory open, and the
+        next attempt to reuse that slot would hit a locked database. }
       TdApp.DiscardAccount(Acc);
       Exit;
     end;

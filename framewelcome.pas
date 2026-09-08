@@ -11,8 +11,7 @@ type
 
   { TFrameWelcome
 
-    Заглушка рабочей области: показывается, пока чат не выбран.
-    Позже её место займёт TFrameChat. }
+    Placeholder for the work area, shown until a chat is selected. }
 
   TFrameWelcome = class(TFrameBase)
     lblTitle: TLabel;

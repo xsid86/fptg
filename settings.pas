@@ -12,13 +12,10 @@ type
 
   { TFormSettings
 
-    Модальное окно настроек: TreeView разделов слева, справа — фрейм
-    текущего раздела через TFrameNavigator (тот же механизм переключения
-    экранов, что и у TFormMain/FNav — переиспользован, не изобретён
-    заново под второй контейнер). Разделы пока фиксированы (General,
-    Audio) — список статичный, без отдельной регистрации разделов:
-    двух пунктов достаточно, гибкая инфраструктура была бы
-    преждевременной. }
+    Modal settings window: a section TreeView on the left, the current
+    section's frame on the right via TFrameNavigator (the same screen-
+    switching mechanism as TFormMain/FNav). The section list is
+    static, not a registry. }
 
   TFormSettings = class(TForm)
     pnlLeft:    TPanel;
@@ -52,9 +49,9 @@ begin
   tvSections.Items.Add(nil, 'Audio');
   tvSections.Items.Add(nil, 'Auto download');
   tvSections.Selected := tvSections.Items[0];
-  { Выбор первого пункта не всегда сам стреляет OnSelectionChanged
-    (зависит от того, был ли уже выбранный узел) — показываем фрейм
-    явно, чтобы окно не открылось с пустой правой панелью. }
+  { Selecting the first item does not always fire OnSelectionChanged
+    (depends on whether a node was already selected) — show the frame
+    explicitly so the window never opens with an empty right panel. }
   FNav.ShowFrame(TFrameSettingsGeneral);
 end;
 
@@ -79,11 +76,11 @@ procedure TFormSettings.btnSaveClick(Sender: TObject);
 var
   F: TFrameBase;
 begin
-  { Аудио персистит выбор сразу при клике по устройству (см.
-    framesettingsaudio.pas) — сохранять здесь нечего. General пуст.
-    Auto download сохраняем, только если раздел реально открывали
-    (Find <> nil) — иначе сетка чекбоксов ни разу не создавалась и
-    сохранять нечего, значения в config.ini остаются как были. }
+  { Audio persists its selection immediately on click (see
+    framesettingsaudio.pas) — nothing to save here. General has no
+    settings. Auto download is saved only if the section was actually
+    opened (Find <> nil) — otherwise its checkbox grid was never
+    created and config.ini keeps its existing values. }
   F := FNav.Find(TFrameSettingsAutoDownload);
   if F <> nil then begin
     TFrameSettingsAutoDownload(F).SaveSettings;

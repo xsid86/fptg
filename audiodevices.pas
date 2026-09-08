@@ -14,11 +14,11 @@ type
   end;
   TAudioDeviceArray = array of TAudioDeviceInfo;
 
-{ Список устройств вывода звука через системный MME API (winmm.dll,
-  часть Windows, без доп. зависимостей). Тот же список, что видит
-  панель управления звуком Windows. Id — позиционный индекс MME,
-  устойчив только в рамках одного запуска (не хранится сам по себе,
-  выбор персистится по имени, см. main.pas). }
+{ Lists audio output devices via the Windows MME API (winmm.dll, no
+  extra dependencies) — the same list shown by the Windows sound
+  control panel. Id is the MME positional index, stable only within a
+  single process run; device selection is persisted by name (see
+  main.pas), not by Id. }
 function EnumAudioOutputDevices: TAudioDeviceArray;
 
 implementation

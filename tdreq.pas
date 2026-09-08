@@ -11,19 +11,19 @@ uses
 type
   TTdResponse = record
     Success: boolean;
-    { ВАЖНО: объект живёт только внутри колбэка. Всё нужное копировать
-      сразу, указатель наружу не сохранять. }
+    { IMPORTANT: the object is valid only inside the callback. Copy
+      everything needed immediately, do not keep the pointer. }
     Obj: TJSONObject;
     ErrorCode: integer;
     ErrorMessage: utf8string;
-    { Произвольное значение, переданное при отправке. В FPC 3.2 нет
-      анонимных функций, поэтому контекст запроса передаём так. }
+    { An arbitrary value passed at send time. FPC 3.2 has no anonymous
+      functions, so request context is carried this way. }
     Tag: PtrInt;
   end;
 
   TTdResponseEvent = procedure(Sender: TObject; const AResp: TTdResponse) of object;
 
-  { Одна запись об ожидающем ответа запросе. }
+  { A single record of a request awaiting a response. }
   TTdPending = class
   public
     Extra: string;
@@ -35,10 +35,10 @@ type
 
   { TTdRequests
 
-    Подписывается на ядро как ITdUpdateListener: ответы на запросы идут
-    тем же потоком td_receive, что и апдейты. Наследник TComponent, а не
-    TInterfacedObject, — чтобы интерфейс не был подсчётным и объект не
-    самоуничтожился. }
+    Subscribes to the core as ITdUpdateListener: request responses
+    arrive on the same td_receive stream as updates. Descends from
+    TComponent, not TInterfacedObject, so the interface is not
+    reference-counted and the object cannot self-destruct. }
 
   TTdRequests = class(TComponent, ITdUpdateListener, ITdStateListener)
   private
@@ -52,15 +52,15 @@ type
     procedure FailAll(ACode: integer; const AMessage: utf8string);
     function TakePending(const AExtra: string): TTdPending;
   public
-    { Резолвер принадлежит аккаунту: свой счётчик @extra, свои
-      ожидающие запросы. Ответы чужих клиентов сюда не доходят —
-      их отсекает приёмник по @client_id. }
+    { The resolver belongs to one account: its own @extra counter, its
+      own pending requests. Responses for other clients never reach
+      it — the receiver filters them by @client_id. }
     constructor Create(AOwner: TComponent; const ASession: ITdSession); reintroduce;
     destructor Destroy; override;
 
-    { AMethod — имя метода TDLib, ABody — уже готовый кусок JSON без
-      обрамляющих скобок, например '"chat_id":123,"limit":20'.
-      ATimeoutMs = 0 берёт значение DefaultTimeout. }
+    { AMethod is a TDLib method name, ABody is a ready-made JSON
+      fragment without enclosing braces, e.g.
+      '"chat_id":123,"limit":20'. ATimeoutMs = 0 uses DefaultTimeout. }
     procedure SendRequest(const AMethod, ABody: utf8string;
       ACallback: TTdResponseEvent; ATag: PtrInt = 0; ATimeoutMs: integer = 0);
 
@@ -75,7 +75,7 @@ type
     property Session: ITdSession read FSession;
   end;
 
-{ Хелперы чтения полей — те же, что в tdauth, но нужны и здесь. }
+{ Field-reading helpers, the same ones as in tdauth, needed here too. }
 function JGetStr(AObj: TJSONObject; const AName: string): utf8string;
 function JGetInt(AObj: TJSONObject; const AName: string): integer;
 function JGetInt64(AObj: TJSONObject; const AName: string): Int64;
@@ -85,7 +85,7 @@ function JGetArr(AObj: TJSONObject; const AName: string): TJSONArray;
 
 implementation
 
-{ ---------------- хелперы ---------------- }
+{ ---------------- helpers ---------------- }
 
 function JGetStr(AObj: TJSONObject; const AName: string): utf8string;
 var
@@ -119,8 +119,8 @@ function JGetInt64(AObj: TJSONObject; const AName: string): Int64;
 var
   D: TJSONData;
 begin
-  { int64 в TDLib приходит СТРОКОЙ (order, file id большого размера
-    и прочее), а int53 — числом. Поддерживаем оба варианта. }
+  { TDLib sends int64 fields (order, large file ids, etc.) as
+    STRINGS, and int53 fields as numbers. Both forms are handled. }
   Result := 0;
   if AObj = nil then begin
     Exit;
@@ -288,12 +288,9 @@ var
   Extra: string;
   Resp: TTdResponse;
 begin
-  { AData уже разобран приёмным потоком (tdrecv.pas) — раньше здесь
-    был отдельный GetJSON именно этого ответа, и это была самая
-    дорогая точка: getChatHistory возвращает пачки по полсотни
-    сообщений с base64-превью, сотни КБ на ответ, а резолвер
-    вызывался на главном потоке (см. HandleUpdate/DrainQueue). Теперь
-    парсинг сделан один раз, до постановки в очередь на главный поток. }
+  { AData is already parsed by the receive thread (tdrecv.pas), once,
+    before being queued to the main thread (see HandleUpdate/
+    DrainQueue) — not parsed again here for each response. }
   if AData = nil then begin
     Exit;
   end;
@@ -322,7 +319,8 @@ end;
 
 procedure TTdRequests.TdStateChanged(AState: TTdAuthState);
 begin
-  { Клиент закрылся — все висящие запросы уже никогда не ответят. }
+  { The client has closed — all pending requests will never get a
+    response. }
   if AState = tasClosed then begin
     FailAll(TD_ERR_CLOSED, 'client closed');
   end;
@@ -330,8 +328,8 @@ end;
 
 procedure TTdRequests.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  { Ошибки авторизации нас не касаются: у них свой префикс @extra
-    и свой владелец. }
+  { Authorization errors don't concern this: they have their own
+    @extra prefix and owner. }
 end;
 
 procedure TTdRequests.FailAll(ACode: integer; const AMessage: utf8string);
@@ -344,8 +342,8 @@ begin
     Exit;
   end;
 
-  { Снимок и очистка ДО вызова колбэков: колбэк вправе отправить
-    новый запрос, и он не должен попасть под эту же чистку. }
+  { Snapshot and clear BEFORE invoking callbacks: a callback may send
+    a new request, which must not be caught by this same cleanup. }
   SetLength(Snap, FPending.Count);
   for I := 0 to FPending.Count - 1 do begin
     Snap[I] := TTdPending(FPending.Objects[I]);

@@ -2,58 +2,56 @@ unit mediaplayer;
 
 {$mode objfpc}{$H+}
 
-{ Проигрывание одного видео-сообщения (messageVideo — настоящее видео
-  со звуком, в отличие от "гифки"/messageAnimation в videoplayer.pas):
-  ДВА независимых потока-декодера на файл, не один.
+{ Plays a single video message (messageVideo — real video with sound,
+  as opposed to a "GIF"/messageAnimation in videoplayer.pas): TWO
+  independent decoder threads per file, not one.
 
-  Раньше (первая версия) был ОДИН общий поток, объединявший вывод звука
-  через winmm (тот же WAVEHDR-конвейер, что у TAudioPlayer,
-  audioplayer.pas) и декод видео-кадров в BGRA через libswscale (тот же
-  приём, что у TAnimationPlayer, videoplayer.pas), с показом кадра,
-  отложенным блокирующим Sleep до момента, пока звук его "догонит".
-  На практике это периодически морило голодом аудио-буфер: пока поток
-  спал ради видео, он не читал новые пакеты и не кормил winmm — если
-  устройство успевало доиграть весь свой запас (~0.8с, 4 буфера) и
-  вставало без данных, его АППАРАТНЫЕ часы (waveOutGetPosition)
-  переставали продвигаться в реальном темпе НЕОБРАТИМО, и видео,
-  честно следуя за ними, отставало вместе — вся связка играла заметно
-  медленнее реального времени (см. CLAUDE.md, video_debug.log: ~2x).
-  Первая попытка фикса (video просто перестало ждать вообще, показывая
-  кадры сразу) исправила скорость звука, но сделала видео дёрганым —
-  видео декодировалось рывками между долгими паузами на кормление
-  звука, и общий буфер кадра обновлялся крайне неравномерно.
+  An earlier version used a SINGLE thread combining audio output via
+  winmm (the same WAVEHDR pipeline as TAudioPlayer, audioplayer.pas)
+  and video-frame decoding to BGRA via libswscale (the same approach as
+  TAnimationPlayer, videoplayer.pas), with frame display delayed by a
+  blocking Sleep until audio "caught up" to it. In practice this
+  periodically starved the audio buffer: while the thread slept for
+  video, it wasn't reading new packets or feeding winmm — once the
+  device exhausted its buffered supply (~0.8s across 4 buffers) and ran
+  dry, its HARDWARE clock (waveOutGetPosition) stopped advancing in
+  real time IRREVERSIBLY, and video, faithfully following it, fell
+  behind along with it — the whole thing played noticeably slower than
+  real time (~2x, see video_debug.log in the project history). A first
+  fix attempt (video simply stopped waiting and displayed frames
+  immediately) fixed the audio speed but made video jerky — it decoded
+  in bursts between long pauses spent feeding audio, and the shared
+  frame buffer updated very unevenly.
 
-  Правильное решение — РАЗДЕЛИТЬ два потока физически: `TMediaPlayer`
-  (сам, `class(TThread)`) теперь занимается ТОЛЬКО звуком — тот же
-  WAVEHDR-конвейер, что и раньше, ничем не потревоженный видео.
-  `TVideoDecodeThread` — отдельный поток, открывающий ТОТ ЖЕ файл ещё
-  раз, НЕЗАВИСИМО (свой AVFormatContext, тот же приём, что уже
-  применяется у TAnimationPlayer в videoplayer.pas) — декодирует кадры
-  и ждёт (блокирующим Sleep, ТОЧНО той же Delay-формулой, что и раньше)
-  момента показа относительно аудио-часов владельца
-  (`TMediaPlayer.AudioClockSec`) — но теперь это ожидание НЕ блокирует
-  кормление звука вообще, они физически на разных потоках. Синхронизация
-  между двумя потоками — только на чтение (аудио-часы) и через
-  локальный TCriticalSection вокруг общего кадрового буфера
-  (`FFrameBuf`/`FFrameVersion`), тот же приём, что уже применялся в
-  однопоточной версии.
+  The real fix is to physically SEPARATE the two threads: TMediaPlayer
+  itself (class(TThread)) now handles ONLY audio — the same WAVEHDR
+  pipeline as before, untouched by video. TVideoDecodeThread is a
+  separate thread that opens the SAME file again, INDEPENDENTLY (its
+  own AVFormatContext, the same approach TAnimationPlayer already
+  uses in videoplayer.pas) — it decodes frames and waits (a blocking
+  Sleep, the exact same Delay formula as before) for the display moment
+  relative to the owner's audio clock (TMediaPlayer.AudioClockSec) —
+  but this wait no longer blocks feeding audio at all, since they're on
+  physically different threads. The only coordination between the two
+  threads is a read of the audio clock plus a local TCriticalSection
+  around the shared frame buffer (FFrameBuf/FFrameVersion), the same
+  approach already used in the single-thread version.
 
-  Нет зацикливания (в отличие от "гифки") и нет плей/пауза/стоп
-  контролов у самого класса на уровне UI (в отличие от "гифки", где их
-  нет вовсе) — здесь ЕСТЬ Pause/Resume/StopPlayback, ровно как у
-  TAudioPlayer: видео-сообщение — обычный проигрыватель с паузой и
-  перемоткой, доигрывает один раз и останавливается (mpsStopped),
-  дожидаясь завершения ОБОИХ потоков.
+  There's no looping (unlike a "GIF") and, unlike a "GIF" (which has
+  none at all), the class DOES expose Pause/Resume/StopPlayback, same
+  as TAudioPlayer: a video message is an ordinary player with pause and
+  seeking, plays through once and stops (mpsStopped), waiting for BOTH
+  threads to finish.
 
-  FreeOnTerminate=False у TMediaPlayer, как у TAudioPlayer (НЕ как у
-  TAnimationPlayer) — по той же причине: одновременно играет НЕ БОЛЕЕ
-  ОДНОГО видео со звуком (единственный владелец — TMediaViewerPanel,
-  mediaviewer.pas, один слот на всё приложение; инлайн-проигрывания
-  видео в чате больше нет вовсе, см. framehistory.pas), Stop —
-  осознанное действие пользователя, синхронный WaitFor там не проблема.
-  TVideoDecodeThread тоже FreeOnTerminate=False — его WaitFor/Free
-  вызывается из ExecuteInner самого TMediaPlayer (не из UI-потока, не
-  из чужого Synchronize — безопасно). }
+  FreeOnTerminate=False on TMediaPlayer, like TAudioPlayer (NOT like
+  TAnimationPlayer) — for the same reason: at most ONE video with sound
+  plays at a time (the sole owner is TMediaViewerPanel, mediaviewer.pas,
+  a single slot for the whole app; inline video playback in the chat no
+  longer exists at all, see framehistory.pas), Stop is a deliberate
+  user action, and a synchronous WaitFor there is not a problem.
+  TVideoDecodeThread is also FreeOnTerminate=False — its WaitFor/Free
+  is called from TMediaPlayer's own ExecuteInner (not the UI thread,
+  not someone else's Synchronize — safe). }
 
 interface
 
@@ -61,8 +59,8 @@ uses
   Classes, SysUtils, SyncObjs, Windows, MMSystem, ffdecode, audiodevices, ctypes;
 
 const
-  { Тот же формат вывода и та же буферизация, что у TAudioPlayer
-    (audioplayer.pas) — не два разных числа на один и тот же смысл. }
+  { Same output format and buffering as TAudioPlayer (audioplayer.pas)
+    — not two different numbers for the same meaning. }
   MEDIA_BUF_SAMPLES = 8820;
   MEDIA_BUF_COUNT = 4;
   MEDIA_OUT_RATE = 44100;
@@ -74,9 +72,9 @@ type
 
   TMediaPlayer = class;
 
-  { Видео-часть — отдельный поток, независимый от аудио, см. шапку
-    юнита. Открывает файл ВТОРОЙ РАЗ, самостоятельно (свой
-    AVFormatContext) — тот же приём, что TAnimationPlayer. }
+  { The video half — a separate thread, independent from audio, see
+    the unit header. Opens the file a SECOND TIME, on its own (its own
+    AVFormatContext) — the same approach as TAnimationPlayer. }
   TVideoDecodeThread = class(TThread)
   private
     FOwner: TMediaPlayer;
@@ -95,64 +93,64 @@ type
     FStartPositionSec: double;
     FTargetW, FTargetH: integer;
 
-    { видео — под критической секцией лежит только ОДИН, постоянно
-      перезаписываемый кадр, пишет TVideoDecodeThread, читает UI-поток
-      через TryGetFrame. Квалифицировано SyncObjs.TCriticalSection явно
-      — Windows (тоже в uses, нужен под waveOut*/MMTIME) идёт РАНЬШЕ
-      SyncObjs в списке выше и объявляет СВОЙ, другой, несовместимый
-      TCriticalSection (внутренний RTL-тип из sysosh.inc, не класс с
-      Enter/Leave/Create) — тот самый класс ловушки с порядком uses,
-      что уже документирован в framehistory.pas, только здесь порядок
-      обратный (Windows не первым), поэтому неквалифицированное имя
-      резолвится не туда. }
+    { Video: only ONE continuously overwritten frame lives under the
+      critical section, written by TVideoDecodeThread, read by the UI
+      thread through TryGetFrame. Explicitly qualified as
+      SyncObjs.TCriticalSection — Windows (also in uses, needed for
+      waveOut*/MMTIME) comes BEFORE SyncObjs in the uses list above and
+      declares its OWN, different, incompatible TCriticalSection (an
+      internal RTL type from sysosh.inc, not a class with
+      Enter/Leave/Create) — the same uses-order pitfall documented in
+      framehistory.pas, just in reverse order here (Windows not first),
+      so the unqualified name resolves to the wrong type. }
     FFrameLock: SyncObjs.TCriticalSection;
-    FFrameBuf: PByte;          { BGRA, FTargetW*FTargetH*4 байт, выделяется TVideoDecodeThread }
+    FFrameBuf: PByte;          { BGRA, FTargetW*FTargetH*4 bytes, allocated by TVideoDecodeThread }
     FFrameVersion: cardinal;
     FHasVideo: boolean;
-    FVideoPositionSec: double; { пишет TVideoDecodeThread; читает PositionSec, если звука нет }
+    FVideoPositionSec: double; { written by TVideoDecodeThread; read by PositionSec when there's no audio }
     FVideoThread: TVideoDecodeThread;
 
-    { аудио — тот же WAVEHDR-конвейер, что TAudioPlayer, живёт целиком
-      на ЭТОМ (главном для TMediaPlayer) потоке. }
+    { Audio: the same WAVEHDR pipeline as TAudioPlayer, living entirely
+      on THIS (TMediaPlayer's main) thread. }
     FWaveOut: HWAVEOUT;
-    { FWaveOut читается/закрывается с ДВУХ потоков — этот (аудио-декод,
-      закрывает по концу файла) и UI-поток (TMediaViewerPanel.VideoTick →
-      PositionSec → AudioClockSec, раз в 33мс, пока видео активно, плюс
-      Pause/Resume по клику). Без блокировки закрытие устройства
-      (waveOutClose) могло гонку с чтением его же хендла в
-      waveOutGetPosition на другом потоке — реальный, пойманный
-      пользователем крах (Access Violation в AudioClockSec, "по адресу"
-      внутри winmm, сразу после конца проигрывания — ровно момент,
-      когда этот поток закрывает устройство). FWaveLock — вокруг
-      каждого места, где FWaveOut читается ИЛИ пишется с более чем
-      одного потока. }
+    { FWaveOut is read/closed from TWO threads — this one (audio decode,
+      closes it at end of file) and the UI thread
+      (TMediaViewerPanel.VideoTick -> PositionSec -> AudioClockSec,
+      every 33ms while video is active, plus Pause/Resume on click).
+      Without locking, closing the device (waveOutClose) could race
+      against reading the same handle in waveOutGetPosition on the
+      other thread — a real crash caught in the field (Access
+      Violation inside AudioClockSec, inside winmm, right after
+      playback ended — exactly the moment this thread closes the
+      device). FWaveLock guards every place where FWaveOut is read OR
+      written from more than one thread. }
     FWaveLock: SyncObjs.TCriticalSection;
     FHeaders: array[0..MEDIA_BUF_COUNT - 1] of TWAVEHDR;
     FBufMem: array[0..MEDIA_BUF_COUNT - 1] of PByte;
     FHasAudio: boolean;
-    FAudioPositionSamples: Int64;   { сэмплов, УЖЕ ОТДАННЫХ в очередь winmm — запасные часы, см. AudioClockSec }
-    { Смещение (в сэмплах) точки перемотки от начала файла — выставляется
-      ОДИН раз в конструкторе, НИКОГДА не меняется дальше (в отличие от
-      FAudioPositionSamples, который растёт по мере отдачи данных в
-      winmm). Нужно для AudioClockSec: waveOutGetPosition/TIME_SAMPLES
-      считает сэмплы ОТНОСИТЕЛЬНО МОМЕНТА waveOutOpen — winmm понятия не
-      имеет, что мы стартовали не с начала файла, а с 10-й/20-й секунды
-      (перемотка). Без прибавления этого смещения AudioClockSec после
-      КАЖДОЙ перемотки начинала бы отсчёт заново от 0 — реальный,
-      воспроизводимый баг (пользователь, 2026-09-07: "перемотка на 10
-      секунд не работает, видео тормозит и ползунок возвращается к
-      началу") — часы "переставали знать" про перемотку, видео-поток
-      считал Delay относительно них (NowPtsSec с места перемотки минус
-      AClock, отсчитывающие от 0) — искусственный разрыв ~10с упирался
-      в защитный кап (1с на кадр) и держался, пока AClock КАЖДУЮ
-      секунду реального времени не нагонял бы этот разрыв сам по себе —
-      воспринималось как "тормозит и стоит в начале" ровно те же 10с. }
+    FAudioPositionSamples: Int64;   { samples ALREADY HANDED to the winmm queue — fallback clock, see AudioClockSec }
+    { Offset (in samples) of the seek point from the start of the file
+      — set ONCE in the constructor, NEVER changed afterward (unlike
+      FAudioPositionSamples, which grows as data is handed to winmm).
+      Needed by AudioClockSec: waveOutGetPosition/TIME_SAMPLES counts
+      samples RELATIVE TO THE MOMENT waveOutOpen was called — winmm has
+      no idea we started not from the beginning of the file but from
+      the 10th/20th second (a seek). Without adding this offset,
+      AudioClockSec would restart counting from 0 after EVERY seek — a
+      real, reproducible bug ("seeking 10 seconds doesn't work, video
+      stalls and the slider snaps back to the start") — the clock
+      "forgot" about the seek, and the video thread computed Delay
+      against it (NowPtsSec from the seek point minus AClock counting
+      from 0); the resulting ~10s gap hit the safety cap (1s per frame)
+      and stayed there until AClock caught up to it on its own, one
+      real second at a time — perceived as "stalling at the start" for
+      exactly those 10 seconds. }
     FSeekBaseSamples: Int64;
-    { Момент (GetTickCount64), когда FWaveOut закрылся насовсем (см.
-      CloseAudioDevice) — то есть аудио-трек полностью доигран. Нужен
-      AudioClockSec: без него часы после закрытия устройства оставались
-      бы ЗАМОРОЖЕНЫ на FAudioPositionSamples навсегда, см. её же
-      комментарий про баг "видео зависает за секунду до конца". }
+    { The moment (GetTickCount64) FWaveOut closed for good (see
+      CloseAudioDevice) — i.e. the audio track has fully played out.
+      Needed by AudioClockSec: without it, the clock would stay FROZEN
+      at FAudioPositionSamples forever once the device closes, see the
+      comment on the "video hangs a second before the end" bug below. }
     FAudioEndTick: QWord;
 
     FState: TMediaPlayerState;
@@ -171,14 +169,15 @@ type
     procedure CloseAudioDevice(AGraceful: boolean);
     function WaitBufferFree(AIndex: integer): boolean;
     function WriteBuffer(AIndex: integer; ALen: cardinal): boolean;
-    { Реальная позиция воспроизведения звука — waveOutGetPosition
-      (сколько сэмплов устройство УЖЕ физически проиграло), не
-      FAudioPositionSamples (то — сколько уже ОТДАНО в очередь, а там
-      до ~0.8с буферизации вперёд, см. MEDIA_BUF_COUNT). Она же — master-
-      часы синхронизации видео (читает TVideoDecodeThread, с ЧУЖОГО
-      потока — см. FWaveLock). Резервный вариант (FAudioPositionSamples),
-      если драйвер не поддержал TIME_SAMPLES — реже точный (не
-      учитывает буферизацию), но не падает. }
+    { The real audio playback position — waveOutGetPosition (how many
+      samples the device has ACTUALLY physically played), not
+      FAudioPositionSamples (that's how much has been HANDED to the
+      queue, which runs up to ~0.8s ahead, see MEDIA_BUF_COUNT). This is
+      also the master clock video syncs to (read by TVideoDecodeThread,
+      from a DIFFERENT thread — see FWaveLock). The fallback
+      (FAudioPositionSamples), used if the driver doesn't support
+      TIME_SAMPLES, is less accurate (ignores buffering) but never
+      fails. }
     function AudioClockSec: double;
     procedure ExecuteInner;
   protected
@@ -190,11 +189,12 @@ type
     procedure Pause;
     procedure Resume;
     procedure StopPlayback;
-    { Часы: реальная позиция звука (AudioClockSec), если звук есть;
-      иначе позиция последнего показанного кадра видео. }
+    { The clock: the real audio position (AudioClockSec) if there's
+      audio, otherwise the position of the last displayed video frame. }
     function PositionSec: double;
-    { Та же роль/контракт, что TAnimationPlayer.TryGetFrame (videoplayer.
-      pas) — копирует кадр в ADst, если он новее AKnownVersion. }
+    { Same role/contract as TAnimationPlayer.TryGetFrame (videoplayer.
+      pas) — copies the frame into ADst if it's newer than
+      AKnownVersion. }
     function TryGetFrame(ADst: PByte; var AKnownVersion: cardinal): boolean;
     property DurationSec: double read FDurationSec;
     property State: TMediaPlayerState read FState;
@@ -207,10 +207,10 @@ type
 
 implementation
 
-{ ВРЕМЕННАЯ диагностика — та же, что уже была; оставлена ещё на один
-  раунд проверки после структурной правки (раздельные потоки звука и
-  видео) — убрать, когда пользователь подтвердит, что и скорость, и
-  плавность, и крах на конце проигрывания исправлены по-настоящему. }
+{ TEMPORARY diagnostics — kept for one more round of verification after
+  the structural fix (separate audio and video threads) — remove once
+  speed, smoothness, and the end-of-playback crash are all confirmed
+  fixed for good. }
 procedure LogVideoDebug(const ALine: utf8string);
 var
   F: TextFile;
@@ -251,8 +251,9 @@ begin
   try
     ExecuteInner;
   except
-    { Ошибка видео-декода не должна ронять звук — тот же принцип, что и
-      "Sws=nil -> пропустить кадр, не всё видео целиком", ниже. }
+    { A video-decode error must not take audio down with it — the same
+      principle as "Sws=nil -> skip the frame, not the whole video"
+      below. }
   end;
 end;
 
@@ -272,8 +273,8 @@ var
   NowPtsSec, Delay, AClock: double;
   HaveOwnPts: boolean;
   LastOwnPtsSec: double;
-  FrameCounter: integer;    { ВРЕМЕННО, см. LogVideoDebug }
-  StartTick: QWord;         { ВРЕМЕННО }
+  FrameCounter: integer;    { TEMPORARY, see LogVideoDebug }
+  StartTick: QWord;         { TEMPORARY }
 begin
   FmtCtx := nil;
   VCodecCtx := nil;
@@ -316,9 +317,8 @@ begin
     avformat_close_input(FmtCtx);
     Exit;
   end;
-  { pkt_timebase — см. подробное объяснение в CLAUDE.md/старом варианте
-    этого файла: без него некоторые кодеки отдают Frame.pts в СВОЕЙ
-    внутренней временной базе, не в таймбейсе потока. }
+  { pkt_timebase: without it, some codecs report Frame.pts in their own
+    internal time base rather than the stream's time base. }
   av_opt_set_q(VCodecCtx, 'pkt_timebase', VStream^.time_base, 0);
   if (avcodec_parameters_to_context(VCodecCtx, VStream^.codecpar) < 0) or
      (avcodec_open2(VCodecCtx, VCodec, nil) < 0) then begin
@@ -363,11 +363,11 @@ begin
 
             if (Frame^.pts <> Low(Int64)) and (VTimeBase.den <> 0) then begin
               NowPtsSec := Frame^.pts * (VTimeBase.num / VTimeBase.den);
-              { Со звуком — ждём аудио-часы владельца; это БЛОКИРУЕТ
-                только ЭТОТ поток, не поток, кормящий звук — теперь
-                это безопасно, они физически разные потоки. Без звука —
-                та же PTS-дельта между соседними кадрами, что и раньше
-                (TAnimationPlayer). }
+              { With audio, wait on the owner's audio clock; this BLOCKS
+                only THIS thread, not the one feeding audio — safe now
+                that they're physically separate threads. Without
+                audio, fall back to the same PTS delta between
+                consecutive frames as before (TAnimationPlayer). }
               if FOwner.FHasAudio then begin
                 AClock := FOwner.AudioClockSec;
                 Delay := NowPtsSec - AClock;
@@ -379,7 +379,7 @@ begin
                 Delay := 0;
               end;
               if Delay > 1 then begin
-                Delay := 1;   { защита от неправдоподобного PTS/сбитых часов }
+                Delay := 1;   { safety cap against an implausible PTS/desynced clock }
               end;
               if (FrameCounter <= 5) or (FrameCounter mod 30 = 0) then begin
                 LogVideoDebug(Format(
@@ -436,10 +436,10 @@ begin
   FTargetW := ATargetW;
   FTargetH := ATargetH;
   FStartPositionSec := AStartPositionSec;
-  { Тот же приём, что у TAudioPlayer.Create — позиция выставляется
-    здесь же, до Start, чтобы PositionSec, прочитанный сразу вслед за
-    Create (TMediaViewerPanel.StartVideoPlayer/VideoTick), не увидел
-    окно в несколько миллисекунд с позицией 0 до места перемотки. }
+  { Same approach as TAudioPlayer.Create — the position is set here,
+    before Start, so a PositionSec read right after Create
+    (TMediaViewerPanel.StartVideoPlayer/VideoTick) doesn't catch a
+    several-millisecond window showing 0 instead of the seek position. }
   FAudioPositionSamples := Round(AStartPositionSec * MEDIA_OUT_RATE);
   FSeekBaseSamples := FAudioPositionSamples;
   FVideoPositionSec := AStartPositionSec;
@@ -452,13 +452,13 @@ end;
 
 destructor TMediaPlayer.Destroy;
 begin
-  { К моменту вызова Destroy Execute уже гарантированно завершился (см.
-    контракт FreeOnTerminate=False — вызывающая сторона обязана
-    WaitFor перед Free, TMediaViewerPanel.FlushDonePlayer так и
-    делает), а значит ExecuteInner уже сам дождался и освободил
-    FVideoThread на обычном пути. Проверка здесь — только защитная
-    сетка на случай раннего Exit по ошибке ДО того, как видео-поток
-    вообще был создан (тогда FVideoThread=nil, ничего делать не надо). }
+  { By the time Destroy is called, Execute has already finished (per
+    the FreeOnTerminate=False contract — the caller must WaitFor
+    before Free, and TMediaViewerPanel.FlushDonePlayer does exactly
+    that), so ExecuteInner has already waited for and freed
+    FVideoThread on the normal path. This check is only a safety net
+    for an early error Exit BEFORE the video thread was ever created
+    (in which case FVideoThread=nil and there's nothing to do). }
   if FVideoThread <> nil then begin
     FVideoThread.WaitFor;
     FVideoThread.Free;
@@ -543,19 +543,18 @@ begin
   if FWaveOut = 0 then begin
     Exit;
   end;
-  { Та же логика, что у TAudioPlayer.CloseDevice (audioplayer.pas) —
-    см. её же подробный комментарий там про то, почему Reset не
-    вызывается безусловно. Не продублирован здесь построчно с той же
-    длиной обоснования — достаточно знать, что это тот же, уже
-    проверенный код, не новая догадка.
+  { Same logic as TAudioPlayer.CloseDevice (audioplayer.pas) — see its
+    detailed comment there about why Reset is not called unconditionally.
+    Not duplicated here line for line — it's enough to know this is the
+    same, already-verified code, not a new guess.
 
-    Сам ЖДУЩИЙ цикл (WaitMs<5000) НЕ держит FWaveLock — он трогает
-    только FHeaders (флаги буферов), не FWaveOut, и может занять до
-    5 секунд в редком случае залипшего драйвера; держать лок всё это
-    время означало бы подвесить AudioClockSec (а с ним и UI-поток,
-    который её опрашивает раз в 33мс, пока видео активно) на те же
-    5 секунд. Лок берётся только на сам момент закрытия — короткий,
-    неблокирующий для читателей. }
+    The WAITING loop itself (WaitMs<5000) does NOT hold FWaveLock — it
+    only touches FHeaders (buffer flags), not FWaveOut, and can take up
+    to 5 seconds in the rare case of a stuck driver; holding the lock
+    that whole time would stall AudioClockSec (and with it the UI
+    thread polling it every 33ms while video is active) for the same
+    5 seconds. The lock is held only for the actual close, which is
+    short and doesn't block readers. }
   AllDone := True;
   if AGraceful then begin
     for I := 0 to MEDIA_BUF_COUNT - 1 do begin
@@ -628,39 +627,42 @@ var
   Mmt: TMMTime;
 begin
   Result := FAudioPositionSamples / MEDIA_OUT_RATE;
-  { Держим лок на всё чтение — не только на проверку FWaveOut=0, но и на
-    сам вызов waveOutGetPosition — иначе окно между "прочитали хендл" и
-    "передали его в API" оставляло бы ровно ту же гонку с CloseAudioDevice,
-    что и раньше (см. её же комментарий про AV на конце проигрывания). }
+  { The lock is held for the whole read — not just the FWaveOut=0
+    check but the waveOutGetPosition call itself — otherwise the window
+    between "read the handle" and "passed it to the API" would reopen
+    the same race against CloseAudioDevice as before (see its comment
+    about the end-of-playback AV crash). }
   FWaveLock.Enter;
   try
     if FWaveOut = 0 then begin
-      { Устройство уже закрыто — аудио-трек весь доигран (пока FHasAudio,
-        к моменту, когда TVideoDecodeThread вообще начинает звать эту
-        функцию, устройство уже гарантированно ОТКРЫТО — см. порядок в
-        ExecuteInner, OpenAudioDevice раньше FVideoThread.Create — значит
-        FWaveOut=0 здесь не "ещё не открыто", а именно "уже закрыто").
-        Раньше здесь просто возвращался ЗАМОРОЖЕННЫЙ FAudioPositionSamples
-        — если аудио-трек короче видео (обычное дело при муксинге,
-        разница может быть ~1с и больше), хвостовые кадры видео считали
-        Delay относительно часов, которые НИКОГДА больше не двигаются:
-        Delay рос с каждым кадром, упирался в кап (1с) и там оставался —
-        КАЖДЫЙ хвостовой кадр спал целую секунду вместо мгновенного
-        показа, что и выглядело как "видео зависает за секунду до конца"
-        (реальный, воспроизводимый баг, пользователь, 2026-09-07). Правка
-        — часы продолжают идти обычным настенным временем от момента
-        закрытия (FAudioEndTick, выставлен в CloseAudioDevice под тем же
-        локом) — хвост без звука доигрывает в реальном темпе, Delay
-        быстро становится ≤0, дальше кадры показываются без ожидания. }
+      { The device is already closed — the audio track has fully
+        played out (while FHasAudio; by the time TVideoDecodeThread
+        starts calling this function at all, the device is guaranteed
+        to have already been OPENED — see the order in ExecuteInner,
+        OpenAudioDevice runs before FVideoThread.Create — so FWaveOut=0
+        here means "already closed", not "not open yet"). This used to
+        simply return the FROZEN FAudioPositionSamples — if the audio
+        track is shorter than the video (common with muxed files, the
+        gap can be ~1s or more), trailing video frames computed Delay
+        against a clock that NEVER moved again: Delay grew with every
+        frame, hit the cap (1s), and stayed there — EVERY trailing
+        frame slept a full second instead of showing instantly, which
+        looked like "video hangs a second before the end" (a real,
+        reproducible bug). Fix: the clock keeps advancing by real wall
+        time from the moment of closing (FAudioEndTick, set in
+        CloseAudioDevice under the same lock) — a silent tail plays out
+        in real time, Delay quickly drops to <=0, and frames after that
+        show without waiting. }
       Result := FAudioPositionSamples / MEDIA_OUT_RATE +
         (GetTickCount64 - FAudioEndTick) / 1000.0;
       Exit;
     end;
     Mmt.wType := TIME_SAMPLES;
     if (waveOutGetPosition(FWaveOut, @Mmt, SizeOf(Mmt)) = 0) and (Mmt.wType = TIME_SAMPLES) then begin
-      { Mmt.sample — сэмплы, сыгранные С МОМЕНТА waveOutOpen, НЕ с начала
-        файла — плюс FSeekBaseSamples обязателен (см. её комментарий),
-        без него это и был баг "перемотка не работает". }
+      { Mmt.sample counts samples played SINCE waveOutOpen, NOT since
+        the start of the file — adding FSeekBaseSamples is mandatory
+        (see its comment); without it, this was the "seeking doesn't
+        work" bug. }
       Result := (FSeekBaseSamples + Mmt.sample) / MEDIA_OUT_RATE;
     end;
   finally
@@ -792,12 +794,12 @@ begin
     end;
   end;
   FHasAudio := AudioStreamIdx >= 0;
-  { Presence-based, не codec-verified — сам видео-декодер открывается и
-    проверяется НЕЗАВИСИМО, внутри TVideoDecodeThread; если там кодек
-    не откроется, виджет просто никогда не получит кадр (TryGetFrame
-    молча вернёт False навсегда) — тот же уровень отказоустойчивости,
-    что уже принят в проекте для похожих случаев (TAnimationPlayer.Failed
-    тоже нигде не проверяется на стороне UI). }
+  { Presence-based, not codec-verified — the video decoder itself is
+    opened and checked INDEPENDENTLY, inside TVideoDecodeThread; if the
+    codec fails to open there, the widget simply never gets a frame
+    (TryGetFrame silently returns False forever) — the same level of
+    fault tolerance already accepted elsewhere in the project
+    (TAnimationPlayer.Failed is likewise never checked on the UI side). }
   FHasVideo := VideoStreamIdx >= 0;
 
   if FHasAudio then begin
@@ -837,9 +839,9 @@ begin
     '--- start file=%s duration=%.3f hasaudio=%d hasvideo=%d target=%dx%d rate=%d ---',
     [FFilePath, FDurationSec, Ord(FHasAudio), Ord(FHasVideo), FTargetW, FTargetH, MEDIA_OUT_RATE]));
 
-  { Видео теперь целиком в отдельном потоке, с СОБСТВЕННЫМ файловым
-    контекстом — этому (аудио-)потоку нужно только дождаться его в
-    конце, см. ниже. }
+  { Video now runs entirely in its own thread, with its OWN file
+    context — this (audio) thread only needs to wait for it at the
+    end, see below. }
   if FHasVideo then begin
     FVideoThread := TVideoDecodeThread.Create(Self, FStartPositionSec);
   end;
@@ -870,9 +872,9 @@ begin
       av_packet_unref(Pkt);
     end;
 
-    { Флаш декодера на EOF — та же причина, что у TAudioPlayer (см. её
-      же подробный комментарий, audioplayer.pas): контейнерный EOF не
-      значит, что декодер отдал все кадры. }
+    { Decoder flush on EOF — same reasoning as TAudioPlayer (see its
+      detailed comment, audioplayer.pas): container EOF doesn't mean
+      the decoder has handed back every frame. }
     if (not FStopRequested) and (avcodec_send_packet(ACodecCtx, nil) >= 0) then begin
       while True do begin
         Ret := avcodec_receive_frame(ACodecCtx, Frame);
@@ -907,10 +909,10 @@ begin
   avformat_close_input(FmtCtx);
   CloseAudioDevice(not FStopRequested);
 
-  { Дождаться видео — общий "конец проигрывания" (mpsStopped/OnStateChanged)
-    не наступает раньше, чем оба потока реально закончили. Вызывается с
-    ЭТОГО (не UI, не чужого Synchronize) потока — WaitFor/Free здесь
-    безопасны. }
+  { Wait for video — the overall "playback finished" state
+    (mpsStopped/OnStateChanged) doesn't fire until both threads have
+    actually finished. Called from THIS thread (not the UI thread, not
+    inside someone else's Synchronize) — WaitFor/Free are safe here. }
   if FVideoThread <> nil then begin
     FVideoThread.WaitFor;
     FVideoThread.Free;

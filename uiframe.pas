@@ -11,17 +11,18 @@ type
 
   { TFrameBase
 
-    Предок всех экранов рабочей области. DoActivate/DoDeactivate
-    перекрываются потомками; публичные Activate/Deactivate следят,
-    чтобы хук не вызвался дважды подряд. }
+    Base class for all work-area screens. DoActivate/DoDeactivate are
+    overridden by descendants; the public Activate/Deactivate ensure
+    the hook is never called twice in a row. }
 
   TFrameBase = class(TFrame)
   private
     FActivated: boolean;
   protected
-    { Фрейм стал видимым. Здесь уместно догрузить данные. }
+    { The frame became visible. A good place to lazily load data. }
     procedure DoActivate; virtual;
-    { Фрейм скрыли. Состояние сохраняется — фрейм не уничтожается. }
+    { The frame was hidden. State is preserved — the frame is not
+      destroyed. }
     procedure DoDeactivate; virtual;
   public
     procedure Activate;
@@ -33,14 +34,14 @@ type
 
   { TFrameNavigator
 
-    Держит фреймы внутри контейнера. Создаёт лениво при первом показе
-    и кэширует: повторный вызов ShowFrame только переключает Visible,
-    поэтому позиция прокрутки и прочее состояние переживают уход
-    и возврат на экран.
+    Holds frames inside a container. Creates each frame lazily on
+    first display and caches it: a repeat ShowFrame call only toggles
+    Visible, so scroll position and other state survive leaving and
+    returning to the screen.
 
-    Владельцем фреймов назначается контейнер — их освободит LCL вместе
-    с формой. Навигатор их только отслеживает и сам не освобождает,
-    иначе получили бы двойное освобождение. }
+    The container is the frames' owner — LCL frees them together with
+    the form. The navigator only tracks them and never frees them
+    itself, which would double-free. }
 
   TFrameNavigator = class
   private
@@ -51,11 +52,11 @@ type
     constructor Create(AContainer: TWinControl);
     destructor Destroy; override;
 
-    { Публичный — нужен вызывающим, которые хотят достать УЖЕ созданный
-      (посещённый) фрейм напрямую, не через ShowFrame (тот заодно и
-      показывает/скрывает). Пример — TFormSettings.btnSaveClick:
-      сохранять есть смысл только раздел, который пользователь реально
-      открыл, Find(AClass) = nil значит "не открывал, нечего сохранять". }
+    { Public — for callers that want an already-created (visited)
+      frame directly, without going through ShowFrame (which also
+      shows/hides). Example: TFormSettings.btnSaveClick — only a
+      section the user actually opened needs saving; Find(AClass) =
+      nil means "never opened, nothing to save". }
     function Find(AClass: TFrameBaseClass): TFrameBase;
     function ShowFrame(AClass: TFrameBaseClass): TFrameBase;
     procedure HideCurrent;
@@ -70,12 +71,12 @@ implementation
 
 procedure TFrameBase.DoActivate;
 begin
-  { потомки перекрывают }
+  { overridden by descendants }
 end;
 
 procedure TFrameBase.DoDeactivate;
 begin
-  { потомки перекрывают }
+  { overridden by descendants }
 end;
 
 procedure TFrameBase.Activate;
@@ -108,7 +109,7 @@ end;
 
 destructor TFrameNavigator.Destroy;
 begin
-  { Фреймы не освобождаем: их владелец — контейнер. }
+  { Frames are not freed here: the container owns them. }
   FFrames.Free;
   inherited Destroy;
 end;

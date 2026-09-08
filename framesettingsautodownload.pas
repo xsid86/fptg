@@ -12,31 +12,29 @@ type
 
   { TFrameSettingsAutoDownload
 
-    Раздел "Auto download" окна настроек — сетка 5×5: секция (TGroupBox)
-    на каждый тип медиа (AUTODL_MEDIA_KINDS), внутри секции столбиком —
-    чекбокс на каждый тип чата (AUTODL_CHAT_KINDS). Каждая секция сама
-    облегает свои чекбоксы (AutoSize + собственный ChildSizing,
-    ControlsPerLine=1 — один чекбокс на строку) — секции внутри
-    контейнера переносятся на новую строку, когда очередная не
-    помещается по ширине (ReflowSections, CSS-подобный flex-wrap;
-    готовой такой раскладки в LCL ChildSizing нет — см. комментарий в
-    конструкторе). Контейнер (TScrollBox) не прокручивается по
-    горизонтали — по построению ни одна секция не должна вылезать за
-    его ширину, только по вертикали, если перенесённых строк наберётся
-    больше, чем помещается по высоте.
+    The "Auto download" settings section — a 5x5 grid: one TGroupBox
+    per media type (AUTODL_MEDIA_KINDS), each holding a column of
+    checkboxes, one per chat type (AUTODL_CHAT_KINDS). Each section
+    sizes itself to its checkboxes (AutoSize + ChildSizing,
+    ControlsPerLine=1 — one checkbox per row); sections wrap to a new
+    row when the next one no longer fits the available width
+    (ReflowSections, a manual CSS-like flex-wrap — LCL's ChildSizing
+    has no built-in equivalent, see the constructor comment). The
+    container (TScrollBox) never scrolls horizontally — by
+    construction no section can exceed its width; only vertical
+    scrolling applies if the wrapped rows exceed the visible height.
 
-    Пока только отображение и персистенс выбранных значений в
-    config.ini/[autodownload] (SaveSettings/LoadSettings) — сама логика
-    авто-скачивания по этим флагам не подключена, это отдельная,
-    отдельно заводимая задача. }
+    Only displays and persists the selected values to
+    config.ini/[autodownload] (SaveSettings/LoadSettings) — the actual
+    auto-download logic driven by these flags lives elsewhere. }
 
   TFrameSettingsAutoDownload = class(TFrameBase)
   private
     FScroll: TScrollBox;
     FGroups: array[0..High(AUTODL_MEDIA_KINDS)] of TGroupBox;
-    { FBoxes[медиа][чат] — сетка чекбоксов, строится один раз в
-      конструкторе; DoActivate/SaveSettings только читают/пишут
-      Checked, сетку не пересоздают. }
+    { FBoxes[media][chat] — the checkbox grid, built once in the
+      constructor; DoActivate/SaveSettings only read/write Checked,
+      they never rebuild the grid. }
     FBoxes: array[0..High(AUTODL_MEDIA_KINDS)] of array[0..High(AUTODL_CHAT_KINDS)] of TCheckBox;
     procedure BuildGrid;
     procedure ReflowSections(Sender: TObject);
@@ -52,10 +50,11 @@ implementation
 
 {$R *.lfm}
 
-{ main — только в реализации, не в интерфейсе: тот же приём, что и у
-  framesettingsaudio.pas (FormMain.AudioDeviceName/SetAudioDeviceName)
-  — единственный источник правды в памяти для прочитанных настроек
-  живёт на FormMain, SaveSettings его только освежает после записи. }
+{ main is used only in the implementation section, not the interface,
+  to avoid a circular unit dependency (same approach as
+  framesettingsaudio.pas) — the in-memory source of truth for these
+  settings lives on FormMain; SaveSettings only refreshes it after
+  writing. }
 uses
   main;
 
@@ -72,13 +71,12 @@ begin
   FScroll.Parent := Self;
   FScroll.Align := alClient;
   FScroll.BorderStyle := bsNone;
-  { По прямому запросу пользователя — не должен прокручиваться по
-    горизонтали. ReflowSections ниже гарантирует, что ни одна секция
-    сама по себе не шире контейнера (в разумных пределах ширины окна,
-    Constraints.MinWidth=480 у самого TFormSettings), так что
-    горизонтальный скролл в принципе не нужен. Вертикальный оставлен
-    как есть (AutoScroll по умолчанию) — на случай, если перенесённых
-    строк наберётся больше, чем видимая высота. }
+  { No horizontal scrolling. ReflowSections below guarantees that no
+    section is ever wider than the container (within the window's
+    reasonable width, Constraints.MinWidth=480 on TFormSettings
+    itself), so horizontal scrolling is never needed. Vertical
+    scrolling is left as the default AutoScroll, in case wrapped rows
+    exceed the visible height. }
   FScroll.HorzScrollBar.Visible := False;
   FScroll.OnResize := @ReflowSections;
 
@@ -95,9 +93,8 @@ begin
     Grp := TGroupBox.Create(Self);
     Grp.Parent := FScroll;
     Grp.Caption := AUTODL_MEDIA_CAPTIONS[M];
-    { По прямому запросу пользователя: секция сама облегает свои
-      чекбоксы (AutoSize), один чекбокс на строку — столбик, не
-      таблица в несколько колонок. }
+    { The section sizes itself to its checkboxes (AutoSize), one
+      checkbox per row — a single column, not a multi-column table. }
     Grp.ChildSizing.Layout := cclLeftToRightThenTopToBottom;
     Grp.ChildSizing.ControlsPerLine := 1;
     Grp.ChildSizing.LeftRightSpacing := 5;
@@ -113,23 +110,23 @@ begin
       FBoxes[M][C] := Cb;
     end;
 
-    { Форсируем пересчёт AutoSize сразу — ReflowSections ниже читает
-      уже настоящую, облегающую содержимое ширину/высоту секции, а не
-      размер по умолчанию из момента создания TGroupBox. }
+    { Force an immediate AutoSize recalculation — ReflowSections below
+      must read the section's actual content-fitted width/height, not
+      the default size from TGroupBox creation. }
     Grp.AdjustSize;
   end;
 
   ReflowSections(nil);
 end;
 
-{ Вручную реализованный CSS-подобный flex-wrap: секции идут слева
-  направо, пока помещаются в ширину контейнера; та, что не помещается
-  — переносится на новую строку. Готовой такой раскладки в LCL
-  ChildSizing нет: ControlsPerLine=0 там означает не "перенос по
-  ширине", а вырождается в ту же 1-колоночную таблицу, что и
-  ControlsPerLine=1 (см. TAutoSizeBox.SetTableControls в
-  wincontrol.inc — Max(1, Min(0, Count)) = 1) — это фиксированная
-  таблица под известное число колонок/строк, не адаптивный перенос. }
+{ A manually implemented CSS-like flex-wrap: sections flow left to
+  right as long as they fit the container's width; one that doesn't
+  fit wraps to a new row. LCL's ChildSizing has no built-in equivalent
+  — ControlsPerLine=0 there does not mean "wrap by width"; it
+  degenerates to the same single-column table as ControlsPerLine=1
+  (see TAutoSizeBox.SetTableControls in wincontrol.inc: Max(1, Min(0,
+  Count)) = 1) — a fixed table for a known number of columns/rows, not
+  adaptive wrapping. }
 procedure TFrameSettingsAutoDownload.ReflowSections(Sender: TObject);
 var
   I, X, Y, RowH, AvailW: integer;
@@ -196,10 +193,10 @@ begin
   finally
     Ini.Free;
   end;
-  { Единственный источник правды в памяти на время сессии —
-    FormMain.FAutoDownload (framehistory.pas читает через него, не
-    парсит config.ini само) — без этого только что сохранённые
-    значения не подействовали бы до перезапуска приложения. }
+  { The single in-memory source of truth for the session is
+    FormMain.FAutoDownload (framehistory.pas reads through it, it
+    never parses config.ini itself) — without this refresh, the
+    values just saved would not take effect until the app restarts. }
   FormMain.LoadAutoDownloadSettings;
 end;
 

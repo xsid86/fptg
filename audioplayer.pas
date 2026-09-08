@@ -2,13 +2,11 @@ unit audioplayer;
 
 {$mode objfpc}{$H+}
 
-{ Проигрывание одного аудиофайла: декодирование (ffdecode.pas, FFmpeg)
-  в фоновом потоке, вывод через winmm (waveOut*, тот же принцип, что
-  уже даёт audiodevices.pas — только вывод, не только перечисление).
-  Один инстанс = одно проигрывание; следующий Play — новый инстанс
-  (FreeOnTerminate у этого класса не используется, старый объект
-  освобождает вызывающий, увидев apsStopped/apsError через
-  OnStateChanged). }
+{ Plays a single audio file: decoding (ffdecode.pas, FFmpeg) in a
+  background thread, output through winmm (waveOut*). One instance
+  equals one playback; the next Play is a new instance
+  (FreeOnTerminate is not used on this class — the caller frees the
+  old object after seeing apsStopped/apsError via OnStateChanged). }
 
 interface
 
@@ -16,8 +14,8 @@ uses
   Classes, SysUtils, Windows, MMSystem, ctypes, ffdecode, audiodevices;
 
 const
-  { ~0.2с на буфер при 44100Гц; 4 буфера — decode бежит примерно на
-    0.8с впереди воспроизведения, комфортный запас. }
+  { ~0.2s per buffer at 44100Hz; 4 buffers means decoding stays about
+    0.8s ahead of playback, a comfortable margin. }
   PLAYER_BUF_SAMPLES = 8820;
   PLAYER_BUF_COUNT = 4;
   PLAYER_OUT_RATE = 44100;
@@ -37,7 +35,7 @@ type
     FBufMem: array[0..PLAYER_BUF_COUNT - 1] of PByte;
     FState: TAudioPlayerState;
     FDurationSec: double;
-    FPositionSamples: Int64;   { сэмплов (per channel) уже отдано в waveOut }
+    FPositionSamples: Int64;   { samples (per channel) already handed to waveOut }
     FPauseRequested: boolean;
     FStopRequested: boolean;
     FOnStateChanged: TNotifyEvent;
@@ -74,15 +72,12 @@ begin
   FFilePath := AFilePath;
   FDeviceName := ADeviceName;
   FStartPositionSec := AStartPositionSec;
-  { Позиция выставляется здесь же, на вызывающем (главном) потоке, а
-    не только внутри ExecuteInner (там же, фоновым потоком, ПОСЛЕ
-    открытия файла) — иначе есть окно в несколько миллисекунд, когда
-    PositionSec уже читают (например, TMsgScroller.LayoutAudioWidgets
-    сразу вслед за Create), а FPositionSamples ещё 0: прогресс-бар на
-    один кадр "прыгает" к началу трека и только потом — на место
-    перемотки. Для клика (без реального перетаскивания) это окно
-    успевало попасть в перерисовку и было заметно; при обычном драге —
-    нет, там события идут медленнее человеческого клика. }
+  { The position is set here, on the caller's (main) thread, not only
+    inside ExecuteInner (on the background thread, after the file is
+    opened) — otherwise there is a window of a few milliseconds where
+    PositionSec is already being read while FPositionSamples is still
+    0, making the progress bar jump to the start of the track for one
+    frame before settling on the seek position. }
   FPositionSamples := Round(AStartPositionSec * PLAYER_OUT_RATE);
   FreeOnTerminate := False;
   FState := apsPlaying;
@@ -162,11 +157,11 @@ begin
   end;
   AllDone := True;
   if AGraceful then begin
-    { Конец файла сам по себе — не Stop пользователя: буферы, уже
-      отданные в winmm, должны доиграть, иначе конец трека обрежется
-      (waveOutReset останавливает воспроизведение немедленно, отбрасывая
-      всё, что ещё не отыграно). Ждём WHDR_DONE на каждом использованном
-      буфере, с защитным таймаутом на случай залипшего драйвера. }
+    { Reaching the end of the file is not a user Stop: buffers already
+      handed to winmm must finish playing, or the end of the track
+      gets cut off (waveOutReset stops playback immediately, dropping
+      whatever has not played yet). Waits for WHDR_DONE on every used
+      buffer, with a safety timeout in case the driver is stuck. }
     for I := 0 to PLAYER_BUF_COUNT - 1 do begin
       WaitMs := 0;
       while ((FHeaders[I].dwFlags and WHDR_PREPARED) <> 0) and
@@ -176,27 +171,25 @@ begin
       end;
       if ((FHeaders[I].dwFlags and WHDR_PREPARED) <> 0) and
         ((FHeaders[I].dwFlags and WHDR_DONE) = 0) then begin
-        AllDone := False;   { залипший буфер — защитный таймаут сработал }
+        AllDone := False;   { a stuck buffer — the safety timeout fired }
       end;
     end;
   end;
-  { Явный flush декодера (см. более раннюю правку) не убрал щелчки в
-    хвосте — по отчёту пользователя, тем же числом. Следующий кандидат,
-    не угадан, а по документированному поведению waveOutUnprepareHeader
-    (MSDN: "called after ... the buffer has finished playing, OR
-    waveOutReset has been called" — то есть Reset обязателен ТОЛЬКО
-    если буфер ЕЩЁ не доигран сам по себе) — сам вызов waveOutReset НА
-    УЖЕ ПОЛНОСТЬЮ ДОИГРАННОМ устройстве не бесплатен: WHDR_DONE
-    гарантирует лишь то, что ДРАЙВЕР забрал данные буфера, не то, что
-    физический вывод (DMA/аппаратный FIFO звуковой карты) уже
-    закончился — резкий Reset в этот момент может оборвать/щёлкнуть
-    остаточный аппаратный хвост, даже когда с точки зрения нашего кода
-    всё уже доиграно. Если ВСЕ буферы дождались WHDR_DONE без таймаута
-    (AllDone) — Reset вообще не вызываем, обходимся Unprepare+Close
-    (ровно та альтернатива, что и разрешает документация). Reset
-    оставлен для явного Stop пользователя (AGraceful=False) и на
-    случай залипшего драйвера (защитный таймаут сработал) — там
-    отбрасывать действительно нужно, не ждать вечно. }
+  { Per waveOutUnprepareHeader's documented contract (MSDN: "called
+    after ... the buffer has finished playing, OR waveOutReset has
+    been called"), Reset is required ONLY if a buffer has not finished
+    on its own. Calling waveOutReset on a device that has already
+    fully finished playing is not free: WHDR_DONE only guarantees the
+    driver has taken the buffer's data, not that the physical output
+    (the sound card's DMA/hardware FIFO) has actually finished — an
+    abrupt Reset at that point can cut off or click on the remaining
+    hardware tail, even though playback looks complete from this
+    code's point of view. If ALL buffers reached WHDR_DONE without
+    timing out (AllDone), Reset is skipped entirely, using Unprepare+
+    Close instead. Reset is kept for an explicit user Stop
+    (AGraceful=False) and for a stuck driver (the safety timeout
+    fired) — those cases genuinely need to drop playback rather than
+    wait indefinitely. }
   if (not AGraceful) or (not AllDone) then begin
     waveOutReset(FWaveOut);
   end;
@@ -211,15 +204,14 @@ end;
 
 function TAudioPlayer.WaitBufferFree(AIndex: integer): boolean;
 begin
-  { Ждём, пока драйвер не пометит буфер как отыгранный (WHDR_DONE) —
-    без CALLBACK_EVENT/оконного колбэка, просто короткий опрос: при
-    PLAYER_BUF_COUNT=4 буферах и ~0.2с на буфер задержка опроса (5мс)
-    пренебрежимо мала относительно самого буфера. ВАЖНО: это должно
-    отработать ДО того, как в FBufMem[AIndex] запишут новые данные —
-    иначе можно затереть буфер, который winmm ещё физически
-    воспроизводит (см. правку в PumpFifoToDevice — раньше FIFO
-    вычитывался в буфер раньше этого ожидания, отсюда и слышимые
-    щелчки/повторы). }
+  { Waits until the driver marks the buffer as played (WHDR_DONE) — no
+    CALLBACK_EVENT/window callback, just short polling: with
+    PLAYER_BUF_COUNT=4 buffers and ~0.2s per buffer, a 5ms poll
+    interval is negligible relative to the buffer itself. IMPORTANT:
+    this must complete BEFORE new data is written into
+    FBufMem[AIndex], otherwise a buffer winmm is still physically
+    playing could be overwritten (see PumpFifoToDevice, which waits
+    for this before taking data from the FIFO). }
   while (not FStopRequested) and ((FHeaders[AIndex].dwFlags and WHDR_PREPARED) <> 0) and
         ((FHeaders[AIndex].dwFlags and WHDR_DONE) = 0) do begin
     Sleep(5);
@@ -283,12 +275,12 @@ var
   var
     N: cardinal;
   begin
-    { Пока в FIFO хватает на полный буфер — или это финальный слив
-      (AFlush) и там хоть что-то осталось — отправляем в winmm.
-      Порядок важен: сначала дожидаемся, что этот слот буфера
-      действительно свободен (WaitBufferFree), и только ПОТОМ пишем в
-      его память новые байты (FifoTakeInto) — иначе можно затереть
-      буфер, который устройство ещё физически проигрывает. }
+    { As long as the FIFO has enough for a full buffer — or this is
+      the final flush (AFlush) and anything is left — send it to
+      winmm. Order matters: wait for the buffer slot to actually be
+      free (WaitBufferFree) BEFORE writing new bytes into it
+      (FifoTakeInto), otherwise a buffer the device is still
+      physically playing could be overwritten. }
     while (not FStopRequested) and
           ((FFifoLen >= PLAYER_BUF_BYTES) or (AFlush and (FFifoLen > 0))) do begin
       if not WaitBufferFree(WriteIdx) then begin
@@ -340,11 +332,11 @@ begin
   FDurationSec := FmtCtx^.duration / 1000000.0;
 
   if FStartPositionSec > 0 then begin
-    { stream_index=-1 — таймстамп в AV_TIME_BASE (микросекундах), не
-      нужно знать timebase конкретного потока (см. ffdecode.pas).
-      FPositionSamples выставляем сразу — иначе прогресс-бар прыгнул
-      бы к 0 и только потом снова к месту перемотки, на первом же
-      decoded-фрейме. }
+    { stream_index=-1 means the timestamp is in AV_TIME_BASE
+      (microseconds), no need to know the stream's own timebase (see
+      ffdecode.pas). FPositionSamples is set immediately, otherwise the
+      progress bar would jump to 0 and back to the seek position on the
+      first decoded frame. }
     av_seek_frame(FmtCtx, -1, Round(FStartPositionSec * 1000000), AVSEEK_FLAG_BACKWARD);
     FPositionSamples := Round(FStartPositionSec * PLAYER_OUT_RATE);
   end;
@@ -387,7 +379,7 @@ begin
 
   Pkt := av_packet_alloc;
   Frame := av_frame_alloc;
-  OutTmpCap := PLAYER_BUF_SAMPLES * 2;   { запас x2 в сэмплах на канал }
+  OutTmpCap := PLAYER_BUF_SAMPLES * 2;   { 2x headroom, in samples per channel }
   GetMem(OutTmp, cardinal(OutTmpCap) * PLAYER_OUT_CHANNELS * 2);
 
   FillChar(OutChLayout, SizeOf(OutChLayout), 0);
@@ -423,9 +415,9 @@ begin
           end;
           av_frame_unref(Frame);
 
-          { Пауза — просто не отдаём winmm новые данные и не декодируем
-            дальше, пока не снимут (Resume зовёт waveOutRestart сама,
-            здесь только не подкачиваем новые буферы). }
+          { Pausing simply stops handing winmm new data and stops
+            decoding further until resumed (Resume itself calls
+            waveOutRestart — this only withholds new buffers). }
           while FPauseRequested and (not FStopRequested) do begin
             Sleep(20);
           end;
@@ -437,18 +429,16 @@ begin
     av_packet_unref(Pkt);
   end;
 
-  { Флашим ДЕКОДЕР явно — контейнерный EOF (av_read_frame < 0) не значит,
-    что декодер уже отдал ВСЕ кадры. По документированному контракту
-    avcodec_send_packet/avcodec_receive_frame — многие кодеки (AAC,
-    Opus и другие с внутренним lookahead/reorder) держат несколько
-    последних кадров во внутреннем буфере и отдают их ТОЛЬКО после
-    явного flush-пакета (send_packet с pkt=NULL), дальше receive_frame
-    вызывается в цикле, пока не вернёт < 0. Раньше этого шага не было —
-    последние декодированные кадры обрывались на границе внутреннего
-    состояния декодера, не долетая до ресемплера/FIFO вовсе — отчёт
-    пользователя ("три лёгких щелчка перед концом каждого трека") ровно
-    того рода артефакт, что даёт резкий обрыв на границе кадра вместо
-    штатного затухания декодера. }
+  { Explicitly flushes the DECODER — reaching container EOF
+    (av_read_frame < 0) does not mean the decoder has emitted ALL
+    frames yet. Per the documented avcodec_send_packet/
+    avcodec_receive_frame contract, many codecs (AAC, Opus, and others
+    with internal lookahead/reordering) hold back several trailing
+    frames in an internal buffer and only release them after an
+    explicit flush packet (send_packet with pkt=NULL), followed by
+    receive_frame in a loop until it returns < 0. Without this step,
+    the last decoded frames would be cut off at the decoder's internal
+    state boundary before ever reaching the resampler/FIFO. }
   if (not FStopRequested) and (avcodec_send_packet(CodecCtx, nil) >= 0) then begin
     while True do begin
       Ret := avcodec_receive_frame(CodecCtx, Frame);
@@ -473,8 +463,8 @@ begin
     end;
   end;
 
-  { Слив ресемплера (может держать несколько сэмплов в запасе) и
-    остатка FIFO. }
+  { Flushes the resampler (it may hold a few samples in reserve) and
+    the remaining FIFO contents. }
   if SwrReady and (not FStopRequested) then begin
     repeat
       OutSamples := swr_convert(Swr, @OutTmp, OutTmpCap, nil, 0);
@@ -524,7 +514,7 @@ end;
 procedure TAudioPlayer.StopPlayback;
 begin
   FStopRequested := True;
-  FPauseRequested := False;   { снимаем паузу, чтобы поток не завис в ожидании Resume }
+  FPauseRequested := False;   { clear pause so the thread doesn't wait forever for Resume }
 end;
 
 function TAudioPlayer.PositionSec: double;

@@ -2,30 +2,22 @@ unit ffdecode;
 
 {$mode objfpc}{$H+}
 
-{ Минимальный, написанный заново биндинг к libavformat/libavcodec/
-  libswresample ТЕКУЩЕГО FFmpeg (проверено на 9.0.1 — avformat-63.dll,
-  avcodec-63.dll, avutil-61.dll, swresample-7.dll), не механический
-  патч устаревшего ffmpeg-fpc (тот жёстко завязан на FFmpeg 3.4.1 /
-  avcodec 57 — см. CLAUDE.md, запись про тупик с версией).
+{ Binding to libavformat/libavcodec/libswresample for the current
+  FFmpeg build (avformat-63.dll, avcodec-63.dll, avutil-61.dll,
+  swresample-7.dll).
 
-  Каждое поле каждой структуры ниже сверено построчно с настоящими
-  заголовками из официальной сборки gyan.dev (ссылка на неё — прямо
-  с ffmpeg.org/download.html, не сторонний сайт), а не угадано по
-  памяти — тот же принцип, что уже принят в проекте (см. CLAUDE.md,
-  пагинация getChatHistory). Структуры ОБЪЯВЛЕНЫ НЕ ЦЕЛИКОМ: только
-  ведущие поля, вплоть до последнего реально читаемого этим юнитом —
-  безопасно ровно потому, что ни одна из них не аллоцируется и не
-  копируется на стороне Pascal (только FFmpeg их создаёт через
-  av*_alloc*, Pascal только разыменовывает уже готовый указатель) —
-  поля ПОСЛЕ последнего нужного никогда не читаются, их отсутствие в
-  объявлении не создаёт риска неверного смещения для тех, что нужны.
-  AVCodecContext оставлен ПОЛНОСТЬЮ непрозрачным (void-указатель) —
-  ни одно его поле не читается напрямую нигде в этом юните, только
-  передаётся между функциями библиотеки; вся информация о формате
-  декодированного звука (частота/каналы/формат сэмплов) берётся из
-  уже готового AVFrame после avcodec_receive_frame, а не из контекста
-  — так весь риск несовпадения раскладки самой большой и chаще всего
-  меняющейся структуры FFmpeg снят полностью. }
+  Struct declarations are truncated at the last field this unit
+  actually reads. This is safe because none of these structures are
+  allocated or copied on the Pascal side — only FFmpeg creates them
+  (via av*_alloc*), and Pascal only dereferences an already-built
+  pointer, so fields past the last one declared here never affect the
+  offsets of the fields that matter.
+
+  AVCodecContext is left fully opaque (a void pointer) — none of its
+  fields are read directly anywhere in this unit, it is only passed
+  between library functions. All decoded-audio format information
+  (sample rate/channels/sample format) comes from the resulting
+  AVFrame after avcodec_receive_frame, not from the context. }
 
 interface
 
@@ -47,15 +39,39 @@ const
   AV_SAMPLE_FMT_S16 = 1;
 
   { --- libavutil/pixfmt.h : enum AVPixelFormat ---
-    Значения ПЕРЕСЧИТАНЫ программно (awk по самому enum'у в заголовке
-    из того же архива gyan.dev, что и остальной биндинг — см. шапку
-    файла), не угаданы по памяти: AV_PIX_FMT_NONE=-1,
-    AV_PIX_FMT_YUV420P — первый элемент после него (0), AV_PIX_FMT_BGRA
-    — 29-й по счёту (индекс 28). Видео Telegram-"гифок" (H.264/MP4) на
-    выходе декодера почти всегда YUV420P; BGRA — формат назначения
-    swscale, тот же порядок байт, что и TBGRABitmap/GDI DIB. }
-  AV_PIX_FMT_YUV420P = 0;
+    AV_PIX_FMT_NONE=-1, AV_PIX_FMT_YUV420P is the first element after
+    it (0), AV_PIX_FMT_BGRA is the 29th (index 28). Telegram "GIF"
+    video (H.264/MP4) decodes to YUV420P almost always; BGRA is
+    swscale's destination format, matching TBGRABitmap/GDI DIB byte
+    order. AV_PIX_FMT_YUVA420P (34th element, index 33) is YUV420P plus
+    a 4th, full-resolution alpha plane — used only when manually
+    assembling a WebM-alpha custom emoji's color+alpha planes into one
+    virtual frame for swscale (videoplayer.pas, TAnimationPlayer);
+    never a real decoded frame's own .format, since no FFmpeg decoder
+    used here produces 4-plane output on its own — see that unit's
+    comment for why. All three indices recomputed programmatically
+    against the real header (github.com/FFmpeg/FFmpeg libavutil/pixfmt.h,
+    accounting for the explicit "= -1" on AV_PIX_FMT_NONE), not counted
+    by hand — the same discipline already applied to YUV420P/BGRA above,
+    now re-verified rather than assumed for this addition. }
+  AV_PIX_FMT_YUV420P  = 0;
   AV_PIX_FMT_BGRA     = 28;
+  AV_PIX_FMT_YUVA420P = 33;
+
+  { --- libavcodec/packet.h : enum AVPacketSideDataType ---
+    Index recomputed programmatically against the real header (no
+    explicit numeric assignments disrupt the sequential count up to
+    this point) — the one WebM/Matroska cares about: a video packet
+    that carries a "BlockAdditional" (WebM alpha extension, BlockAddID=1)
+    attaches this side data to the packet. Its payload layout is NOT
+    just the raw codec bitstream — read via av_packet_get_side_data,
+    confirmed by the actual demuxer source (libavformat/matroskadec.c,
+    matroska_parse_frame): the FIRST 8 BYTES are the BlockAddID as a
+    big-endian uint64, and the ACTUAL alpha bitstream (fed to a second,
+    independent decoder of the same codec) starts only after that
+    8-byte prefix — skipping it is not optional, feeding the whole blob
+    to the decoder as-is would misparse it as a corrupt bitstream. }
+  AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL = 15;
 
   { --- libswscale/swscale.h --- }
   SWS_BILINEAR = 1 shl 1;
@@ -64,14 +80,15 @@ const
   AV_CH_LAYOUT_STEREO_MASK: UInt64 = 3;   { AV_CH_FRONT_LEFT(1) | AV_CH_FRONT_RIGHT(2) }
   AV_CH_LAYOUT_MONO_MASK:   UInt64 = 1;   { AV_CH_FRONT_CENTER }
 
-  { FFERRTAG('E','O','F',' '), см. libavutil/error.h — тег фиксированный,
-    не зависит от платформы/errno, поэтому безопасно вычислен константой. }
+  { FFERRTAG('E','O','F',' '), see libavutil/error.h — the tag is fixed
+    and platform/errno-independent, so it is safe to compute as a
+    constant. }
   AVERROR_EOF_VAL = -(Ord('E') or (Ord('O') shl 8) or (Ord('F') shl 16) or (Ord(' ') shl 24));
 
-  { av_seek_frame: stream_index=-1 — таймстамп в AV_TIME_BASE
-    (микросекундах), не в timebase конкретного потока; ffmpeg сам
-    сконвертирует. AVSEEK_FLAG_BACKWARD — искать ближайший опорный
-    кадр НЕ ПОЗЖЕ цели (проверено по libavformat/avformat.h). }
+  { av_seek_frame: stream_index=-1 means the timestamp is in
+    AV_TIME_BASE (microseconds), not the stream's own timebase; ffmpeg
+    converts it. AVSEEK_FLAG_BACKWARD seeks to the nearest keyframe at
+    or before the target. }
   AVSEEK_FLAG_BACKWARD = 1;
 
 type
@@ -86,13 +103,13 @@ type
   TAVChannelLayout = record
     order: cint;          { enum AVChannelOrder }
     nb_channels: cint;
-    u: UInt64;             { union: mask:uint64 либо map:pointer — тот же размер на x64 }
+    u: UInt64;             { union: mask:uint64 or map:pointer — same size on x64 }
     opaque: pointer;
   end;
 
   { --- libavutil/frame.h : AVFrame ---
-    Объявлено вплоть до ch_layout (включительно) — последнее поле,
-    которое реально читается (sample_rate идёт раньше). }
+    Declared up to and including ch_layout — the last field actually
+    read (sample_rate comes earlier). }
   PAVFrame = ^TAVFrame;
   TAVFrame = record
     data: array[0..7] of PByte;
@@ -100,7 +117,7 @@ type
     extended_data: PPByte;
     width, height: cint;
     nb_samples: cint;
-    format: cint;                    { enum AVSampleFormat для аудио }
+    format: cint;                    { enum AVSampleFormat for audio }
     pict_type: cint;
     sample_aspect_ratio: TAVRational;
     pts: Int64;
@@ -132,7 +149,7 @@ type
   end;
 
   { --- libavcodec/packet.h : AVPacket ---
-    Вплоть до stream_index (включительно). }
+    Declared up to and including stream_index. }
   PAVPacket = ^TAVPacket;
   TAVPacket = record
     buf: pointer;
@@ -144,10 +161,10 @@ type
   end;
 
   { --- libavcodec/codec_par.h : AVCodecParameters ---
-    Только первые 3 поля — этого достаточно, чтобы найти аудио-поток
-    (codec_type) и передать указатель дальше в avcodec_parameters_to_context
-    непрозрачно (сам этот вызов копирует остальные поля средствами C,
-    Pascal их не читает). }
+    Only the first 3 fields — enough to find the audio stream
+    (codec_type) and pass the pointer on to
+    avcodec_parameters_to_context opaquely (that call copies the
+    remaining fields in C; Pascal never reads them). }
   PAVCodecParameters = ^TAVCodecParameters;
   TAVCodecParameters = record
     codec_type: cint;      { enum AVMediaType }
@@ -156,13 +173,12 @@ type
   end;
 
   { --- libavformat/avformat.h : AVStream ---
-    Вплоть до time_base (включительно) — нужен видео-плееру (videoplayer.
-    pas) для перевода Frame.pts (в единицах time_base этого потока) в
-    реальные секунды и паузы между кадрами при зацикленном
-    воспроизведении "гифок". Поля между codecpar и time_base
-    (priv_data) — тоже объявлены, просто чтобы смещение time_base не
-    съехало, сами не читаются. Сверено построчно с настоящим
-    заголовком (см. шапку файла), не угадано. }
+    Declared up to and including time_base — needed by the video
+    player (videoplayer.pas) to convert Frame.pts (in this stream's
+    time_base units) into real seconds and inter-frame delays for
+    looped GIF playback. The field between codecpar and time_base
+    (priv_data) is declared only to keep time_base's offset correct;
+    it is not read. }
   PAVStream = ^TAVStream;
   TAVStream = record
     av_class: pointer;
@@ -175,7 +191,7 @@ type
   PPAVStream = ^PAVStream;
 
   { --- libavformat/avformat.h : AVFormatContext ---
-    Вплоть до duration (включительно). }
+    Declared up to and including duration. }
   PAVFormatContext = ^TAVFormatContext;
   PPAVFormatContext = ^PAVFormatContext;
   TAVFormatContext = record
@@ -203,16 +219,13 @@ procedure av_frame_free(var AFrame: PAVFrame); cdecl; external AVUTIL_LIB;
 procedure av_frame_unref(AFrame: PAVFrame); cdecl; external AVUTIL_LIB;
 function av_strerror(AErrNum: cint; ABuf: PAnsiChar; ABufSize: SizeUInt): cint; cdecl; external AVUTIL_LIB;
 procedure av_log_set_level(ALevel: cint); cdecl; external AVUTIL_LIB;
-{ Устанавливает опцию AVOption по имени, для ЛЮБОГО объекта с AVClass
-  первым полем (AVCodecContext — один из них) — не требует знания
-  раскладки самой структуры (первое поле AVClass у него уже общее для
-  этого механизма), поэтому безопасно вызывать через непрозрачный
-  pointer, как AVCodecContext и объявлен в этом юните. Используется
-  для pkt_timebase (см. её же комментарий у вызова в mediaplayer.pas/
-  videoplayer.pas) — единственный практичный способ выставить это поле
-  БЕЗ того, чтобы разворачивать AVCodecContext (самую большую и чаще
-  всего меняющуюся структуру FFmpeg) из полностью непрозрачного
-  pointer в частично объявленную запись. }
+{ Sets an AVOption by name on any object whose first field is AVClass
+  (AVCodecContext is one) — does not require knowing that structure's
+  own layout, so it is safe to call through an opaque pointer, as
+  AVCodecContext is declared in this unit. Used for pkt_timebase (see
+  the call sites in mediaplayer.pas/videoplayer.pas) — the only
+  practical way to set that field without unpacking AVCodecContext
+  from a fully opaque pointer into a partially declared record. }
 function av_opt_set_q(AObj: pointer; AName: PAnsiChar; AVal: TAVRational;
   ASearchFlags: cint): cint; cdecl; external AVUTIL_LIB;
 
@@ -236,13 +249,19 @@ function avcodec_open2(ACtx: pointer; ACodec: pointer; AOptions: PPointer): cint
 function av_packet_alloc: PAVPacket; cdecl; external AVCODEC_LIB;
 procedure av_packet_free(var APkt: PAVPacket); cdecl; external AVCODEC_LIB;
 procedure av_packet_unref(APkt: PAVPacket); cdecl; external AVCODEC_LIB;
+{ Returns a pointer directly into APkt's own side-data buffer (owned by
+  APkt, valid only until APkt is unref'd/freed) and its size via ASize,
+  or nil if APkt carries no side data of this type — see the
+  AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL comment above for the specific
+  8-byte-prefix payload layout this project actually reads. }
+function av_packet_get_side_data(APkt: PAVPacket; AType: cint;
+  ASize: PSizeUInt): PByte; cdecl; external AVCODEC_LIB;
 function avcodec_send_packet(ACtx: pointer; APkt: PAVPacket): cint; cdecl; external AVCODEC_LIB;
 function avcodec_receive_frame(ACtx: pointer; AFrame: PAVFrame): cint; cdecl; external AVCODEC_LIB;
-{ Сбрасывает внутреннее состояние декодера (кадры в очереди на
-  переупорядочивание и т.п.) — обязателен после av_seek_frame, иначе
-  декодер продолжит попытки достроить кадры из данных ДО прыжка;
-  videoplayer.pas зовёт его на каждом витке зацикленного
-  воспроизведения "гифки" (см. её же комментарий). }
+{ Resets the decoder's internal state (frames queued for reordering,
+  etc.) — required after av_seek_frame, otherwise the decoder keeps
+  trying to reconstruct frames from data before the seek;
+  videoplayer.pas calls this on every loop of looped GIF playback. }
 procedure avcodec_flush_buffers(ACtx: pointer); cdecl; external AVCODEC_LIB;
 
 { ---------------- libswresample ---------------- }
@@ -258,9 +277,9 @@ function swr_convert(ASwr: pointer; AOut: PPByte; AOutCount: cint;
 function swr_get_delay(ASwr: pointer; ABase: Int64): Int64; cdecl; external SWRESAMPLE_LIB;
 
 { ---------------- libswscale ----------------
-  Непрозрачный SwsContext (pointer) — как и AVCodecContext у аудио,
-  ни одно его поле нигде не читается напрямую, только передаётся между
-  функциями библиотеки. }
+  SwsContext is opaque (pointer) — like AVCodecContext for audio, none
+  of its fields are ever read directly, it's only passed between the
+  library's functions. }
 
 function sws_getContext(ASrcW, ASrcH, ASrcFormat: cint; ADstW, ADstH, ADstFormat: cint;
   AFlags: cint; ASrcFilter, ADstFilter: pointer; AParam: pointer): pointer; cdecl; external SWSCALE_LIB;

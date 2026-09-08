@@ -11,9 +11,10 @@ type
 
   { TFrameSettingsGeneral
 
-    Раздел "General" окна настроек (TFormSettings) — пока без единой
-    настройки, заведён заранее под структуру дерева разделов, чтобы
-    добавление настроек позже не требовало менять сам каркас окна. }
+    The "General" section of the settings window (TFormSettings). Has
+    no settings yet; exists to establish the section-tree structure so
+    that adding settings later requires no changes to the window
+    layout. }
 
   TFrameSettingsGeneral = class(TFrameBase)
     lblEmpty: TLabel;

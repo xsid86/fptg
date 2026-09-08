@@ -12,60 +12,64 @@ type
   TMsgContentKind = (mckText, mckAudio, mckPhoto, mckAnimation, mckSticker,
     mckVoiceNote, mckFile, mckVideo, mckOther);
 
-  { Три формата стикеров Telegram — проверено по официальным TDLib docs
-    (classtd_1_1td__api_1_1sticker_format*.html), не угадано:
-    stickerFormatWebp (статичная картинка), stickerFormatTgs
-    (Lottie-вектор, gzip-сжатый JSON — см. lottieplayer.pas),
-    stickerFormatWebm (видео, кодек VP9 в контейнере webm — тот же
-    ffmpeg-декодер, что и у "гифки", videoplayer.pas, контейнер ему
-    безразличен). }
+  { Telegram's three sticker formats — confirmed against the official
+    TDLib docs (classtd_1_1td__api_1_1sticker_format*.html), not
+    guessed: stickerFormatWebp (a static image), stickerFormatTgs
+    (a Lottie vector, gzip-compressed JSON — see lottieplayer.pas),
+    stickerFormatWebm (video, VP9 codec in a webm container — the same
+    ffmpeg decoder as the "GIF" widget, videoplayer.pas, which doesn't
+    care about the container). }
   TStickerFormat = (sfWebp, sfTgs, sfWebm);
 
-  { Состояние доставки исходящего сообщения. Отдельное имя от
-    tdchats.TMsgSendState: framehistory будет использовать оба юнита
-    разом, и совпадающее имя типа только путало бы. }
+  { Delivery state of an outgoing message. A separate name from
+    tdchats.TMsgSendState: framehistory uses both units together, and a
+    matching type name would only cause confusion. }
   TMsgDeliveryState = (mdsDelivered, mdsPending, mdsFailed);
 
   TMsgEntityKind = (mekNone, mekBold, mekItalic, mekUrl, mekTextUrl,
-    mekCode, mekPre, mekStrikethrough, mekUnderline);
+    mekCode, mekPre, mekStrikethrough, mekUnderline, mekCustomEmoji,
+    mekBlockQuote);
 
-  { Стилевой/ссылочный диапазон внутри TMsgRow.PlainText.
-    ByteStart/ByteLen — БАЙТОВЫЕ смещения в PlainText (utf8string),
-    не символьные и не UTF-16: так же, как весь остальной проект
-    индексирует utf8string (см. avatarcache.AvatarInitials). TDLib же
-    считает offset/length сущности в UTF-16 code units — перевод
-    делает Utf16RangeToByteRange при разборе сообщения, один раз. }
+  { A styled/link range within TMsgRow.PlainText.
+    ByteStart/ByteLen are BYTE offsets into PlainText (utf8string), not
+    character or UTF-16 offsets — the same indexing convention the rest
+    of the project uses for utf8string (see
+    avatarcache.AvatarInitials). TDLib itself counts an entity's
+    offset/length in UTF-16 code units — the conversion is done once,
+    by Utf16RangeToByteRange, while parsing the message. }
   TMsgEntity = record
     ByteStart: integer;
     ByteLen:   integer;
     Kind:      TMsgEntityKind;
-    URL:       utf8string;   { только mekTextUrl; для mekUrl ссылка — сам текст }
+    URL:       utf8string;   { mekTextUrl only; for mekUrl the link is the text itself }
+    CustomEmojiId: Int64;    { mekCustomEmoji only }
   end;
   TMsgEntityArray = array of TMsgEntity;
 
-  { Откуда переслано сообщение — variant-тип TDLib messageOrigin.
-    mfoChannel — единственный случай, где известен message_id
-    исходного поста (chat_id+message_id прямо в origin), поэтому
-    только для него можно перейти к самому сообщению (см. OpenChat/
-    JumpTo ниже). У mfoUser/mfoChat Telegram намеренно не отдаёт id
-    исходного сообщения (приватность), у mfoHiddenUser нет вообще
-    ничего, кроме имени. Подтверждено по tdlib_raw.log (все 4 варианта
-    origin встречались) и docs.core.telegram.org, не по памяти. }
+  { Where a forwarded message came from — TDLib's messageOrigin variant
+    type. mfoChannel is the only case where the source post's
+    message_id is known (chat_id+message_id sit right in origin), so
+    it's the only one that can jump to the actual message (see
+    OpenChat/JumpTo below). For mfoUser/mfoChat, Telegram deliberately
+    withholds the source message's id (privacy); mfoHiddenUser has
+    nothing at all besides a name. Confirmed against tdlib_raw.log (all
+    4 origin variants have been observed) and docs.core.telegram.org,
+    not from memory. }
   TMsgForwardKind = (mfoNone, mfoUser, mfoChat, mfoChannel, mfoHiddenUser);
 
   { TMsgRow
 
-    Чистые данные, без LCL — как и TChatRow. ContentRaw хранит JSON
-    поля "content" целиком: это источник истины для будущих
-    рендереров (фото/видео/стикеры), которым нужны поля, что модель
-    сегодня не разбирает. PlainText/Entities — уже готовый к раскладке
-    текст (сообщения или подписи), извлечённый из content один раз
-    при разборе, чтобы не парсить JSON на каждую перерисовку. }
+    Plain data, no LCL — same as TChatRow. ContentRaw holds the entire
+    "content" JSON field: the source of truth for future renderers
+    (photo/video/stickers) that need fields the model doesn't parse
+    today. PlainText/Entities are already-parsed, layout-ready text
+    (the message body or a caption), extracted from content once when
+    parsed, so it doesn't need reparsing on every repaint. }
   TMsgRow = class
   public
     Id, ChatId:      Int64;
-    SenderUserId:    Int64;   { 0, если отправитель — чат }
-    SenderChatId:    Int64;   { 0, если отправитель — пользователь }
+    SenderUserId:    Int64;   { 0 if the sender is a chat }
+    SenderChatId:    Int64;   { 0 if the sender is a user }
     Date, EditDate:  Int64;
     IsOutgoing:      boolean;
     Kind:            TMsgContentKind;
@@ -73,142 +77,146 @@ type
     PlainText:       utf8string;
     Entities:        TMsgEntityArray;
     Delivery:        TMsgDeliveryState;
-    { Репост — см. TMsgForwardKind. ForwardDate — время исходной
-      публикации (не путать с Date — временем этого репоста). }
+    { Forward info — see TMsgForwardKind. ForwardDate is the time of the
+      original post (not to be confused with Date, the time of this
+      forward). }
     ForwardKind:       TMsgForwardKind;
     ForwardUserId:     Int64;   { mfoUser }
-    ForwardChatId:     Int64;   { mfoChat: sender_chat_id; mfoChannel: chat_id источника }
-    ForwardMessageId:  Int64;   { mfoChannel: id сообщения в чате-источнике }
-    ForwardSenderName: utf8string;   { mfoHiddenUser; mfoChat/mfoChannel: author_signature, может быть '' }
+    ForwardChatId:     Int64;   { mfoChat: sender_chat_id; mfoChannel: the source's chat_id }
+    ForwardMessageId:  Int64;   { mfoChannel: the message's id in the source chat }
+    ForwardSenderName: utf8string;   { mfoHiddenUser; mfoChat/mfoChannel: author_signature, may be '' }
     ForwardDate:       Int64;
-    { Реплай (messageReplyToMessage) — 0/0, если сообщение не реплай
-      или реплай на сторис (messageReplyToStory, отдельный, более
-      редкий вариант — не разбираем в этом заходе). TDLib НЕ кладёт
-      сюда содержимое цитируемого сообщения (проверено по
-      tdlib_raw.log: только chat_id/message_id и служебные поля) —
-      имя/текст превью резолвит TTdMessages.ReplyPreview отдельно. }
+    { A reply (messageReplyToMessage) — 0/0 if the message isn't a
+      reply, or is a reply to a story (messageReplyToStory, a separate,
+      rarer variant not handled here). TDLib does NOT include the
+      quoted message's content here (confirmed from tdlib_raw.log: only
+      chat_id/message_id and bookkeeping fields) — the preview
+      name/text is resolved separately via TTdMessages.ReplyPreview. }
     ReplyChatId:       Int64;
     ReplyMessageId:    Int64;
-    { messageAudio.audio — только для Kind=mckAudio. AudioDuration в
-      секундах (0, если не Kind=mckAudio или поле не пришло). Title/
-      Performer — метаданные из самого файла (ID3 и т.п.), TDLib
-      отдаёт их без скачивания/декода аудио; либо оба пустые — тогда
-      в заголовке виджета показывается AudioFileName. }
+    { messageAudio.audio — Kind=mckAudio only. AudioDuration in seconds
+      (0 if not Kind=mckAudio, or the field wasn't sent). Title/
+      Performer are metadata from the file itself (ID3 etc.), which
+      TDLib provides without downloading or decoding the audio; if both
+      are empty, the widget's header falls back to AudioFileName. }
     AudioDuration:     integer;
     AudioTitle:        utf8string;
     AudioPerformer:    utf8string;
     AudioFileName:     utf8string;
-    { Сам скачиваемый файл (content.audio.audio, TDLib-объект file —
-      не путать с content.audio, у аудио-сообщения оба уровня зовутся
-      "audio", проверено по tdlib_raw.log). AudioFileId=0 — поле не
-      пришло (не Kind=mckAudio). AudioLocalPath — пусто, пока файл не
-      скачан; заполняется EnsureAudioFile/ApplyAudioFile, тем же
-      приёмом, что TChatRow.PhotoPath в tdchats.pas. }
+    { The downloadable file itself (content.audio.audio, a TDLib file
+      object — not to be confused with content.audio; both levels of an
+      audio message are named "audio", confirmed from tdlib_raw.log).
+      AudioFileId=0 means the field wasn't sent (not Kind=mckAudio).
+      AudioLocalPath is empty until the file is downloaded; filled in
+      by EnsureAudioFile/ApplyAudioFile, the same approach as
+      TChatRow.PhotoPath in tdchats.pas. }
     AudioFileId:            integer;
     AudioLocalPath:         utf8string;
     AudioDownloadRequested: boolean;
-    { messageVoiceNote.voice_note — только для Kind=mckVoiceNote. Тот же
-      двухуровневый приём, что и у audio (content.voice_note.voice — сам
-      скачиваемый файл, проверено по tdlib_raw.log), но без title/
-      performer/file_name — TDLib их для голосовых не присылает, у
-      виджета вместо них статичная подпись "Voice message" (см.
-      TMsgScroller.LayoutAudioWidgets). }
+    { messageVoiceNote.voice_note — Kind=mckVoiceNote only. The same
+      two-level scheme as audio (content.voice_note.voice is the
+      downloadable file, confirmed from tdlib_raw.log), but without
+      title/performer/file_name — TDLib doesn't send those for voice
+      notes, and the widget shows a fixed "Voice message" label instead
+      (see TMsgScroller.LayoutAudioWidgets). }
     VoiceDuration:          integer;
     VoiceFileId:            integer;
     VoiceLocalPath:         utf8string;
     VoiceDownloadRequested: boolean;
-    { messageDocument.document — только для Kind=mckFile. Тот же приём
-      двойного "document" в JSON (content.document.file_name — метаданные,
-      content.document.document — сам скачиваемый TDLib-объект file),
-      что и у content.audio.audio, проверено по tdlib_raw.log. }
+    { messageDocument.document — Kind=mckFile only. The same
+      double-"document" JSON scheme (content.document.file_name is
+      metadata, content.document.document is the downloadable TDLib
+      file object) as content.audio.audio, confirmed from
+      tdlib_raw.log. }
     DocFileName:     utf8string;
     DocFileSize:     Int64;
     DocFileId:            integer;
     DocLocalPath:         utf8string;
     DocDownloadRequested: boolean;
-    { messagePhoto.photo — только для Kind=mckPhoto. PhotoWidth/Height —
-      натуральные размеры выбранного (среднего, type='m') слоя photo.sizes,
-      для расчёта превью. PhotoMinithumb — сырые (уже base64-декодированные)
-      байты крошечного JPEG, приходит сразу в контенте без скачивания —
-      для блюр-плейсхолдера, пока настоящий файл не скачан. }
+    { messagePhoto.photo — Kind=mckPhoto only. PhotoWidth/Height are the
+      natural size of the chosen (medium, type='m') layer of
+      photo.sizes, used for computing the preview. PhotoMinithumb is
+      the raw (already base64-decoded) bytes of a tiny JPEG, arriving
+      right in the content without any download — used for a blurred
+      placeholder until the real file is downloaded. }
     PhotoWidth, PhotoHeight: integer;
     PhotoMinithumb:          RawByteString;
     PhotoFileId:             integer;
     PhotoLocalPath:          utf8string;
     PhotoDownloadRequested:  boolean;
-    { Самый большой доступный слой photo.sizes (по width*height, не по
-      порядку в массиве — не полагаемся на то, что TDLib всегда отдаёт
-      их от меньшего к большему) — для "Save as"/"Show in folder":
-      сохранять надо оригинал, не мелкую превью-копию (PhotoFileId
-      выше — сознательно средний размер, ради скорости инлайн-показа,
-      не подходит для сохранения). Отдельная от PhotoFileId загрузка —
-      разные file_id, разный кэш-файл TDLib. }
+    { The largest available layer of photo.sizes (by width*height, not
+      by array order — TDLib's ordering from smallest to largest isn't
+      relied upon) — for "Save as"/"Show in folder": saving needs the
+      original, not the small preview copy (PhotoFileId above is
+      deliberately medium-sized, for fast inline display, and isn't
+      suitable for saving). Downloaded separately from PhotoFileId:
+      different file_id, different TDLib cache file. }
     PhotoBestFileId:            integer;
     PhotoBestLocalPath:         utf8string;
     PhotoBestDownloadRequested: boolean;
-    { messageAnimation.animation — только для Kind=mckAnimation.
-      AnimWidth/Height/Duration — натуральные размеры (пиксели) и
-      длительность (секунды) исходного видео, тот же приём, что
-      PhotoWidth/Height у фото (для расчёта превью тем же
-      ComputePhotoPreviewSize). AnimMinithumb — та же роль, что
-      PhotoMinithumb (крошечный JPEG прямо в контенте, для
-      плейсхолдера, без скачивания). Сам скачиваемый файл —
-      content.animation.animation (TDLib-объект file — тот же приём
-      двойного имени "animation" в JSON, что у content.audio.audio,
-      проверено по tdlib_raw.log) — ОДИН слой, не два, как у фото:
-      Telegram отдаёт "гифку" одним MP4-файлом, без набора
-      превью-размеров, поэтому один file_id/путь, без деления на
-      "превью"/"оригинал". }
+    { messageAnimation.animation — Kind=mckAnimation only.
+      AnimWidth/Height/Duration are the natural size (pixels) and
+      duration (seconds) of the source video, the same scheme as
+      PhotoWidth/Height for a photo (used for the preview via the same
+      ComputePhotoPreviewSize). AnimMinithumb plays the same role as
+      PhotoMinithumb (a tiny JPEG right in the content, for a
+      placeholder, no download needed). The downloadable file itself is
+      content.animation.animation (a TDLib file object — the same
+      double-"animation" JSON naming as content.audio.audio, confirmed
+      from tdlib_raw.log) — ONE layer, not two like a photo: Telegram
+      delivers a "GIF" as a single MP4 file, with no set of preview
+      sizes, so there's one file_id/path, with no split between
+      "preview" and "original". }
     AnimWidth, AnimHeight: integer;
     AnimDuration:          integer;
     AnimMinithumb:         RawByteString;
     AnimFileId:            integer;
     AnimLocalPath:         utf8string;
     AnimDownloadRequested: boolean;
-    { True — постоянное свойство СТРОКИ (не разовый флаг, не снимается
-      после первого срабатывания): настройки автозагрузки для этого
-      типа диалога хотят, чтобы эта "гифка" не просто скачивалась, а
-      сразу зацикленно проигрывалась (framehistory.pas,
-      TMsgScroller.MaybeAutoDownload/LayoutAnimationWidgets — проверка
-      идёт на КАЖДЫЙ заход раскладки, самовосстанавливающееся
-      поведение, см. её же комментарий). Ручной клик пользователя это
-      поле не трогает — только сама настройка автозагрузки. }
+    { True is a permanent property of the ROW (not a one-shot flag that
+      clears after firing once): the auto-download settings for this
+      chat's kind want this "GIF" not just downloaded but immediately
+      played on a loop (framehistory.pas,
+      TMsgScroller.MaybeAutoDownload/LayoutAnimationWidgets — checked on
+      EVERY layout pass, a self-healing behavior, see its own comment).
+      A manual click by the user doesn't touch this field — only the
+      auto-download setting itself does. }
     AnimAutoPlay:          boolean;
-    { messageVideo.video — только для Kind=mckVideo. Тот же приём
-      двойного имени "video" в JSON (content.video.video — сам
-      скачиваемый TDLib-объект file, content.video — метаданные),
-      что и у content.animation.animation, проверено по tdlib_raw.log
-      (55 совпадений, не по памяти). В отличие от "гифки" — видео
-      реальное, со звуком, играется НЕ в цикле (framehistory.pas,
-      TMediaPlayer — mediaplayer.pas), поэтому здесь нет поля-аналога
-      AnimAutoPlay: автозагрузка для видео — только скачивание (см.
-      MaybeAutoDownload), автостарт воспроизведения со звуком без
-      клика пользователя не запрашивался и был бы навязчивым UX.
+    { messageVideo.video — Kind=mckVideo only. The same double-"video"
+      JSON naming (content.video.video is the downloadable TDLib file
+      object, content.video is the metadata) as
+      content.animation.animation, confirmed from tdlib_raw.log (55
+      matches, not from memory). Unlike a "GIF", this is a real video
+      with sound, played WITHOUT looping (framehistory.pas,
+      TMediaPlayer — mediaplayer.pas), so there's no field analogous to
+      AnimAutoPlay: auto-download for video only downloads it (see
+      MaybeAutoDownload) — auto-starting playback with sound without a
+      user click was never requested and would be intrusive UX.
 
-      Превью — НЕ minithumbnail (крошечный ~40×22 base64-JPEG, при
-      растяжении+блюре на весь превью выглядел "ублюдски", по прямому
-      отзыву пользователя, 2026-09-06) — а content.video.thumbnail,
-      отдельный скачиваемый JPEG (реальный кадр, не заглушка, размер —
-      свой на каждое видео, в примерах из tdlib_raw.log 320×180).
-      Качается БЕЗ гейта настроек Auto download, безусловно, как только
-      строка становится видимой (framehistory.pas, LayoutVideoWidgets)
-      — тот же принцип, что уже принят для стикеров: файл крошечный
-      (десятки КБ), смысл в мгновенном отклике на скролл, а не в
-      осознанном решении "хочу скачать видео целиком".
+      The preview is NOT the minithumbnail (a tiny ~40x22 base64-JPEG
+      that looked poor when stretched and blurred to fill the preview)
+      but content.video.thumbnail, a separate downloadable JPEG (a real
+      frame, not a placeholder, sized per-video — 320x180 in the
+      tdlib_raw.log examples seen). Downloaded WITHOUT the Auto
+      download settings gate, unconditionally, as soon as the row
+      becomes visible (framehistory.pas, LayoutVideoWidgets) — the same
+      principle already applied to stickers: the file is tiny (tens of
+      KB), the point being an instant response while scrolling, not a
+      deliberate decision to download the whole video.
 
-      VideoThumbWidth/Height — из МЕТАДАННЫХ content.video.thumbnail
-      (поля width/height лежат рядом с file, известны СРАЗУ при разборе
-      сообщения, не только после скачивания самого JPEG) — по прямому
-      запросу пользователя (2026-09-06) используются вместо VideoWidth/
-      VideoHeight (реальное разрешение видео, часто 720p/1080p) для
-      расчёта размера ПРЕВЬЮ в чате (framehistory.pas, LayoutVideoWidgets):
-      раз превью — просто статичная картинка из thumbnail, а не
-      декодированный кадр видео, растягивать бокс превью по разрешению
-      ИСХОДНОГО видео нет смысла — thumbnail всё равно только этого,
-      меньшего, размера, крупнее не покажет ничего, только размажет
-      Resample'ом. VideoWidth/VideoHeight остались как были — нужны
-      просмотрщику (mediaviewer.pas) для вписывания РЕАЛЬНОГО
-      декодированного видео в размер окна. }
+      VideoThumbWidth/Height come from content.video.thumbnail's
+      METADATA (the width/height fields sit next to file and are known
+      IMMEDIATELY when the message is parsed, not only after the JPEG
+      itself downloads) — used instead of VideoWidth/VideoHeight (the
+      video's real resolution, often 720p/1080p) to size the chat
+      PREVIEW (framehistory.pas, LayoutVideoWidgets): since the preview
+      is just a static image from the thumbnail, not a decoded video
+      frame, sizing the preview box to the SOURCE video's resolution
+      makes no sense — the thumbnail is only ever that smaller size
+      anyway, and a bigger box would just get blurred by Resample.
+      VideoWidth/VideoHeight remain as they were — needed by the viewer
+      (mediaviewer.pas) to fit the REAL decoded video into the window
+      size. }
     VideoWidth, VideoHeight:     integer;
     VideoDuration:               integer;
     VideoThumbFileId:            integer;
@@ -218,44 +226,46 @@ type
     VideoFileId:                 integer;
     VideoLocalPath:              utf8string;
     VideoDownloadRequested:      boolean;
-    { messageSticker.sticker — только для Kind=mckSticker. Тот же приём
-      двойного имени "sticker" в JSON (content.sticker.sticker — сам
-      скачиваемый TDLib-объект file, content.sticker — метаданные),
-      что и у content.video.video, проверено по tdlib_raw.log, не по
-      памяти — включая порядок полей (сверено дополнительно с
-      официальными docs.core.telegram.org/tdlib, classtd_1_1td__api_
-      1_1sticker.html: sticker_ (file) идёт ПОСЛЕ thumbnail_, в отличие
-      от video/audio/animation, где скачиваемый file — единственное
-      поле с таким именем). Ширина/высота — "как задумано отправителем"
-      (обычно 512x512 у TGS, произвольные у webp/webm) — реальный
-      размер на экране определяет ComputeStickerSize (msglayout.pas),
-      не эти цифры напрямую. Нет поля-аналога Minithumbnail: у стикера
-      нет инлайн base64-превью (в отличие от фото/видео/"гифки") —
-      только ОТДЕЛЬНЫЙ скачиваемый thumbnail.file (128x128 WebP), не
-      используется в этом заходе (по выбору пользователя — сразу полная
-      анимация, без промежуточного статичного плейсхолдера из
-      thumbnail); до скачивания StickerLocalPath виджет просто пустой,
-      как и остальные типы медиа до первого клика/автозагрузки. }
+    { messageSticker.sticker — Kind=mckSticker only. The same
+      double-"sticker" JSON naming (content.sticker.sticker is the
+      downloadable TDLib file object, content.sticker is the metadata)
+      as content.video.video, confirmed from tdlib_raw.log, not from
+      memory — including field order (cross-checked against the
+      official docs.core.telegram.org/tdlib,
+      classtd_1_1td__api_1_1sticker.html: sticker_ (the file) comes
+      AFTER thumbnail_, unlike video/audio/animation, where the
+      downloadable file is the only field with that name). Width/height
+      are "as intended by the sender" (usually 512x512 for TGS,
+      arbitrary for webp/webm) — the actual on-screen size is decided
+      by ComputeStickerSize (msglayout.pas), not these numbers directly.
+      There's no Minithumbnail-equivalent field: a sticker has no
+      inline base64 preview (unlike photo/video/"GIF") — only a
+      SEPARATE downloadable thumbnail.file (128x128 WebP), unused here
+      (by choice — full animation right away, no intermediate static
+      placeholder from the thumbnail); before download, StickerLocalPath
+      leaves the widget simply empty, same as other media types before
+      the first click/auto-download. }
     StickerFormat:           TStickerFormat;
     StickerWidth, StickerHeight: integer;
     StickerFileId:           integer;
     StickerLocalPath:        utf8string;
     StickerDownloadRequested: boolean;
-    { Кэш разметки msglayout. Тип держим непрозрачным (TObject), а не
-      TMsgLayout, — иначе tdmessages пришлось бы знать про msglayout,
-      получился бы цикл юнитов. Освобождается в деструкторе через
-      обычный Free, виртуальный деструктор довершит остальное. }
+    { msglayout's layout cache. Kept as an opaque TObject rather than
+      TMsgLayout — otherwise tdmessages would need to know about
+      msglayout, creating a unit cycle. Freed in the destructor via a
+      plain Free; the virtual destructor takes care of the rest. }
     LayoutCache:     TObject;
     destructor Destroy; override;
   end;
 
   TMsgMap = specialize TFPGMap<Int64, TMsgRow>;
 
-  { Превью цитируемого (reply_to) сообщения — только для реплаев на
-    сообщение из уже загруженной истории (см. ReplyPreview/RequestReply)
-    ИЛИ догруженное отдельно через getRepliedMessage, когда оно ещё не
-    в FAll (более старое, чем текущая пагинация). Не путать с TMsgRow —
-    сюда попадает только то, что нужно для отрисовки самой цитаты. }
+  { Preview of a quoted (reply_to) message — either for replies to a
+    message already in the loaded history (see ReplyPreview/
+    RequestReply) OR fetched separately via getRepliedMessage when it's
+    not yet in FAll (older than the current pagination window). Not to
+    be confused with TMsgRow — this only holds what's needed to draw
+    the quote itself. }
   TMsgReplyPreview = class
   public
     SenderUserId, SenderChatId: Int64;
@@ -264,67 +274,70 @@ type
 
   TReplyMap = specialize TFPGMap<Int64, TMsgReplyPreview>;
 
-  { file_id аудиофайла -> сообщение — тот же приём, что TTdChats.FByFile
-    для аватарок (tdchats.pas). }
+  { Audio file_id -> message — the same approach as TTdChats.FByFile
+    for avatars (tdchats.pas). }
   TAudioFileMap = specialize TFPGMap<integer, TMsgRow>;
-  { file_id голосового сообщения -> сообщение — та же роль, что
-    TAudioFileMap у аудио, отдельная карта (не общая): свой file_id,
-    свой кэш-файл TDLib, тот же принцип, что у TDocFileMap ниже. }
+  { Voice-note file_id -> message — the same role as TAudioFileMap for
+    audio, a separate map (not shared): its own file_id, its own TDLib
+    cache file, the same principle as TDocFileMap below. }
   TVoiceFileMap = specialize TFPGMap<integer, TMsgRow>;
-  { file_id документа -> сообщение — та же роль, что TAudioFileMap у
-    аудио, отдельная карта (не общая с TAudioFileMap): у сообщения
-    ровно один Kind, но раздельные карты проще для чтения, чем общая
-    с веткой "какое поле обновлять" внутри. }
+  { Document file_id -> message — the same role as TAudioFileMap for
+    audio, a separate map (not shared with TAudioFileMap): a message
+    has exactly one Kind, but separate maps are easier to read than one
+    shared map with a "which field to update" branch inside. }
   TDocFileMap = specialize TFPGMap<integer, TMsgRow>;
-  { То же для фото — своя карта, не общая с аудио/документом (см.
-    комментарий у TDocFileMap). }
+  { Same for photos — its own map, not shared with audio/documents (see
+    the comment on TDocFileMap). }
   TPhotoFileMap = specialize TFPGMap<integer, TMsgRow>;
-  { То же для "гифок" (messageAnimation) — своя карта, не общая с
-    остальными (см. комментарий у TDocFileMap). }
+  { Same for "GIFs" (messageAnimation) — its own map, not shared with
+    the others (see the comment on TDocFileMap). }
   TAnimFileMap = specialize TFPGMap<integer, TMsgRow>;
-  { То же для видео-сообщений (messageVideo) — своя карта, не общая с
-    остальными (см. комментарий у TDocFileMap). }
+  { Same for video messages (messageVideo) — its own map, not shared
+    with the others (see the comment on TDocFileMap). }
   TVideoFileMap = specialize TFPGMap<integer, TMsgRow>;
-  { Превью-кадр видео (content.video.thumbnail.file) — отдельный file_id
-    от самого видео (TVideoFileMap выше), своя карта по той же причине. }
+  { Video preview frame (content.video.thumbnail.file) — a separate
+    file_id from the video itself (TVideoFileMap above), its own map
+    for the same reason. }
   TVideoThumbFileMap = specialize TFPGMap<integer, TMsgRow>;
-  { То же для стикеров (messageSticker) — своя карта, не общая с
-    остальными (см. комментарий у TDocFileMap). }
+  { Same for stickers (messageSticker) — its own map, not shared with
+    the others (see the comment on TDocFileMap). }
   TStickerFileMap = specialize TFPGMap<integer, TMsgRow>;
 
   TTdMessagesEvent = procedure(Sender: TObject) of object;
   TTdMessagesErrorEvent = procedure(Sender: TObject; ACode: integer;
     const AMessage, AAction: utf8string) of object;
-  { Пачка вокруг AMessageId применена (или сообщение уже было
-    загружено) и FRows точно её видит — см. JumpTo/JumpDone. }
+  { The batch around AMessageId has been applied (or the message was
+    already loaded) and FRows is guaranteed to see it — see
+    JumpTo/JumpDone. }
   TTdMessagesJumpEvent = procedure(Sender: TObject; AMessageId: Int64) of object;
 
   { TTdMessages
 
-    История одного открытого чата. В отличие от TTdChats, модель — не
-    постоянный наблюдатель за всем сразу: пока чат не открыт OpenChat,
-    апдейты по чужим сообщениям ей неинтересны. getChatHistory, в
-    отличие от loadChats, отдаёт сообщения прямо в ответе RPC (и в
-    порядке от новых к старым) — see HistoryDone. }
+    The history of one open chat. Unlike TTdChats, the model is not a
+    permanent observer of everything at once: until a chat is opened
+    via OpenChat, updates about other messages don't interest it.
+    Unlike loadChats, getChatHistory returns messages directly in the
+    RPC response (newest to oldest) — see HistoryDone. }
 
   TTdMessages = class(TComponent, ITdUpdateListener, ITdStateListener)
   private
     FSession: ITdSession;
     FReq:     TTdRequests;
-    FAll:     TMsgMap;    { все известные сообщения открытого чата, по id }
-    FRows:    TFPList;    { тот же набор, в хронологическом порядке }
+    FAll:     TMsgMap;    { every known message in the open chat, by id }
+    FRows:    TFPList;    { the same set, in chronological order }
     FTimer:   TTimer;
     FDirty:   boolean;
     FChatId:  Int64;
     FLoadingOlder: boolean;
     FOldestLoaded: boolean;
     FLoadLimit: integer;
-    { Сколько раз подряд getChatHistory ответил, не продвинув историю
-      дальше в прошлое. TDLib честно предупреждает в документации:
-      сообщений может прийти меньше limit, даже если история не
-      кончилась — часть иногда ещё летит из фонового префетча с
-      сервера. Даём несколько попыток тем же якорем, прежде чем
-      считать историю исчерпанной; см. HistoryDone/RetryTick. }
+    { How many times in a row getChatHistory has responded without
+      moving history further into the past. TDLib's own documentation
+      warns that fewer messages than limit can arrive even when history
+      isn't exhausted — sometimes because more is still in flight from
+      background server-side prefetch. A few retries with the same
+      anchor are given before history is considered exhausted; see
+      HistoryDone/RetryTick. }
     FNoProgressRetries: integer;
     FRetryTimer: TTimer;
     FOnChanged: TTdMessagesEvent;
@@ -332,37 +345,47 @@ type
     FOnActionError: TTdMessagesErrorEvent;
     FOnJumpReady: TTdMessagesJumpEvent;
 
-    { Превью цитируемых (reply_to) сообщений, которых ещё нет в FAll —
-      см. ReplyPreview/RequestReply/GetRepliedDone. Отдельная от FAll
-      структура намеренно: getRepliedMessage — разовый точечный запрос
-      "что там за сообщение", не часть последовательной пагинации, и
-      закидывать его результат в FAll сломало бы предположение
-      "FAll — непрерывный, без дыр, диапазон истории", на которое
-      опирается LoadOlder/якорь (см. комментарии там). }
+    { Previews of quoted (reply_to) messages not yet in FAll — see
+      ReplyPreview/RequestReply/GetRepliedDone. Deliberately kept
+      separate from FAll: getRepliedMessage is a one-off, targeted
+      "what is that message" request, not part of sequential
+      pagination, and dumping its result into FAll would break the
+      assumption that FAll is a CONTIGUOUS, gap-free range of history,
+      which LoadOlder/its anchor depends on (see the comments there). }
     FReplyCache: TReplyMap;
     FReplyPending: array of Int64;
 
-    { Скачивание аудиофайлов — см. EnsureAudioFile/ApplyAudioFile. }
+    { Audio-file downloads — see EnsureAudioFile/ApplyAudioFile. }
     FByFile: TAudioFileMap;
-    { Скачивание голосовых сообщений — см. EnsureVoiceFile/ApplyVoiceFile. }
+    { Voice-note downloads — see EnsureVoiceFile/ApplyVoiceFile. }
     FVoiceByFile: TVoiceFileMap;
-    { Скачивание файлов-документов — см. EnsureDocFile/ApplyDocFile. }
+    { Document-file downloads — see EnsureDocFile/ApplyDocFile. }
     FDocByFile: TDocFileMap;
-    { Скачивание фото — см. EnsurePhotoFile/ApplyPhotoFile. }
+    { Photo downloads — see EnsurePhotoFile/ApplyPhotoFile. }
     FPhotoByFile: TPhotoFileMap;
-    { Скачивание оригинала (самого большого слоя) — см. EnsurePhotoBestFile/
-      ApplyPhotoBestFile. Отдельная карта: разные file_id, разный кэш-файл
-      TDLib, чем у превью-загрузки выше (см. комментарий у TMsgRow.PhotoBestFileId). }
+    { Original (largest layer) downloads — see
+      EnsurePhotoBestFile/ApplyPhotoBestFile. A separate map: different
+      file_id, different TDLib cache file than the preview download
+      above (see the comment on TMsgRow.PhotoBestFileId). }
     FPhotoBestByFile: TPhotoFileMap;
-    { Скачивание "гифок" — см. EnsureAnimFile/ApplyAnimFile. }
+    { "GIF" downloads — see EnsureAnimFile/ApplyAnimFile. }
     FAnimByFile: TAnimFileMap;
-    { Скачивание видео-сообщений — см. EnsureVideoFile/ApplyVideoFile. }
+    { Video-message downloads — see EnsureVideoFile/ApplyVideoFile. }
     FVideoByFile: TVideoFileMap;
-    { Скачивание превью-кадра видео — см. EnsureVideoThumbFile/
-      ApplyVideoThumbFile. }
+    { Video preview-frame downloads — see
+      EnsureVideoThumbFile/ApplyVideoThumbFile. }
     FVideoThumbByFile: TVideoThumbFileMap;
-    { Скачивание стикеров — см. EnsureStickerFile/ApplyStickerFile. }
+    { Sticker downloads — see EnsureStickerFile/ApplyStickerFile. }
     FStickerByFile: TStickerFileMap;
+    { custom_emoji_ids with a getCustomEmojiStickers request in flight
+      — see IsCustomEmojiPending/MarkCustomEmojiPending/
+      ClearCustomEmojiPending, the same array-based approach as
+      FReplyPending above (small, short-lived set, no map needed). The
+      cache itself (metadata, file, decoded bitmap) lives in
+      customemoji.pas, not here — it's keyed by custom_emoji_id alone,
+      shared across every chat/row that happens to use the same custom
+      emoji, unlike the *ByFile maps above which are all per-TMsgRow. }
+    FCustomEmojiPending: array of Int64;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -413,6 +436,12 @@ type
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadStickerDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyStickerFile(AFile: TJSONObject);
+    function IsCustomEmojiPending(AId: Int64): boolean;
+    procedure MarkCustomEmojiPending(AId: Int64);
+    procedure ClearCustomEmojiPending(AId: Int64);
+    procedure GetCustomEmojiStickersDone(Sender: TObject; const AResp: TTdResponse);
+    procedure DownloadCustomEmojiDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyCustomEmojiFile(AFile: TJSONObject);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -428,80 +457,90 @@ type
     procedure RequestReply(AMessageId: Int64);
     procedure GetRepliedDone(Sender: TObject; const AResp: TTdResponse);
   public
-    { Модель принадлежит аккаунту, резолвер передаётся снаружи —
-      тот же приём, что у TTdChats. }
+    { The model belongs to an account, the resolver is passed in from
+      outside — the same approach as TTdChats. }
     constructor Create(AOwner: TComponent; const ASession: ITdSession;
       AReq: TTdRequests); reintroduce;
     destructor Destroy; override;
 
     procedure Clear;
-    { Переключение на другой чат. Тот же id — no-op (кроме
-      AJumpToMessageId <> 0, см. ниже). AJumpToMessageId <> 0 — вместо
-      обычной LoadOlder (свежие сообщения, с конца) грузит пачку ВОКРУГ
-      этого id (см. JumpTo) — переход по цитате репоста на чужое
-      сообщение в другом (или том же) чате, тем же путём, что и
-      "перейти к сообщению" в официальном клиенте: открыть чат и
-      прокрутить к сообщению, а не строить шэрабельную ссылку
-      (getMessageLink требует членства в чате — не наш случай для
-      источника репоста, которого обычно нет в списке чатов). }
+    { Switches to another chat. Same id is a no-op (except for
+      AJumpToMessageId <> 0, see below). AJumpToMessageId <> 0: instead
+      of a normal LoadOlder (recent messages, from the end), loads a
+      batch AROUND that id (see JumpTo) — following a forward-card
+      quote to another message in a different (or the same) chat, the
+      same way as "jump to message" in the official client: open the
+      chat and scroll to the message, rather than building a shareable
+      link (getMessageLink requires membership in the chat — not the
+      case for a forward's source, which is usually not in the chat
+      list). }
     procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0);
     procedure CloseChat;
-    { Подгрузить более старую страницу истории. }
+    { Loads an older page of history. }
     procedure LoadOlder;
-    { Индекс сообщения в Rows[] по его id, -1 если не загружено.
-      Нужен framehistory для выделения текста через несколько
-      сообщений и для удержания якоря прокрутки при LoadOlder. }
+    { The message's index in Rows[] by its id, -1 if not loaded. Needed
+      by framehistory for selecting text across several messages and
+      for holding the scroll anchor during LoadOlder. }
     function IndexOfId(AId: Int64): integer;
 
     procedure SendText(const AText: utf8string);
     procedure MarkRead(const AMessageIds: array of Int64);
-    { Догрузить (если ещё не загружено) и подготовить к показу пачку
-      сообщений ВОКРУГ AMessageId в ТЕКУЩЕМ открытом чате — не путать с
-      OpenChat(AChatId, AJumpToMessageId), который сначала переключает
-      чат целиком. Готовность — через OnJumpReady, синхронно (без RPC),
-      если AMessageId уже в FAll. }
+    { Loads (if not already loaded) and prepares for display a batch of
+      messages AROUND AMessageId in the CURRENTLY open chat — not to be
+      confused with OpenChat(AChatId, AJumpToMessageId), which first
+      switches chats entirely. Signaled via OnJumpReady, synchronously
+      (no RPC) if AMessageId is already in FAll. }
     procedure JumpTo(AMessageId: Int64);
-    { Данные для отрисовки цитаты reply_to — только для реплаев В ТОМ
-      ЖЕ чате (AChatId <> ChatId — кросс-чатные реплаи, напр. канал и
-      его группа обсуждения, не поддержаны в этом заходе: редкий
-      случай, не стоит заводить под него кэш с составным ключом
-      chat+message — возвращает False без попытки резолва).
-      Возвращает True и данные, если превью уже есть (в FAll или в
-      FReplyCache); False — превью ещё нет, но уже запущен (или вот-вот
-      запустится) getRepliedMessage, результат придёт через OnChanged. }
+    { Data for drawing a reply_to quote — replies within the SAME chat
+      only (AChatId <> ChatId — cross-chat replies, e.g. a channel and
+      its discussion group, aren't supported here: a rare case not
+      worth a cache keyed by a composite chat+message pair — returns
+      False without attempting a resolve).
+      Returns True with data if the preview is already available (in
+      FAll or FReplyCache); False means the preview isn't available
+      yet, but getRepliedMessage has been (or is about to be) started,
+      and the result will arrive via OnChanged. }
     function ReplyPreview(AChatId, AMessageId: Int64;
       out ASenderUserId, ASenderChatId: Int64; out APreviewText: utf8string): boolean;
-    { Запросить скачивание аудиофайла сообщения (см. AudioFileId), если
-      ещё не скачан и не запрошен. Результат приходит через updateFile
-      -> Touch (ARow.AudioLocalPath заполнится сам); framehistory узнаёт
-      об этом обычной перерисовкой, отдельного события не заводим — тот
-      же приём, что уже принят для аватарок (см. CLAUDE.md). }
+    { Requests the message's audio file (see AudioFileId) to be
+      downloaded, if not already downloaded or requested. The result
+      arrives via updateFile -> Touch (ARow.AudioLocalPath fills in on
+      its own); framehistory finds out through the ordinary repaint, no
+      separate event is set up — the same approach already used for
+      avatars. }
     procedure EnsureAudioFile(ARow: TMsgRow);
-    { То же самое для голосового сообщения (см. VoiceFileId) — тем же
-      приёмом. }
+    { Same for a voice note (see VoiceFileId) — the same approach. }
     procedure EnsureVoiceFile(ARow: TMsgRow);
-    { EnsureAudioFile/EnsureVoiceFile под одним именем — та же развязка
-      audio/voice_note "для вызывающего это один проигрываемый трек",
-      что и у PlayableLocalPath (см. её комментарий). }
+    { EnsureAudioFile/EnsureVoiceFile under one name — the same
+      audio/voice_note decoupling as "one playable track from the
+      caller's perspective" used by PlayableLocalPath (see its
+      comment). }
     procedure EnsurePlayableFile(ARow: TMsgRow);
-    { То же самое для файла-документа (см. DocFileId) — тем же приёмом. }
+    { Same for a document file (see DocFileId) — the same approach. }
     procedure EnsureDocFile(ARow: TMsgRow);
-    { То же самое для фото (см. PhotoFileId) — тем же приёмом. }
+    { Same for a photo (see PhotoFileId) — the same approach. }
     procedure EnsurePhotoFile(ARow: TMsgRow);
-    { Оригинал фото (см. PhotoBestFileId) — для "Save as"/"Show in
-      folder", отдельно от превью выше (см. комментарий у поля). }
+    { The photo's original (see PhotoBestFileId) — for "Save as"/"Show
+      in folder", separate from the preview above (see the field's
+      comment). }
     procedure EnsurePhotoBestFile(ARow: TMsgRow);
-    { То же самое для "гифки" (см. AnimFileId) — тем же приёмом. }
+    { Same for a "GIF" (see AnimFileId) — the same approach. }
     procedure EnsureAnimFile(ARow: TMsgRow);
-    { То же самое для видео-сообщения (см. VideoFileId) — тем же приёмом. }
+    { Same for a video message (see VideoFileId) — the same approach. }
     procedure EnsureVideoFile(ARow: TMsgRow);
-    { Превью-кадр видео (см. VideoThumbFileId) — БЕЗ гейта настроек Auto
-      download, тот же принцип, что у стикеров (см. комментарий у поля
-      TMsgRow.VideoThumbFileId) — framehistory.pas зовёт безусловно,
-      как только строка видна. }
+    { The video preview frame (see VideoThumbFileId) — WITHOUT the Auto
+      download settings gate, the same principle as stickers (see the
+      comment on the TMsgRow.VideoThumbFileId field) — framehistory.pas
+      calls this unconditionally as soon as the row is visible. }
     procedure EnsureVideoThumbFile(ARow: TMsgRow);
-    { То же самое для стикера (см. StickerFileId) — тем же приёмом. }
+    { Same for a sticker (see StickerFileId) — the same approach. }
     procedure EnsureStickerFile(ARow: TMsgRow);
+    { Fetches real stickers (via getCustomEmojiStickers, then the usual
+      downloadFile dance) for every distinct custom_emoji_id used in
+      ARow.Entities not already known — see customemoji.pas. Same
+      "framehistory.pas calls this unconditionally for visible rows, no
+      Auto download gate" principle as EnsureVideoThumbFile/stickers. }
+    procedure EnsureCustomEmojiForRow(ARow: TMsgRow);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -523,27 +562,32 @@ type
     property OnJumpReady: TTdMessagesJumpEvent read FOnJumpReady write FOnJumpReady;
   end;
 
-{ Значок статуса ИСХОДЯЩЕГО сообщения — то же понятие, что ChatReceipt в
-  tdchats.pas (переиспользуем его TChatReceipt, второй enum не заводим).
-  ALastReadOutbox — TChatRow.LastReadOutbox чата, которому принадлежит
-  ARow; framehistory.pas достаёт его через TdChatList.Lookup(ARow.ChatId). }
+{ Status icon for an OUTGOING message — the same concept as ChatReceipt
+  in tdchats.pas (its TChatReceipt is reused, no second enum is
+  defined). ALastReadOutbox is TChatRow.LastReadOutbox for the chat
+  ARow belongs to; framehistory.pas fetches it via
+  TdChatList.Lookup(ARow.ChatId). }
 function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
 
-{ Путь к уже скачанному файлу трека для проигрывания — messageAudio и
-  messageVoiceNote хранят его в РАЗНЫХ полях (AudioLocalPath/
-  VoiceLocalPath, разные file_id, разные карты скачивания в TTdMessages),
-  но framehistory.pas работает с ними как с ОДНИМ проигрываемым треком:
-  TAudioWidget — общий виджет и для аудио, и для голосового (по прямому
-  запросу пользователя, "функционал и внешний вид идентичные"), поэтому
-  и код вокруг проигрывания (StartPlayback/AudioPlayClick/ModelChanged)
-  не должен на каждом шагу решать заново, какое из двух полей читать.
-  '' — не Kind=mckAudio/mckVoiceNote, или файл ещё не скачан. }
+{ Path to the already-downloaded track file for playback — messageAudio
+  and messageVoiceNote store it in DIFFERENT fields (AudioLocalPath/
+  VoiceLocalPath, different file_id, different download maps in
+  TTdMessages), but framehistory.pas treats them as ONE playable track:
+  TAudioWidget is a shared widget for both audio and voice notes
+  ("identical functionality and appearance"), so the code around
+  playback (StartPlayback/AudioPlayClick/ModelChanged) shouldn't have
+  to re-decide which of the two fields to read at every step.
+  '' means Kind isn't mckAudio/mckVoiceNote, or the file isn't
+  downloaded yet. }
 function PlayableLocalPath(ARow: TMsgRow): utf8string;
-{ Та же развязка audio/voice_note, для длительности (AudioDuration/
-  VoiceDuration) — нужна при перемотке (AFraction * длительность). }
+{ The same audio/voice_note decoupling, for duration (AudioDuration/
+  VoiceDuration) — needed when seeking (AFraction * duration). }
 function PlayableDuration(ARow: TMsgRow): integer;
 
 implementation
+
+uses
+  customemoji;
 
 function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
 begin
@@ -587,10 +631,10 @@ begin
   end;
 end;
 
-{ Длина UTF-8 символа по ведущему байту — тот же приём, что в
-  avatarcache.Utf8CharLen. Не переиспользуем сам юнит: avatarcache
-  тянет Graphics/BGRABitmap, а tdmessages обязан остаться без LCL,
-  как и tdchats. }
+{ UTF-8 character length from its leading byte — the same logic as
+  avatarcache.Utf8CharLen. That unit isn't reused directly: avatarcache
+  pulls in Graphics/BGRABitmap, and tdmessages must stay LCL-free, same
+  as tdchats. }
 function Utf8CharLen(AByte: byte): integer;
 begin
   if AByte < $80 then begin
@@ -606,13 +650,13 @@ begin
   end;
 end;
 
-{ TDLib считает offset/length сущности в UTF-16 code units (суррогатная
-  пара — 2 единицы). PlainText — utf8string, индексируем байтами.
-  Проходим строку один раз, декодируя кодпоинты, и считаем совпадающие
-  байтовые границы. Сущность, чья граница провалилась бы ВНУТРЬ
-  суррогатной пары (можно только для не-BMP символов, то есть
-  большинства эмодзи), округляется до ближайшей границы кодпоинта —
-  такое встречается редко и не критично для v1. }
+{ TDLib counts an entity's offset/length in UTF-16 code units (a
+  surrogate pair counts as 2 units). PlainText is a utf8string, indexed
+  by byte. This walks the string once, decoding code points, and tracks
+  the matching byte boundaries. An entity whose boundary would fall
+  INSIDE a surrogate pair (possible only for non-BMP characters, i.e.
+  most emoji) is rounded to the nearest code-point boundary — rare and
+  not critical for v1. }
 procedure Utf16RangeToByteRange(const AText: utf8string;
   AUtf16Offset, AUtf16Length: integer; out AByteStart, AByteLen: integer);
 var
@@ -661,7 +705,7 @@ begin
     Inc(I, CodeLen);
     if Units >= TargetEnd then begin
       if AByteStart > N then begin
-        AByteStart := I;   { TargetStart попал внутрь последнего символа }
+        AByteStart := I;   { TargetStart fell inside the last character }
       end;
       AByteLen := I - AByteStart;
       Exit;
@@ -686,13 +730,14 @@ begin
   end else if AType = 'messageSticker' then begin
     Result := mckSticker;
   end else if AType = 'messageAnimatedEmoji' then begin
-    { Большая анимированная эмодзи-реакция (просто эмодзи в сообщении,
-      без текста вокруг) — TDLib заворачивает её В ТОЧНОСТИ в тот же
-      sticker-объект, что и обычный стикер, просто на один уровень
-      глубже (content.animated_emoji.sticker вместо content.sticker,
-      см. ExtractStickerMeta) — проверено по tdlib_raw.log (106
-      вхождений за сессию, заметно ЧАЩЕ обычных стикеров, 32) — тот же
-      виджет, тот же рендер, никакого отдельного Kind не нужно. }
+    { A large animated emoji reaction (just an emoji sent on its own,
+      with no surrounding text) — TDLib wraps it in EXACTLY the same
+      sticker object as a regular sticker, just one level deeper
+      (content.animated_emoji.sticker instead of content.sticker, see
+      ExtractStickerMeta) — confirmed from tdlib_raw.log (106
+      occurrences in one session, noticeably MORE often than regular
+      stickers at 32) — the same widget, the same rendering, no
+      separate Kind needed. }
     Result := mckSticker;
   end else if AType = 'messageVoiceNote' then begin
     Result := mckVoiceNote;
@@ -723,6 +768,16 @@ begin
     Result := mekStrikethrough;
   end else if AType = 'textEntityTypeUnderline' then begin
     Result := mekUnderline;
+  end else if AType = 'textEntityTypeCustomEmoji' then begin
+    Result := mekCustomEmoji;
+  end else if (AType = 'textEntityTypeBlockQuote')
+           or (AType = 'textEntityTypeExpandableBlockQuote') then begin
+    { Both render the same way here — the expandable/collapsible
+      behavior itself (a "show more" toggle for long quotes) is not
+      implemented, only the visual "this is a quote" treatment, same
+      as any other entity kind this project doesn't fully model yet
+      (see e.g. mekPre, which also has no dedicated rendering). }
+    Result := mekBlockQuote;
   end else begin
     Result := mekNone;
   end;
@@ -840,22 +895,23 @@ end;
 procedure TTdMessages.OpenChat(AChatId: Int64; AJumpToMessageId: Int64);
 begin
   if FChatId = AChatId then begin
-    { Тот же чат — обычно no-op, но переход по цитате может указывать
-      на сообщение в ТЕКУЩЕМ же открытом чате (репост из соседнего
-      сообщения той же переписки) — историю целиком не перезагружаем,
-      просто догружаем/показываем нужный участок. }
+    { Same chat — usually a no-op, but a quote jump can still point at
+      a message in the CURRENTLY open chat (a forward from another
+      message in the same conversation) — history isn't reloaded from
+      scratch, just the needed section is fetched/shown. }
     if AJumpToMessageId <> 0 then begin
       JumpTo(AJumpToMessageId);
     end;
     Exit;
   end;
-  { closeChat/openChat — не для данных (те идут апдейтами и RPC-ответами
-    независимо), а чтобы СКАЗАТЬ TDLib, какой чат сейчас реально
-    показан пользователю. Без этого TDLib считает себя вправе вытеснять
-    кэш сообщений давно не "открытого" явно чата и присылает
-    updateDeleteMessages с from_cache:true — раньше это принималось за
-    настоящее удаление (см. TdUpdate), и открытый часами чат мог
-    свестись к одному сообщению. }
+  { closeChat/openChat aren't about data (that flows independently
+    through updates and RPC responses) — they TELL TDLib which chat is
+    actually being shown to the user right now. Without this, TDLib
+    considers itself free to evict the message cache of a chat that
+    hasn't been explicitly "open" for a while, and sends
+    updateDeleteMessages with from_cache:true — previously treated as
+    a real deletion (see TdUpdate), which could shrink a chat left open
+    for hours down to a single message. }
   if (FChatId <> 0) and (FReq <> nil) then begin
     FReq.SendRequest('closeChat', '"chat_id":' + utf8string(IntToStr(FChatId)), @ActionDone);
   end;
@@ -903,13 +959,13 @@ function TTdMessages.IndexOfId(AId: Int64): integer;
 var
   I: integer;
 begin
-  { Намеренно линейный проход по FRows, а не FAll.IndexOf: FAll и
-    FRows могут разойтись на время окна коалесации (до 50 мс после
-    Touch, пока не сработал Rebuild) — LoadOlder добавляет в FAll
-    сообщения с МЕНЬШИМ id, то есть сдвигает индексы существующих
-    записей в FAll раньше, чем FRows это увидит. Линейный проход по
-    FRows всегда согласован с Count/Rows[], которыми и пользуется
-    вызывающий (framehistory). }
+  { A deliberate linear scan over FRows rather than FAll.IndexOf: FAll
+    and FRows can drift apart during the debounce window (up to 50ms
+    after Touch, before Rebuild fires) — LoadOlder adds messages with
+    SMALLER ids to FAll, shifting the indices of existing FAll entries
+    before FRows sees it. A linear scan over FRows always stays
+    consistent with Count/Rows[], which the caller (framehistory)
+    actually uses. }
   Result := -1;
   for I := 0 to FRows.Count - 1 do begin
     if TMsgRow(FRows[I]).Id = AId then begin
@@ -956,9 +1012,9 @@ begin
   end;
   FDirty := False;
 
-  { FAll отсортирован по id (TFPGMap.Sorted), а id сообщений в TDLib
-    монотонно неубывающий в рамках чата — то есть FAll.Data уже в
-    хронологическом порядке, пересортировка не нужна. }
+  { FAll is sorted by id (TFPGMap.Sorted), and TDLib message ids are
+    monotonically non-decreasing within a chat — so FAll.Data is
+    already in chronological order, no re-sort needed. }
   FRows.Clear;
   for I := 0 to FAll.Count - 1 do begin
     FRows.Add(FAll.Data[I]);
@@ -993,35 +1049,37 @@ begin
   end;
   SetLoadingOlder(True);
 
-  { ВАЖНО: якорь берём из FAll, а не FRows. FRows — производный вид,
-    пересобирается отложенно, по 50-мс таймеру (Touch/Rebuild), а FAll
-    обновляется СИНХРОННО внутри ApplyMessage. Если якорь брать из
-    FRows, есть окно до 50 мс, где FRows ещё не видит только что
-    применённый ответ — LoadOlder, вызванный в этом окне (пользователь
-    продолжает скроллить, ScrollerNearTop стреляет повторно), уходит
-    со старым, уже устаревшим from_message_id. Подтверждено логом
-    (tdlib_raw.log): req:13/req:14 ушли с ТЕМ ЖЕ from_message_id, что
-    и req:12, хотя req:12 к тому моменту уже сдвинул историю дальше —
-    именно потому, что LoadOlder читал ещё не пересобранный FRows.
+  { IMPORTANT: the anchor is taken from FAll, not FRows. FRows is a
+    derived view, rebuilt on a delay via a 50ms timer (Touch/Rebuild),
+    while FAll is updated SYNCHRONOUSLY inside ApplyMessage. Taking the
+    anchor from FRows would leave up to a 50ms window where FRows
+    hasn't yet seen a just-applied response — a LoadOlder call landing
+    in that window (the user keeps scrolling, ScrollerNearTop fires
+    again) would go out with a stale, already-superseded
+    from_message_id. Confirmed from tdlib_raw.log: req:13/req:14 went
+    out with the SAME from_message_id as req:12, even though req:12 had
+    already moved history further by then — precisely because LoadOlder
+    was reading a not-yet-rebuilt FRows.
 
-    from_message_id = якорь МИНУС TD_MESSAGE_ID_STEP (не сам якорь) при
-    offset:0 — не сама известная граница, а соседняя "позиция" чуть
-    старше нашего самого старого сообщения. offset:0 у TDLib
-    "начинается точно с from_message_id"; если передавать сам якорь
-    (уже известное, закэшированное сообщение), это на практике не
-    двигает историю вовсе — см. предыдущую попытку с отрицательным
-    offset, которая хоть и не залипала намертво, но давала эмпирически
-    ровно одно новое сообщение за запрос из-за 49/50 перекрытия окна
-    при offset:-(limit-1).
+    from_message_id = the anchor MINUS TD_MESSAGE_ID_STEP (not the
+    anchor itself) with offset:0 — not the known boundary itself, but
+    the neighboring "slot" just older than our oldest known message.
+    TDLib's offset:0 "starts exactly at from_message_id"; passing the
+    anchor itself (an already-known, cached message) doesn't move
+    history at all in practice — see the earlier attempt with a
+    negative offset, which didn't get stuck outright but empirically
+    yielded exactly one new message per request, due to a 49/50 window
+    overlap at offset:-(limit-1).
 
-    ВНИМАНИЕ (одна версия этого фикса уже наступила на эти грабли):
-    вычитать нужно именно TD_MESSAGE_ID_STEP, НЕ произвольную единицу —
-    id обязан остаться кратным этой константе, иначе TDLib отвечает
-    "code":400 "Invalid value of parameter from_message_id specified"
-    на КАЖДЫЙ такой запрос, а поскольку ошибка не продвигает якорь,
-    следующий вызов LoadOlder пересчитывает ТОТ ЖЕ невалидный id и
-    получает ту же ошибку — без защиты в HistoryDone (см. ниже) это
-    плотный бесконечный цикл запрос/ошибка, что и произошло. }
+    WARNING (one version of this fix already hit this): the subtraction
+    must be exactly TD_MESSAGE_ID_STEP, NOT an arbitrary unit — the id
+    must stay a multiple of that constant, otherwise TDLib responds
+    with code 400 "Invalid value of parameter from_message_id
+    specified" on EVERY such request, and since the error doesn't move
+    the anchor, the next LoadOlder call recomputes the SAME invalid id
+    and gets the same error — without the guard in HistoryDone (see
+    below), this is a tight infinite request/error loop, which is
+    exactly what happened once. }
   if FAll.Count = 0 then begin
     Anchor := 0;
     Offset := 0;
@@ -1030,16 +1088,18 @@ begin
     Offset := 0;
   end;
 
-  { ВНИМАНИЕ: имена параметров сверены по общему знанию схемы TDLib,
-    не по локальному td_api.tl (его в репозитории нет) — при первом
-    реальном запуске стоит перепроверить по документации.
+  { NOTE: parameter names are cross-checked against general knowledge
+    of the TDLib schema, not a local td_api.tl (not present in this
+    repository) — worth re-verifying against the documentation on the
+    first real run.
 
-    Tag = FChatId: если пользователь успеет переключиться на другой
-    чат, пока этот запрос летит, ответ придёт УЖЕ для чужого FChatId.
-    HistoryDone сверяет Tag и молча игнорирует такой ответ — иначе он
-    мог бы сбросить FLoadingOlder/FOldestLoaded ТЕКУЩЕГО чата чужими
-    данными (PtrInt на этой платформе — 8 байт, как и Int64: проект
-    собирается только под win64). }
+    Tag = FChatId: if the user switches to a different chat while this
+    request is in flight, the response arrives for what is now a
+    different FChatId. HistoryDone checks Tag and silently ignores such
+    a response — otherwise it could reset the CURRENT chat's
+    FLoadingOlder/FOldestLoaded with data belonging to someone else's
+    chat (PtrInt is 8 bytes on this platform, same as Int64: the
+    project only builds for win64). }
   FReq.SendRequest('getChatHistory',
     '"chat_id":' + utf8string(IntToStr(FChatId)) +
     ',"from_message_id":' + utf8string(IntToStr(Anchor)) +
@@ -1054,8 +1114,9 @@ var
   I: integer;
   OldestBefore, OldestAfter: Int64;
 begin
-  { Ответ по чату, который пользователь уже закрыл/сменил, пока
-    запрос летел — не наш случай, состояние ТЕКУЩЕГО чата не трогаем. }
+  { A response for a chat the user already closed/switched away from
+    while the request was in flight — not this case, the CURRENT
+    chat's state is left untouched. }
   if AResp.Tag <> PtrInt(FChatId) then begin
     Exit;
   end;
@@ -1067,20 +1128,21 @@ begin
       Exit;
     end;
     if Assigned(FOnActionError) then begin
-      { Иначе сбой getChatHistory (напр. неверное имя параметра) тонет
-        молча: список остаётся пустым без единого следа почему. }
+      { Otherwise a getChatHistory failure (e.g. a wrong parameter
+        name) fails silently: the list stays empty with no clue why. }
       FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'history');
     end;
-    { ВАЖНО: ошибка обязана идти через ТОТ ЖЕ счётчик/бэкофф, что и
-      "успех без продвижения" ниже, а не просто Exit. Причина — не
-      гипотетическая: именно отсутствие этой защиты превратило один
-      неверно посчитанный from_message_id в плотный бесконечный цикл
-      запрос→ошибка→(FLoadingOlder уже False)→MaybeLoadMore/
-      ScrollerNearTop зовёт LoadOlder снова→тот же якорь→та же ошибка
-      (см. tdlib_raw.log: 108 тысяч запросов подряд с кодом 400).
-      Если LoadOlder при следующем вызове пересчитает тот же самый
-      негодный якорь — за MAX_NO_PROGRESS_RETRIES попыток сдаёмся и
-      считаем историю исчерпанной, вместо бесконечного долбления. }
+    { IMPORTANT: an error must go through the SAME counter/backoff as
+      "success without progress" below, not a plain Exit. The reason
+      isn't hypothetical — the absence of exactly this guard once
+      turned one incorrectly-computed from_message_id into a tight
+      infinite loop: request -> error -> (FLoadingOlder already False)
+      -> MaybeLoadMore/ScrollerNearTop calls LoadOlder again -> same
+      anchor -> same error (108 thousand consecutive code-400 requests
+      recorded in tdlib_raw.log). If LoadOlder recomputes the same bad
+      anchor on the next call, give up after MAX_NO_PROGRESS_RETRIES
+      attempts and treat history as exhausted, instead of hammering
+      indefinitely. }
     Inc(FNoProgressRetries);
     if FNoProgressRetries >= MAX_NO_PROGRESS_RETRIES then begin
       FOldestLoaded := True;
@@ -1097,22 +1159,22 @@ begin
     Exit;
   end;
 
-  { Самое старое сообщение ДО применения пачки — берём из FAll
-    (отсортирован по id), а не FRows: FRows пересобирается отложенно,
-    по 50-мс таймеру Touch/Rebuild, и в этот самый момент ещё не
-    видит то, что мы вот-вот применим. }
+  { The oldest message BEFORE applying the batch, taken from FAll
+    (sorted by id), not FRows: FRows rebuilds on a delay via the 50ms
+    Touch/Rebuild timer, and at this exact moment it hasn't yet seen
+    what's about to be applied. }
   if FAll.Count = 0 then begin
     OldestBefore := 0;
   end else begin
     OldestBefore := FAll.Data[0].Id;
   end;
 
-  { getChatHistory отдаёт сообщения от новых к старым — применяем в
-    обратном порядке, чтобы FAll заполнялся от старых к новым.
-    Каждое сообщение — в своём try/except: одна неожиданная форма
-    JSON (например, ещё не встречавшийся тип content) не должна
-    обрывать всю пачку и уж тем более не должна вылететь наружу через
-    TTdRequests.Resolve, где её никто не ловит. }
+  { getChatHistory returns messages newest to oldest — applied in
+    reverse order so FAll fills in oldest-to-newest order. Each message
+    gets its own try/except: one unexpected JSON shape (e.g. a
+    content type not seen before) must not abort the whole batch, and
+    certainly must not escape through TTdRequests.Resolve, where
+    nothing would catch it. }
   for I := Arr.Count - 1 downto 0 do begin
     if Arr.Items[I].JSONType = jtObject then begin
       try
@@ -1127,25 +1189,27 @@ begin
     end;
   end;
 
-  { НЕ "Arr.Count < FLoadLimit ⇒ история кончилась": по документации
-    getChatHistory число реально возвращённых сообщений выбирает сам
-    TDLib "для оптимальной производительности" и может быть меньше
-    limit ЗАДОЛГО до того, как история кончится (официально
-    подтверждено: "fewer messages may be returned... even if the end
-    of the message history has not been reached" — иногда потому что
-    остальное ещё летит из фонового префетча с сервера, см.
-    github.com/tdlib/td issues #236 и #740). Единственный надёжный
-    признак конца — пустой массив (см. выше) или 404.
+  { NOT "Arr.Count < FLoadLimit means history is exhausted": per the
+    documentation, getChatHistory lets TDLib itself choose how many
+    messages to actually return "for optimal performance", and that
+    can be fewer than limit LONG before history actually ends
+    (officially confirmed: "fewer messages may be returned... even if
+    the end of the message history has not been reached" — sometimes
+    because the rest is still in flight from background server-side
+    prefetch, see github.com/tdlib/td issues #236 and #740). The only
+    reliable end-of-history signal is an empty array (see above) or a
+    404.
 
-    Но точно так же нельзя бесконечно долбить getChatHistory тем же
-    якорем без счётчика: если пачка НЕ продвинула историю дальше в
-    прошлое (частый случай — TDLib присылает 1 дубликат самого
-    якоря, см. комментарий мейнтейнера в issue #236), даём ещё
-    несколько попыток С ЗАДЕРЖКОЙ (через FRetryTimer, не синхронно —
-    синхронный повтор внутри этого же колбэка уже один раз подвесил
-    приложение плотным циклом запрос/ответ/перестройка). Только после
-    MAX_NO_PROGRESS_RETRIES неудач подряд считаем историю
-    исчерпанной. }
+    But just as surely, getChatHistory must not be hammered with the
+    same anchor indefinitely without a counter: if a batch does NOT
+    move history further into the past (a common case — TDLib sends
+    back a single duplicate of the anchor itself, see the maintainer's
+    comment in issue #236), a few more DELAYED retries are given
+    (through FRetryTimer, not synchronously — a synchronous retry
+    inside this same callback once hung the app in a tight
+    request/response/rebuild loop). Only after
+    MAX_NO_PROGRESS_RETRIES consecutive failures is history considered
+    exhausted. }
   if FAll.Count = 0 then begin
     OldestAfter := 0;
   end else begin
@@ -1189,9 +1253,9 @@ begin
   if AType = 'messageText' then begin
     FT := JGetObj(AContent, 'text');
   end else begin
-    { Остальные типы, у которых бывает подпись (фото, видео, аудио,
-      документ, анимация, ...), хранят её тоже как formattedText —
-      в поле caption. }
+    { Every other type that can have a caption (photo, video, audio,
+      document, animation, ...) stores it the same way, as a
+      formattedText, in the caption field. }
     FT := JGetObj(AContent, 'caption');
   end;
   if FT = nil then begin
@@ -1226,21 +1290,25 @@ begin
     AEntities[N].ByteStart := ByteStart;
     AEntities[N].ByteLen := ByteLen;
     AEntities[N].Kind := EKind;
+    AEntities[N].CustomEmojiId := 0;
     if EKind = mekTextUrl then begin
       AEntities[N].URL := JGetStr(TypeObj, 'url');
     end else begin
       AEntities[N].URL := '';
+      if EKind = mekCustomEmoji then begin
+        AEntities[N].CustomEmojiId := JGetInt64(TypeObj, 'custom_emoji_id');
+      end;
     end;
     Inc(N);
   end;
   SetLength(AEntities, N);
 end;
 
-{ messageAudio.audio — метаданные из самого файла (ID3 и т.п.), TDLib
-  отдаёт их сразу в content, без скачивания/декода аудио. Проверено по
-  tdlib_raw.log: "content":{"@type":"messageAudio","audio":{"@type":
-  "audio","duration":214,"title":"...","performer":"...","file_name":
-  "..."}}. }
+{ messageAudio.audio — metadata from the file itself (ID3 etc.), which
+  TDLib includes directly in content, with no download/decode needed.
+  Confirmed from tdlib_raw.log: "content":{"@type":"messageAudio",
+  "audio":{"@type":"audio","duration":214,"title":"...","performer":
+  "...","file_name":"..."}}. }
 procedure TTdMessages.ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
   out ADuration: integer; out ATitle, APerformer, AFileName: utf8string;
   out AFileId: integer; out ALocalPath: utf8string);
@@ -1265,9 +1333,10 @@ begin
   APerformer := JGetStr(AudioObj, 'performer');
   AFileName := JGetStr(AudioObj, 'file_name');
 
-  { content.audio.audio — сам скачиваемый файл (TDLib-объект file),
-    отдельный уровень от content.audio (метаданные трека) — оба зовутся
-    "audio", проверено по tdlib_raw.log, не по памяти. }
+  { content.audio.audio is the downloadable file itself (a TDLib file
+    object), a separate level from content.audio (the track's
+    metadata) — both are named "audio", confirmed from tdlib_raw.log,
+    not from memory. }
   FileObj := JGetObj(AudioObj, 'audio');
   if FileObj = nil then begin
     Exit;
@@ -1279,15 +1348,15 @@ begin
   end;
 end;
 
-{ messageVoiceNote.voice_note — тот же двухуровневый приём, что и
-  content.audio.audio: content.voice_note — метаданные (тут — только
-  duration, TDLib не даёт title/performer/file_name для голосовых),
-  content.voice_note.voice — сам скачиваемый TDLib-объект file.
-  Проверено по tdlib_raw.log ("voice_note":{"@type":"voiceNote",
-  "duration":7,"waveform":"...","mime_type":"audio/ogg","voice":
-  {"@type":"file",...}}), не по памяти. waveform — есть, не читаем:
-  виджет "тот же, что аудио" не рисует форму волны (см. запрос
-  пользователя — идентичный внешний вид с TAudioWidget). }
+{ messageVoiceNote.voice_note — the same two-level scheme as
+  content.audio.audio: content.voice_note is metadata (only duration
+  here — TDLib provides no title/performer/file_name for voice notes),
+  content.voice_note.voice is the downloadable TDLib file object
+  itself. Confirmed from tdlib_raw.log ("voice_note":{"@type":
+  "voiceNote","duration":7,"waveform":"...","mime_type":"audio/ogg",
+  "voice":{"@type":"file",...}}), not from memory. waveform is present
+  but not read: the widget shared with regular audio doesn't draw a
+  waveform (matching TAudioWidget's appearance exactly). }
 procedure TTdMessages.ExtractVoiceMeta(AContent: TJSONObject; const AType: utf8string;
   out ADuration: integer; out AFileId: integer; out ALocalPath: utf8string);
 var
@@ -1316,10 +1385,10 @@ begin
   end;
 end;
 
-{ messageDocument.document — тот же приём двойного "document" в JSON,
-  что и content.audio.audio выше: content.document — метаданные (имя
-  файла), content.document.document — сам скачиваемый TDLib-объект
-  file. Проверено по tdlib_raw.log, не по памяти. }
+{ messageDocument.document — the same double-"document" JSON scheme as
+  content.audio.audio above: content.document is metadata (file name),
+  content.document.document is the downloadable TDLib file object
+  itself. Confirmed from tdlib_raw.log, not from memory. }
 procedure TTdMessages.ExtractDocMeta(AContent: TJSONObject; const AType: utf8string;
   out AFileName: utf8string; out AFileSize: Int64;
   out AFileId: integer; out ALocalPath: utf8string);
@@ -1351,25 +1420,26 @@ begin
   end;
 end;
 
-{ messagePhoto.photo — content.photo.minithumbnail — крошечный JPEG
-  прямо в контенте (base64, поле data), не нужно скачивать; content.
-  photo.sizes — массив photoSize (type/width/height/photo — сам
-  скачиваемый TDLib-объект file), проверено по tdlib_raw.log, не по
-  памяти. Два РАЗНЫХ слоя выбираются из одного массива за один проход:
-  AFileId/ALocalPath — НАИМЕНЬШИЙ слой, которого хватает, чтобы заполнить
-  превью PHOTO_MAX_WIDTH×PHOTO_MAX_HEIGHT (msglayout.pas) БЕЗ апскейла —
-  раньше здесь был жёстко зашит type='m' (по прямому запросу пользователя
-  переделано: 'm' у Telegram — фиксированный бокс примерно 320px,
-  заметно мельче PHOTO_MAX_WIDTH/HEIGHT=400, и ComputePhotoPreviewSize
-  всё равно не станет его увеличивать — итог был не "наш плохой ресемпл",
-  а честно мелкая, к тому же сильнее сжатая JPEG-прослойка, показанная
-  МЕНЬШЕ, чем место под неё в блоке). Если ни один слой не дотягивает до
-  цели (сам исходник мельче PHOTO_MAX_WIDTH/HEIGHT) — тот же слой, что и
-  ABestFileId ниже, крупнее найти неоткуда. ABestFileId/ABestLocalPath —
-  слой с максимальным width*height, для "Save as"/"Show in folder"
-  (сохранять нужно оригинал, не превью-копию) — по площади, а не по
-  порядку в массиве, не полагаемся на то, что TDLib всегда отдаёт sizes
-  от меньшего к большему. }
+{ messagePhoto.photo — content.photo.minithumbnail is a tiny JPEG right
+  in the content (base64, the data field), no download needed;
+  content.photo.sizes is an array of photoSize (type/width/height/photo
+  — the downloadable TDLib file object itself), confirmed from
+  tdlib_raw.log, not from memory. TWO DIFFERENT layers are picked out
+  of one array in a single pass: AFileId/ALocalPath is the SMALLEST
+  layer that's still enough to fill the PHOTO_MAX_WIDTH×PHOTO_MAX_HEIGHT
+  preview (msglayout.pas) WITHOUT upscaling — this used to be hardcoded
+  to type='m' (Telegram's 'm' is a fixed box around 320px, noticeably
+  smaller than PHOTO_MAX_WIDTH/HEIGHT=400, and
+  ComputePhotoPreviewSize won't upscale it either way — the result
+  wasn't "our resample is bad" but an honestly small, more heavily
+  compressed JPEG layer, shown SMALLER than the space allotted for it
+  in the block). If no layer reaches the target (the source itself is
+  smaller than PHOTO_MAX_WIDTH/HEIGHT), the same layer as ABestFileId
+  below is used — there's nowhere bigger to find. ABestFileId/
+  ABestLocalPath is the layer with the maximum width*height, for "Save
+  as"/"Show in folder" (saving needs the original, not the preview
+  copy) — chosen by area, not array order, since TDLib's ordering of
+  sizes from smallest to largest isn't relied upon. }
 procedure TTdMessages.ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8string;
   out AWidth, AHeight: integer; out AMinithumb: RawByteString;
   out AFileId: integer; out ALocalPath: utf8string;
@@ -1461,13 +1531,14 @@ begin
   end;
 end;
 
-{ messageAnimation.animation — content.animation.minithumbnail — тот же
-  крошечный JPEG, что и у фото (base64, поле data), без скачивания;
-  content.animation.animation — сам скачиваемый TDLib-объект file (тот
-  же приём двойного имени, что content.audio.audio) — проверено по
-  tdlib_raw.log (реальные сообщения с "гифками" уже встречались там),
-  не по памяти. В отличие от фото — ОДИН слой, не массив sizes: Telegram
-  отдаёт "гифку" одним MP4-файлом целиком, набора превью-размеров нет. }
+{ messageAnimation.animation — content.animation.minithumbnail is the
+  same kind of tiny JPEG as a photo's (base64, the data field), no
+  download needed; content.animation.animation is the downloadable
+  TDLib file object itself (the same double-name scheme as
+  content.audio.audio) — confirmed from tdlib_raw.log (real "GIF"
+  messages have been observed there), not from memory. Unlike a photo,
+  there's ONE layer, not an array of sizes: Telegram delivers a "GIF"
+  as a single whole MP4 file, with no set of preview sizes. }
 procedure TTdMessages.ExtractAnimMeta(AContent: TJSONObject; const AType: utf8string;
   out AWidth, AHeight, ADuration: integer; out AMinithumb: RawByteString;
   out AFileId: integer; out ALocalPath: utf8string);
@@ -1511,21 +1582,22 @@ begin
   end;
 end;
 
-{ messageVideo.video — тот же приём двойного имени "video" в JSON
-  (content.video.video — сам скачиваемый TDLib-объект file,
-  content.video — метаданные), что и у content.animation.animation —
-  проверено по tdlib_raw.log (55 совпадений с реальными видео-
-  сообщениями), не по памяти. Один слой, как у "гифки", не массив
-  sizes, как у фото.
+{ messageVideo.video — the same double-"video" JSON naming
+  (content.video.video is the downloadable TDLib file object,
+  content.video is metadata) as content.animation.animation —
+  confirmed from tdlib_raw.log (55 matches against real video
+  messages), not from memory. One layer, like a "GIF", not an array of
+  sizes like a photo.
 
-  content.video.thumbnail — ОТДЕЛЬНЫЙ объект, не то же самое, что
-  content.video.video: это фиксированный JPEG-кадр (не base64, свой
-  скачиваемый file, вложенный на уровень глубже — thumbnail.file.id/
-  thumbnail.file.local), используется для превью в чате вместо прежнего
-  блюра из minithumbnail (см. комментарий у TMsgRow.VideoThumbFileId,
-  почему). thumbnail.width/height — на том же уровне, что и file, а не
-  внутри него — известны сразу из метаданных сообщения, без ожидания
-  скачивания самого JPEG. }
+  content.video.thumbnail is a SEPARATE object, not the same thing as
+  content.video.video: a fixed JPEG frame (not base64, its own
+  downloadable file, nested one level deeper — thumbnail.file.id/
+  thumbnail.file.local), used for the chat preview in place of the
+  earlier blur from a minithumbnail (see the comment on
+  TMsgRow.VideoThumbFileId for why). thumbnail.width/height sit at the
+  same level as file, not inside it — known immediately from the
+  message's metadata, without waiting for the JPEG itself to
+  download. }
 procedure TTdMessages.ExtractVideoMeta(AContent: TJSONObject; const AType: utf8string;
   out AWidth, AHeight, ADuration: integer;
   out AThumbFileId, AThumbWidth, AThumbHeight: integer; out AThumbLocalPath: utf8string;
@@ -1596,12 +1668,12 @@ begin
   if AType = 'messageSticker' then begin
     StickerObj := JGetObj(AContent, 'sticker');
   end else if AType = 'messageAnimatedEmoji' then begin
-    { content.animated_emoji.sticker — тот же sticker-объект, что и у
-      обычного стикера, на один уровень глубже (см. её же комментарий
-      в ContentKindFromType). animated_emoji может в принципе прийти
-      без стикера вовсе (TDLib формально допускает sticker=null, если
-      для этого эмодзи анимация не настроена) — JGetObj вернёт nil,
-      обработано ниже тем же общим Exit, что и у обычного стикера. }
+    { content.animated_emoji.sticker is the same sticker object as a
+      regular sticker, one level deeper (see the comment in
+      ContentKindFromType). animated_emoji can in principle arrive
+      without a sticker at all (TDLib formally allows sticker=null when
+      no animation is configured for that emoji) — JGetObj returns nil,
+      handled below by the same general Exit as a regular sticker. }
     EmojiObj := JGetObj(AContent, 'animated_emoji');
     StickerObj := JGetObj(EmojiObj, 'sticker');
   end else begin
@@ -1623,10 +1695,11 @@ begin
     AFormat := sfWebp;
   end;
 
-  { content.sticker.sticker — тот же приём двойного имени, что и у
-    video/audio/animation, но ЗДЕСЬ поле идёт ПОСЛЕ thumbnail (сверено
-    по официальным docs.core.telegram.org/tdlib, не угадано и не по
-    аналогии с остальными типами — там порядок другой). }
+  { content.sticker.sticker uses the same double-name scheme as
+    video/audio/animation, but HERE the field comes AFTER thumbnail
+    (cross-checked against the official docs.core.telegram.org/tdlib,
+    not guessed and not assumed by analogy with the other types, which
+    order it differently). }
   FileObj := JGetObj(StickerObj, 'sticker');
   if FileObj = nil then begin
     Exit;
@@ -1677,8 +1750,8 @@ begin
     R.SenderUserId := 0;
   end;
 
-  { forward_info отсутствует у обычных сообщений (JGetObj вернёт nil) —
-    origin разбирается по @type, см. комментарий у TMsgForwardKind. }
+  { forward_info is absent from ordinary messages (JGetObj returns nil)
+    — origin is parsed by @type, see the comment on TMsgForwardKind. }
   FwdObj := JGetObj(AMsg, 'forward_info');
   if FwdObj = nil then begin
     R.ForwardKind := mfoNone;
@@ -1710,12 +1783,13 @@ begin
     end;
   end;
 
-  { reply_to — только messageReplyToMessage (ответ на сообщение);
-    messageReplyToStory (ответ на сторис) не разбираем, ReplyMessageId
-    остаётся 0 — цитата тогда просто не рисуется, как и без reply_to
-    вовсе. Сам TDLib НЕ кладёт сюда содержимое цитируемого сообщения —
-    только chat_id/message_id (проверено по tdlib_raw.log), текст/имя
-    для отрисовки резолвит ReplyPreview отдельно, лениво. }
+  { reply_to — messageReplyToMessage only (a reply to a message);
+    messageReplyToStory (a reply to a story) isn't parsed,
+    ReplyMessageId stays 0 — the quote simply isn't drawn then, same as
+    with no reply_to at all. TDLib itself does NOT include the quoted
+    message's content here — only chat_id/message_id (confirmed from
+    tdlib_raw.log); the text/name for display is resolved separately
+    and lazily by ReplyPreview. }
   ReplyObj := JGetObj(AMsg, 'reply_to');
   if (ReplyObj <> nil) and (JGetStr(ReplyObj, '@type') = 'messageReplyToMessage') then begin
     R.ReplyChatId := JGetInt64(ReplyObj, 'chat_id');
@@ -1743,13 +1817,13 @@ begin
     NewContentRaw := '';
   end;
 
-  { То же самое сообщение может прилететь повторно байт-в-байт —
-    перекрытие страниц пагинации, повторный getChatHistory и т.п.
-    Если контент не изменился, не гоняем разбор entities и не рушим
-    LayoutCache: у сообщений с медиа content — это base64-превью,
-    разбор и последующий пересчёт переноса текста заметно нагружают
-    главный поток, а при пачке из полусотни таких сообщений это и
-    выглядит как подвисание интерфейса. }
+  { The exact same message can arrive again, byte for byte —
+    overlapping pagination pages, a repeated getChatHistory, etc. If
+    the content hasn't changed, entity parsing isn't rerun and
+    LayoutCache isn't invalidated: for messages with media, content
+    includes a base64 preview, and parsing plus the resulting
+    text-wrap recompute noticeably load the main thread — with a batch
+    of fifty such messages, that shows up as the UI stalling. }
   if (not WasNew) and (R.ContentRaw = NewContentRaw) then begin
     Touch;
     Exit;
@@ -1826,9 +1900,10 @@ begin
     Exit;
   end;
 
-  { Текст пользователя может содержать кавычки/бэкслеши/переводы строк —
-    тело строим через TJSONObject.AsJSON, а не конкатенацией строк,
-    как это уже сделано в TTdChats.SetMuted для notification_settings. }
+  { The user's text can contain quotes/backslashes/line breaks — the
+    body is built via TJSONObject.AsJSON, not string concatenation, the
+    same way TTdChats.SetMuted already does for
+    notification_settings. }
   TextObj := TJSONObject.Create;
   TextObj.Strings['@type'] := 'formattedText';
   TextObj.Strings['text'] := string(AText);
@@ -1836,15 +1911,15 @@ begin
   Content := TJSONObject.Create;
   try
     Content.Strings['@type'] := 'inputMessageText';
-    Content.Add('text', TextObj);   { Content становится владельцем TextObj }
+    Content.Add('text', TextObj);   { Content takes ownership of TextObj }
     Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
             ',"input_message_content":' + utf8string(Content.AsJSON);
   finally
     Content.Free;
   end;
 
-  { Ответ sendMessage — сам объект нового сообщения, отдельного
-    временного отрицательного id заводить не нужно: см. SendTextDone. }
+  { The sendMessage response is the new message object itself — no
+    need for a separate temporary negative id, see SendTextDone. }
   FReq.SendRequest('sendMessage', Body, @SendTextDone);
 end;
 
@@ -1895,19 +1970,20 @@ begin
     Exit;
   end;
   if Lookup(AMessageId) <> nil then begin
-    { Уже загружено — например, повторный клик на ту же цитату, или
-      сообщение попало в окно предыдущей обычной подгрузки истории.
-      RPC не нужен, сразу сообщаем о готовности. }
+    { Already loaded — e.g. a repeat click on the same quote, or the
+      message fell within the window of an earlier ordinary history
+      load. No RPC needed, ready is signaled right away. }
     if Assigned(FOnJumpReady) then begin
       FOnJumpReady(Self, AMessageId);
     end;
     Exit;
   end;
-  { offset:-(N) — "ещё N сообщений НОВЕЕ от_message_id" (официальные
-    docs.core.telegram.org/tdlib, getChatHistory.offset), в дополнение
-    к самому AMessageId и более старым, до заполнения limit. Тем самым
-    сообщение оказывается не в самом конце пачки, а где-то посередине —
-    видна часть переписки вокруг него, не только то, что было раньше. }
+  { offset:-(N) means "N more messages NEWER than from_message_id"
+    (official docs.core.telegram.org/tdlib, getChatHistory.offset), in
+    addition to AMessageId itself and older ones, up to limit. This
+    puts the message somewhere in the middle of the batch rather than
+    right at the end — showing part of the conversation around it, not
+    just what came before. }
   FReq.SendRequest('getChatHistory',
     '"chat_id":' + utf8string(IntToStr(FChatId)) +
     ',"from_message_id":' + utf8string(IntToStr(AMessageId)) +
@@ -1932,8 +2008,8 @@ begin
 
   Arr := JGetArr(AResp.Obj, 'messages');
   if Arr <> nil then begin
-    { Тот же порядок, что и в HistoryDone: getChatHistory отдаёт от
-      новых к старым, применяем в обратном порядке. }
+    { The same order as HistoryDone: getChatHistory returns newest to
+      oldest, applied in reverse. }
     for I := Arr.Count - 1 downto 0 do begin
       if Arr.Items[I].JSONType = jtObject then begin
         try
@@ -1949,11 +2025,12 @@ begin
     end;
   end;
 
-  { ApplyMessage выше только помечает FDirty (Touch) — настоящая
-    пересборка FRows идёт отложенно, по 50-мс таймеру. Вызывающему
-    (см. framehistory.pas: TMsgScroller.ScrollToMessage) нужен готовый,
-    актуальный FRows/FOffsets ПРЯМО в момент OnJumpReady — синхронный
-    Rebuild здесь, а не ожидание таймера, как в обычном потоке апдейтов. }
+  { ApplyMessage above only marks FDirty (Touch) — the actual FRows
+    rebuild happens on a delay, via the 50ms timer. The caller (see
+    framehistory.pas: TMsgScroller.ScrollToMessage) needs a ready,
+    up-to-date FRows/FOffsets RIGHT AT the moment of OnJumpReady —
+    hence a synchronous Rebuild here, instead of waiting for the timer
+    as in the normal update flow. }
   Rebuild(nil);
 
   if Assigned(FOnJumpReady) then begin
@@ -1995,13 +2072,13 @@ begin
   end;
 end;
 
-{ То же самое сопоставление "тип контента -> подпись превью", что и
-  MessagePreview (tdchats.pas), но по уже разобранным Kind/PlainText
-  TMsgRow, а не по сырому JSON — не перепарсивать ContentRaw на каждую
-  отрисовку уже загруженной цитаты (единственный путь, где это нужно:
-  сообщение уже в FAll, см. ReplyPreview). Для ДОгружаемых через
-  getRepliedMessage сообщений используется сам MessagePreview напрямую
-  с сырым JSON ответа — см. GetRepliedDone. }
+{ The same "content type -> preview label" mapping as MessagePreview
+  (tdchats.pas), but from a TMsgRow's already-parsed Kind/PlainText
+  rather than raw JSON — avoids reparsing ContentRaw on every repaint
+  of an already-loaded quote (the only path that needs this: the
+  message is already in FAll, see ReplyPreview). For messages fetched
+  via getRepliedMessage, MessagePreview itself is used directly on the
+  response's raw JSON — see GetRepliedDone. }
 function ReplyKindLabel(AKind: TMsgContentKind; const APlainText: utf8string): utf8string;
 begin
   case AKind of
@@ -2070,13 +2147,15 @@ var
   P: TMsgReplyPreview;
   SenderObj: TJSONObject;
   SenderType: utf8string;
+  UnusedGlyphs: TPreviewGlyphArray;   { the reply quote box shows plain text, no custom-emoji rendering (yet) }
 begin
   Id := Int64(AResp.Tag);
   ClearReplyPending(Id);
   if not AResp.Success then begin
-    { Молча не показываем цитату — тем же приёмом, что и промах getUser
-      в tdusers.pas: цитируемое сообщение могло быть удалено, это не
-      повод засорять статус-строку на каждый такой случай в истории. }
+    { Silently doesn't show a quote — the same approach as a getUser
+      miss in tdusers.pas: the quoted message may have been deleted,
+      not a reason to clutter the status bar for every such case in
+      the history. }
     Exit;
   end;
 
@@ -2088,21 +2167,21 @@ begin
   end else if SenderType = 'messageSenderChat' then begin
     P.SenderChatId := JGetInt64(SenderObj, 'chat_id');
   end;
-  P.PreviewText := MessagePreview(JGetObj(AResp.Obj, 'content'));
+  P.PreviewText := MessagePreview(JGetObj(AResp.Obj, 'content'), UnusedGlyphs);
 
   if FReplyCache.IndexOf(Id) < 0 then begin
     FReplyCache.Add(Id, P);
   end else begin
-    P.Free;   { не должно случаться (см. IsReplyPending), но не течь на всякий случай }
+    P.Free;   { shouldn't happen (see IsReplyPending), but avoid a leak just in case }
   end;
   Touch;
 end;
 
-{ Скачивание аудиофайла — тот же приём, что TTdChats.EnsureAvatar/
-  DownloadDone/ApplyFile (tdchats.pas) для аватарок, адаптированный на
-  TMsgRow вместо TChatRow: файл может уже быть на диске, тогда путь
-  придёт прямо в ответе на downloadFile и updateFile может не прийти
-  вовсе — оба случая ведут в ApplyAudioFile. }
+{ Audio-file download — the same approach as TTdChats.EnsureAvatar/
+  DownloadDone/ApplyFile (tdchats.pas) for avatars, adapted to TMsgRow
+  instead of TChatRow: the file may already be on disk, in which case
+  the path arrives directly in the downloadFile response and updateFile
+  may never come at all — both cases lead to ApplyAudioFile. }
 procedure TTdMessages.EnsureAudioFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2119,9 +2198,9 @@ begin
     ARow.AudioDownloadRequested := False;
     Exit;
   end;
-  { priority 32 — высший: в отличие от аватарок (фон, не мешать
-    истории), это явный запрос пользователя на прослушивание,
-    ждать его не должны. }
+  { priority 32 — the highest: unlike avatars (background, shouldn't
+    delay history), this is an explicit user request to listen — it
+    shouldn't be made to wait. }
   FReq.SendRequest('downloadFile',
     '"file_id":' + utf8string(IntToStr(ARow.AudioFileId)) +
     ',"priority":32,"offset":0,"limit":0,"synchronous":false',
@@ -2175,10 +2254,11 @@ begin
   Touch;
 end;
 
-{ Скачивание голосового сообщения — точная копия EnsureAudioFile/
-  DownloadAudioDone/ApplyAudioFile выше, отдельная от них ровно потому,
-  что file_id аудио и file_id голосового — раздельные карты (FByFile/
-  FVoiceByFile), тот же принцип, что уже у документа/фото. }
+{ Voice-note download — an exact copy of EnsureAudioFile/
+  DownloadAudioDone/ApplyAudioFile above, kept separate precisely
+  because audio's file_id and a voice note's file_id use separate maps
+  (FByFile/FVoiceByFile), the same principle already used for
+  documents/photos. }
 procedure TTdMessages.EnsureVoiceFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2195,8 +2275,8 @@ begin
     ARow.VoiceDownloadRequested := False;
     Exit;
   end;
-  { priority 32 — та же логика, что у аудио: явный запрос пользователя
-    на прослушивание, не фоновая подгрузка. }
+  { priority 32 — the same logic as audio: an explicit user request to
+    listen, not a background download. }
   FReq.SendRequest('downloadFile',
     '"file_id":' + utf8string(IntToStr(ARow.VoiceFileId)) +
     ',"priority":32,"offset":0,"limit":0,"synchronous":false',
@@ -2261,10 +2341,10 @@ begin
   end;
 end;
 
-{ Скачивание файла-документа — точная копия EnsureAudioFile/
-  DownloadAudioDone/ApplyAudioFile выше, отдельная от них ровно потому,
-  что file_id аудио и file_id документа — раздельные карты (FByFile/
-  FDocByFile), см. комментарий у TDocFileMap. }
+{ Document-file download — an exact copy of EnsureAudioFile/
+  DownloadAudioDone/ApplyAudioFile above, kept separate precisely
+  because audio's file_id and a document's file_id use separate maps
+  (FByFile/FDocByFile), see the comment on TDocFileMap. }
 procedure TTdMessages.EnsureDocFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2281,8 +2361,8 @@ begin
     ARow.DocDownloadRequested := False;
     Exit;
   end;
-  { priority 32 — высший, как и у аудио: явный запрос пользователя
-    "хочу сохранить этот файл", не фоновая подгрузка. }
+  { priority 32 — the highest, same as audio: an explicit user request
+    "I want to save this file", not a background download. }
   FReq.SendRequest('downloadFile',
     '"file_id":' + utf8string(IntToStr(ARow.DocFileId)) +
     ',"priority":32,"offset":0,"limit":0,"synchronous":false',
@@ -2336,9 +2416,9 @@ begin
   Touch;
 end;
 
-{ Скачивание фото — точная копия EnsureDocFile/DownloadDocDone/
-  ApplyDocFile выше, отдельная от них ровно по той же причине, что и
-  документ от аудио (см. комментарий у TPhotoFileMap). }
+{ Photo download — an exact copy of EnsureDocFile/DownloadDocDone/
+  ApplyDocFile above, kept separate for the same reason a document is
+  kept separate from audio (see the comment on TPhotoFileMap). }
 procedure TTdMessages.EnsurePhotoFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2408,11 +2488,11 @@ begin
   Touch;
 end;
 
-{ Оригинал (самый большой слой) — точная копия EnsurePhotoFile/
-  DownloadPhotoDone/ApplyPhotoFile выше, отдельная своя карта
-  (FPhotoBestByFile), потому что file_id и, соответственно, кэш-путь
-  TDLib у оригинала и у превью-копии — РАЗНЫЕ (см. комментарий у
-  TMsgRow.PhotoBestFileId). }
+{ The original (largest layer) — an exact copy of EnsurePhotoFile/
+  DownloadPhotoDone/ApplyPhotoFile above, with its own separate map
+  (FPhotoBestByFile), because the original's file_id — and so its
+  TDLib cache path — is DIFFERENT from the preview copy's (see the
+  comment on TMsgRow.PhotoBestFileId). }
 procedure TTdMessages.EnsurePhotoBestFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2482,10 +2562,11 @@ begin
   Touch;
 end;
 
-{ "Гифка" — один файл, точная копия EnsureDocFile/DownloadDocDone/
-  ApplyDocFile по форме (не EnsurePhotoFile — у той два слоя, animation
-  устроен проще), своя карта FAnimByFile. priority 32 — то же самое
-  "явный интерес пользователя, не фон", что и у остальных Ensure*File. }
+{ A "GIF" — one file, an exact copy of EnsureDocFile/DownloadDocDone/
+  ApplyDocFile in shape (not EnsurePhotoFile, which has two layers —
+  animation is simpler), with its own map FAnimByFile. priority 32 is
+  the same "explicit user interest, not background" as the rest of the
+  Ensure*File methods. }
 procedure TTdMessages.EnsureAnimFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2555,8 +2636,8 @@ begin
   Touch;
 end;
 
-{ Видео-сообщение — тот же приём, один файл, что и у "гифки" выше,
-  своя карта FVideoByFile. }
+{ A video message — the same one-file approach as a "GIF" above, its
+  own map FVideoByFile. }
 procedure TTdMessages.EnsureVideoFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2626,10 +2707,11 @@ begin
   Touch;
 end;
 
-{ Превью-кадр видео — БЕЗ гейта настроек Auto download (см. комментарий
-  у TMsgRow.VideoThumbFileId) — точная копия EnsureVideoFile/
-  DownloadVideoDone/ApplyVideoFile по форме, своя карта
-  FVideoThumbByFile (свой file_id, не пересекается с самим видео). }
+{ The video preview frame — WITHOUT the Auto download settings gate
+  (see the comment on TMsgRow.VideoThumbFileId) — an exact copy of
+  EnsureVideoFile/DownloadVideoDone/ApplyVideoFile in shape, its own
+  map FVideoThumbByFile (its own file_id, not shared with the video
+  itself). }
 procedure TTdMessages.EnsureVideoThumbFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2700,14 +2782,15 @@ begin
   Touch;
 end;
 
-{ Стикеры — по прямому запросу пользователя ("полная анимация, включая
-  TGS") качаются БЕЗ гейта настроек Auto download вовсе (см.
-  TMsgScroller.MaybeAutoDownload, framehistory.pas) — файлы стикеров
-  типично крошечные (единицы-десятки КБ у TGS/webp, редко больше у
-  webm), сама суть стикера — мгновенный визуальный отклик, а не
-  осознанное "хочу посмотреть", как у видео/файла. EnsureStickerFile/
-  DownloadStickerDone/ApplyStickerFile — точная копия EnsureVideoFile/
-  DownloadVideoDone/ApplyVideoFile по форме, своя карта FStickerByFile. }
+{ Stickers — with full animation, including TGS, chosen from the start
+  — are downloaded WITHOUT the Auto download settings gate at all (see
+  TMsgScroller.MaybeAutoDownload, framehistory.pas) — sticker files are
+  typically tiny (single-digit to tens of KB for TGS/webp, rarely more
+  for webm), and the whole point of a sticker is an instant visual
+  response, not a deliberate "I want to look at this" like video/file.
+  EnsureStickerFile/DownloadStickerDone/ApplyStickerFile are an exact
+  copy of EnsureVideoFile/DownloadVideoDone/ApplyVideoFile in shape,
+  with their own map FStickerByFile. }
 procedure TTdMessages.EnsureStickerFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -2777,6 +2860,191 @@ begin
   Touch;
 end;
 
+function TTdMessages.IsCustomEmojiPending(AId: Int64): boolean;
+var
+  I: integer;
+begin
+  Result := False;
+  for I := 0 to High(FCustomEmojiPending) do begin
+    if FCustomEmojiPending[I] = AId then begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TTdMessages.MarkCustomEmojiPending(AId: Int64);
+begin
+  SetLength(FCustomEmojiPending, Length(FCustomEmojiPending) + 1);
+  FCustomEmojiPending[High(FCustomEmojiPending)] := AId;
+end;
+
+procedure TTdMessages.ClearCustomEmojiPending(AId: Int64);
+var
+  I, J: integer;
+begin
+  for I := 0 to High(FCustomEmojiPending) do begin
+    if FCustomEmojiPending[I] = AId then begin
+      for J := I to High(FCustomEmojiPending) - 1 do begin
+        FCustomEmojiPending[J] := FCustomEmojiPending[J + 1];
+      end;
+      SetLength(FCustomEmojiPending, Length(FCustomEmojiPending) - 1);
+      Exit;
+    end;
+  end;
+end;
+
+{ Batched metadata fetch for every distinct custom_emoji_id used by
+  ARow.Entities not already known to customemoji.pas — mirrors
+  RequestReply/GetRepliedDone in shape (one-off targeted request, own
+  pending list), but as a batch of up to however many new ids this ONE
+  row introduces (TDLib allows up to 200 per call; a single message
+  realistically never has anywhere near that many). }
+procedure TTdMessages.EnsureCustomEmojiForRow(ARow: TMsgRow);
+var
+  I, N: integer;
+  Ids: array of Int64;
+  Id: Int64;
+  Body: utf8string;
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+  SetLength(Ids, Length(ARow.Entities));
+  N := 0;
+  for I := 0 to High(ARow.Entities) do begin
+    if ARow.Entities[I].Kind <> mekCustomEmoji then begin
+      Continue;
+    end;
+    Id := ARow.Entities[I].CustomEmojiId;
+    if (Id = 0) or CustomEmojiKnown(Id) or IsCustomEmojiPending(Id) then begin
+      Continue;
+    end;
+    Ids[N] := Id;
+    Inc(N);
+    MarkCustomEmojiPending(Id);
+  end;
+  if N = 0 then begin
+    Exit;
+  end;
+
+  Body := '"custom_emoji_ids":[';
+  for I := 0 to N - 1 do begin
+    if I > 0 then begin
+      Body := Body + ',';
+    end;
+    Body := Body + '"' + utf8string(IntToStr(Ids[I])) + '"';
+  end;
+  Body := Body + ']';
+  FReq.SendRequest('getCustomEmojiStickers', Body, @GetCustomEmojiStickersDone);
+end;
+
+{ Ids in the request that TDLib doesn't return ("only found stickers
+  are returned") stay marked pending for the rest of this session — the
+  same accepted no-retry tradeoff already used for a getRepliedMessage
+  miss (GetRepliedDone) or a failed file download elsewhere in this
+  file: rare in practice, and not worth a per-batch id/Tag correlation
+  mechanism to distinguish "not found" from "not requested yet". }
+procedure TTdMessages.GetCustomEmojiStickersDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Arr: TJSONArray;
+  I: integer;
+  StObj, FormatObj, FullTypeObj, FileObj, LocalObj: TJSONObject;
+  Id: Int64;
+  Format: TCustomEmojiFormat;
+  FmtType: utf8string;
+  FileId: integer;
+  LocalPath: utf8string;
+begin
+  if not AResp.Success then begin
+    Exit;
+  end;
+  Arr := JGetArr(AResp.Obj, 'stickers');
+  if Arr = nil then begin
+    Exit;
+  end;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Items[I].JSONType <> jtObject then begin
+      Continue;
+    end;
+    StObj := TJSONObject(Arr.Items[I]);
+    FullTypeObj := JGetObj(StObj, 'full_type');
+    if JGetStr(FullTypeObj, '@type') <> 'stickerFullTypeCustomEmoji' then begin
+      Continue;
+    end;
+    Id := JGetInt64(FullTypeObj, 'custom_emoji_id');
+    if Id = 0 then begin
+      Continue;
+    end;
+    ClearCustomEmojiPending(Id);
+
+    FormatObj := JGetObj(StObj, 'format');
+    FmtType := JGetStr(FormatObj, '@type');
+    if FmtType = 'stickerFormatTgs' then begin
+      Format := cmfTgs;
+    end else if FmtType = 'stickerFormatWebm' then begin
+      Format := cmfWebm;
+    end else begin
+      Format := cmfWebp;
+    end;
+
+    FileObj := JGetObj(StObj, 'sticker');
+    FileId := JGetInt(FileObj, 'id');
+    LocalPath := '';
+    LocalObj := JGetObj(FileObj, 'local');
+    if JGetBool(LocalObj, 'is_downloading_completed') then begin
+      LocalPath := JGetStr(LocalObj, 'path');
+    end;
+    CustomEmojiSetSticker(Id, FileId, Format, LocalPath);
+
+    if LocalPath = '' then begin
+      if CustomEmojiNeedsDownload(Id) then begin
+        CustomEmojiMarkDownloadRequested(Id);
+        FReq.SendRequest('downloadFile',
+          '"file_id":' + utf8string(IntToStr(FileId)) +
+          ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+          @DownloadCustomEmojiDone, PtrInt(FileId));
+      end;
+    end else begin
+      Touch;
+    end;
+  end;
+end;
+
+procedure TTdMessages.DownloadCustomEmojiDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if AResp.Success then begin
+    ApplyCustomEmojiFile(AResp.Obj);
+  end;
+end;
+
+procedure TTdMessages.ApplyCustomEmojiFile(AFile: TJSONObject);
+var
+  FileId: integer;
+  Id: Int64;
+  Local: TJSONObject;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Id := CustomEmojiIdForFile(FileId);
+  if Id = 0 then begin
+    Exit;
+  end;
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+  CustomEmojiSetLocalPath(Id, Path);
+  Touch;
+end;
+
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
   Obj: TJSONObject;
@@ -2786,21 +3054,22 @@ var
   Arr: TJSONArray;
   I, Idx: integer;
 begin
-  { AData уже разобран приёмным потоком (tdrecv.pas) — раньше здесь
-    была своя дешёвая Pos-отсечка перед своим же GetJSON; парсинг
-    теперь один на всех подписчиков, отсечка не нужна. }
+  { AData is already parsed by the receive thread (tdrecv.pas) — this
+    used to have its own cheap Pos-based check before its own GetJSON;
+    parsing now happens once for all subscribers, so that check is no
+    longer needed. }
   if AData = nil then begin
     Exit;
   end;
   Obj := AData;
   T := JGetStr(Obj, '@type');
 
-  { Апдейты сообщений идут потоком, десятками в секунду в активном
-    чате — одна неожиданная форма JSON (ещё не встречавшийся тип
-    контента и т.п.) не должна ронять/подвешивать всё приложение:
-    TTdAccount.HandleUpdate вызывает TdUpdate каждого подписчика без
-    своего try/except, исключение отсюда улетело бы наружу
-    необработанным. }
+  { Message updates arrive in a stream, dozens per second in an active
+    chat — one unexpected JSON shape (a content type not seen before,
+    etc.) must not crash or hang the whole application:
+    TTdAccount.HandleUpdate calls each subscriber's TdUpdate without a
+    try/except of its own, so an exception from here would escape
+    unhandled. }
   try
     if T = 'updateNewMessage' then begin
       ApplyMessage(JGetObj(Obj, 'message'));
@@ -2817,6 +3086,7 @@ begin
       ApplyVideoFile(JGetObj(Obj, 'file'));
       ApplyVideoThumbFile(JGetObj(Obj, 'file'));
       ApplyStickerFile(JGetObj(Obj, 'file'));
+      ApplyCustomEmojiFile(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));
@@ -2826,8 +3096,9 @@ begin
         end;
       end;
     end else if T = 'updateMessageSendSucceeded' then begin
-      { Заменяем временную запись новой целиком — проще и надёжнее,
-        чем пытаться переиспользовать тот же объект под другим id. }
+      { The temporary entry is replaced with the new one wholesale —
+        simpler and more reliable than trying to reuse the same object
+        under a different id. }
       OldId := JGetInt64(Obj, 'old_message_id');
       if OldId <> 0 then begin
         Idx := FAll.IndexOf(OldId);
@@ -2844,15 +3115,16 @@ begin
         Touch;
       end;
     end else if T = 'updateDeleteMessages' then begin
-      { from_cache:true — TDLib вытеснило сообщение из СВОЕГО кэша
-        (обычно из-за того, что openChat для чата не был отправлен
-        достаточно давно/своевременно), не удалило его на самом деле.
-        FAll — наша собственная, уже загруженная копия; выкидывать её
-        из-за постороннего кэша нечем оправдать — и раньше делали
-        именно так, отчего часами открытый чат мог свестись к одному
-        сообщению. Теперь openChat/closeChat зовутся из OpenChat, так
-        что для АКТИВНОГО чата этого вообще быть не должно — но
-        проверка остаётся: дешёвая и на будущее. }
+      { from_cache:true means TDLib evicted the message from ITS OWN
+        cache (usually because openChat wasn't sent for the chat
+        recently/promptly enough), not that it was actually deleted.
+        FAll is our own, already-loaded copy; discarding it because of
+        someone else's cache eviction has no justification — and that's
+        exactly what used to happen, which could shrink a chat left
+        open for hours down to a single message. openChat/closeChat are
+        now called from OpenChat, so this shouldn't happen at all for
+        the ACTIVE chat anymore — but the check stays: cheap, and a
+        safeguard for the future. }
       if (JGetInt64(Obj, 'chat_id') = FChatId) and (not JGetBool(Obj, 'from_cache')) then begin
         Arr := JGetArr(Obj, 'message_ids');
         if Arr <> nil then begin
@@ -2887,10 +3159,11 @@ end;
 
 procedure TTdMessages.TdStateChanged(AState: TTdAuthState);
 begin
-  { На выходе/закрытии клиента история открытого чата теряет смысл —
-    сам чат тоже, скорее всего, скоро сменится. Автозагрузку по
-    tasReady, в отличие от TTdChats, не делаем: пока OpenChat не
-    вызван явно (пользователь не открыл чат), грузить нечего. }
+  { On logout/client shutdown, the open chat's history stops mattering
+    — the chat itself is likely about to change too. Unlike TTdChats,
+    no auto-load happens on tasReady: until OpenChat is called
+    explicitly (the user hasn't opened a chat), there's nothing to
+    load. }
   if TdIsShuttingState(AState) then begin
     Clear;
     FChatId := 0;
@@ -2899,7 +3172,7 @@ end;
 
 procedure TTdMessages.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  { Ошибки авторизации модели не касаются. }
+  { Authorization errors don't concern this model. }
 end;
 
 end.

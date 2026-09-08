@@ -12,9 +12,9 @@ type
 
   { TFrameLog
 
-    Отладочный экран: сырой поток JSON от TDLib. Подписан постоянно,
-    а не только когда активен, — иначе при возврате на экран была бы
-    дыра в логе. }
+    Debug screen showing the raw JSON stream from TDLib. Subscribed
+    permanently, not only while active, so returning to the screen
+    does not leave a gap in the log. }
 
   TFrameLog = class(TFrameBase, ITdUpdateListener)
     pnlTop: TPanel;

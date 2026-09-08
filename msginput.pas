@@ -2,25 +2,21 @@ unit msginput;
 
 {$mode objfpc}{$H+}
 
-{ Панель ввода сообщения — по прямому запросу пользователя (2026-09-08):
-  первый набросок layout'а, пока только текстовый ввод. Живёт в нижней
-  части рабочей области (main.pas, pnlWork), отделена от области фреймов
-  (TFrameNavigator) сплиттером — см. TFormMain.FormCreate.
+{ Message input panel. Lives at the bottom of the work area (main.pas,
+  pnlWork), separated from the frame area (TFrameNavigator) by a
+  splitter — see TFormMain.FormCreate.
 
-  Три ряда сверху вниз: Toolbar (пустая панель, "на неё потом будем
-  раскидывать кнопки" — вложений/форматирования и т.п., не в этом
-  заходе), Memo (сам текст сообщения, растягивается на всё оставшееся
-  место), ButtonRow (кнопка Send, выровнена по правому краю — "пока",
-  остальные кнопки могут добавиться туда же позже).
+  Three rows top to bottom: Toolbar (empty panel, reserved for future
+  buttons — attachments/formatting etc.), Memo (the message text,
+  fills the remaining space), ButtonRow (Send button, right-aligned;
+  further buttons can be added to the same row).
 
-  Построена целиком в коде (тем же приёмом, что TMediaViewerPanel,
-  mediaviewer.pas) — не через дизайнер: не привязана к какому-либо
-  конкретному чату/модели сама по себе (не тянет tdmessages/framehistory
-  в uses) — просто источник текста и событие "нажали отправить", кому
-  и что отправлять решает владелец (main.pas, у которого уже есть
-  доступ и к TFrameNavigator.Current, и к TTdMessages) — тот же принцип
-  разделения ответственности, что уже применяется у TMediaViewerPanel
-  (AAudioDeviceName передаётся явно, а не читается из main.pas напрямую). }
+  Built entirely in code, not via the designer: not bound to any
+  particular chat/model itself (does not pull tdmessages/framehistory
+  into uses) — it is just a text source plus a "send clicked" event;
+  the owner (main.pas, which already has access to both
+  TFrameNavigator.Current and TTdMessages) decides who and what to
+  send. }
 
 interface
 
@@ -38,18 +34,18 @@ type
     function GetText: string;
     procedure SetText(const AValue: string);
     procedure SendBtnClick(Sender: TObject);
-    { Enter — отправить (тем же путём, что клик по Send); Ctrl+Enter —
-      обычный перевод строки, штатное поведение TMemo, не трогаем. }
+    { Enter sends (same path as clicking Send); Ctrl+Enter inserts a
+      newline, TMemo's default behavior, left untouched. }
     procedure MemoKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
   public
     constructor Create(AOwner: TComponent); override;
     procedure ClearText;
-    { Пустая панель сверху — задел под будущие кнопки (вложения,
-      форматирование и т.п.), см. комментарий у юнита. }
+    { Empty panel at the top, reserved for future buttons (attachments,
+      formatting, etc.). }
     property Toolbar: TPanel read FToolbar;
-    { Ряд кнопок под полем ввода — сейчас только Send, выровненная по
-      правому краю; следующие кнопки — туда же, тем же Align=alRight
-      (каждая следующая встанет левее уже добавленных). }
+    { Button row below the input field — currently only Send,
+      right-aligned; further buttons go into the same row with
+      Align=alRight (each new one lands to the left of the previous). }
     property ButtonRow: TPanel read FButtonRow;
     property Text: string read GetText write SetText;
     property OnSend: TNotifyEvent read FOnSend write FOnSend;
@@ -68,9 +64,9 @@ begin
   inherited Create(AOwner);
   Constraints.MinHeight := 80;
 
-  { Порядок создания важен для Align: ряд кнопок и панель тулбара —
-    первыми (alTop/alBottom), Memo — последним (alClient заполняет
-    то, что осталось между ними). }
+  { Creation order matters for Align: the button row and toolbar go
+    first (alTop/alBottom), Memo last (alClient fills what remains
+    between them). }
   FButtonRow := TPanel.Create(Self);
   FButtonRow.Parent := Self;
   FButtonRow.Align := alBottom;
@@ -89,8 +85,8 @@ begin
   FToolbar.Parent := Self;
   FToolbar.Align := alTop;
   FToolbar.Height := MSGINPUT_TOOLBAR_H;
-  { Raised — по прямому запросу пользователя, отличает панель (задел
-    под будущие кнопки) от плоского фона остального поля ввода. }
+  { Raised bevel visually sets the toolbar apart from the flat
+    background of the rest of the input panel. }
   FToolbar.BevelOuter := bvRaised;
 
   FMemo := TMemo.Create(Self);
@@ -130,9 +126,9 @@ begin
     Exit;
   end;
   if ssCtrl in Shift then begin
-    Exit;   { Ctrl+Enter — обычный перевод строки }
+    Exit;   { Ctrl+Enter — plain newline }
   end;
-  Key := 0;   { подавляем перевод строки — вместо него отправляем }
+  Key := 0;   { suppress the newline — send instead }
   SendBtnClick(Self);
 end;
 

@@ -8,13 +8,12 @@ uses
   Classes, SysUtils, SyncObjs, fpjson, jsonparser, constants, tdjson;
 
 type
-  { AData — результат разбора AJson, сделанного ЗДЕСЬ, в приёмном
-    потоке (см. TTdReceiveThread.Execute), а не на главном потоке
-    каждым подписчиком по отдельности, как было раньше. Владеет
-    объектом tdrecv: он освобождается в DrainQueue сразу после вызова
-    обработчика, поэтому AData за пределами TTdRawEvent невалиден —
-    сохранять указатель нельзя. AData = nil, если строка не
-    распарсилась или разобралась не в объект. }
+  { AData is the result of parsing AJson, done HERE, in the receive
+    thread (see TTdReceiveThread.Execute), not separately by each
+    subscriber on the main thread. tdrecv owns the object: it is freed
+    in DrainQueue right after the handler call, so AData is invalid
+    outside TTdRawEvent — the pointer must not be kept. AData is nil
+    if the string failed to parse or did not parse to an object. }
   TTdRawEvent = procedure(Sender: TObject; const AJson: utf8string; AData: TJSONObject) of object;
 
   TTdReceiver = class;
@@ -30,19 +29,18 @@ type
 
   { TTdReceiver
 
-    Один на процесс. Документация TDLib прямо запрещает вызывать
-    td_receive одновременно из двух потоков, а апдейты всех клиентов
-    приходят единым потоком и различаются полем @client_id.
-    Поэтому поток здесь ровно один, а раздачей занимается диспетчер.
+    One instance per process. TDLib's documentation forbids calling
+    td_receive from two threads at once, and updates for all clients
+    arrive on a single stream, distinguished by the @client_id field.
+    So there is exactly one thread here, and a dispatcher fans updates
+    out to subscribers.
 
-    Полный разбор JSON (GetJSON) тоже выполняется в этом потоке — он
-    простаивает почти всё время внутри td_receive с таймаутом, так что
-    лишней нагрузки на отзывчивость UI это не создаёт. Раньше каждый
-    подписчик (TTdChats/TTdMessages/TTdRequests/...) парсил сырую
-    строку заново уже на главном потоке — для мелких апдейтов
-    незаметно, но getChatHistory с полусотней сообщений и base64
-    мини-превью в каждом — это сотни КБ JSON, и синхронный парс такого
-    на главном потоке ощутимо подвешивал интерфейс. }
+    Full JSON parsing (GetJSON) also happens on this thread — it is
+    idle almost all the time inside td_receive's timeout, so this adds
+    no load to UI responsiveness. Parsing on the main thread instead,
+    once per subscriber, would be a measurable stall for something
+    like getChatHistory with dozens of messages and a base64
+    mini-thumbnail in each — hundreds of KB of JSON. }
 
   TTdReceiver = class
   private
@@ -56,7 +54,7 @@ type
     FHandler: array of TTdRawEvent;
     FActive: boolean;
     procedure PushUpdate(AClientId: integer; const AJson: utf8string; AData: TJSONObject);
-    procedure DrainQueue;              { выполняется в главном потоке }
+    procedure DrainQueue;              { runs on the main thread }
     function FindHandler(AClientId: integer; out AEvent: TTdRawEvent): boolean;
   public
     constructor Create;
@@ -65,20 +63,20 @@ type
     procedure Start;
     procedure Stop;
 
-    { Клиент заявляет о себе сразу после td_create_client_id. }
+    { A client registers itself right after td_create_client_id. }
     procedure RegisterClient(AClientId: integer; AHandler: TTdRawEvent);
     procedure UnregisterClient(AClientId: integer);
 
     property Active: boolean read FActive;
   end;
 
-{ Синглтон. Имя отличается от имени юнита сознательно. }
+{ Singleton accessor. }
 function TdReceiver: TTdReceiver;
 function TdReceiverExists: boolean;
 
-{ Выдирает @client_id из сырого JSON без полного разбора.
-  Полный парсинг тут недопустим: апдейтов идут тысячи, а подписчики
-  и так отсеивают ненужное дешёвыми проверками по строке. }
+{ Extracts @client_id from raw JSON without a full parse — updates
+  arrive by the thousands, and subscribers already filter out
+  irrelevant ones with cheap string checks. }
 function ExtractClientId(const AJson: utf8string): integer;
 
 implementation
@@ -99,6 +97,118 @@ begin
   Result := GRecv <> nil;
 end;
 
+{ fpjson's \uXXXX decoding (jsonscanner.pp) has two confirmed bugs on
+  this build, found by reading FPC 3.2.2's actual source after a real,
+  reproducible corruption in the app (custom-emoji entity landing on
+  the wrong letters -- see CLAUDE.md for the full trail):
+
+  1) A single \uXXXX escape is only UTF-8-encoded correctly when
+     (joUTF8 in Options) or (DefaultSystemCodePage = CP_UTF8) --
+     GetJSON's default parser passes neither, and this machine's
+     DefaultSystemCodePage is 1251 (Windows-1251), so every isolated
+     BMP escape decoded to a lossy literal '?' via the ANSI codepage.
+  2) Even with DefaultSystemCodePage forced to CP_UTF8, TWO \uXXXX
+     escapes back to back where the FIRST is not a valid high
+     surrogate (D800-DBFF) still get silently truncated by the
+     scanner's surrogate-pair-combine path (confirmed: ➡️,
+     arrow+VS16 -- exactly what a custom/variant emoji looks like in
+     TDLib's JSON -- decoded to only 4 of the correct 6 UTF-8 bytes,
+     losing VS16's last two bytes). Because every later entity byte
+     offset in the same message is computed from Utf16RangeToByteRange
+     against this now-too-short string, the loss shifts every
+     subsequent offset, landing custom-emoji entities on the wrong
+     letters -- exactly the "eaten text / wrong icon" bug reported.
+
+  Rather than patch FPC's own scanner, \uXXXX (including correct
+  surrogate-pair combination) is decoded to raw UTF-8 bytes HERE,
+  on the raw string, before it ever reaches GetJSON -- fpjson's
+  scanner then only ever sees ordinary bytes (which it already moves
+  through untouched, byte-for-byte, on the non-escape path) plus the
+  other escapes (\\, \", \n, ...) it already handles correctly. }
+function PreDecodeUnicodeEscapes(const AJson: utf8string): utf8string;
+var
+  I, Len: integer;
+  U1, U2: cardinal;
+
+  function HexAt(APos: integer): cardinal;
+  var
+    J: integer;
+    C: char;
+  begin
+    Result := 0;
+    for J := 0 to 3 do begin
+      C := AJson[APos + J];
+      case C of
+        '0'..'9': Result := Result * 16 + (Ord(C) - Ord('0'));
+        'A'..'F': Result := Result * 16 + (Ord(C) - Ord('A') + 10);
+        'a'..'f': Result := Result * 16 + (Ord(C) - Ord('a') + 10);
+      else
+        Result := $FFFFFFFF; { not 4 hex digits -- not a real escape }
+        Exit;
+      end;
+    end;
+  end;
+
+  procedure AppendUtf8(ACp: cardinal);
+  begin
+    if ACp <= $7F then begin
+      Result := Result + Chr(ACp);
+    end else if ACp <= $7FF then begin
+      Result := Result + Chr($C0 or (ACp shr 6)) + Chr($80 or (ACp and $3F));
+    end else if ACp <= $FFFF then begin
+      Result := Result + Chr($E0 or (ACp shr 12)) +
+        Chr($80 or ((ACp shr 6) and $3F)) + Chr($80 or (ACp and $3F));
+    end else begin
+      Result := Result + Chr($F0 or (ACp shr 18)) +
+        Chr($80 or ((ACp shr 12) and $3F)) +
+        Chr($80 or ((ACp shr 6) and $3F)) + Chr($80 or (ACp and $3F));
+    end;
+  end;
+
+begin
+  { Cheap bailout: the overwhelming majority of updates (typing
+    notifications, file-progress pings, ...) carry no \u at all. }
+  if Pos('\u', AJson) = 0 then begin
+    Result := AJson;
+    Exit;
+  end;
+
+  Result := '';
+  Len := Length(AJson);
+  I := 1;
+  while I <= Len do begin
+    if (AJson[I] = '\') and (I + 1 <= Len) then begin
+      if (AJson[I + 1] = 'u') and (I + 5 <= Len) then begin
+        U1 := HexAt(I + 2);
+        if U1 <> $FFFFFFFF then begin
+          Inc(I, 6); { consumed \uXXXX }
+          if (U1 >= $D800) and (U1 <= $DBFF) and (I + 5 <= Len) and
+             (AJson[I] = '\') and (AJson[I + 1] = 'u') then begin
+            U2 := HexAt(I + 2);
+            if (U2 <> $FFFFFFFF) and (U2 >= $DC00) and (U2 <= $DFFF) then begin
+              Inc(I, 6); { consumed the low surrogate too }
+              AppendUtf8($10000 + ((U1 - $D800) shl 10) + (U2 - $DC00));
+              Continue;
+            end;
+          end;
+          AppendUtf8(U1);
+          Continue;
+        end;
+      end;
+      { Any other escape (\\, \", \n, ...), or a lone/malformed \u --
+        copy the backslash and its next char verbatim, unexamined, so
+        an escaped backslash is never re-entered as a new escape start
+        (this is what correctly leaves a literal "\\u1234" as-is,
+        rather than misreading its second backslash as \u). }
+      Result := Result + AJson[I] + AJson[I + 1];
+      Inc(I, 2);
+    end else begin
+      Result := Result + AJson[I];
+      Inc(I);
+    end;
+  end;
+end;
+
 function ExtractClientId(const AJson: utf8string): integer;
 var
   P, I, L: integer;
@@ -113,7 +223,7 @@ begin
 
   I := P + Length(CLIENT_ID_TAG);
   L := Length(AJson);
-  { пробелы после двоеточия допустимы по JSON }
+  { JSON allows whitespace after the colon }
   while (I <= L) and (AJson[I] = ' ') do begin
     Inc(I);
   end;
@@ -157,12 +267,12 @@ begin
       Break;
     end;
     if S <> '' then begin
-      { Разбор — здесь, не на главном потоке. Ошибка парсинга или
-        JSON не-объект — не наша забота, подписчики уже умеют
-        обрабатывать AData = nil (см. комментарий у TTdRawEvent). }
+      { Parsing happens here, not on the main thread. A parse error or
+        non-object JSON is left to the subscribers, which already
+        handle AData = nil (see the TTdRawEvent comment). }
       Data := nil;
       try
-        Data := GetJSON(string(S));
+        Data := GetJSON(string(PreDecodeUnicodeEscapes(S)));
       except
         Data := nil;
       end;
@@ -202,8 +312,8 @@ begin
   end;
   FThread := TTdReceiveThread.Create(Self);
   FActive := True;
-  { Поток запускается только после присваивания FThread: иначе он
-    успеет позвать PushUpdate раньше и TThread.Queue получит nil. }
+  { The thread is started only after FThread is assigned: otherwise it
+    could call PushUpdate before that, and TThread.Queue would get nil. }
   FThread.Start;
 end;
 
@@ -213,14 +323,14 @@ var
 begin
   if FThread <> nil then begin
     FThread.Terminate;
-    FThread.WaitFor;              { до RECEIVE_TIMEOUT секунд }
+    FThread.WaitFor;              { up to RECEIVE_TIMEOUT seconds }
     TThread.RemoveQueuedEvents(FThread);
     FreeAndNil(FThread);
   end;
   FLock.Enter;
   try
-    { RemoveQueuedEvents отменил DrainQueue, если он ещё не выполнился
-      — разобранные объекты в очереди остались бы без хозяина. }
+    { RemoveQueuedEvents canceled DrainQueue if it had not run yet —
+      the parsed objects still queued would otherwise be orphaned. }
     for I := 0 to FQueueCount - 1 do begin
       FQueueData[I].Free;
       FQueueData[I] := nil;
@@ -298,7 +408,7 @@ procedure TTdReceiver.PushUpdate(AClientId: integer; const AJson: utf8string;
   AData: TJSONObject);
 begin
   if (FThread = nil) or FThread.Terminated then begin
-    { Обработчиков уже не будет — объект достался бы никому. }
+    { No handler will ever run for this — free it here instead. }
     AData.Free;
     Exit;
   end;
@@ -350,12 +460,13 @@ begin
     FLock.Leave;
   end;
 
-  { Секция отпущена до вызова обработчиков: иначе приёмный поток
-    вставал бы на ней всё время разбора апдейта. Разобранный объект —
-    общий для всех подписчиков этого client_id (см. TTdAccount.
-    HandleUpdate), владеет им tdrecv: освобождаем сразу после вызова
-    обработчика, подписчикам сохранять указатель за пределы вызова
-    нельзя (см. комментарий у TTdRawEvent). }
+  { The critical section is released before calling the handlers:
+    otherwise the receive thread would block on it for the whole
+    duration of update processing. The parsed object is shared by all
+    subscribers of this client_id (see TTdAccount.HandleUpdate) and
+    owned by tdrecv: it is freed right after the handler call —
+    subscribers must not keep the pointer beyond that call (see the
+    TTdRawEvent comment). }
   for I := 0 to N - 1 do begin
     if FindHandler(BatchId[I], H) then begin
       H(Self, BatchJson[I], BatchData[I]);

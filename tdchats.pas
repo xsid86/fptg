@@ -5,67 +5,86 @@ unit tdchats;
 interface
 
 uses
-  Classes, SysUtils, base64, fgl, ExtCtrls, fpjson, jsonparser,
+  Classes, SysUtils, base64, customemoji, fgl, ExtCtrls, fpjson, jsonparser,
   constants, tdauth, tdsession, tdreq;
 
 type
   TChatKind = (ckUnknown, ckPrivate, ckBasicGroup, ckSupergroup, ckChannel, ckSecret);
 
-  { Состояние отправки последнего сообщения. }
+  { Sending state of the last message. }
   TMsgSendState = (mssDelivered, mssPending, mssFailed);
 
-  { Что показывать справа от времени. Только для исходящих. }
+  { What to show to the right of the time. Outgoing messages only. }
   TChatReceipt = (crNone, crPending, crFailed, crSent, crRead);
+
+  { A custom (Premium) emoji entity's span within LastText — deliberately
+    NOT tdmessages.TMsgEntity/emojiassets.TCustomGlyphSpan (same 3
+    fields, different unit): TChatRow is plain data with no reference to
+    LCL at all (see its own comment below), and emojiassets.pas pulls in
+    Graphics/BGRABitmap; tdmessages.pas can't be used here either (it
+    already uses tdchats — a reverse dependency would cycle). framechats.pas
+    (which needs both this and emojiassets.TCustomGlyphSpanArray) does
+    the trivial element-by-element conversion right before calling
+    DrawEmojiLine. }
+  TPreviewGlyph = record
+    ByteStart, ByteLen: integer;
+    CustomEmojiId: Int64;
+  end;
+  TPreviewGlyphArray = array of TPreviewGlyph;
 
   { TChatRow
 
-    Чистые данные, без единой ссылки на LCL. Мини-превью хранится сырыми
-    байтами JPEG, а не TBitmap: раскодировкой и кэшем картинок занимается
-    фрейм списка. Так модель тестируется без виджетсета и не тащит
-    графику в юнит, который её не касается. }
+    Plain data, with no reference to LCL at all. The mini-thumbnail is
+    stored as raw JPEG bytes, not a TBitmap: decoding and image caching
+    is the chat-list frame's job. This lets the model be tested without
+    a widget set and keeps graphics out of a unit that has no business
+    with them. }
 
   TChatRow = class
   public
     Id:                 Int64;
     Order:              Int64;
     IsPinned:           boolean;
-    InList:             boolean;   { есть позиция в chatListMain }
-    InArchive:          boolean;   { есть позиция в chatListArchive }
+    InList:             boolean;   { has a position in chatListMain }
+    InArchive:          boolean;   { has a position in chatListArchive }
     ArchiveOrder:       Int64;
     Kind:               TChatKind;
     Title:              utf8string;
     LastText:           utf8string;
+    LastGlyphs:         TPreviewGlyphArray;   { custom-emoji spans in LastText, see MessagePreview }
     LastDate:           Int64;
     LastIsOutgoing:     boolean;
     LastMessageId:      Int64;
     LastSending:        TMsgSendState;
-    LastReadOutbox:     Int64;   { id последнего прочитанного собеседником }
+    LastReadOutbox:     Int64;   { id of the last message the peer has read }
     UnreadCount:        integer;
     UnreadMentionCount: integer;
     IsMarkedAsUnread:   boolean;
     IsMuted:            boolean;   { mute_for > 0 }
-    { Сырые настройки уведомлений. Хранятся целиком, потому что
-      setChatNotificationSettings принимает объект ЦЕЛИКОМ: собрав
-      его из двух полей, мы бы затёрли звук, превью и всё прочее. }
+    { Raw notification settings. Kept whole because
+      setChatNotificationSettings takes the object AS A WHOLE: building
+      it from just two fields would wipe out sound, preview, and
+      everything else. }
     NotifyRaw:          utf8string;
-    UserId:             Int64;        { собеседник, только для личных чатов }
-    PhotoFileId:        integer;      { small.id, 0 — фото нет }
-    PhotoPath:          utf8string;   { локальный путь, если уже скачан }
-    Minithumb:          RawByteString;{ сырой JPEG из minithumbnail }
-    AvatarRequested:    boolean;      { downloadFile уже отправлен }
-    { -1, если ещё не пришёл. 0..6 — зарезервированные "базовые" цвета
-      (red/orange/violet/green/cyan/blue/pink), 7+ — резолвятся через
-      TTdAccentColors (tdaccentcolors.pas) из updateAccentColors. Нужен
-      framehistory.pas для анонимных постов от лица чата/канала. }
+    UserId:             Int64;        { the peer, private chats only }
+    PhotoFileId:        integer;      { small.id, 0 = no photo }
+    PhotoPath:          utf8string;   { local path, if already downloaded }
+    Minithumb:          RawByteString;{ raw JPEG from minithumbnail }
+    AvatarRequested:    boolean;      { downloadFile already sent }
+    { -1 if not received yet. 0..6 are the reserved "base" colors
+      (red/orange/violet/green/cyan/blue/pink), 7+ are resolved via
+      TTdAccentColors (tdaccentcolors.pas) from updateAccentColors.
+      Needed by framehistory.pas for anonymous posts made on behalf of
+      a chat/channel. }
     AccentColorId:      integer;
   end;
 
-  { Сводка по архиву для псевдостроки в начале списка. }
+  { Archive summary for the pseudo-row at the top of the list. }
   TArchiveInfo = record
-    KnownChats:  integer;    { сколько архивных чатов загружено }
-    TotalChats:  integer;    { сколько их всего, по данным TDLib }
-    UnreadChats: integer;    { чатов с непрочитанным }
-    Preview:     utf8string; { названия через запятую }
+    KnownChats:  integer;    { how many archived chats have loaded }
+    TotalChats:  integer;    { how many there are in total, per TDLib }
+    UnreadChats: integer;    { chats with unread messages }
+    Preview:     utf8string; { comma-separated titles }
   end;
 
   TChatMap = specialize TFPGMap<Int64, TChatRow>;
@@ -78,33 +97,42 @@ type
 
   { TTdChats
 
-    Список не постраничный: TDLib присылает чаты апдейтами, а loadChats
-    лишь просит подгрузить ещё и отвечает 404, когда всё загружено.
-    Поэтому модель — наблюдатель, а не источник запросов данных. }
+    The list is not paginated: TDLib delivers chats via updates, and
+    loadChats only asks it to load more, replying 404 once everything
+    is loaded. The model is therefore an observer, not the source of
+    data requests. }
 
   TTdChats = class(TComponent, ITdUpdateListener, ITdStateListener)
   private
     FSession: ITdSession;
     FReq:     TTdRequests;
-    FAll:   TChatMap;     { все известные чаты по id }
-    FByFile: TFileMap;    { file_id аватарки -> чат }
-    { Боты определяются не по чату, а по пользователю: у чата тип
-      всегда chatTypePrivate. Апдейты updateUser приходят сами. }
+    FAll:   TChatMap;     { every known chat, by id }
+    FByFile: TFileMap;    { avatar file_id -> chat }
+    { Bots are identified by user, not chat: a chat's type is always
+      chatTypePrivate. updateUser updates arrive on their own. }
     FBots:   TBotMap;
-    FRows:  TFPList;      { отображаемые, отсортированные }
+    FRows:  TFPList;      { displayed, sorted }
     FTimer: TTimer;
     FDirty: boolean;
     FLoading: boolean;
     FAllLoaded: boolean;
     FLoadLimit: integer;
-    FArchive: TArchiveInfo;     { сводка по архиву }
-    FMainInfo: TArchiveInfo;    { сводка по основному списку }
-    FArchiveRows: TFPList;      { архивные чаты, отсортированные }
+    FArchive: TArchiveInfo;     { archive summary }
+    FMainInfo: TArchiveInfo;    { main-list summary }
+    FArchiveRows: TFPList;      { archived chats, sorted }
     FArchiveLoading: boolean;
     FArchiveAllLoaded: boolean;
     FOnChanged: TTdChatsEvent;
     FOnLoadingChanged: TTdChatsEvent;
     FOnActionError: TTdChatsErrorEvent;
+    { custom_emoji_ids with a getCustomEmojiStickers request in flight —
+      see EnsureCustomEmojiForRow. Mirrors TTdMessages.FCustomEmojiPending
+      (tdmessages.pas) — a genuine duplicate, not shared: TTdChats and
+      TTdMessages are unrelated model classes with no common base to
+      hang this on, and the two are independent GLOBAL dedupe lists
+      anyway (the underlying cache in customemoji.pas is the one thing
+      actually shared between them). }
+    FCustomEmojiPending: array of Int64;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TChatRow;
@@ -128,27 +156,34 @@ type
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
     procedure DownloadDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyFile(AFile: TJSONObject);
+    function IsCustomEmojiPending(AId: Int64): boolean;
+    procedure MarkCustomEmojiPending(AId: Int64);
+    procedure ClearCustomEmojiPending(AId: Int64);
+    procedure GetCustomEmojiStickersDone(Sender: TObject; const AResp: TTdResponse);
+    procedure DownloadCustomEmojiDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyCustomEmojiFile(AFile: TJSONObject);
     procedure ApplyUser(AUser: TJSONObject);
     procedure ApplyNotifySettings(ARow: TChatRow; ASettings: TJSONObject);
   public
-    { Модель принадлежит аккаунту. Резолвер передаётся снаружи, а не
-      берётся синглтоном: у каждого аккаунта он свой. }
+    { The model belongs to an account. The resolver is passed in from
+      outside rather than fetched as a singleton: each account has its
+      own. }
     constructor Create(AOwner: TComponent; const ASession: ITdSession;
       AReq: TTdRequests); reintroduce;
     destructor Destroy; override;
 
     procedure Clear;
-    { Чат по id, nil если неизвестен. Публичный — framehistory.pas
-      использует его, чтобы достать LastReadOutbox текущего чата
-      (значок статуса сообщения) и Title чата-отправителя (анонимные
-      посты от имени канала/группы). }
+    { A chat by id, nil if unknown. Public: framehistory.pas uses it to
+      fetch the current chat's LastReadOutbox (message status icon) and
+      the sender chat's Title (anonymous posts on behalf of a
+      channel/group). }
     function Lookup(AId: Int64): TChatRow;
-    { --- действия над чатом ---
-      Результат приходит апдейтами (updateChatReadInbox, updateChatPosition
-      и прочими), которые модель и так разбирает, поэтому список
-      обновится сам. Здесь только отправка. }
-    { Включить или выключить уведомления. Периоды mute пока не
-      поддерживаем: выключение — навсегда. }
+    { --- chat actions ---
+      The result arrives via updates (updateChatReadInbox,
+      updateChatPosition, and others) that the model already parses, so
+      the list updates itself. These methods only send the request. }
+    { Turns notifications on or off. Mute-for-a-period is not supported
+      yet: turning it off is permanent. }
     procedure SetMuted(ARow: TChatRow; AMuted: boolean);
     procedure MarkAsRead(ARow: TChatRow);
     procedure MarkAsUnread(ARow: TChatRow);
@@ -156,18 +191,28 @@ type
     procedure SetArchived(ARow: TChatRow; AArchived: boolean);
     procedure LeaveChat(ARow: TChatRow);
 
-    { Является ли собеседник ботом. Для не-личных чатов всегда False. }
+    { Whether the peer is a bot. Always False for non-private chats. }
     function IsBotChat(ARow: TChatRow): boolean;
 
-    { Запросить настоящую аватарку. Зовётся фреймом только для видимых
-      строк — качать все подряд незачем. Повторные вызовы безвредны. }
+    { Requests the real avatar. Called by the frame only for visible
+      rows — downloading everything at once would be pointless. Repeat
+      calls are harmless. }
     procedure EnsureAvatar(ARow: TChatRow);
+    { Custom (Premium) emoji in ARow.LastGlyphs — same idea as
+      TTdMessages.EnsureCustomEmojiForRow (tdmessages.pas): a message's
+      history being open is what fetches these for the message view, but
+      the chat LIST shows a preview of chats that may never have been
+      opened this session at all, so it needs its own fetch path, not
+      just its own render path (already wired, framechats.pas). Called
+      by the frame only for visible rows, same as EnsureAvatar above —
+      repeat calls are harmless. }
+    procedure EnsureCustomEmojiForRow(ARow: TChatRow);
 
-    { Попросить TDLib подгрузить следующую порцию. Сами чаты придут
-      апдейтами, а не в ответе на этот запрос. }
+    { Asks TDLib to load the next batch. The chats themselves arrive via
+      updates, not in the response to this request. }
     procedure LoadMore;
-    { То же для архивного списка: у него свой курсор и свой признак
-      «всё загружено». }
+    { Same for the archive list: it has its own cursor and its own
+      "everything loaded" flag. }
     procedure LoadMoreArchive;
 
     { ITdUpdateListener }
@@ -178,11 +223,11 @@ type
 
     property Count: integer read GetCount;
     property Rows[AIndex: integer]: TChatRow read GetRow; default;
-    { Сводки по спискам. Обновляются вместе с перестройкой. }
+    { List summaries. Refreshed together with each rebuild. }
     property Archive: TArchiveInfo read FArchive;
     property MainInfo: TArchiveInfo read FMainInfo;
 
-    { Архивные чаты — второй список, живёт параллельно основному. }
+    { Archived chats — a second list, living alongside the main one. }
     property ArchiveCount: integer read GetArchiveCount;
     property ArchiveRows[AIndex: integer]: TChatRow read GetArchiveRow;
     property ArchiveLoading: boolean read FArchiveLoading;
@@ -198,11 +243,16 @@ type
   end;
 
 function ChatKindToStr(AKind: TChatKind): string;
-{ Отметка о прочтении. «Прочитано» — когда id последнего сообщения
-  не больше last_read_outbox_message_id. }
+{ Read receipt. "Read" means the last message's id is no greater than
+  last_read_outbox_message_id. }
 function ChatReceipt(ARow: TChatRow): TChatReceipt;
-{ Короткое превью содержимого сообщения для второй строки элемента. }
-function MessagePreview(AContent: TJSONObject): utf8string;
+{ A short preview of the message content for the row's second line.
+  AGlyphs collects any textEntityTypeCustomEmoji spans found in whatever
+  formattedText (text or caption) the preview was built from, with byte
+  offsets already relative to the RETURNED string — including the
+  "Photo: ", "Video: " etc. prefix CaptionOr adds internally, not to the
+  original caption alone. }
+function MessagePreview(AContent: TJSONObject; out AGlyphs: TPreviewGlyphArray): utf8string;
 
 implementation
 
@@ -269,15 +319,125 @@ begin
   end;
 end;
 
-function MessagePreview(AContent: TJSONObject): utf8string;
+{ Local duplicate of tdmessages.Utf16RangeToByteRange (tdmessages.pas
+  can't be used here — it already uses tdchats, and this file is
+  plain data with no business depending on the message layout model
+  either way). Small, low-risk logic (a UTF-16-code-unit-count to
+  UTF-8-byte-offset conversion) — worth a second copy rather than a new
+  cross-unit dependency for it, unlike something genuinely fragile (see
+  the R/B channel swap comment in customemoji.pas for the other end of
+  that tradeoff). }
+procedure Utf16RangeToByteRangeLocal(const AText: utf8string;
+  AUtf16Offset, AUtf16Length: integer; out AByteStart, AByteLen: integer);
+var
+  I, N, Units, TargetStart, TargetEnd, CodeLen: integer;
+  Cp: cardinal;
+
+  function DecodeCp(APos: integer; out ALen: integer): cardinal;
+  var
+    B0: byte;
+  begin
+    B0 := byte(AText[APos]);
+    if B0 < $80 then ALen := 1
+    else if B0 < $C0 then ALen := 1
+    else if B0 < $E0 then ALen := 2
+    else if B0 < $F0 then ALen := 3
+    else ALen := 4;
+    if APos + ALen - 1 > Length(AText) then begin
+      ALen := Length(AText) - APos + 1;
+    end;
+    case ALen of
+      1: Result := B0;
+      2: Result := ((B0 and $1F) shl 6) or (byte(AText[APos + 1]) and $3F);
+      3: Result := ((B0 and $0F) shl 12) or ((byte(AText[APos + 1]) and $3F) shl 6)
+                   or (byte(AText[APos + 2]) and $3F);
+    else
+      Result := ((B0 and $07) shl 18) or ((byte(AText[APos + 1]) and $3F) shl 12)
+                or ((byte(AText[APos + 2]) and $3F) shl 6) or (byte(AText[APos + 3]) and $3F);
+    end;
+  end;
+
+begin
+  TargetStart := AUtf16Offset;
+  TargetEnd := AUtf16Offset + AUtf16Length;
+  N := Length(AText);
+  AByteStart := N + 1;
+  AByteLen := 0;
+
+  I := 1;
+  Units := 0;
+  while I <= N do begin
+    if Units = TargetStart then begin
+      AByteStart := I;
+    end;
+    Cp := DecodeCp(I, CodeLen);
+    if Cp > $FFFF then begin
+      Inc(Units, 2);
+    end else begin
+      Inc(Units, 1);
+    end;
+    Inc(I, CodeLen);
+    if Units >= TargetEnd then begin
+      if AByteStart > N then begin
+        AByteStart := I;
+      end;
+      AByteLen := I - AByteStart;
+      Exit;
+    end;
+  end;
+  if AByteStart > N then begin
+    AByteStart := N + 1;
+  end;
+  AByteLen := (N + 1) - AByteStart;
+end;
+
+{ Appends every textEntityTypeCustomEmoji span found in AEntities (the
+  'entities' array alongside the formattedText ASubText was read from)
+  to AGlyphs, with byte offsets shifted by ABaseOffset — the length of
+  whatever prefix ("Photo: " etc.) MessagePreview put in front of
+  ASubText in the final, returned string. }
+procedure AppendCustomEmojiGlyphs(const ASubText: utf8string; AEntities: TJSONArray;
+  ABaseOffset: integer; var AGlyphs: TPreviewGlyphArray);
+var
+  I, ByteStart, ByteLen: integer;
+  EObj, TypeObj: TJSONObject;
+begin
+  if AEntities = nil then begin
+    Exit;
+  end;
+  for I := 0 to AEntities.Count - 1 do begin
+    if AEntities.Items[I].JSONType <> jtObject then begin
+      Continue;
+    end;
+    EObj := TJSONObject(AEntities.Items[I]);
+    TypeObj := JGetObj(EObj, 'type');
+    if JGetStr(TypeObj, '@type') <> 'textEntityTypeCustomEmoji' then begin
+      Continue;
+    end;
+    Utf16RangeToByteRangeLocal(ASubText, JGetInt(EObj, 'offset'), JGetInt(EObj, 'length'),
+      ByteStart, ByteLen);
+    if ByteLen <= 0 then begin
+      Continue;
+    end;
+    SetLength(AGlyphs, Length(AGlyphs) + 1);
+    AGlyphs[High(AGlyphs)].ByteStart := ABaseOffset + ByteStart;
+    AGlyphs[High(AGlyphs)].ByteLen := ByteLen;
+    AGlyphs[High(AGlyphs)].CustomEmojiId := JGetInt64(TypeObj, 'custom_emoji_id');
+  end;
+end;
+
+function MessagePreview(AContent: TJSONObject; out AGlyphs: TPreviewGlyphArray): utf8string;
 var
   T, Cap: utf8string;
+  FT: TJSONObject;
 
   function CaptionOr(const ADefault: utf8string): utf8string;
   begin
-    Cap := JGetStr(JGetObj(AContent, 'caption'), 'text');
+    FT := JGetObj(AContent, 'caption');
+    Cap := JGetStr(FT, 'text');
     if Cap <> '' then begin
       Result := ADefault + ': ' + Cap;
+      AppendCustomEmojiGlyphs(Cap, JGetArr(FT, 'entities'), Length(ADefault) + 2, AGlyphs);
     end else begin
       Result := ADefault;
     end;
@@ -285,13 +445,16 @@ var
 
 begin
   Result := '';
+  SetLength(AGlyphs, 0);
   if AContent = nil then begin
     Exit;
   end;
   T := JGetStr(AContent, '@type');
 
   if T = 'messageText' then begin
-    Result := JGetStr(JGetObj(AContent, 'text'), 'text');
+    FT := JGetObj(AContent, 'text');
+    Result := JGetStr(FT, 'text');
+    AppendCustomEmojiGlyphs(Result, JGetArr(FT, 'entities'), 0, AGlyphs);
   end else if T = 'messagePhoto' then begin
     Result := CaptionOr('Photo');
   end else if T = 'messageVideo' then begin
@@ -319,16 +482,16 @@ begin
   end else if T = 'messageCall' then begin
     Result := 'Call';
   end else begin
-    { Неизвестный вид — показываем сам тип, это полезнее пустоты. }
+    { Unknown kind — show the raw type, more useful than a blank. }
     Result := T;
   end;
 
-  { Перевод строки в однострочном превью недопустим. }
+  { A line break has no place in a one-line preview. }
   Result := utf8string(StringReplace(StringReplace(string(Result),
     #13, ' ', [rfReplaceAll]), #10, ' ', [rfReplaceAll]));
 end;
 
-{ ---------------- сортировка ---------------- }
+{ ---------------- sorting ---------------- }
 
 function CompareRows(P1, P2: Pointer): integer;
 var
@@ -336,7 +499,7 @@ var
 begin
   A := TChatRow(P1);
   B := TChatRow(P2);
-  { Схема требует убывания по паре (order, chat.id). }
+  { The schema calls for descending order by the pair (order, chat.id). }
   if A.Order > B.Order then begin
     Result := -1;
   end else if A.Order < B.Order then begin
@@ -500,9 +663,9 @@ begin
   end;
   FDirty := False;
 
-  { Полная пересборка вместо инкрементальных вставок: для нескольких
-    тысяч указателей сортировка занимает доли миллисекунды, а кода
-    и поводов для ошибок — на порядок меньше. }
+  { A full rebuild instead of incremental inserts: sorting a few
+    thousand pointers takes a fraction of a millisecond, and there's an
+    order of magnitude less code and fewer chances for bugs. }
   FRows.Clear;
   for I := 0 to FAll.Count - 1 do begin
     R := FAll.Data[I];
@@ -552,7 +715,7 @@ begin
   if ARow = nil then begin
     Exit;
   end;
-  { Нечего качать, уже скачано или уже запрошено. }
+  { Nothing to download, already downloaded, or already requested. }
   if (ARow.PhotoFileId = 0) or (ARow.PhotoPath <> '') or ARow.AvatarRequested then begin
     Exit;
   end;
@@ -560,8 +723,8 @@ begin
   if FByFile.IndexOf(ARow.PhotoFileId) < 0 then begin
     FByFile.Add(ARow.PhotoFileId, ARow);
   end;
-  { priority 1 — низший: аватарки не должны мешать загрузке сообщений.
-    synchronous=false, результат придёт апдейтом updateFile. }
+  { priority 1 — the lowest: avatars must not compete with message
+    loading. synchronous=false, the result arrives via an updateFile. }
   if FReq = nil then begin
     ARow.AvatarRequested := False;
     Exit;
@@ -576,13 +739,14 @@ procedure TTdChats.DownloadDone(Sender: TObject; const AResp: TTdResponse);
 var
   Idx: integer;
 begin
-  { Ответ на downloadFile — это объект file. Если файл уже был на диске,
-    он придёт прямо здесь, и updateFile может не прийти вовсе. }
+  { The downloadFile response is a file object. If the file was already
+    on disk, it arrives right here, and updateFile may never come at
+    all. }
   if AResp.Success then begin
     ApplyFile(AResp.Obj);
     Exit;
   end;
-  { Ошибка — снимаем пометку, чтобы можно было попробовать снова. }
+  { Failure — clear the flag so another attempt can be made. }
   Idx := FByFile.IndexOf(integer(AResp.Tag));
   if Idx >= 0 then begin
     FByFile.Data[Idx].AvatarRequested := False;
@@ -622,6 +786,182 @@ begin
   Touch;
 end;
 
+function TTdChats.IsCustomEmojiPending(AId: Int64): boolean;
+var
+  I: integer;
+begin
+  Result := False;
+  for I := 0 to High(FCustomEmojiPending) do begin
+    if FCustomEmojiPending[I] = AId then begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TTdChats.MarkCustomEmojiPending(AId: Int64);
+begin
+  SetLength(FCustomEmojiPending, Length(FCustomEmojiPending) + 1);
+  FCustomEmojiPending[High(FCustomEmojiPending)] := AId;
+end;
+
+procedure TTdChats.ClearCustomEmojiPending(AId: Int64);
+var
+  I, J: integer;
+begin
+  for I := 0 to High(FCustomEmojiPending) do begin
+    if FCustomEmojiPending[I] = AId then begin
+      for J := I to High(FCustomEmojiPending) - 1 do begin
+        FCustomEmojiPending[J] := FCustomEmojiPending[J + 1];
+      end;
+      SetLength(FCustomEmojiPending, Length(FCustomEmojiPending) - 1);
+      Exit;
+    end;
+  end;
+end;
+
+{ Same batching approach as TTdMessages.EnsureCustomEmojiForRow
+  (tdmessages.pas) — one getCustomEmojiStickers call per row for
+  whatever ids in ARow.LastGlyphs aren't already known/pending. }
+procedure TTdChats.EnsureCustomEmojiForRow(ARow: TChatRow);
+var
+  I, N: integer;
+  Ids: array of Int64;
+  Id: Int64;
+  Body: utf8string;
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+  SetLength(Ids, Length(ARow.LastGlyphs));
+  N := 0;
+  for I := 0 to High(ARow.LastGlyphs) do begin
+    Id := ARow.LastGlyphs[I].CustomEmojiId;
+    if (Id = 0) or CustomEmojiKnown(Id) or IsCustomEmojiPending(Id) then begin
+      Continue;
+    end;
+    Ids[N] := Id;
+    Inc(N);
+    MarkCustomEmojiPending(Id);
+  end;
+  if N = 0 then begin
+    Exit;
+  end;
+
+  Body := '"custom_emoji_ids":[';
+  for I := 0 to N - 1 do begin
+    if I > 0 then begin
+      Body := Body + ',';
+    end;
+    Body := Body + '"' + utf8string(IntToStr(Ids[I])) + '"';
+  end;
+  Body := Body + ']';
+  FReq.SendRequest('getCustomEmojiStickers', Body, @GetCustomEmojiStickersDone);
+end;
+
+{ Same shape as TTdMessages.GetCustomEmojiStickersDone (tdmessages.pas)
+  — see its comment for the accepted "not found = not retried this
+  session" tradeoff, unchanged here. }
+procedure TTdChats.GetCustomEmojiStickersDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Arr: TJSONArray;
+  I: integer;
+  StObj, FormatObj, FullTypeObj, FileObj, LocalObj: TJSONObject;
+  Id: Int64;
+  Format: TCustomEmojiFormat;
+  FmtType: utf8string;
+  FileId: integer;
+  LocalPath: utf8string;
+begin
+  if not AResp.Success then begin
+    Exit;
+  end;
+  Arr := JGetArr(AResp.Obj, 'stickers');
+  if Arr = nil then begin
+    Exit;
+  end;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Items[I].JSONType <> jtObject then begin
+      Continue;
+    end;
+    StObj := TJSONObject(Arr.Items[I]);
+    FullTypeObj := JGetObj(StObj, 'full_type');
+    if JGetStr(FullTypeObj, '@type') <> 'stickerFullTypeCustomEmoji' then begin
+      Continue;
+    end;
+    Id := JGetInt64(FullTypeObj, 'custom_emoji_id');
+    if Id = 0 then begin
+      Continue;
+    end;
+    ClearCustomEmojiPending(Id);
+
+    FormatObj := JGetObj(StObj, 'format');
+    FmtType := JGetStr(FormatObj, '@type');
+    if FmtType = 'stickerFormatTgs' then begin
+      Format := cmfTgs;
+    end else if FmtType = 'stickerFormatWebm' then begin
+      Format := cmfWebm;
+    end else begin
+      Format := cmfWebp;
+    end;
+
+    FileObj := JGetObj(StObj, 'sticker');
+    FileId := JGetInt(FileObj, 'id');
+    LocalPath := '';
+    LocalObj := JGetObj(FileObj, 'local');
+    if JGetBool(LocalObj, 'is_downloading_completed') then begin
+      LocalPath := JGetStr(LocalObj, 'path');
+    end;
+    CustomEmojiSetSticker(Id, FileId, Format, LocalPath);
+
+    if LocalPath = '' then begin
+      if CustomEmojiNeedsDownload(Id) then begin
+        CustomEmojiMarkDownloadRequested(Id);
+        FReq.SendRequest('downloadFile',
+          '"file_id":' + utf8string(IntToStr(FileId)) +
+          ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+          @DownloadCustomEmojiDone, PtrInt(FileId));
+      end;
+    end else begin
+      Touch;
+    end;
+  end;
+end;
+
+procedure TTdChats.DownloadCustomEmojiDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if AResp.Success then begin
+    ApplyCustomEmojiFile(AResp.Obj);
+  end;
+end;
+
+procedure TTdChats.ApplyCustomEmojiFile(AFile: TJSONObject);
+var
+  FileId: integer;
+  Id: Int64;
+  Local: TJSONObject;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Id := CustomEmojiIdForFile(FileId);
+  if Id = 0 then begin
+    Exit;
+  end;
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+  CustomEmojiSetLocalPath(Id, Path);
+  Touch;
+end;
+
 procedure TTdChats.LoadMoreArchive;
 begin
   if FArchiveLoading or FArchiveAllLoaded or (FReq = nil) then begin
@@ -639,7 +979,7 @@ end;
 procedure TTdChats.ArchiveDone(Sender: TObject; const AResp: TTdResponse);
 begin
   FArchiveLoading := False;
-  { 404 — единственный признак того, что архив кончился. }
+  { 404 is the only signal that the archive has been exhausted. }
   if (not AResp.Success) and (AResp.ErrorCode = 404) then begin
     FArchiveAllLoaded := True;
     Touch;
@@ -670,8 +1010,8 @@ function PreviewOf(AList: TFPList): utf8string;
 var
   I: integer;
 begin
-  { Названия верхних чатов через запятую, как в Telegram.
-    Обрываем по длине, а не по количеству: названия разной длины. }
+  { Comma-separated titles of the top chats, matching Telegram. Cut off
+    by length, not count: titles vary widely in length. }
   Result := '';
   for I := 0 to AList.Count - 1 do begin
     if Length(Result) > 60 then begin
@@ -708,8 +1048,8 @@ end;
 procedure TTdChats.LoadChatsDone(Sender: TObject; const AResp: TTdResponse);
 begin
   SetLoading(False);
-  { 404 — единственный признак того, что список кончился.
-    Прочие ошибки временные, повторить можно. }
+  { 404 is the only signal that the list has been exhausted. Other
+    errors are transient and retrying is fine. }
   if (not AResp.Success) and (AResp.ErrorCode = 404) then begin
     FAllLoaded := True;
   end;
@@ -720,9 +1060,10 @@ begin
   if (ARow = nil) or (ASettings = nil) then begin
     Exit;
   end;
-  { use_default_mute_for означает «как настроено для всей категории».
-    Значение категории приходит отдельным updateScopeNotificationSettings;
-    пока считаем такие чаты незаглушёнными — по умолчанию так и есть. }
+  { use_default_mute_for means "follow the category's setting". The
+    category's own value arrives via a separate
+    updateScopeNotificationSettings; until then, such chats are treated
+    as unmuted, which matches the default anyway. }
   if JGetBool(ASettings, 'use_default_mute_for') then begin
     ARow.IsMuted := False;
   end else begin
@@ -758,9 +1099,9 @@ begin
     FBots.Add(Id, IsBot);
   end;
 
-  { updateUser приходит на КАЖДОГО известного пользователя, а их
-    тысячи. Перерисовку просим только когда значок мог измениться,
-    то есть когда речь о боте. }
+  { updateUser arrives for EVERY known user, and there are thousands of
+    them. A repaint is only requested when the icon could have changed,
+    i.e. when a bot is involved. }
   if IsBot or Was then begin
     Touch;
   end;
@@ -780,7 +1121,7 @@ begin
   end;
 end;
 
-{ ---------------- действия над чатом ---------------- }
+{ ---------------- chat actions ---------------- }
 
 procedure TTdChats.ActionDone(Sender: TObject; const AResp: TTdResponse);
 begin
@@ -794,8 +1135,8 @@ end;
 
 procedure TTdChats.SetMuted(ARow: TChatRow; AMuted: boolean);
 const
-  { Схема: чат, заглушённый больше чем на 366 дней, считается
-    заглушённым навсегда. Отдельной константы в API нет. }
+  { Per the schema: a chat muted for more than 366 days counts as muted
+    forever. There's no dedicated constant for it in the API. }
   MUTE_FOREVER = 367 * 24 * 60 * 60;
 var
   Data: TJSONData;
@@ -809,8 +1150,8 @@ begin
   Obj := nil;
   Data := nil;
   try
-    { Берём существующие настройки и меняем только заглушение —
-      остальные поля должны уцелеть. }
+    { Take the existing settings and change only the mute flag — every
+      other field must survive intact. }
     if ARow.NotifyRaw <> '' then begin
       try
         Data := GetJSON(string(ARow.NotifyRaw));
@@ -851,8 +1192,8 @@ begin
   end;
 
   if ARow.LastMessageId <> 0 then begin
-    { force_read = true: чат закрыт, но пометить прочитанным надо.
-      source указываем явно — из списка чатов. }
+    { force_read = true: the chat is closed, but it still needs to be
+      marked as read. source is given explicitly — from the chat list. }
     FReq.SendRequest('viewMessages',
       '"chat_id":' + utf8string(IntToStr(ARow.Id)) +
       ',"message_ids":[' + utf8string(IntToStr(ARow.LastMessageId)) + ']' +
@@ -860,8 +1201,8 @@ begin
       @ActionDone);
   end;
 
-  { Чат мог быть помечен непрочитанным вручную — снимаем и это,
-    иначе точка останется висеть. }
+  { The chat may have been manually marked unread too — clear that as
+    well, otherwise the dot would remain stuck. }
   if ARow.IsMarkedAsUnread then begin
     FReq.SendRequest('toggleChatIsMarkedAsUnread',
       '"chat_id":' + utf8string(IntToStr(ARow.Id)) +
@@ -891,8 +1232,8 @@ begin
   end else begin
     Flag := 'false';
   end;
-  { Внимание: у toggleChatIsPinned chat_list идёт ПЕРВЫМ параметром,
-    закрепление относится к конкретному списку. }
+  { Note: for toggleChatIsPinned, chat_list comes FIRST — pinning
+    applies to a specific list. }
   FReq.SendRequest('toggleChatIsPinned',
     '"chat_list":{"@type":"chatListMain"},"chat_id":' +
     utf8string(IntToStr(ARow.Id)) + ',"is_pinned":' + Flag, @ActionDone);
@@ -924,7 +1265,7 @@ begin
     '"chat_id":' + utf8string(IntToStr(ARow.Id)), @ActionDone);
 end;
 
-{ ---------------- разбор апдейтов ---------------- }
+{ ---------------- update parsing ---------------- }
 
 procedure TTdChats.ApplyPosition(ARow: TChatRow; APos: TJSONObject);
 var
@@ -938,7 +1279,7 @@ begin
   Kind := JGetStr(JGetObj(APos, 'list'), '@type');
   Ord := JGetInt64(APos, 'order');
 
-  { Схема прямо говорит: order = 0 значит убрать из списка. }
+  { Per the schema: order = 0 means remove from the list. }
   if Kind = 'chatListMain' then begin
     if Ord = 0 then begin
       ARow.InList := False;
@@ -958,7 +1299,7 @@ begin
       ARow.ArchiveOrder := Ord;
     end;
   end;
-  { Папки (chatListFolder) пока не поддерживаем. }
+  { Folders (chatListFolder) are not supported yet. }
 end;
 
 procedure TTdChats.ApplyPositions(ARow: TChatRow; APositions: TJSONArray);
@@ -992,8 +1333,8 @@ begin
     end;
   end;
 
-  { Массив positions полный: отсутствие списка означает, что чата
-    в нём нет вообще. }
+  { The positions array is exhaustive: a missing list means the chat
+    isn't in it at all. }
   if not SawMain then begin
     ARow.InList := False;
     ARow.Order := 0;
@@ -1023,14 +1364,15 @@ begin
 
   Small := JGetObj(APhoto, 'small');
   if ARow.PhotoFileId <> JGetInt(Small, 'id') then begin
-    { Фото сменилось — прежний запрос уже не про этот файл. }
+    { The photo changed — any earlier request is no longer about this
+      file. }
     ARow.AvatarRequested := False;
   end;
   ARow.PhotoFileId := JGetInt(Small, 'id');
   ARow.PhotoPath := JGetStr(JGetObj(Small, 'local'), 'path');
 
-  { minithumbnail приходит прямо в апдейте: base64 крошечного JPEG.
-    Ничего скачивать не надо — картинку можно показать сразу. }
+  { minithumbnail arrives right in the update: base64 of a tiny JPEG.
+    Nothing to download — the image can be shown immediately. }
   B64 := JGetStr(JGetObj(APhoto, 'minithumbnail'), 'data');
   if B64 <> '' then begin
     try
@@ -1050,18 +1392,19 @@ begin
   end;
   if AMsg = nil then begin
     ARow.LastText := '';
+    SetLength(ARow.LastGlyphs, 0);
     ARow.LastDate := 0;
     ARow.LastIsOutgoing := False;
     ARow.LastMessageId := 0;
     ARow.LastSending := mssDelivered;
     Exit;
   end;
-  ARow.LastText := MessagePreview(JGetObj(AMsg, 'content'));
+  ARow.LastText := MessagePreview(JGetObj(AMsg, 'content'), ARow.LastGlyphs);
   ARow.LastDate := JGetInt64(AMsg, 'date');
   ARow.LastIsOutgoing := JGetBool(AMsg, 'is_outgoing');
   ARow.LastMessageId := JGetInt64(AMsg, 'id');
 
-  { sending_state отсутствует у уже отправленных сообщений. }
+  { sending_state is absent for already-sent messages. }
   St := JGetStr(JGetObj(AMsg, 'sending_state'), '@type');
   if St = 'messageSendingStatePending' then begin
     ARow.LastSending := mssPending;
@@ -1100,9 +1443,10 @@ var
   T: utf8string;
   R: TChatRow;
 begin
-  { AData уже разобран приёмным потоком (tdrecv.pas) — раньше здесь
-    был свой GetJSON за отдельной дешёвой Pos-отсечкой по сырой
-    строке; теперь парсинг один на всех подписчиков, отсечка не нужна. }
+  { AData is already parsed by the receive thread (tdrecv.pas) — this
+    used to have its own GetJSON, gated behind a cheap Pos-based check
+    on the raw string; now parsing happens once for all subscribers, so
+    that check is no longer needed. }
   if AData = nil then begin
     Exit;
   end;
@@ -1155,6 +1499,7 @@ begin
       ApplyUnreadCount(Obj);
     end else if T = 'updateFile' then begin
       ApplyFile(JGetObj(Obj, 'file'));
+      ApplyCustomEmojiFile(JGetObj(Obj, 'file'));
     end else if T = 'updateChatReadOutbox' then begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));
       if R <> nil then begin
@@ -1190,7 +1535,7 @@ end;
 
 procedure TTdChats.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  { Ошибки авторизации модели не касаются. }
+  { Authorization errors don't concern this model. }
 end;
 
 end.

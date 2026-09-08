@@ -2,45 +2,45 @@ unit mediaviewer;
 
 {$mode objfpc}{$H+}
 
-{ Встроенный полноэкранный просмотрщик фото/видео — по прямому запросу
-  пользователя (2026-09-06), вместе с уменьшением инлайн-превью в чате:
-  клик по фото/видео теперь открывает ЭТУ панель вместо системного
-  просмотрщика (фото) или ничего (видео — раньше отдельного "покрупнее"
-  не было, только инлайн play/pause).
+{ Built-in full-screen photo/video viewer: clicking a photo/video in the
+  chat opens this panel instead of the system viewer (photo) or nothing
+  (video — there used to be no "bigger" view at all, only inline
+  play/pause).
 
-  Один экземпляр на всё приложение (TFormMain.MediaViewer), родитель —
-  сама главная форма, во весь её клиентский прямоугольник. В обычном
-  состоянии Visible=False — LCL не рисует и не диспетчерит мышь/клавиши
-  невидимому контролу вовсе, этого достаточно для "прозрачна для
-  курсора, пока не активирована" (аналог pointer-events:none) без
-  каких-либо доп. трюков.
+  One instance for the whole application (TFormMain.MediaViewer),
+  parented to the main form itself, covering its entire client rect. In
+  the normal state Visible=False — LCL doesn't paint or dispatch
+  mouse/keyboard to a hidden control at all, which is enough for
+  "transparent to the cursor until activated" (the equivalent of
+  pointer-events:none) without any extra tricks.
 
-  Фото — свой, независимый от TPhotoWidget путь показа: тот вписывает
-  превью в PHOTO_MAX_WIDTH/HEIGHT (маленький потолок инлайн-карточки в
-  чате) ВСЕГДА, даже если передать больший AMaxW — см. её же
-  ComputePhotoPreviewSize (msglayout.pas), она не переиспользуется
-  здесь по этой же причине. Вместо этого — тот же переиспользуемый
-  TPhotoDecodeThread (photodecoder.pas, уже умеет декод+ресемпл в
-  фоновом потоке в ЛЮБОЙ явно заданный размер), но целевой размер
-  считается от размера ОКНА просмотрщика (FitToBox ниже, без верхнего
-  потолка вовсе — только не увеличивает маленькие фото сверх
-  натурального размера, тот же принцип, что уже принят у превью в
-  чате). Показывается ОРИГИНАЛ (PhotoBestLocalPath), не инлайн-превью.
+  Photo display uses its own path, independent of TPhotoWidget: that
+  widget always fits its preview into PHOTO_MAX_WIDTH/HEIGHT (the small
+  cap for an inline chat card), even given a larger AMaxW — see its
+  ComputePhotoPreviewSize (msglayout.pas), which is not reused here for
+  the same reason. Instead, the same reusable TPhotoDecodeThread
+  (photodecoder.pas, already able to decode+resample in a background
+  thread to any explicitly given size) is used, but with a target size
+  computed from the VIEWER WINDOW's size (FitToBox below, with no upper
+  cap at all — it only avoids upscaling small photos past their natural
+  size, the same principle already used for the inline chat preview).
+  The ORIGINAL is shown (PhotoBestLocalPath), not the inline-preview
+  copy.
 
-  Видео — переиспользован TVideoWidget (framehistory.pas) целиком, тот
-  же внешний вид/контролы play/pause/seek, что и в чате, но через новый
-  SetVideoSized (тоже в обход ComputePhotoPreviewSize/AMaxW-потолка —
-  см. её комментарий в framehistory.pas). Проигрывание — СВОЙ,
-  независимый TMediaPlayer (mediaplayer.pas) — инлайн-проигрывания видео
-  в чате больше нет вовсе (по прямому запросу пользователя, 2026-09-06;
-  см. framehistory.pas, TMsgScroller.VideoBodyClick/VideoPlayClick — там
-  виджет теперь просто кликабельное превью, своего плеера не имеет), так
-  что этот плеер — единственный на всё приложение, конфликтовать не с
-  чем. Схема (один активный плеер, FDonePlayer/WaitFor — не освобождать
-  TThread изнутри его же Synchronize, StopPlayback перед Free) — та же,
-  что раньше держал чат для своего (ныне убранного) инлайн-плеера, здесь
-  — на один слот (в просмотрщике одновременно показывается только одно
-  видео), а не на пул виджетов. }
+  Video reuses TVideoWidget (framehistory.pas) wholesale — the same
+  look/play/pause/seek controls as in the chat, but through a new
+  SetVideoSized (also bypassing ComputePhotoPreviewSize/the AMaxW cap —
+  see its comment in framehistory.pas). Playback uses its OWN,
+  independent TMediaPlayer (mediaplayer.pas) — inline video playback in
+  the chat no longer exists at all (see framehistory.pas,
+  TMsgScroller.VideoBodyClick/VideoPlayClick — the widget there is now
+  just a clickable preview with no player of its own), so this player
+  is the only one in the whole application and has nothing to conflict
+  with. The scheme (one active player, FDonePlayer/WaitFor — don't free
+  a TThread from inside its own Synchronize, StopPlayback before Free)
+  is the same one the chat used to hold for its own (now removed)
+  inline player, just scaled down to a single slot here (the viewer
+  only ever shows one video at a time) rather than a widget pool. }
 
 interface
 
@@ -61,29 +61,31 @@ type
     FPlaybackImages: TImageList;
     FAudioDeviceName: utf8string;
 
-    { Фото }
+    { Photo }
     FPhotoBmp: TBGRABitmap;
     FPhotoW, FPhotoH: integer;
     FDecodeThread: TPhotoDecodeThread;
     FHasPrev, FHasNext: boolean;
-    { То же самое, но для видео — своя пара, не общая с фото (разные
-      Kind, разный проход по FModel, см. FindAdjacentVideoId). }
+    { Same idea, for video — its own pair, not shared with photo
+      (different Kind, different scan over FModel, see
+      FindAdjacentVideoId). }
     FHasPrevVideo, FHasNextVideo: boolean;
 
-    { Видео — один слот, не пул (см. шапку юнита). }
+    { Video — a single slot, not a pool (see the unit header). }
     FVideoWidget: TVideoWidget;
     FPlayer: TMediaPlayer;
     FDonePlayer: TMediaPlayer;
     FVideoTimer: TTimer;
     FVideoFrameKnownVersion: cardinal;
 
-    { Опрос "файл уже докачался?" — пока EnsurePhotoBestFile/
-      EnsureVideoFile отрабатывают асинхронно; TTdMessages.OnChanged —
-      однослушательский TNotifyEvent, уже занят TMsgScroller чата (тот
-      же класс ограничения, что документирован для TdChatList.OnChanged
-      в CLAUDE.md) — подписаться на него так же нельзя, не толкая
-      существующую цепочку. Простой поллинг вместо этого — дёшево,
-      никаких новых точек связи с остальным кодом. }
+    { Polls "has the file finished downloading?" while
+      EnsurePhotoBestFile/EnsureVideoFile run asynchronously.
+      TTdMessages.OnChanged is a single-listener TNotifyEvent already
+      claimed by the chat's TMsgScroller (the same limitation
+      documented for TdChatList.OnChanged) — subscribing to it here
+      too isn't possible without disturbing the existing chain. Plain
+      polling instead is cheap and adds no new coupling to the rest of
+      the code. }
     FPollTimer: TTimer;
 
     FCloseBtnRect, FPrevBtnRect, FNextBtnRect: TRect;
@@ -108,14 +110,18 @@ type
     procedure VideoTick(Sender: TObject);
     procedure VideoWidgetPlayClick(Sender: TObject);
     procedure VideoWidgetSeek(Sender: TObject; AFraction: double);
-    { Транспортные кнопки видео (TVideoWidget, framehistory.pas) — по
-      прямому запросу пользователя (2026-09-07). Prev/next — тот же
-      приём, что у фото (FindAdjacentPhotoId/NavigatePhoto), отдельная
-      копия под mckVideo (см. её же комментарий у FHasPrevVideo).
-      Repeat — просто читает/пишет TVideoWidget.RepeatOn, авто-рестарт
-      по достижении конца — VideoPlayerStateChanged. }
+    { Video transport buttons (TVideoWidget, framehistory.pas). Prev/next
+      use the same approach as photo (FindAdjacentPhotoId/NavigatePhoto),
+      a separate copy for mckVideo (see the comment on FHasPrevVideo).
+      Repeat reads/writes TVideoWidget.RepeatMode (three states — off/
+      repeat-all/repeat-one); the auto-action on reaching the end is in
+      VideoPlayerStateChanged. }
     procedure UpdateVideoNavFlags(ACurrentId: Int64);
     function FindAdjacentVideoId(AFromId: Int64; ADirection: integer): Int64;
+    { "Repeat all" advances to the next video in the chat, wrapping back
+      to the first once the last one is reached (a looping scan), not
+      just "next or nothing" like the plain NavigateVideo/prev-next. }
+    function FindWrappedNextVideoId(AFromId: Int64): Int64;
     procedure NavigateVideo(ADirection: integer);
     procedure VideoWidgetPrevClick(Sender: TObject);
     procedure VideoWidgetNextClick(Sender: TObject);
@@ -131,15 +137,16 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    { Единая точка входа — сама решает фото/видео по ARow.Kind.
-      AImages — ImageList с кадрами play/pause для встроенного
-      TVideoWidget (тот же список, что уже использует чат, см.
-      TMsgScroller.FAudioImages) — для фото не используется, безопасно
-      передать тот же список всегда. APlaybackImages — ряд транспортных
-      кнопок под полосой прокрутки (TMsgScroller.FPlaybackImages) — тем
-      же приёмом, тоже не используется для фото. AAudioDeviceName — см.
-      FormMain.AudioDeviceName, тем же приёмом передаётся явно, чтобы
-      этот юнит не тянул main.pas (циклическая зависимость). }
+    { Single entry point — resolves photo/video itself from ARow.Kind.
+      AImages is the ImageList with play/pause frames for the embedded
+      TVideoWidget (the same list the chat already uses, see
+      TMsgScroller.FAudioImages) — unused for photos, safe to always
+      pass the same list. APlaybackImages is the transport-button row
+      under the scrub bar (TMsgScroller.FPlaybackImages) — same
+      approach, also unused for photos. AAudioDeviceName mirrors
+      FormMain.AudioDeviceName, passed explicitly the same way so this
+      unit doesn't need to import main.pas (which would create a
+      circular dependency). }
     procedure ShowMessage(AModel: TTdMessages; AMessageId: Int64;
       AImages, APlaybackImages: TImageList; const AAudioDeviceName: utf8string = '');
     procedure CloseViewer;
@@ -149,17 +156,17 @@ implementation
 
 const
   MVIEW_MARGIN = 48;
-  { Кнопки — теперь настоящие значки ImageList1 (VIEWER_ICON_*,
-    constants.pas), не рисованный текст-глиф в кружке — размер кнопки
-    ровно AUDIO_BUTTON_SIZE, тот же, что и у самих значков. }
+  { Buttons are real ImageList1 icons (VIEWER_ICON_*, constants.pas),
+    not a hand-drawn text glyph in a circle — button size matches
+    AUDIO_BUTTON_SIZE, the same size as the icons themselves. }
   MVIEW_BTN    = AUDIO_BUTTON_SIZE;
 
-{ Вписывает натуральный размер в бокс, СОХРАНЯЯ пропорции, БЕЗ
-  увеличения сверх натурального (Scale никогда не растёт выше 1) — в
-  отличие от ComputePhotoPreviewSize (msglayout.pas), у которой всегда
-  есть фиксированный верхний потолок PHOTO_MAX_WIDTH/HEIGHT: здесь его
-  нет вовсе, доступная область — это реальный размер окна просмотрщика,
-  не размер строки в чате. }
+{ Fits a natural size into a box, PRESERVING proportions, with NO
+  upscaling past the natural size (Scale never exceeds 1) — unlike
+  ComputePhotoPreviewSize (msglayout.pas), which always has a fixed
+  upper cap of PHOTO_MAX_WIDTH/HEIGHT: there is no such cap here, the
+  available area is the real viewer window size, not a chat row's
+  width. }
 procedure FitToBox(ANatW, ANatH, AMaxW, AMaxH: integer; out AOutW, AOutH: integer);
 var
   Scale: double;
@@ -191,9 +198,9 @@ begin
   FVideoWidget := TVideoWidget.Create(Self);
   FVideoWidget.Parent := Self;
   FVideoWidget.Visible := False;
-  { Без скругления и без обводки — теперь одинаково с чатом (см.
-    TVideoWidget.Paint, свойство Rounded убрано целиком, обе стороны
-    рисуют одинаково). }
+  { No rounding and no outline — matches the chat now (see
+    TVideoWidget.Paint; the Rounded property was removed entirely, both
+    sides paint the same way). }
   FVideoWidget.OnPlayClick := @VideoWidgetPlayClick;
   FVideoWidget.OnSeek := @VideoWidgetSeek;
   FVideoWidget.OnPrevClick := @VideoWidgetPrevClick;
@@ -219,14 +226,14 @@ begin
   inherited Destroy;
 end;
 
-{ ---------------- геометрия/рисование ---------------- }
+{ ---------------- geometry / drawing ---------------- }
 
 procedure TMediaViewerPanel.Layout;
 begin
-  { MVIEW_BTN = AUDIO_BUTTON_SIZE (32) — те же кадры ImageList1, что и
-    play/pause/download у аудио/видео-виджетов, см. VIEWER_ICON_*
-    (constants.pas) — хит-зона кнопки ровно под размер значка, без
-    лишнего запаса. }
+  { MVIEW_BTN = AUDIO_BUTTON_SIZE (32) — the same ImageList1 frames as
+    play/pause/download on the audio/video widgets, see VIEWER_ICON_*
+    (constants.pas) — the hit area matches the icon size exactly, no
+    extra margin. }
   FCloseBtnRect := Rect(ClientWidth - MVIEW_BTN - 12, 12, ClientWidth - 12, 12 + MVIEW_BTN);
   FPrevBtnRect := Rect(12, (ClientHeight - MVIEW_BTN) div 2,
     12 + MVIEW_BTN, (ClientHeight - MVIEW_BTN) div 2 + MVIEW_BTN);
@@ -249,14 +256,12 @@ begin
   Result := Rect(X, Y, X + FPhotoW, Y + FPhotoH);
 end;
 
-{ Значки из ImageList1 (framehistory.TFrameHistory), тот же список, что
-  play/pause/download у аудио/видео-виджетов в чате — пользователь
-  добавил в него ещё три кадра (VIEWER_ICON_PREV/NEXT/CLOSE,
-  constants.pas) специально под просмотрщик. По прямому запросу
-  пользователя заменили рисованный текст-глиф в кружке (первая версия)
-  на настоящие значки — не рисуем никакой подложки под ними (тот же
-  приём, что и у play/pause в TAudioWidget/TVideoWidget — сам значок
-  уже полностью самодостаточен). }
+{ Icons from ImageList1 (framehistory.TFrameHistory), the same list
+  that provides play/pause/download for the audio/video widgets in the
+  chat — extended with three more frames (VIEWER_ICON_PREV/NEXT/CLOSE,
+  constants.pas) specifically for the viewer. No backing is drawn
+  behind them (the same approach as play/pause in TAudioWidget/
+  TVideoWidget — the icon itself is already self-sufficient). }
 procedure TMediaViewerPanel.DrawIconButton(const ARect: TRect; AIconIndex: integer);
 begin
   if (FImages = nil) or (AIconIndex < 0) or (AIconIndex >= FImages.Count) then begin
@@ -335,11 +340,11 @@ begin
         GetAvailArea(AvailW, AvailH);
         FitToBox(Row.VideoWidth, Row.VideoHeight, AvailW, AvailH, TgtW, TgtH);
         if (Abs(TgtW - FVideoWidget.TargetWidth) > 10) or (Abs(TgtH - FVideoWidget.TargetHeight) > 10) then begin
-          { Реальная смена размера — перезапускаем плеер под новое
-            разрешение (swscale внутри TMediaPlayer декодирует в
-            ФИКСИРОВАННЫЙ на момент Create размер, "просто растянуть"
-            уже готовый кадр нельзя) с той же позиции, тем же приёмом,
-            что и обычная перемотка (VideoWidgetSeek). }
+          { A real size change — restart the player at the new
+            resolution (swscale inside TMediaPlayer decodes into a
+            FIXED size chosen at Create time, an already-decoded frame
+            can't just be stretched) from the same position, the same
+            approach used for an ordinary seek (VideoWidgetSeek). }
           Pos := FPlayer.PositionSec;
           StartVideoPlayer(Row, Pos);
         end else begin
@@ -352,7 +357,7 @@ begin
   end;
 end;
 
-{ ---------------- ввод ---------------- }
+{ ---------------- input ---------------- }
 
 procedure TMediaViewerPanel.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
 var
@@ -377,14 +382,14 @@ begin
       Exit;
     end;
     if (FPhotoBmp <> nil) and PtInRect(PhotoRect, P) then begin
-      { Клик по самому изображению — ничего не делает (не закрывать,
-        не листать) — тот же выбор, что у большинства просмотрщиков. }
+      { A click on the image itself does nothing (doesn't close, doesn't
+        navigate) — the same choice most viewers make. }
       Exit;
     end;
   end;
-  { Клик по чёрному фону (или, в режиме видео, по чему угодно за
-    пределами встроенного TVideoWidget — тот сам разбирает клики по
-    себе, сюда они не долетают) — закрыть. }
+  { A click on the black background (or, in video mode, anything
+    outside the embedded TVideoWidget — that widget handles its own
+    clicks, they never reach here) closes the viewer. }
   CloseViewer;
 end;
 
@@ -428,7 +433,7 @@ begin
   inherited KeyDown(Key, Shift);
 end;
 
-{ ---------------- фото ---------------- }
+{ ---------------- photo ---------------- }
 
 procedure TMediaViewerPanel.ClearPhoto;
 begin
@@ -514,7 +519,7 @@ begin
   OpenRow(FModel[Idx]);
 end;
 
-{ ---------------- видео ---------------- }
+{ ---------------- video ---------------- }
 
 procedure TMediaViewerPanel.FlushDonePlayer;
 begin
@@ -564,41 +569,59 @@ end;
 procedure TMediaViewerPanel.VideoPlayerStateChanged(Sender: TObject);
 var
   Idx: integer;
+  NewId: Int64;
 begin
   if (Sender = FPlayer) and ((FPlayer.State = mpsStopped) or (FPlayer.State = mpsError)) then begin
-    if (FPlayer.State = mpsStopped) and (FVideoWidget <> nil) and FVideoWidget.RepeatOn and
-       (FModel <> nil) then begin
-      { Повтор включён (кнопка ряда транспорта, TVideoWidget.RepeatOn) —
-        по прямому запросу пользователя (2026-09-07): естественный конец
-        файла перезапускает с начала, тем же путём, что и обычный клик
-        play после остановки (VideoWidgetPlayClick) — не сброс в
-        состояние "остановлено". Только для настоящего конца (mpsStopped),
-        не для mpsError — ошибку декодирования зацикливать незачем.
-        Безопасно вызывать StartVideoPlayer прямо здесь: мы внутри
-        Synchronize САМОГО FPlayer, но StopVideoInternal внутри нового
-        StartVideoPlayer лишь перекладывает FPlayer в FDonePlayer
-        (WaitFor/Free — отложенно, на следующий тик/вызов, не сейчас) —
-        тот же приём, что уже применяется во всём этом файле. }
-      Idx := FModel.IndexOfId(FMessageId);
-      if Idx >= 0 then begin
-        StartVideoPlayer(FModel[Idx]);
-        Exit;
+    if (FPlayer.State = mpsStopped) and (FVideoWidget <> nil) and (FModel <> nil) then begin
+      { Repeat (the transport-row button, TVideoWidget.RepeatMode, three
+        states) acts on its own when the file naturally ends, WITHOUT
+        resetting to the "stopped" state — the same path as an ordinary
+        play click after stopping (VideoWidgetPlayClick). Only for a
+        real end of file (mpsStopped), not mpsError — no point looping
+        or auto-advancing past a decode error. Calling
+        StartVideoPlayer/OpenRow directly here is safe: we're inside
+        FPlayer's own Synchronize, but StopVideoInternal inside them
+        only moves FPlayer into FDonePlayer (WaitFor/Free is deferred
+        to the next tick/call, not done now) — the same approach used
+        throughout this file. }
+      case FVideoWidget.RepeatMode of
+        vrmOne: begin
+          { Repeat one — the same file again. }
+          Idx := FModel.IndexOfId(FMessageId);
+          if Idx >= 0 then begin
+            StartVideoPlayer(FModel[Idx]);
+            Exit;
+          end;
+        end;
+        vrmAll: begin
+          { Repeat all — the next video in the chat, wrapping to the
+            first one after the last (FindWrappedNextVideoId). }
+          NewId := FindWrappedNextVideoId(FMessageId);
+          if NewId <> 0 then begin
+            Idx := FModel.IndexOfId(NewId);
+            if Idx >= 0 then begin
+              FMessageId := NewId;
+              OpenRow(FModel[Idx]);
+              Exit;
+            end;
+          end;
+        end;
       end;
+      { vrmOff — do nothing, plays through to the ordinary stop below. }
     end;
     FDonePlayer := FPlayer;
     FPlayer := nil;
     FVideoTimer.Enabled := False;
-    { Без этого виджет оставался бы навсегда в последнем состоянии,
-      выставленном VideoTick ДО остановки (FIsActive=True, FPlaying=True
-      — тот тик, что был последним перед тем, как таймер выше
-      выключился) — застывший кадр с виду "играющего" видео, и клик по
-      play/pause ничего не делал (VideoWidgetPlayClick сразу выходит,
-      если FPlayer=nil) — реальная причина "не перезапускается" из
-      отчёта пользователя (2026-09-07), отдельная от самого зависания
-      на хвосте (см. AudioClockSec/mediaplayer.pas). Сброс в неактивное
-      состояние — тот же вид, что у ещё не запущенного видео, плюс
-      VideoWidgetPlayClick теперь запускает проигрывание заново с нуля,
-      если FPlayer=nil. }
+    { Without this the widget would stay forever in whatever state
+      VideoTick last set BEFORE stopping (FIsActive=True, FPlaying=True
+      — the last tick before the timer above got disabled) — a frozen
+      frame that still looks like it's "playing", and clicking
+      play/pause would do nothing (VideoWidgetPlayClick returns
+      immediately when FPlayer=nil) — the actual cause of "doesn't
+      restart", separate from the end-of-playback stall itself (see
+      AudioClockSec/mediaplayer.pas). Resetting to the inactive state
+      matches how not-yet-started video looks, and VideoWidgetPlayClick
+      now restarts playback from scratch when FPlayer=nil. }
     if FVideoWidget <> nil then begin
       FVideoWidget.SetPlayback(False, False, 0);
     end;
@@ -617,10 +640,10 @@ begin
       FVideoWidget.NotifyNewFrame;
     end;
   end;
-  { Та же защита от "перетаскивание сбрасывается на следующем же
-    тике", что и у LayoutVideoWidgets/LayoutAudioWidgets (framehistory.
-    pas) — этот тик дёргается каждые 33мс, чаще, чем пользователь
-    успевает довести драг ползунка до MouseUp. }
+  { Same guard against "dragging gets reset on the very next tick" as
+    LayoutVideoWidgets/LayoutAudioWidgets (framehistory.pas) — this
+    tick fires every 33ms, more often than the user can finish
+    dragging the thumb down to MouseUp. }
   if (FVideoWidget <> nil) and (not FVideoWidget.Dragging) then begin
     FVideoWidget.SetPlayback(True, FPlayer.State = mpsPlaying, FPlayer.PositionSec);
   end;
@@ -631,9 +654,9 @@ var
   Idx: integer;
 begin
   if FPlayer = nil then begin
-    { Уже доиграно естественным образом (см. VideoPlayerStateChanged) —
-      клик по play должен запускать заново с начала, не быть no-op'ом,
-      тем же путём, что и открытие видео впервые (StartVideoPlayer). }
+    { Already finished naturally (see VideoPlayerStateChanged) — a play
+      click should restart from the beginning, not be a no-op, the same
+      path as opening the video for the first time (StartVideoPlayer). }
     if FModel = nil then begin
       Exit;
     end;
@@ -671,10 +694,10 @@ begin
   StartVideoPlayer(Row, AFraction * Row.VideoDuration);
 end;
 
-{ Prev/next видео — та же схема, что FindAdjacentPhotoId/NavigatePhoto
-  выше, отдельная копия под mckVideo (см. комментарий у FHasPrevVideo:
-  разные Kind, разный проход по FModel, раздельные копии проще для
-  чтения, чем одна с параметром типа). }
+{ Prev/next video — the same scheme as FindAdjacentPhotoId/NavigatePhoto
+  above, a separate copy for mckVideo (see the comment on
+  FHasPrevVideo: different Kind, different scan over FModel — separate
+  copies are easier to read than one function parameterized by kind). }
 function TMediaViewerPanel.FindAdjacentVideoId(AFromId: Int64; ADirection: integer): Int64;
 var
   Idx: integer;
@@ -694,6 +717,27 @@ begin
       Exit;
     end;
     Inc(Idx, ADirection);
+  end;
+end;
+
+function TMediaViewerPanel.FindWrappedNextVideoId(AFromId: Int64): Int64;
+var
+  I: integer;
+begin
+  Result := FindAdjacentVideoId(AFromId, 1);
+  if (Result <> 0) or (FModel = nil) then begin
+    Exit;
+  end;
+  { Reached the last video in the chat (or there is none after this
+    one) — "repeat all" wraps back to the first rather than stopping.
+    If there's only one video in the chat, this finds AFromId itself,
+    which degenerates to "repeat one" — exactly the expected behavior
+    for a single-item playlist. }
+  for I := 0 to FModel.Count - 1 do begin
+    if FModel[I].Kind = mckVideo then begin
+      Result := FModel[I].Id;
+      Exit;
+    end;
   end;
 end;
 
@@ -742,15 +786,21 @@ begin
   if FVideoWidget = nil then begin
     Exit;
   end;
-  { Липкий тумблер на весь просмотрщик, не сбрасывается при переключении
-    между видео (см. комментарий у TVideoWidget.RepeatOn) — авто-
-    перезапуск по достижении конца читает это же поле, см.
+  { Cyclic toggle — off -> repeat all -> repeat one -> off again. A
+    sticky toggle for the whole viewer session, not reset when switching
+    between videos (see the comment on TVideoWidget.RepeatMode) — the
+    auto-action on reaching the end reads this same field, see
     VideoPlayerStateChanged. }
-  FVideoWidget.RepeatOn := not FVideoWidget.RepeatOn;
+  case FVideoWidget.RepeatMode of
+    vrmOff: FVideoWidget.RepeatMode := vrmAll;
+    vrmAll: FVideoWidget.RepeatMode := vrmOne;
+  else
+    FVideoWidget.RepeatMode := vrmOff;
+  end;
   FVideoWidget.Invalidate;
 end;
 
-{ ---------------- общее ---------------- }
+{ ---------------- shared ---------------- }
 
 procedure TMediaViewerPanel.PollTick(Sender: TObject);
 var

@@ -10,8 +10,8 @@ uses
   tdaccentcolors, tdaccount;
 
 type
-  { Псевдонимы, чтобы формам не пришлось добавлять tdsession в uses.
-    Указывают на те же типы — GUID и совместимость сохраняются. }
+  { Aliases so forms don't need to add tdsession to their uses clause.
+    Point at the same types — GUIDs and compatibility are preserved. }
   ITdUpdateListener = tdsession.ITdUpdateListener;
   ITdStateListener  = tdsession.ITdStateListener;
   ITdAuthListener   = tdsession.ITdAuthListener;
@@ -20,9 +20,9 @@ type
 
   TTdCoreEvent = procedure(Sender: TObject) of object;
 
-  { Смена активного аккаунта и изменение состава/имён.
-    Многоадресный: слушателей будет несколько — главная форма,
-    фрейм списка чатов, дальше фрейм чата. }
+  { Active-account switches and roster/name changes. Multicast: there
+    will be several listeners — the main form, the chat-list frame, and
+    later the chat frame. }
   ITdActiveListener = interface
     ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1301}']
     procedure TdActiveChanged(ANew: TTdAccount);
@@ -31,9 +31,10 @@ type
 
   { TTdCore
 
-    Реестр аккаунтов. Сам ничего про TDLib не знает — вся работа
-    в TTdAccount. Здесь: список, активный аккаунт, его сохранение
-    между запусками и групповое закрытие. }
+    The account registry. Knows nothing about TDLib itself — all of
+    that lives in TTdAccount. This class owns the list, the active
+    account, persisting it across restarts, and closing all accounts
+    together. }
 
   TTdCore = class
   private
@@ -73,29 +74,29 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    { config.ini — api_id/api_hash, общие для всех аккаунтов:
-      они принадлежат приложению, а не пользователю. }
+    { config.ini — api_id/api_hash, shared by all accounts: they belong
+      to the application, not the user. }
     function LoadConfig: boolean;
 
-    { accounts.ini — список аккаунтов и какой был активен. }
+    { accounts.ini — the account list and which one was active. }
     procedure LoadAccounts;
     procedure SaveAccounts;
 
     function AddAccount(const ATitle: string): TTdAccount;
-    { Убрать аккаунт из реестра НЕМЕДЛЕННО. Клиент при этом должен
-      быть уже закрыт — иначе используй DiscardAccount. }
+    { Removes an account from the registry IMMEDIATELY. Its client must
+      already be closed — otherwise use DiscardAccount. }
     procedure RemoveAccount(AAccount: TTdAccount);
 
-    { Отменить аккаунт: закрыть клиента TDLib и убрать его, когда
-      закрытие подтвердится. Без close клиент остаётся жив внутри
-      TDLib и держит каталог базы заблокированным. }
+    { Discards an account: closes its TDLib client and removes it once
+      the close is confirmed. Without closing first, the client stays
+      alive inside TDLib and keeps its database directory locked. }
     procedure DiscardAccount(AAccount: TTdAccount);
     procedure Start;
 
     procedure SubscribeActive(const AListener: ITdActiveListener);
     procedure UnsubscribeActive(const AListener: ITdActiveListener);
 
-    { --- совместимость: всё это адресует АКТИВНЫЙ аккаунт --- }
+    { --- compatibility: all of this addresses the ACTIVE account --- }
     procedure Subscribe(const AListener: IUnknown);
     procedure Unsubscribe(const AListener: IUnknown);
     procedure Send(const ARequest: utf8string);
@@ -103,8 +104,9 @@ type
     function GetState: TTdAuthState;
     function GetAuth: TTdAuth;
 
-    { Закрывает ВСЕ клиенты: документация TDLib требует этого перед
-      завершением приложения. True — можно выходить прямо сейчас. }
+    { Closes ALL clients — TDLib's documentation requires this before
+      the application exits. Returns True if it's safe to exit right
+      now. }
     function BeginShutdown(AOnComplete: TNotifyEvent): boolean;
 
     property Count: integer read GetCount;
@@ -123,29 +125,30 @@ type
     property OnActiveChanged: TTdCoreEvent read FOnActiveChanged write FOnActiveChanged;
   end;
 
-{ Синглтон реестра. }
+{ The registry singleton. }
 function TdApp: TTdCore;
 
-{ --- совместимость: модели АКТИВНОГО аккаунта --- }
+{ --- compatibility: models of the ACTIVE account --- }
 function TdChatList: TTdChats;
-{ Имя не TdMessages: так называется юнит tdmessages, и обращение
-  совпало бы с ним по идентификатору (Паскаль нечувствителен к
-  регистру) — та же ловушка, что у TdApp/tdcore, см. ARCHITECTURE.md. }
+{ Not named TdMessages: that's the name of the tdmessages unit, and the
+  reference would collide with it by identifier (Pascal is case-
+  insensitive) — the same pitfall as TdApp/tdcore, see ARCHITECTURE.md. }
 function TdMsgList: TTdMessages;
-{ Та же ловушка с именем юнита (tdusers), что у TdMsgList/tdmessages
-  выше — TdUsers обращался бы к юниту, не к функции. }
+{ Same unit-name pitfall (tdusers) as TdMsgList/tdmessages above —
+  TdUsers would resolve to the unit, not the function. }
 function TdUserList: TTdUsers;
 function TdAccentColorList: TTdAccentColors;
 function TdRequests: TTdRequests;
 
-{ Отписка от всех аккаунтов сразу. Форма могла подписаться на один,
-  а к моменту уничтожения активным быть другой. }
+{ Unsubscribes from all accounts at once. A form may have subscribed to
+  one account while a different one is active by the time it's
+  destroyed. }
 procedure TdUnsubscribe(const AListener: IUnknown);
 
 function TdIsPromptState(AState: TTdAuthState): boolean;
 function TdIsShuttingState(AState: TTdAuthState): boolean;
 
-{ Обёртка, чтобы формам хватало одного tdcore в uses. }
+{ Wrapper so forms only need tdcore in their uses clause. }
 procedure TdSessionUnsubscribe(const ASession: ITdSession; const AListener: IUnknown);
 
 implementation
@@ -283,7 +286,7 @@ begin
   FAccounts.Free;
   SetLength(FActiveL, 0);
   FCloseTimer.Free;
-  { Приёмник гасим последним: он общий для всех клиентов. }
+  { The receiver is stopped last: it's shared by all clients. }
   if TdReceiverExists then begin
     TdReceiver.Stop;
   end;
@@ -342,7 +345,7 @@ begin
     Ini.Free;
   end;
 
-  { Первый запуск — заводим один аккаунт. }
+  { First run — create a single account. }
   if FAccounts.Count = 0 then begin
     AddAccount('Account 1');
     Act := 0;
@@ -370,8 +373,8 @@ begin
       Ini.WriteString('acc' + IntToStr(I), 'title', A.Title);
     end;
 
-    { Подчищаем секции от удалённых аккаунтов: без этого в файле
-      копится мусор от прежних записей. }
+    { Cleans up sections for removed accounts: without this, stale
+      entries would keep accumulating in the file. }
     I := FAccounts.Count;
     while Ini.SectionExists('acc' + IntToStr(I)) do begin
       Ini.EraseSection('acc' + IntToStr(I));
@@ -389,8 +392,8 @@ var
   I, Slot: integer;
   Used: boolean;
 begin
-  { Номер слота — имя каталога. Ищем первый свободный, чтобы после
-    удаления аккаунта его каталог мог переиспользоваться. }
+  { The slot number is the directory name. Finds the first free one so
+    a removed account's directory can be reused. }
   Slot := 0;
   repeat
     Used := False;
@@ -443,7 +446,8 @@ begin
   if AAccount = nil then begin
     Exit;
   end;
-  { Удаление произойдёт по AccountStateNotify, когда придёт Closed. }
+  { The actual removal happens via AccountStateNotify once Closed
+    arrives. }
   AAccount.CloseAndForget;
 end;
 
@@ -506,7 +510,7 @@ end;
 
 procedure TTdCore.AccountInfoChanged(Sender: TObject);
 begin
-  { Имя пришло из getMe — сохраняем и обновляем меню. }
+  { The name arrived via getMe — save and refresh the menu. }
   SaveAccounts;
   NotifyAccountsChanged;
 end;
@@ -517,9 +521,9 @@ var
 begin
   A := TTdAccount(Sender);
 
-  { Аккаунт вышел и подлежит удалению. Удаляем отложенно: сюда мы
-    попали из его собственного обработчика, освобождать объект
-    прямо отсюда нельзя. }
+  { The account has logged out and is due for removal. Removal is
+    deferred: we got here from the account's own event handler, so the
+    object cannot be freed directly at this point. }
   if A.Forget and (A.State = tasNone) then begin
     if FPendingRemove.IndexOf(A) < 0 then begin
       FPendingRemove.Add(A);
@@ -528,7 +532,7 @@ begin
     Exit;
   end;
 
-  { Смена состояния влияет на пометку «нужен вход» в меню. }
+  { A state change affects the "sign-in required" mark in the menu. }
   NotifyAccountsChanged;
 end;
 
@@ -558,8 +562,8 @@ begin
     LoadAccounts;
   end;
 
-  { Запускаем все: неактивные аккаунты тоже должны получать
-    сообщения, иначе переключение будет каждый раз с нуля. }
+  { Starts every account: inactive ones must also receive updates,
+    otherwise switching to one would start from scratch each time. }
   for I := 0 to FAccounts.Count - 1 do begin
     TTdAccount(FAccounts[I]).Start;
   end;
@@ -590,12 +594,12 @@ begin
     Exit;
   end;
   FActive := AValue;
-  { Сохраняем сразу: при следующем запуске откроется тот же аккаунт. }
+  { Saved immediately: the same account opens on next launch. }
   SaveAccounts;
   NotifyActiveChanged;
 end;
 
-{ ---------------- проброс на активный аккаунт ---------------- }
+{ ---------------- forwarded to the active account ---------------- }
 
 procedure TTdCore.Subscribe(const AListener: IUnknown);
 var
@@ -630,8 +634,9 @@ begin
   if A = nil then begin
     Exit;
   end;
-  { Как в Telegram: выход убирает аккаунт из списка. Но если он
-    последний — убирать некуда, просто возвращаемся к экрану входа. }
+  { Same as Telegram: logging out removes the account from the list.
+    But if it's the last one, there's nothing to remove it to — just
+    fall back to the login screen. }
   if FAccounts.Count > 1 then begin
     A.LogOutAndForget;
   end else begin
@@ -663,7 +668,7 @@ begin
   end;
 end;
 
-{ ---------------- завершение ---------------- }
+{ ---------------- shutdown ---------------- }
 
 function TTdCore.AllClosed: boolean;
 var
@@ -694,8 +699,8 @@ begin
     for I := 0 to FAccounts.Count - 1 do begin
       TTdAccount(FAccounts[I]).RequestClose;
     end;
-    { Таймер и опрашивает готовность, и служит страховкой:
-      если TDLib не ответит, выйдем по истечении срока. }
+    { The timer both polls for completion and acts as a safety net: if
+      TDLib never responds, exit once the timeout elapses. }
     FCloseTimer.Interval := 200;
     FCloseTimer.Enabled := True;
   end;

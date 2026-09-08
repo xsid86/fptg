@@ -9,31 +9,33 @@ uses
 
 type
 
-  { Интерфейсы подписчиков.
+  { Subscriber interfaces.
 
-    Живут здесь, а не в tdcore, потому что после разделения на аккаунты
-    tdcore оказывается НАД моделями: tdreq и tdchats должны знать про
-    подписку, но не про реестр аккаунтов. Иначе получается цикл. }
+    Declared here rather than in tdcore, because after the split into
+    per-account clients, tdcore sits ABOVE the models: tdreq and
+    tdchats need to know about subscriptions but not about the account
+    registry. Declaring these in tdcore would create a circular
+    dependency. }
 
-  { Сырой поток JSON. AData — уже разобранный объект (парсинг теперь
-    выполняется один раз в приёмном потоке, tdrecv.pas), а не заново
-    каждым подписчиком на главном потоке. AData = nil, если строка не
-    распарсилась или оказалась не объектом — подписчик обязан это
-    проверять. Объект живёт только до конца вызова TdUpdate: подписчик
-    не должен сохранять указатель, освобождает его tdrecv. }
+  { Raw JSON update stream. AData is an already-parsed object (parsing
+    now happens once, in the receive thread, tdrecv.pas — not again by
+    each subscriber on the main thread). AData is nil if the string
+    failed to parse or was not an object; subscribers must check for
+    that. The object is valid only for the duration of the TdUpdate
+    call — subscribers must not keep the pointer, tdrecv frees it. }
   ITdUpdateListener = interface
     ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1101}']
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
   end;
 
-  { Состояние авторизации и ошибки. Реализуют все формы. }
+  { Authorization state and errors. Implemented by all forms. }
   ITdStateListener = interface
     ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1102}']
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
   end;
 
-  { Полный флоу авторизации. Реализует только форма входа. }
+  { The full authorization flow. Implemented only by the login form. }
   ITdAuthListener = interface(ITdStateListener)
     ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1103}']
     procedure TdNeedPhoneOrQr;
@@ -50,9 +52,9 @@ type
 
   { ITdSession
 
-    Один аккаунт с точки зрения моделей. Ровно тот минимум, который
-    нужен tdreq и tdchats: отправить, подписаться, узнать состояние.
-    Про существование других аккаунтов модели не знают вообще. }
+    A single account, as seen by the models. Exposes exactly the
+    minimum tdreq and tdchats need: send a request, subscribe, read
+    the state. Models have no knowledge of other accounts. }
 
   ITdSession = interface
     ['{6F2A1C40-1E1B-4C2E-9A3D-2B7C5E0A1201}']
@@ -68,22 +70,22 @@ type
 
     property ClientId: integer read GetClientId;
     property State: TTdAuthState read GetState;
-    { Каталог базы этого аккаунта. У каждого свой, иначе клиенты
-      затрут данные друг друга. }
+    { This account's database directory. Each account has its own, or
+      clients would overwrite each other's data. }
     property DataDir: string read GetDataDir;
-    { Человекочитаемое имя для переключателя аккаунтов. }
+    { Human-readable name for the account switcher. }
     property Title: string read GetTitle;
     property Auth: TTdAuth read GetAuth;
   end;
 
-{ Состояние требует ввода от пользователя. }
+{ True if the state requires input from the user. }
 function TdIsPromptState(AState: TTdAuthState): boolean;
 
-{ Состояние — процесс выхода или закрытия. }
+{ True if the state is a logout/shutdown state. }
 function TdIsShuttingState(AState: TTdAuthState): boolean;
 
-{ Безопасная отписка: молча пропускает nil-сессию, чтобы деструкторы
-  форм не падали, если аккаунт уже уничтожен. }
+{ Safe unsubscribe: silently skips a nil session, so form destructors
+  don't fail if the account has already been destroyed. }
 procedure TdSessionUnsubscribe(const ASession: ITdSession; const AListener: IUnknown);
 
 implementation

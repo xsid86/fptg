@@ -14,9 +14,10 @@ type
 
   { TFormLogin
 
-    ITdStateListener перечислен явно, хотя ITdAuthListener от него наследует:
-    QueryInterface ищет GUID только среди интерфейсов, названных в объявлении
-    класса, — интерфейсы-предки туда автоматически не попадают. }
+    ITdStateListener is listed explicitly even though ITdAuthListener
+    inherits from it: QueryInterface only looks for a GUID among the
+    interfaces named in the class declaration — ancestor interfaces
+    are not included automatically. }
 
   TFormLogin = class(TForm, ITdStateListener, ITdAuthListener)
     btnAlt:     TBitBtn;
@@ -34,12 +35,12 @@ type
     procedure btnAltClick(Sender: TObject);
     procedure FormResize(Sender: TObject);
   private
-    { Форма нацелена на КОНКРЕТНЫЙ аккаунт, а не на «активный».
-      При добавлении второго активным остаётся первый, и привязка
-      к активному была бы неверной. }
+    { The form targets a SPECIFIC account, not the "active" one.
+      While adding a second account, the first stays active, so
+      tracking the active account would be wrong here. }
     FSession: ITdSession;
-    FAddMode: boolean;   { режим добавления: модальное окно }
-    FSucceeded: boolean; { вход завершился успешно }
+    FAddMode: boolean;   { add-account mode: modal dialog }
+    FSucceeded: boolean; { sign-in completed successfully }
     FMode:   TUiMode;
     FQrLink: utf8string;
     procedure SetMode(AMode: TUiMode; const APrompt: string; const APrompt2: string = ''; const AAlt: string = '');
@@ -50,8 +51,9 @@ type
     procedure TdActiveChanged(ANew: TTdAccount);
     procedure TdAccountsChanged;
 
-    { Привязка к аккаунту. AAddMode = True — окно добавления:
-      закрытие не завершает приложение, а отменяет добавление. }
+    { Attaches to an account. AAddMode = True is the add-account
+      dialog: closing it cancels the addition rather than quitting
+      the app. }
     procedure AttachTo(const ASession: ITdSession; AAddMode: boolean);
     procedure Detach;
 
@@ -85,7 +87,8 @@ implementation
 procedure TFormLogin.FormCreate(Sender: TObject);
 begin
   SetMode(umNone, '');
-  { Подписка не здесь: цель назначается извне через AttachTo. }
+  { No subscription here: the target is assigned externally via
+    AttachTo. }
   Position := poScreenCenter;
 end;
 
@@ -96,8 +99,8 @@ end;
 
 procedure TFormLogin.TdActiveChanged(ANew: TTdAccount);
 begin
-  { Стартовая форма следует за активным аккаунтом. Окно добавления
-    нацелено жёстко и переключение игнорирует. }
+  { The startup form follows the active account. The add-account
+    dialog is pinned to its target and ignores this switch. }
   if not FAddMode then begin
     AttachTo(ANew, False);
   end;
@@ -105,7 +108,7 @@ end;
 
 procedure TFormLogin.TdAccountsChanged;
 begin
-  { состав аккаунтов форме входа не важен }
+  { The set of accounts doesn't matter to the login form. }
 end;
 
 procedure TFormLogin.AttachTo(const ASession: ITdSession; AAddMode: boolean);
@@ -120,7 +123,8 @@ begin
   FSucceeded := False;
   if FSession <> nil then begin
     FSession.Subscribe(Self);
-    { Состояние могло наступить до привязки — подтягиваем текущее. }
+    { The state may have already changed before attaching — pull the
+      current one. }
     TdStateChanged(FSession.State);
   end;
 end;
@@ -143,15 +147,16 @@ end;
 procedure TFormLogin.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
   if FAddMode then begin
-    { Окно добавления: закрытие отменяет добавление, а не приложение.
-      Успешный вход закрывает окно сам, выставив FSucceeded. }
+    { Add-account dialog: closing cancels the addition, not the app.
+      A successful sign-in closes the window itself by setting
+      FSucceeded. }
     CanClose := True;
     Exit;
   end;
 
   CanClose := False;
-  { Закрытие стартовой формы входа до авторизации = выход из
-    приложения. Рукопожатие с TDLib целиком живёт в главной форме. }
+  { Closing the startup login form before authorization means quitting
+    the app. The TDLib handshake lives entirely in the main form. }
   FormMain.RequestAppClose;
 end;
 
@@ -175,7 +180,7 @@ begin
   btnAlt.Caption := AAlt;
   btnAlt.Visible := AAlt <> '';
 
-  { QR показывается только в umQr — рисуется отдельно в TdQrLink }
+  { The QR code shows only in umQr — drawn separately in TdQrLink }
   imgQr.Visible := False;
   if (FMode = umQr) or (FMode = umPhone) then begin
     btnAlt.ImageIndex := 6;
@@ -191,9 +196,9 @@ end;
 
 procedure TFormLogin.RecenterOnScreen;
 begin
-  { poScreenCenter срабатывает однократно при первом показе.
-    Форма меняет размер по ходу флоу, поэтому центрируем сами.
-    WorkArea, а не Screen.Width/Height — чтобы учесть панель задач. }
+  { poScreenCenter only applies once, on first show. The form resizes
+    as the flow progresses, so it is recentered here manually.
+    WorkArea, not Screen.Width/Height, accounts for the taskbar. }
   FormLogin.AutoSize := False;
   SetBounds(
     Screen.WorkAreaLeft + (Screen.WorkAreaWidth - Width) div 2,
@@ -211,7 +216,8 @@ begin
   if AState = tasReady then begin
     FSucceeded := True;
     if FAddMode then begin
-      { Вход добавляемого аккаунта завершён — закрываем модальное окно. }
+      { The added account's sign-in is complete — close the modal
+        dialog. }
       ModalResult := mrOk;
     end else if Visible then begin
       Hide;
@@ -225,11 +231,11 @@ begin
     end;
   end else
   if FAddMode then begin
-    { В окне добавления промежуточные состояния просто показываем. }
+    { In the add-account dialog, intermediate states are just shown. }
   end else
   if TdIsShuttingState(AState) and not TdApp.ShuttingDown then begin
-    { Выход из аккаунта: держим окно, иначе на пару секунд
-      на экране не останется ни одной формы и это выглядит как вылет. }
+    { Logging out: keep the window up, otherwise no form is on screen
+      for a couple of seconds and it looks like a crash. }
     SetMode(umNone, '');
     lblState.Caption := 'Logging out...';
     if not Visible then begin
@@ -240,13 +246,13 @@ end;
 
 procedure TFormLogin.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  { Мемо с форматы убрано, поэтому ошибки показываем в строке
-    состояния — иначе застревание (например, заблокированная база
-    при setTdlibParameters) выглядит как молчаливое зависание. }
+  { Errors are shown in the status line, otherwise a stuck state
+    (e.g. a locked database during setTdlibParameters) looks like a
+    silent hang. }
   lblState.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
 
-  { Состояние при ошибке ввода не меняется — TDLib просто ждёт
-    корректное значение. Поле оставляем активным. }
+  { The state does not change on an input error — TDLib is just
+    waiting for a valid value. Keep the field active. }
   if edtInput.Visible then begin
     edtInput.SelectAll;
     if edtInput.CanFocus then begin
@@ -269,8 +275,8 @@ begin
   FQrLink := ALink;
   SetMode(umQr, '', '', 'Copy link');
 
-  { TDLib перевыдаёт токен по таймеру и вызывает этот обработчик
-    повторно — картинку надо перерисовывать каждый раз. }
+  { TDLib reissues the token on a timer and calls this handler again
+    — the image must be redrawn every time. }
   Bmp := TBitmap.Create;
   try
     if DrawQrToBitmap(ALink, Bmp, imgQr.Width) > 0 then begin
@@ -350,7 +356,7 @@ begin
   SetMode(umRegister, 'First name:', 'Last name:');
 end;
 
-{ ---------------- кнопки ---------------- }
+{ ---------------- buttons ---------------- }
 
 procedure TFormLogin.btnOkClick(Sender: TObject);
 var

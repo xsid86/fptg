@@ -8,15 +8,15 @@ uses
   Classes, SysUtils, Graphics,
   constants, QlpQrCode, QlpIQrCode;
 
-{ Рисует QR-код для AText в ABitmap.
+{ Renders a QR code for AText into ABitmap.
 
-  Сторона результата — наибольшая, что укладывается в ASizePx при
-  ЦЕЛОЧИСЛЕННОМ масштабе модуля. Дробный масштаб даёт модули разной
-  ширины и ломает распознавание, поэтому остаток уходит в поля, а не
-  в растягивание.
+  The output side is the largest that fits within ASizePx at an
+  integer module scale. A fractional scale would give modules of
+  uneven width and break scanning, so leftover space becomes margin
+  instead of being stretched.
 
-  Возвращает фактическую сторону в пикселях, 0 при неудаче.
-  Центрирование — забота вызывающего (TImage.Center := True). }
+  Returns the actual side length in pixels, or 0 on failure.
+  Centering is the caller's responsibility (TImage.Center := True). }
 function DrawQrToBitmap(const AText: utf8string; ABitmap: TBitmap; ASizePx: integer): integer;
 
 implementation
@@ -31,8 +31,8 @@ begin
     Exit;
   end;
 
-  { EncodeText сам выберет оптимальный режим сегмента.
-    Кодировка задаётся явно — библиотека падает, если передать nil. }
+  { EncodeText picks the optimal segment mode on its own. The encoding
+    is passed explicitly — the library throws if nil is passed. }
   Qr := TQrCode.EncodeText(string(AText), TQrCode.TEcc.eccMedium, TEncoding.UTF8);
   if Qr = nil then begin
     Exit;
@@ -50,9 +50,9 @@ begin
   ABitmap.PixelFormat := pf24bit;
   ABitmap.SetSize(Side, Side);
 
-  { Цвета жёстко чёрный на белом, а не clWindow/clWindowText:
-    в тёмной теме получилась бы инверсия, которую большинство
-    телефонов не читает. }
+  { Colors are hardcoded black-on-white, not clWindow/clWindowText:
+    in dark theme that would invert the code, which most phone
+    cameras fail to scan. }
   ABitmap.Canvas.Brush.Style := bsSolid;
   ABitmap.Canvas.Brush.Color := clWhite;
   ABitmap.Canvas.FillRect(0, 0, Side, Side);

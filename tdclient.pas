@@ -12,10 +12,11 @@ type
 
   { TTdClient
 
-    Тонкая обёртка над одним client_id. Потоком больше не владеет:
-    td_receive один на процесс, им занимается TTdReceiver, а сюда
-    приходят только апдейты с нашим @client_id. Благодаря этому
-    несколько клиентов в одном процессе не мешают друг другу. }
+    A thin wrapper around a single TDLib client_id. Does not own a
+    thread: td_receive runs once per process, owned by TTdReceiver,
+    which dispatches only the updates carrying this @client_id. This
+    lets multiple clients coexist in one process without interfering
+    with each other. }
 
   TTdClient = class
   private
@@ -62,8 +63,8 @@ begin
   TdReceiver.RegisterClient(FClientId, @RawUpdate);
   TdReceiver.Start;
 
-  { Клиент не создаётся физически, пока не отправлен первый запрос.
-    getOption — самый безобидный способ его «разбудить». }
+  { The client is not physically created until the first request is
+    sent. getOption is the most harmless way to wake it up. }
   Send('{"@type":"getOption","name":"version"}');
 
   FActive := True;

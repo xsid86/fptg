@@ -2,27 +2,27 @@ unit lottieplayer;
 
 {$mode objfpc}{$H+}
 
-{ Зацикленное воспроизведение одного TGS-стикера (Lottie/векторная
-  анимация, gzip-сжатый JSON) — тот же принцип поток-декодер +
-  разделяемый кадровый буфер, что и у TAnimationPlayer (videoplayer.pas,
-  "гифки"), просто вместо FFmpeg — rlottie (см. её же комментарий в
-  rlottie.pas). Разница по существу от видео-декода: у Lottie не нужен
-  контейнер/пакеты — вся анимация уже целиком разобрана в памяти
-  (lottie_animation_from_data), кадр НОМЕРОМ рендерится напрямую
-  (lottie_animation_render), произвольный доступ, без последовательного
-  чтения — цикл здесь просто "нарисовать кадр N, подождать 1/framerate,
-  N:=(N+1) mod totalframes", без seek/flush-специфики видео-декодеров.
+{ Looped playback of a single TGS sticker (Lottie vector animation,
+  gzip-compressed JSON) — the same decoder-thread plus shared frame
+  buffer approach as TAnimationPlayer (videoplayer.pas, GIFs), using
+  rlottie instead of FFmpeg (see rlottie.pas). Unlike video decoding,
+  Lottie needs no container/packets: the whole animation is already
+  parsed in memory (lottie_animation_from_data), and a frame is
+  rendered by NUMBER directly (lottie_animation_render) — random
+  access, not sequential reading. The loop is simply "render frame N,
+  wait 1/framerate, N := (N+1) mod totalframes", with none of a video
+  decoder's seek/flush concerns.
 
-  Формат вывода — ARGB32_Premultiplied (см. rlottie.pas) — виджет
-  (framehistory.pas, DrawPremultipliedArgbBuffer) знает про это и
-  композитит через GDI AlphaBlend, не через SetDIBitsToDevice (тот, как
-  и у "гифки", просто заменяет пиксели, без альфы — стикеры, в отличие
-  от опрятного видео, почти всегда прозрачные).
+  Output format is ARGB32_Premultiplied (see rlottie.pas) — the widget
+  (framehistory.pas, DrawPremultipliedArgbBuffer) composites it via
+  GDI AlphaBlend, not SetDIBitsToDevice (which, like the GIF path,
+  just replaces pixels with no alpha — stickers, unlike video, are
+  almost always transparent).
 
-  FreeOnTerminate=True, по ТОЙ ЖЕ причине, что и у TAnimationPlayer:
-  стикеров на экране одновременно может быть сколько угодно, каждый со
-  своим независимым виджетом/потоком, Stop — частый вызов при скролле,
-  синхронный WaitFor из UI недопустим. }
+  FreeOnTerminate=True, for the same reason as TAnimationPlayer: any
+  number of stickers can be on screen at once, each with its own
+  independent widget/thread, and Stop is called often while scrolling
+  — a synchronous WaitFor from the UI thread is not acceptable. }
 
 interface
 
@@ -30,20 +30,14 @@ uses
   Classes, SysUtils, SyncObjs, Math, Windows, MMSystem, zstream, rlottie;
 
 const
-  { Рендерить напрямую в размер показа (обычно STICKER_MAX_SIZE=170) —
-    заметно "паршиво" (прямой отчёт пользователя со скриншотом):
-    растеризатор при таком мелком целевом размере теряет тонкие детали
-    (мелкие пятна, обводки, границу белого живота у пушистых
-    персонажей) — не баг компоновки/альфы на стороне Pascal (проверено
-    отдельно, вне Pascal — см. её же запись в CLAUDE.md: та же самая
-    DLL, тот же файл, официальный example/lottie2gif.exe при рендере
-    ПРЯМО в 170×170 даёт визуально то же самое смазанное "паршивое"
-    изображение, что и в приложении; тот же файл, отрендеренный в
-    512×512 и уменьшенный до 170×170 фильтром — все детали на месте).
-    Решение — тот же приём, что уже применяется для фото/аудио-обложек
-    в проекте: рендерить в БОЛЬШЕМ внутреннем разрешении, потом
-    уменьшать до размера показа усреднением блоков (BoxDownscaleArgb
-    ниже) — не нагружать растеризатор мелкой целевой сеткой напрямую. }
+  { Rendering directly at the display size (typically
+    STICKER_MAX_SIZE=170) loses fine detail: the rasterizer drops
+    small dots, outlines, and edges at such a small target size. The
+    fix, the same approach already used for photo/audio-cover
+    thumbnails in this project: render at a LARGER internal
+    resolution, then downscale to the display size by averaging
+    blocks (BoxDownscaleArgb below), instead of feeding the rasterizer
+    a small target grid directly. }
   RENDER_SCALE = 3;
   RENDER_MAX_DIM = 512;
 
@@ -52,23 +46,20 @@ type
   private
     FFilePath: utf8string;
     FTargetW, FTargetH: integer;
-    { SyncObjs.TCriticalSection — квалифицировано явно: Windows (в uses
-      ради GetTickCount64) объявляет СВОЙ, несовместимый TCriticalSection
-      (внутренний RTL-тип, не класс с Enter/Leave/Create) — та же
-      ловушка, что уже документирована в mediaplayer.pas/framehistory.pas. }
+    { SyncObjs.TCriticalSection is qualified explicitly: Windows (in
+      uses for GetTickCount64) declares its own, incompatible
+      TCriticalSection (an internal RTL type, not a class with
+      Enter/Leave/Create). }
     FLock: SyncObjs.TCriticalSection;
-    FFrameBuf: PByte;         { ARGB32_Premultiplied, FTargetW*FTargetH*4 байт, под FLock }
+    FFrameBuf: PByte;         { ARGB32_Premultiplied, FTargetW*FTargetH*4 bytes, guarded by FLock }
     FFrameVersion: cardinal;
     FStopRequested: boolean;
     FFailed: boolean;
-    { Распаковывает .tgs (gzip) целиком в память — TGZFileStream (paszlib,
-      уже в комплекте FPC, чистый Pascal, без внешней zlib.dll) читает
-      сам файл по имени и сам разбирает gzip-заголовок. Небольшие файлы
-      (типичный TGS — единицы-десятки КБ распакованного JSON) — читать
-      блоками с ростом буфера, не пытаясь угадать итоговый размер
-      заранее (сам gzip-заголовок не хранит точный размер полезной
-      нагрузки, только оригинальный размер по модулю 2^32 в футере,
-      которым TGZFileStream не пользуется). }
+    { Decompresses the .tgs (gzip) file entirely into memory —
+      TGZFileStream (paszlib, part of FPC, no external zlib.dll) reads
+      the file by name and parses the gzip header itself. Read in
+      growing chunks rather than pre-sizing the buffer, since the
+      gzip header does not store the exact uncompressed payload size. }
     function LoadJson: utf8string;
     procedure ExecuteInner;
   protected
@@ -77,7 +68,7 @@ type
     constructor Create(const AFilePath: utf8string; ATargetW, ATargetH: integer);
     destructor Destroy; override;
     procedure StopPlayback;
-    { Тот же контракт, что и TAnimationPlayer.TryGetFrame. }
+    { Same contract as TAnimationPlayer.TryGetFrame. }
     function TryGetFrame(ADst: PByte; var AKnownVersion: cardinal): boolean;
     property TargetWidth: integer read FTargetW;
     property TargetHeight: integer read FTargetH;
@@ -140,10 +131,9 @@ begin
     try
       Gz := TGZFileStream.Create(FFilePath, gzopenread);
     except
-      { Создание не удалось (нет файла/битый gzip) — Gz так и остался
-        nil, ниже до него дело не доходит вовсе; Exit здесь размотает
-        стек ЧЕРЕЗ внешний try/finally (Mem.Free) — тот и только тот
-        освобождает Mem, ровно один раз. }
+      { Creation failed (missing file/corrupt gzip) — Gz stays nil and
+        is never touched below; Exit unwinds through the outer
+        try/finally (Mem.Free), which frees Mem exactly once. }
       Exit;
     end;
     try
@@ -177,35 +167,27 @@ begin
   end;
 end;
 
-{ Уменьшает ASrc (ARGB32_Premultiplied, ASrcW x ASrcH) до ADst (ADstW x
-  ADstH) усреднением прямоугольного блока исходных пикселей на каждый
-  пиксель результата — простой box-фильтр, не билинейный/Ланцош
-  (та точность не нужна — цель ровно "не терять тонкие детали при
-  прямом рендере в мелкий размер", не художественное качество
-  ресемплинга). Усреднение — НАПРЯМУЮ по преумноженным ARGB-каналам,
-  без де-преумножения туда-обратно: для преумноженной альфы это
-  математически корректно (среднее преумноженных значений — то же
-  самое, что взвешенное альфой смешение) и одновременно самый дешёвый
-  вариант. Каждый исходный пиксель посещается РОВНО один раз суммарно
-  по всем выходным — O(ASrcW*ASrcH), не дороже, чем sws_scale на
-  сопоставимых размерах кадра видео в этом же проекте. }
+{ Downscales ASrc (ARGB32_Premultiplied, ASrcW x ASrcH) to ADst (ADstW
+  x ADstH) by averaging a rectangular block of source pixels per
+  output pixel — a simple box filter, not bilinear/Lanczos, which is
+  unnecessary precision for this purpose. Averaging is done DIRECTLY
+  on the premultiplied ARGB channels, without un-premultiplying and
+  back: for premultiplied alpha this is mathematically correct (the
+  average of premultiplied values equals alpha-weighted blending) and
+  also the cheapest option. Each source pixel is visited exactly once
+  in total across all outputs — O(ASrcW*ASrcH). }
 procedure BoxDownscaleArgb(ASrc: PByte; ASrcW, ASrcH: integer; ADst: PByte; ADstW, ADstH: integer);
 var
   X, Y, SX, SY, SX0, SX1, SY0, SY1: integer;
   SumB, SumG, SumR, SumA, Cnt: cardinal;
   SP, DP: PByte;
 begin
-  { Форк Telegram X (см. шапку юнита/CLAUDE.md) пишет пиксели в порядке
-    R,G,B,A, а не B,G,R,A, как vanilla rlottie и как ожидает остальной
-    пайплайн проекта (DrawPremultipliedArgbBuffer/GDI AlphaBlend,
-    рассчитанные на обычный Windows DIB) — несмотря на ОДИНАКОВУЮ
-    документацию "ARGB32_Premultiplied" в обоих rlottie.h. Проверено
-    не по коду (там пришлось бы вычитывать весь vdrawhelper.cpp), а
-    практически — один и тот же пиксель одного и того же кадра одного
-    и того же файла: vanilla (94,191,246), этот форк (248,193,96) —
-    R и B поменяны местами, G совпадает. Меняем местами здесь же, при
-    чтении источника — Move ниже (в FFrameBuf/AlphaBlend) остаётся
-    прежним. }
+  { The rlottie build in use here writes pixels as R,G,B,A rather than
+    B,G,R,A, which is what the rest of the pipeline expects
+    (DrawPremultipliedArgbBuffer/GDI AlphaBlend, built for a standard
+    Windows DIB). The channels are swapped here, while reading the
+    source — the Move below (into FFrameBuf/AlphaBlend) stays
+    unchanged. }
 
   for Y := 0 to ADstH - 1 do begin
     SY0 := (Y * ASrcH) div ADstH;
@@ -227,9 +209,9 @@ begin
       for SY := SY0 to SY1 - 1 do begin
         for SX := SX0 to SX1 - 1 do begin
           SP := ASrc + (cardinal(SY) * cardinal(ASrcW) + cardinal(SX)) * 4;
-          Inc(SumB, SP[2]);   { источник хранит R здесь — см. комментарий выше }
+          Inc(SumB, SP[2]);   { source stores R here — see the comment above }
           Inc(SumG, SP[1]);
-          Inc(SumR, SP[0]);   { источник хранит B здесь }
+          Inc(SumR, SP[0]);   { source stores B here }
           Inc(SumA, SP[3]);
           Inc(Cnt);
         end;
@@ -290,59 +272,37 @@ begin
   GetMem(TmpBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
   GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
 
-  { Рендер — в RenderBuf (внутреннее разрешение, ВЫШЕ размера показа,
-    см. константы выше), уменьшение — в TmpBuf, оба ВНЕ лока (рендер
-    сложной анимации плюс downscale могут занять заметное время,
-    держать лок всё это время означало бы подвешивать TryGetFrame,
-    дёргаемый с UI-потока таймером опроса); под лок — только быстрый
-    Move готового TmpBuf в разделяемый FFrameBuf, тот же приём, что и
-    HandleFrame в TAnimationPlayer (videoplayer.pas).
+  { Rendering goes into RenderBuf (internal resolution, HIGHER than
+    the display size, see the constants above), downscaling into
+    TmpBuf, both OUTSIDE the lock (rendering plus downscaling can take
+    a noticeable amount of time; holding the lock for that long would
+    stall TryGetFrame, which is polled from the UI thread's timer).
+    Only a quick Move of the finished TmpBuf into the shared FFrameBuf
+    happens under the lock, the same approach as HandleFrame in
+    TAnimationPlayer (videoplayer.pas).
 
-    Сам рендер+downscale измерены отдельно (вне Pascal, ctypes/консольный
-    тест) — ~1мс на рендер и ~0.5мс на BoxDownscaleArgb даже при
-    510×510→170×170, вместе ~1.5мс, на порядок меньше кадрового
-    бюджета (17-33мс) — они НЕ являются причиной "проигрывается
-    медленнее официального клиента", вопреки первому предположению.
-    `Sleep(N)` в Windows по умолчанию округляет паузу вверх до
-    системного тика (обычно ~15.6мс) — `timeBeginPeriod(1)` (winmm.dll,
-    тот же юнит MMSystem, что уже используется в проекте для аудио)
-    исправляет это (измерено отдельно: `Sleep(17)`×60 — 20.3мс в
-    среднем без него, 17.18мс с ним) — но САМО ПО СЕБЕ тоже оказалось
-    недостаточно: "СЧИТАТЬ ОСТАТОК ОТ НАЧАЛА ЭТОЙ ЖЕ ИТЕРАЦИИ"
-    (`IterStart` на каждый заход цикла заново) не имеет ПАМЯТИ о
-    предыдущих кадрах — если хоть один кадр опоздал (пусть даже на
-    доли миллисекунды — планировщик ОС, конкуренция с другими потоками
-    процесса, remaining Sleep-погрешность) это опоздание НИКОГДА не
-    компенсируется, оно просто повторяется на КАЖДОМ следующем кадре
-    ровно того же типа — за десятки/сотни кадров зацикленного показа
-    складывается в заметный, растущий уход от реального времени, при
-    том что каждый ОТДЕЛЬНЫЙ кадр в моменте выглядел "почти вовремя".
+    Windows' Sleep(N) rounds the delay up to the system tick (usually
+    ~15.6ms) by default; timeBeginPeriod(1) (winmm.dll, the same
+    MMSystem unit already used for audio) corrects this.
 
-    Правка — интервалы отсчитываются от ОДНОЙ фиксированной точки
-    начала цикла (`AnchorTick`), не от начала каждой итерации: целевое
-    время показа кадра N — `AnchorTick + Round(N * (1000/FrameRate))`,
-    спим до этого МОМЕНТА, а не отведённое количество миллисекунд
-    "с нуля". Если какой-то кадр опоздал — следующий проснётся РАНЬШЕ
-    (или вовсе не будет спать), забирая ровно то время, что было
-    потеряно — самокорректирующаяся схема, ошибка НЕ накапливается.
+    Frame timing is scheduled from a SINGLE fixed anchor point at the
+    start of the loop (AnchorTick), not from the start of each
+    iteration: the target time for frame N is
+    AnchorTick + Round(N * (1000/FrameRate)), and the thread sleeps
+    until that MOMENT rather than for a fixed duration counted from
+    "now". If a frame is late, the next one wakes up earlier (or does
+    not sleep at all), reclaiming exactly the time that was lost — a
+    self-correcting scheme where error does not accumulate over many
+    loop iterations.
 
-    Правка №2 (по отчёту "проигрывается чуть-чуть быстрее оригинала",
-    ~0.9% на типичных 116 кадрах/60к-с — ровно 1 кадр из 116, не
-    догадка, а прямое следствие арифметики ниже). Первая версия на
-    каждом витке зацикливания (FrameNum вновь 0) переставляла AnchorTick
-    на `GetTickCount64` — то есть на ФАКТИЧЕСКОЕ "сейчас", ПОЧТИ СРАЗУ
-    после того, как был показан последний кадр цикла (TotalFrames-1) —
-    у этого последнего кадра из-за этого не оставалось СВОЕГО интервала
-    показа вовсе (следующий, "нулевой" кадр нового цикла целился в то
-    же самое "сейчас", без ожидания) — весь цикл длился
-    `(TotalFrames-1)/FrameRate` вместо честных `TotalFrames/FrameRate`.
-    Исправлено — на витке `AnchorTick` не пересэмплируется из
-    `GetTickCount64`, а СДВИГАЕТСЯ на ТОЧНУЮ длину одного полного цикла
-    (`CycleMs`), сохраняя показ последнего кадра на полный положенный
-    интервал; самокоррекция (см. выше) при этом не теряется — если
-    реальное время уже обогнало новый целевой момент (система была
-    занята/зависла), `TargetTick > NowTick` просто окажется ложным, и
-    кадр покажется без ожидания, тем же путём, что и раньше. }
+    On each loop wrap (FrameNum back to 0), AnchorTick is advanced by
+    the exact duration of one full cycle (CycleMs) rather than
+    resampled from GetTickCount64 — this gives the last frame of the
+    cycle its own full display interval instead of collapsing it into
+    the first frame of the next cycle. The self-correction above still
+    applies: if real time has already passed the new target moment,
+    TargetTick > NowTick is simply false and the frame is shown
+    without waiting. }
   CycleMs := QWord(Round(TotalFrames * (1000.0 / FrameRate)));
   timeBeginPeriod(1);
   try

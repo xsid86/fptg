@@ -11,14 +11,14 @@ uses
 type
   { TUserRow
 
-    Минимум, нужный для отображаемого имени в заголовке сообщения.
-    Без единой ссылки на LCL — как TChatRow/TMsgRow. }
+    The minimum needed for a display name in a message header. Has no
+    reference to LCL, same as TChatRow/TMsgRow. }
   TUserRow = class
   public
     Id: Int64;
     FirstName, LastName: utf8string;
-    { 0..6 — зарезервированные "базовые" цвета, 7+ — резолвятся через
-      TTdAccentColors (tdaccentcolors.pas) из updateAccentColors. }
+    { 0..6 are reserved built-in colors; 7+ are resolved through
+      TTdAccentColors (tdaccentcolors.pas) from updateAccentColors. }
     AccentColorId: integer;
     function DisplayName: utf8string;
   end;
@@ -29,21 +29,21 @@ type
 
   { TTdUsers
 
-    Кэш отображаемых имён произвольных пользователей — то, чего не было
-    в проекте: TTdChats.FBots хранит только флаг "бот ли это"
-    (tdchats.pas), не имя. Пассивно пополняется из updateUser (тот же
-    поток апдейтов, что уже слушает TTdChats на этот тип), а на промах
-    кэша — активно доедаёт через getUser, по тому же принципу
-    "асинхронно догрузить и перерисовать по готовности", что и аватарки
-    в avatarcache.pas/updateFile. }
+    Cache of display names for arbitrary users — TTdChats.FBots
+    (tdchats.pas) only stores whether a user is a bot, not its name.
+    Populated passively from updateUser (the same update stream
+    TTdChats already listens to for that type), and on a cache miss,
+    actively backfilled via getUser — the same "fetch asynchronously,
+    redraw once ready" pattern as avatars in avatarcache.pas/
+    updateFile. }
   TTdUsers = class(TComponent, ITdUpdateListener, ITdStateListener)
   private
     FSession: ITdSession;
     FReq: TTdRequests;
     FAll: TUserMap;
-    { id пользователей, на которых getUser уже отправлен и ждём ответа —
-      чтобы не заваливать TDLib повторными запросами на каждую
-      перерисовку одного и того же ещё не разрешённого имени. }
+    { Ids of users for whom getUser has already been sent and a
+      response is pending — avoids flooding TDLib with repeat requests
+      on every redraw of the same still-unresolved name. }
     FPending: array of Int64;
     FOnChanged: TTdUsersEvent;
     function Lookup(AId: Int64): TUserRow;
@@ -59,14 +59,13 @@ type
     destructor Destroy; override;
 
     procedure Clear;
-    { Возвращает закэшированное имя, либо '' и асинхронно запускает
-      getUser, если пользователь ещё не известен и запрос на него ещё
-      не в полёте. Результат придёт позже через OnChanged. }
+    { Returns the cached name, or '' while asynchronously issuing
+      getUser if the user is not yet known and no request for it is
+      already in flight. The result arrives later via OnChanged. }
     function DisplayName(AUserId: Int64): utf8string;
-    { То же самое, но accent_color_id пользователя; -1, если ещё не
-      известен (в т.ч. запускает getUser на промах — независимо и
-      достаточно само по себе, не полагается на то, что DisplayName
-      для этого же id уже был вызван раньше). }
+    { Same, but for the user's accent_color_id; -1 if not yet known
+      (also issues getUser on a miss, independently — it does not rely
+      on DisplayName having already been called for the same id). }
     function AccentColorId(AUserId: Int64): integer;
 
     { ITdUpdateListener }
@@ -214,10 +213,10 @@ end;
 
 procedure TTdUsers.GetUserDone(Sender: TObject; const AResp: TTdResponse);
 begin
-  { Снимаем pending по Tag (тому, что реально запрашивали), а не по id
-    из тела ответа — на ошибке тела может не быть вовсе, и без этого
-    имя осталось бы навечно помеченным "уже в полёте", не давая
-    повторить попытку при следующей прорисовке. }
+  { Clears pending by Tag (the id actually requested), not by an id
+    from the response body — on error the body may be absent
+    entirely, and without this the name would stay marked "in flight"
+    forever, blocking a retry on the next redraw. }
   ClearPending(Int64(AResp.Tag));
   if AResp.Success then begin
     ApplyUser(AResp.Obj);
@@ -268,8 +267,8 @@ end;
 
 procedure TTdUsers.TdStateChanged(AState: TTdAuthState);
 begin
-  { На выходе/закрытии клиента кэш имён теряет смысл — как и у прочих
-    моделей аккаунта. }
+  { On logout/shutdown the name cache is no longer meaningful, same as
+    for the other account models. }
   if TdIsShuttingState(AState) then begin
     Clear;
   end;
@@ -277,7 +276,7 @@ end;
 
 procedure TTdUsers.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  { Ошибки авторизации модели не касаются. }
+  { Authorization errors don't concern this model. }
 end;
 
 end.

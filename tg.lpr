@@ -24,6 +24,17 @@ uses
 {$R *.res}
 
 begin
+  { Defensive, app-wide belt-and-suspenders fix alongside tdrecv's own
+    PreDecodeUnicodeEscapes (see its comment for the full story): this
+    machine's DefaultSystemCodePage defaults to 1251 (Windows-1251),
+    not UTF-8 -- any OTHER implicit UnicodeString/AnsiString conversion
+    elsewhere in the app (not just fpjson's \uXXXX handling, already
+    bypassed at the source in tdrecv) would otherwise silently lose
+    non-Latin1 characters through the system ANSI codepage. Must run
+    before anything does such a conversion, hence first line of the
+    program. }
+  DefaultSystemCodePage := CP_UTF8;
+
   RequireDerivedFormResource := True;
   Application.Title:='TG Orchestrator';
   Application.Scaled:=True;

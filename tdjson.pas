@@ -8,10 +8,11 @@ uses
   Classes, SysUtils, ctypes, SyncObjs, constants;
 
 type
-  { Вызывается из внутренних потоков TDLib. LCL отсюда трогать нельзя. }
+  { Called from TDLib's internal threads. LCL must not be touched
+    from here. }
   TTdLogMessageCallback = procedure(verbosity_level: cint; message: pansichar); cdecl;
 
-  { ---- Актуальный API (client id) ---- }
+  { ---- Current API (client id) ---- }
 
 function td_create_client_id: cint; cdecl; external TDJSON_LIB name 'td_create_client_id';
 
@@ -23,13 +24,13 @@ function td_execute(request: pansichar): pansichar; cdecl; external TDJSON_LIB n
 
 procedure td_set_log_message_callback(max_verbosity_level: cint; callback: TTdLogMessageCallback); cdecl; external TDJSON_LIB name 'td_set_log_message_callback';
 
-{ ---- Хелперы ---- }
+{ ---- Helpers ---- }
 
-{ Копирует байты из буфера TDLib в UTF8String без перекодировки.
-  Вызывать НЕМЕДЛЕННО после td_receive/td_execute. }
+{ Copies bytes from a TDLib buffer into a UTF8String without
+  re-encoding. Call IMMEDIATELY after td_receive/td_execute. }
 function TdCopyToUtf8(P: pansichar): utf8string;
 
-{ Обёртки, возвращающие уже скопированную строку. }
+{ Wrappers that return an already-copied string. }
 function TdReceive(Timeout: double): utf8string;
 function TdExecute(const ARequest: utf8string): utf8string;
 procedure TdSend(AClientId: integer; const ARequest: utf8string);
@@ -37,13 +38,11 @@ procedure TdSend(AClientId: integer; const ARequest: utf8string);
 implementation
 
 var
-  { Полный сырой лог всего, что уходит в TDLib и приходит от него —
-    на уровне td_send/td_receive, ниже tdrecv.pas и любых подписчиков.
-    Не зависит от того, открыт ли отладочный экран (TFrameLog), какие
-    объекты на что подписаны, и не режется по числу строк, как Memo
-    там (MAX_LOG_LINES=500) — этого хватало не на всякую диагностику.
-    Файл создаётся заново при каждом запуске (fmCreate), путь — рядом
-    с exe. }
+  { Full raw log of everything sent to and received from TDLib, at the
+    td_send/td_receive level — below tdrecv.pas and any subscribers.
+    Independent of whether the debug screen (TFrameLog) is open, and
+    not truncated by line count like its Memo (MAX_LOG_LINES=500). The
+    file is recreated on every run (fmCreate), next to the executable. }
   GLogFile: TFileStream = nil;
   GLogLock: TCriticalSection = nil;
 
@@ -52,7 +51,7 @@ var
   S: utf8string;
 begin
   if GLogLock = nil then begin
-    Exit; { финализация уже началась }
+    Exit; { finalization has already started }
   end;
   GLogLock.Enter;
   try
@@ -71,7 +70,7 @@ begin
     try
       GLogFile.WriteBuffer(S[1], Length(S));
     except
-      { Диск переполнен/файл занят и т.п. — лог не должен уронить TDLib. }
+      { Disk full, file locked, etc. — logging must not crash TDLib. }
     end;
   finally
     GLogLock.Leave;
@@ -93,7 +92,7 @@ begin
   end;
   SetLength(Raw, Len);
   Move(P^, Raw[1], Len);
-  { False = только пометить кодировку, байты не трогать }
+  { False = only tag the code page, don't touch the bytes }
   SetCodePage(Raw, CP_UTF8, False);
   Result := Raw;
 end;

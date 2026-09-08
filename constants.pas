@@ -2,28 +2,26 @@ unit constants;
 
 {$mode objfpc}{$H+}
 
-{ Все именованные константы проекта — одним файлом, сгруппированные по
-  модулю-источнику и смыслу внутри него. Юнит нарочно не тянет ничего
-  проектного (только Graphics — ради TColor у цветовых палитр), поэтому
-  лежит в самом низу графа зависимостей: uses constants можно добавлять
-  куда угодно, циклов это создать не может.
+{ All named constants for the project, grouped by source unit and topic.
+  This unit deliberately imports nothing project-specific (only Graphics,
+  for TColor in the color palettes), so it sits at the bottom of the
+  dependency graph: any unit can "uses constants" without creating a
+  cycle.
 
-  Константы не переименовывались при переносе, кроме одного явного
-  совпадения имён (COALESCE_MS объявлялся отдельно в tdchats.pas и в
-  tdmessages.pas — see CHATS_COALESCE_MS/MESSAGES_COALESCE_MS ниже) —
-  остальные имена и порядок внутри своей группы сохранены как были в
-  исходном юните, включая внутренние ссылки константы на константу —
-  группа avatarcache идёт первой, поскольку на неё ссылаются константы
-  из более поздних групп (сейчас — CHATROW_HEADER_BAR_H в группе
-  framechats.pas, через AVATAR_SIZE).
+  Constants keep the names and per-group order they had in their
+  original unit, including cross-references between constants, except
+  for one explicit name collision (COALESCE_MS was declared separately
+  in tdchats.pas and tdmessages.pas — see CHATS_COALESCE_MS /
+  MESSAGES_COALESCE_MS below). The avatarcache group comes first because
+  later groups reference it (CHATROW_HEADER_BAR_H in the framechats.pas
+  group, via AVATAR_SIZE).
 
-  2026-09-08: группа framehistory.pas переставлена ПЕРЕД framechats.pas
-  (была после) — редизайн строки контакта "как у сообщения" завёл в
-  framechats.pas константы (CHATROW_HEADER_BAR_H и др.), считающиеся
-  ЧЕРЕЗ HEADER_PAD_V/MSG_PAD_V/REPLY_LINE_H/MSG_CORNER_RADIUS из группы
-  framehistory.pas — тот же самый приём, что уже обязал avatarcache
-  идти первой (константа не может ссылаться на то, что объявлено
-  позже неё в том же const-блоке). }
+  The framehistory.pas group comes before framechats.pas because the
+  chat-row constants (CHATROW_HEADER_BAR_H etc.) are computed from
+  HEADER_PAD_V/MSG_PAD_V/REPLY_LINE_H/MSG_CORNER_RADIUS in the
+  framehistory.pas group — the same ordering constraint that already
+  requires avatarcache to come first (a constant cannot reference
+  something declared later in the same const block). }
 
 interface
 
@@ -34,22 +32,22 @@ const
 
   { ================= avatarcache.pas ================= }
 
-  { Было 44 — уменьшено до 24 при редизайне строки контакта 2026-09-08
-    ("делаем элемент контакта таким же как и сообщения в истории"):
-    аватар теперь инлайн в заголовке карточки, рядом со значком типа
-    чата и именем, не отдельная крупная колонка слева. Единственный
-    настоящий читатель — TAvatarCache.Render (avatarcache.pas); псевдо-
-    строка "Архив"/"Все чаты" использует свой, независимый
-    BIG_AVATAR_SIZE=44 (framechats.pas group ниже), эту правку не
-    затрагивающий. }
-  AVATAR_SIZE = 24;
-  { Ключ кэша — id чата. Потолок держит память в узде: битмапы, а не
-    записи списка, и есть настоящая цена прокрутки длинного списка. }
+  { Avatar size in the chat list's content area, beside the last-message
+    preview (moved there from the header during the card redesign — see
+    CLAUDE.md). The archive/all-chats pseudo-row uses its own, larger
+    BIG_AVATAR_SIZE (framechats.pas group below), independent of this
+    value. Sole real reader: TAvatarCache.Render (avatarcache.pas).
+    24->32 by direct request — CHATROW_CONTENT_H (below) is derived
+    from this, so the row grows taller automatically, not a separate
+    number to keep in sync by hand. }
+  AVATAR_SIZE = 32;
+  { Cache key is the chat id. The cap bounds memory: bitmaps, not list
+    entries, and scrolling a long list has a real cost. }
   DEFAULT_CAPACITY = 200;
-  { Координаты в BGRABitmap центрированы по пикселю: центр пикселя 0
-    находится в 0, поэтому рисовать можно от -0.5 до SIZE-0.5.
-    Круг с центром SIZE/2 и радиусом SIZE/2 вылез бы за правый и нижний
-    край и оказался срезан. }
+  { BGRABitmap coordinates are pixel-centered: pixel 0's center sits at
+    0, so drawing spans -0.5 to SIZE-0.5. A circle centered at SIZE/2
+    with radius SIZE/2 would extend past the right/bottom edge and get
+    clipped. }
   AV_CENTER = (AVATAR_SIZE - 1) / 2;
   AV_RADIUS = AVATAR_SIZE / 2;
 
@@ -62,93 +60,82 @@ const
   MSG_PAD_H      = 11;
   MSG_PAD_V      = 6;
   MSG_GAP        = 16;
-  { Колонка сообщений не шире этого — при широком окне не растягиваем
-    текст во всю ширину (нечитаемо), а центрируем узкую колонку.
-    0 — без ограничения, во всю ширину фрейма (см. ColumnBounds). }
+  { Message column width cap: on a wide window text is not stretched
+    full width (unreadable) but centered in a narrow column. 0 means no
+    cap, full frame width (see ColumnBounds). }
   MAX_MSG_W      = 600;
-  { HEADER_H — высота самого значка/текста заголовка (для центрирования
-    внутри неё). HEADER_PAD_V — свой отступ сверху/снизу внутри цветной
-    подложки заголовка, НЕ завязан на MSG_GAP (расстояние между
-    сообщениями) — это два разных с виду похожих отступа, которые
-    раньше были одним числом по случайности, не по смыслу.
-    HEADER_BAR_H — сколько места заголовок реально занимает в блоке. }
+  { HEADER_H is the height of the header icon/text itself (used to
+    center content within it). HEADER_PAD_V is the header's own
+    top/bottom padding inside its colored backing, independent of
+    MSG_GAP (the gap between messages) — two visually similar but
+    distinct paddings. HEADER_BAR_H is the total space the header
+    occupies in the block. }
   HEADER_H       = 16;
   HEADER_PAD_V   = 6;
   HEADER_BAR_H   = HEADER_H + 2 * HEADER_PAD_V;
   NEAR_TOP_PX    = 400;
   WHEEL_LINE_PX  = 60;
   LINE_SCROLL_PX = 24;
-  { Переключатель для теста "влияет ли сглаженная (BGRA-антиалиасинг)
-    отрисовка углов на плавность прокрутки истории" — по прямому
-    запросу пользователя. True — как сейчас (PaintRoundRectAA рисует во
-    временный TBGRABitmap и композитит с альфа-блендингом, framehistory.
-    pas). False — старый метод ДО перехода на BGRA: обычный GDI
-    Canvas.RoundRect, без TBGRABitmap вовсе. Радиусы (ниже) не зависят
-    от этого флага — меняется только СПОСОБ рисовать, не цифры. }
+  { Switches corner rendering between antialiased (BGRA, composited via
+    a temporary TBGRABitmap) and plain GDI Canvas.RoundRect. False is
+    cheaper and was chosen for scroll smoothness. Radii below are
+    unaffected — only the drawing method changes, not the numbers. }
   SMOOTH_CORNERS = False;
-  { Переключатель нового вида рендера сообщений/цитат/репостов — по
-    прямому запросу пользователя (2026-09-06): убрать цветной фон и
-    обводку у ТЕЛА сообщения/карточки репоста/плашки цитаты ответа,
-    оставить цвет только у строки заголовка (значок+имя+время у
-    сообщения, аватар+имя+время у репоста, значок+имя у цитаты ответа)
-    и её собственную обводку — вместо обводки всего блока. Старый код
-    (SENDER_BG_OPACITY-заливка + SENDER_BORDER_OPACITY-обводка всего
-    блока/карточки/плашки) НЕ вычищен — оставлен под `if not new_style`
-    в framehistory.pas, чтобы можно было сравнить оба вида на лету
-    (True/False + пересборка), пока новый вид не устаканится. Убрать
-    старую ветку насовсем — отдельная, следующая правка. }
+  { Switches message/quote/forward-card rendering between two body
+    styles. True: no background fill or outline on the message body /
+    forward card / reply quote — only the header row (icon+name+time
+    for a message, avatar+name+time for a forward, icon+name for a
+    reply quote) keeps a colored backing and outline. False (current):
+    the whole block/card/box gets a background fill (SENDER_BG_OPACITY)
+    and outline (SENDER_BORDER_OPACITY). Both code paths are kept in
+    framehistory.pas (`if not new_style` / `if new_style`) for
+    comparison; removing the old path is a separate follow-up. }
   new_style = false;
-  { Радиус скругления углов у подложки блока/заголовка сообщения. }
+  { Corner radius for the message block / header backing. }
   MSG_CORNER_RADIUS = 7;
-  { Слот под значок статуса в заголовке блока — зарезервирован даже у
-    входящих сообщений (там значка нет, crNone), чтобы имя отправителя
-    не "прыгало" по горизонтали от строки к строке. }
+  { Slot reserved for the status icon in the header even for incoming
+    messages (which have no icon, crNone) so the sender name doesn't
+    shift horizontally row to row. }
   MSG_ICON_W     = 16;
   MSG_ICON_GAP   = 4;
 
-  { Цитата репоста (сообщение, пришедшее с forward_info) — своя рамка
-    внутри блока: свой, меньший радиус и свой отступ от основного
-    заголовка сообщения. Остальные отступы внутри цитаты переиспользуют
-    MSG_PAD_H/MSG_PAD_V/HEADER_BAR_H — цитата структурно то же самое
-    "заголовок+контент", что и весь блок, только вложенная и поменьше,
-    заводить для неё второй набор паддингов не за чем.
-    FORWARD_HEADER_GAP = MSG_PAD_H, не отдельное число — по месту
-    пользователя: горизонтальный (MSG_PAD_H) и вертикальный (этот зазор)
-    отступы цитаты должны визуально совпадать, и должны продолжать
-    совпадать, если MSG_PAD_H ещё раз подправят на глаз. }
+  { Forward-card quote (a message with forward_info) — its own frame
+    inside the block, with its own smaller radius and its own gap from
+    the message's main header. Remaining inner paddings reuse
+    MSG_PAD_H/MSG_PAD_V/HEADER_BAR_H: structurally the quote is the
+    same "header+content" shape as the whole block, just nested and
+    smaller, so it needs no second set of paddings.
+    FORWARD_HEADER_GAP is tied to MSG_PAD_H rather than being its own
+    number so the quote's horizontal and vertical padding stay visually
+    equal even if MSG_PAD_H is retuned later. }
   FORWARD_CORNER_RADIUS = 4;
   FORWARD_HEADER_GAP    = MSG_PAD_H;
 
-  { Цитата ответа (reply_to) — компактная плашка над содержимым
-    сообщения: значок цитаты + имя цитируемого отправителя + первая
-    строка его текста, подложка и контур тем же приёмом, что и у
-    карточки репоста (не как у цитаты репоста, FORWARD_*, при этом —
-    там TDLib сам присылает отдельный объект с контекстом источника,
-    здесь же это просто ссылка на СВОЁ ЖЕ сообщение выше по переписке,
-    ближе по духу к тому, как reply рисует оригинальный клиент
-    Telegram). Отступ значка от левого края плашки и от значка до
-    текста — MSG_PAD_H/MSG_ICON_GAP, отступ сверху — HEADER_PAD_V: те
-    же константы и по тому же месту, что и у иконки в основном
-    заголовке блока (HeaderX := BR.Left + MSG_PAD_H, HeaderY := BR.Top
-    + HEADER_PAD_V, см. Paint) и у аватара в заголовке цитаты репоста
-    (AvX/AvY в PaintForwardCard) — по месту пользователя: 4px "на
-    глаз" смотрелись хуже, чем повтор уже устоявшегося отступа
-    заголовков. Высота — фиксированные два текстовых ряда, без
-    word-wrap: имя и текст обрезаются по ширине с "…", не переносятся.
-    REPLY_CORNER_RADIUS — раньше делила один FORWARD_CORNER_RADIUS с
-    карточкой репоста/аудио/файлом ("тот же приём"), по прямому запросу
-    пользователя выделена в свою константу, чтобы каждый тип карточки
-    можно было подстроить по отдельности — значение то же (8), это не
-    визуальная правка, а только развязка ручек друг от друга. }
+  { Reply quote (reply_to) — a compact box above the message content:
+    quote icon + replied sender's name + first line of their text,
+    using the same backing/outline treatment as the forward card
+    (distinct from FORWARD_*: TDLib sends a full source-context object
+    for a forward, while a reply is just a reference to an earlier
+    message in the same chat, closer to how the official client
+    renders replies). Icon offset from the box's left edge and from
+    icon to text uses MSG_PAD_H/MSG_ICON_GAP, top offset uses
+    HEADER_PAD_V — the same constants and placement as the icon in the
+    main message header (HeaderX := BR.Left + MSG_PAD_H, HeaderY :=
+    BR.Top + HEADER_PAD_V, see Paint) and the avatar in the forward
+    header (AvX/AvY in PaintForwardCard). Height is two fixed text
+    rows, no word-wrap — name and text are truncated with an ellipsis
+    instead of wrapping. REPLY_CORNER_RADIUS was split out from the
+    shared FORWARD_CORNER_RADIUS so each card type can be tuned
+    independently; the value (8) is unchanged. }
   REPLY_LINE_H  = 15;
   REPLY_BOX_H   = 2 * REPLY_LINE_H + 2 * HEADER_PAD_V;
   REPLY_CORNER_RADIUS = 4;
 
-  { Цвет отправителя по кругу — единственное место в файле, которое
-    придётся тронуть под тёмную тему (см. план: полноценную
-    инфраструктуру тем сейчас не строим, только не закапываем цвета
-    россыпью литералов по коду отрисовки). TColor — $00BBGGRR, поэтому
-    у каждого значения рядом RGB для читаемости при будущей правке. }
+  { Sender color wheel — the one place in the file that would need
+    touching for a dark theme (a full theming layer isn't built yet,
+    but colors are kept out of the paint code as scattered literals).
+    TColor is $00BBGGRR, so each entry carries its RGB name in a
+    comment for readability. }
   SENDER_PALETTE: array[0..7] of TColor = (
     $2222B2,  { RGB(178, 34, 34)  firebrick }
     $228B22,  { RGB( 34,139, 34)  forest green }
@@ -159,59 +146,56 @@ const
     $8515C7,  { RGB(199, 21,133)  medium violet red }
     $008080   { RGB(128,128,  0)  olive }
   );
-  { Насколько сильно цвет отправителя проступает в подложке блока —
-    0.1 = 10% цвета поверх фона, остальное клBackground. Тоже
-    вынесено, а не зашито внутрь BlendWithBackground, по той же причине,
-    что и SENDER_PALETTE — легко подправить под тёмную тему/на вкус. }
+  { How strongly the sender color shows through the block backing —
+    0.1 = 10% color over background, the rest clBackground. Kept as a
+    constant rather than hardcoded in BlendWithBackground for the same
+    reason as SENDER_PALETTE — easy to retune for a dark theme or taste. }
   SENDER_BG_OPACITY = 0.1;
-  { Подложка именно строки заголовка (значок+имя) — заметнее, чем фон
-    всего блока: свой, более высокий уровень прозрачности. }
+  { The header row's own backing (icon+name) is more prominent than the
+    block background — its own, higher opacity level. }
   SENDER_HEADER_OPACITY = 0.2;
-  { Контур блока — цвет отправителя поверх фона, заметно сильнее заливок
-    выше (0.5): не тонировка, а именно очерчивающая рамка блока. }
+  { Block outline — sender color over background, noticeably stronger
+    than the fills above (0.5): a defining border, not a tint. }
   SENDER_BORDER_OPACITY = 0.5;
 
-  { Аудио-виджет (TAudioWidget) — по аналогии с плашкой цитаты ответа
-    (та же подложка/контур — SENDER_BG_OPACITY/SENDER_BORDER_OPACITY,
-    тот же внутренний отступ — MSG_PAD_H), но свой, независимый базовый
-    цвет: не отправитель сообщения, один и тот же для любого аудио.
-    TColor — $00BBGGRR, поэтому #03A9F4 (RGB) записан в обратном
-    порядке байт. }
+  { Audio widget (TAudioWidget) — same backing/outline treatment as the
+    reply-quote box (SENDER_BG_OPACITY/SENDER_BORDER_OPACITY, same
+    inner padding MSG_PAD_H), but its own fixed base color rather than
+    the message sender's: the same color for any audio. TColor is
+    $00BBGGRR, so #03A9F4 (RGB) is stored byte-reversed. }
   AUDIO_COLOR = $F4A903;  { RGB(3, 169, 244) — Material light blue 500 }
-  { Раньше делил один FORWARD_CORNER_RADIUS с карточкой репоста/цитатой
-    ответа/файлом ("тот же приём"), по прямому запросу пользователя
-    выделен в свою константу — каждая карточка теперь подстраивается
-    отдельно. Значение то же (8), это не визуальная правка. }
+  { Split out from the shared FORWARD_CORNER_RADIUS so each card type
+    can be tuned independently; the value (8) is unchanged. }
   AUDIO_CORNER_RADIUS = 4;
-  { Индексы кадров в TFrameHistory.ImageList1 (32x32, кнопки
-    play/pause — свой список, не framechats.ImageList1). }
+  { Frame indices in TFrameHistory.ImageList1 (32x32, play/pause
+    buttons — its own list, not framechats.ImageList1). }
   AUDIO_ICON_PLAY     = 0;
   AUDIO_ICON_PAUSE    = 1;
-  { Значок "скачать" — переиспользуется TFileWidget (framehistory.pas)
-    для файла-документа, ещё не скачанного на диск; тот же ImageList1,
-    что и play/pause, не отдельный список — пользователь добавил кадр
-    в дизайнере рядом с ними. }
+  { "Download" icon — reused by TFileWidget (framehistory.pas) for a
+    document not yet downloaded to disk; same ImageList1 as play/pause,
+    not a separate list. }
   AUDIO_ICON_DOWNLOAD = 2;
-  { Кадры для встроенного просмотрщика (mediaviewer.pas) — пользователь
-    добавил их в тот же ImageList1 в дизайнере, рядом с play/pause/
-    download (тот же список, не отдельный): "«" — перелистнуть к
-    предыдущему фото, "»" — к следующему, красный крестик — закрыть
-    просмотрщик. }
+  { Frames for the built-in viewer (mediaviewer.pas), added to the same
+    ImageList1 as play/pause/download: "«" — previous photo, "»" — next
+    photo, red cross — close the viewer. }
   VIEWER_ICON_PREV  = 3;
   VIEWER_ICON_NEXT  = 4;
   VIEWER_ICON_CLOSE = 5;
   AUDIO_BUTTON_SIZE = 32;
 
-  { Ряд транспортных кнопок под полосой прокрутки видео-виджета
-    (TVideoWidget, framehistory.pas) — по прямому запросу пользователя
-    (2026-09-07), только в просмотрщике (там FIsActive=True; в чате
-    виджет никогда не активен и ряд не рисуется вовсе). Кадры — новый
-    TFrameHistory.playback (16x16, отдельный ImageList, добавлен
-    пользователем в дизайнере) — 6 позиций слева направо (пред. видео /
-    -10с / play-pause / повтор / +10с / след. видео), у четырёх из
-    шести — пара "серый/синий" (недоступно/доступно, выкл/вкл), у
-    play/pause — просто две разные иконки состояния, не пара
-    доступности. }
+  { Transport-button row under the video widget's scrub bar
+    (TVideoWidget, framehistory.pas) — viewer only (FIsActive=True
+    there; in the chat the widget is never active and the row is not
+    drawn at all). Frames come from TFrameHistory.ImageList2 (32x32,
+    replacing the older 16x16 "playback" list, which stays unused in
+    the .lfm) — 6 slots left to right (previous video / -10s /
+    play-pause / repeat / +10s / next video); frame order was confirmed
+    by unpacking the Bitmap blob from framehistory.lfm and visually
+    inspecting the frames, the same method used for icons12/
+    framechats.pas — not guessed. Four of the six slots are
+    unavailable/available (gray/blue) pairs; play/pause is just two
+    state icons; repeat has three states (off/repeat-all/repeat-one),
+    not an availability pair. }
   PLAYBACK_ICON_PREV_OFF    = 0;
   PLAYBACK_ICON_PREV_ON     = 1;
   PLAYBACK_ICON_BACK10_OFF  = 2;
@@ -219,167 +203,155 @@ const
   PLAYBACK_ICON_PAUSE       = 4;
   PLAYBACK_ICON_PLAY        = 5;
   PLAYBACK_ICON_REPEAT_OFF  = 6;
-  PLAYBACK_ICON_REPEAT_ON   = 7;
-  PLAYBACK_ICON_FWD10_OFF   = 8;
-  PLAYBACK_ICON_FWD10_ON    = 9;
-  PLAYBACK_ICON_NEXT_OFF    = 10;
-  PLAYBACK_ICON_NEXT_ON     = 11;
-  { Сколько секунд перематывает кнопка -10с/+10с. }
+  { "Repeat all" is a plain looping arrow, "repeat one" is the same
+    arrow with a small "1" inside (visible in the frame itself). }
+  PLAYBACK_ICON_REPEAT_ALL  = 7;
+  PLAYBACK_ICON_REPEAT_ONE  = 8;
+  PLAYBACK_ICON_FWD10_OFF   = 9;
+  PLAYBACK_ICON_FWD10_ON    = 10;
+  PLAYBACK_ICON_NEXT_OFF    = 11;
+  PLAYBACK_ICON_NEXT_ON     = 12;
+  { Seconds the -10s/+10s buttons skip. }
   PLAYBACK_SKIP_SEC   = 10;
-  PLAYBACK_BTN_SIZE   = 16;   { нативный размер кадра playback-списка }
-  PLAYBACK_BTN_GAP    = 16;   { зазор МЕЖДУ соседними кнопками ряда }
-  { Полоса прогресса и её ползунок. }
+  PLAYBACK_BTN_SIZE   = 32;   { native ImageList2 frame size (was 16 for the old "playback" list) }
+  PLAYBACK_BTN_GAP    = 16;   { gap between adjacent buttons in the row }
+  { Progress bar and its thumb. }
   AUDIO_TRACK_H = 2;
   AUDIO_THUMB_W = 3;
   AUDIO_THUMB_H = 6;
-  { Проигранная часть трека и сам ползунок — заметнее, чем ещё не
-    проигранная (0.75 против 0.25), AUDIO_COLOR в обоих случаях. }
+  { Played portion and the thumb itself are more prominent than the
+    unplayed remainder (0.75 vs 0.25), both using AUDIO_COLOR. }
   AUDIO_PLAYED_OPACITY = 0.75;
   AUDIO_REMAIN_OPACITY = 0.25;
-  { Виджет файла (TFileWidget) — тот же приём, что и у AUDIO_CORNER_RADIUS
-    выше: раньше делил FORWARD_CORNER_RADIUS, теперь своя ручка. }
+  { File widget (TFileWidget) — same pattern as AUDIO_CORNER_RADIUS
+    above: split out from the shared FORWARD_CORNER_RADIUS into its own
+    knob. }
   FILE_CORNER_RADIUS = 4;
 
   { ================= framechats.pas ================= }
 
-  { Индексы в новом icons12 (TImageList, 12x12, отдельный от ImageList1
-    список — добавлен пользователем в дизайнере специально под редизайн
-    строки контакта, 2026-09-08: "делаем элемент контакта таким же как
-    и сообщения в истории"). Порядок подтверждён распаковкой Bitmap-
-    блоба из framechats.lfm и визуальным просмотром кадров (тот же
-    приём, что уже применялся в этой сессии для playback-списка выше в
-    этом файле) — не угадан, все 6 "старых" кадров (channel/group/bot/
-    private/notify_on/notify_off) идут в том же порядке, что раньше в
-    ImageList1, плюс два новых (pin/unpin) добавлены в конец. }
+  { Frame indices in icons12 (TImageList, 12x12, separate from
+    ImageList1 — added for the chat-row redesign that mirrors the
+    message-block look). Order confirmed by unpacking the Bitmap blob
+    from framechats.lfm and visually inspecting the frames, the same
+    method used for the playback list above — not guessed. The six
+    original frames (channel/group/bot/private/notify_on/notify_off)
+    keep the same order they had in ImageList1; pin/unpin were appended. }
   CHATROW_ICON_CHANNEL    = 0;
   CHATROW_ICON_GROUP      = 1;
   CHATROW_ICON_BOT        = 2;
   CHATROW_ICON_PRIVATE    = 3;
   CHATROW_ICON_NOTIFY_ON  = 4;
   CHATROW_ICON_NOTIFY_OFF = 5;
-  { Закреп раньше показывался текстовым префиксом "📌 " перед именем
-    чата — убран при редизайне, дублировал бы значок. Какой из двух
-    новых кадров — "закреплено", какой — "не закреплено" — по прямой
-    аналогии с notify_on/notify_off (сплошной значок — состояние
-    включено, перечёркнутый — выключено), не подтверждено отдельным
-    скриншотом; переставить местами, если оказалось наоборот, —
-    тривиальная правка. }
+  { Which of the two new frames is "pinned" vs "unpinned" follows the
+    notify_on/notify_off convention (solid icon = state on, crossed-out
+    = state off) by analogy, not confirmed against a dedicated
+    screenshot; swapping them is a trivial fix if it turns out reversed. }
   CHATROW_ICON_PIN        = 6;
   CHATROW_ICON_UNPIN      = 7;
-  { Значок на месте "типа чата" у псевдо-строк "Архив"/"Все чаты" (по
-    прямому запросу пользователя, 2026-09-08, четвёртый заход — те
-    переоформлены под тот же вид карточки, что и настоящие чаты) —
-    архивная коробка и "назад" (двойная стрелка влево), добавлены
-    пользователем в дизайнере вместе с pin/unpin, порядок подтверждён
-    тем же способом (распаковка Bitmap-блоба + визуальный просмотр). }
+  { Icon shown in the "chat type" slot for the "Archive"/"All chats"
+    pseudo-rows — an archive box and a "back" double-arrow, added
+    alongside pin/unpin, order confirmed the same way (Bitmap-blob
+    unpack + visual inspection). }
   CHATROW_ICON_ARCHIVE    = 8;
   CHATROW_ICON_ALLCHATS   = 9;
-  { Нативный размер кадра icons12 — те же 12x12, что и Height/Width
-    самого компонента в дизайнере. }
+  { Native frame size for icons12 — matches the component's own
+    Height/Width in the designer. }
   CHATROW_ICON_SIZE = 12;
 
-  { 6..10 — статус/направление сообщения в framehistory.pas, тот же
-    объект ImageList1 (через FormMain.Chats.ImageList1), что framechats.
-    pas больше не читает по имени после редизайна (см. CHATROW_ICON_*
-    выше) — сам компонент и кадры 0-5 в нём не убраны из дизайнера,
-    удалять/переиспользовать indices не стали, framehistory.pas ими не
-    интересуется.
-    TODO: значения ниже — временная договорённость, подтвердить и
-    поправить при добавлении реальных кадров в дизайнере, если
-    разложены иначе. }
+  { 6..10 — message status/direction icons in framehistory.pas, the
+    same ImageList1 object (via FormMain.Chats.ImageList1) that
+    framechats.pas no longer reads by name after the chat-row redesign
+    (see CHATROW_ICON_* above) — the component and frames 0-5 in it
+    were left untouched in the designer; framehistory.pas simply
+    ignores them.
+    TODO: the values below are a placeholder — confirm and adjust once
+    real frames are added in the designer if they end up laid out
+    differently. }
   ICON_MSG_SENT     = 6;
   ICON_MSG_READ     = 7;
   ICON_MSG_PENDING  = 8;
   ICON_MSG_FAILED   = 9;
-  { Входящее сообщение — не статус доставки (его у чужих сообщений не
-    бывает), просто маркер направления, чтобы слот перед именем не
-    пустовал у половины строк, как в исходном скриншоте QIP. }
+  { Incoming message — not a delivery status (there is none for someone
+    else's message), just a direction marker so the slot before the
+    name isn't empty for half the rows, matching the original QIP-style
+    reference screenshot. }
   ICON_MSG_INCOMING = 10;
-  { Значок цитаты ответа (reply_to) в framehistory.pas —
-    TMsgScroller.PaintReplyBox. Индекс — временная договорённость до
-    добавления реального кадра в дизайнере (тот же приём, что и у
-    ICON_MSG_* выше). }
+  { Reply-quote icon (reply_to) in framehistory.pas —
+    TMsgScroller.PaintReplyBox. Placeholder index until a real frame is
+    added in the designer, same convention as ICON_MSG_* above. }
   ICON_QUOTE        = 11;
 
   BADGE_H  = 18;
   BADGE_PAD = 7;
   BADGE_FONT_H = 12;
   BADGE_CACHE_MAX = 64;
-  { Отметка о прочтении — те же самые "галочки", что и раньше
-    (ReceiptBitmap не тронута редизайном). }
-  TICK_W   = 12;   { ширина одной галочки }
+  { Read receipt — the same checkmarks as before (ReceiptBitmap is
+    untouched by the redesign). }
+  TICK_W   = 12;   { width of a single checkmark }
   TICK_H   = 11;
-  TICK_SHIFT = 5;    { сдвиг второй галочки у «прочитано» }
+  TICK_SHIFT = 5;    { offset of the second checkmark for "read" }
   TICK_PEN = 1.6;
   GAP      = 6;
-  { За сколько строк до конца просить следующую порцию. }
+  { How many rows before the end to request the next page. }
   PREFETCH_ROWS = 6;
-  { Архив всегда занимает нулевую строку, как в оригинальном клиенте. }
+  { Archive always occupies row 0, matching the official client. }
   ARCHIVE_ROWS = 1;
 
-  { Карточка строки контакта — тот же визуальный язык, что и у блока
-    сообщения (framehistory.pas, группа выше): заголовок (значок типа+
-    аватар+имя+бейджи) + область текста (превью), скругление, фон/
-    обводка цветом чата (accent_color_id, тот же приём, что и у
-    ResolveAccentColor/SenderColor в framehistory.pas — framechats.pas
-    не может импортировать framehistory.pas, та сама уже импортирует
-    framechats.pas, цикл — поэтому у ChatAccentColor в framechats.pas
-    своя копия той же логики, не общая функция). Внутренние отступы —
-    буквально те же константы, что у сообщений (MSG_PAD_H/MSG_PAD_V/
-    HEADER_PAD_V/MSG_ICON_GAP) — по прямому запросу пользователя ("все
-    внутренние отступы как в сообщениях"), поэтому эта группа и
-    переставлена ПОСЛЕ framehistory.pas (см. шапку файла). Между
-    карточками — отдельный, гораздо меньший отступ (4px, по прямому
-    запросу пользователя, не MSG_GAP=16 у сообщений — списку контактов
-    нужна повыше плотность). }
-  { Тот же отступ используется и как зазор МЕЖДУ карточками (снизу), и
-    как отступ карточки от левого/правого края списка (по прямому
-    запросу пользователя, 2026-09-08, второй заход — "сделай отступ
-    контактов от краёв тоже 4 пикселя") — одно число, оба места, см.
+  { Chat-row card — the same visual language as the message block
+    (framehistory.pas group above): header (chat-type icon + avatar +
+    name + badges) + content area (preview), rounding, background/
+    outline colored by the chat's accent (accent_color_id, the same
+    approach as ResolveAccentColor/SenderColor in framehistory.pas —
+    framechats.pas cannot import framehistory.pas, since the latter
+    already imports framechats.pas, so ChatAccentColor in framechats.pas
+    keeps its own copy of that logic rather than sharing a function).
+    Inner paddings are literally the same constants used for messages
+    (MSG_PAD_H/MSG_PAD_V/HEADER_PAD_V/MSG_ICON_GAP), which is why this
+    group is placed after framehistory.pas (see file header). The gap
+    between cards is separate and much smaller (4px, not MSG_GAP=16 —
+    a contact list needs higher density). }
+  { The same gap doubles as the spacing BETWEEN cards and as the card's
+    inset from the list's left/right edge — one number, both roles, see
     ChatRowRects (framechats.pas). }
   CHATROW_GAP = 4;
-  { Высота заголовка карточки — аватар переехал в область текста (см.
-    CHATROW_CONTENT_H ниже, второй заход редизайна), в заголовке
-    остались только значок типа+имя+бейджи — та же по смыслу пара
-    "высота содержимого + свой вертикальный отступ", что и у заголовка
-    сообщения, поэтому теперь буквально та же величина, не отдельно
-    считанная копия. }
+  { Card header height — the avatar moved into the content area (see
+    CHATROW_CONTENT_H below), leaving only the type icon + name +
+    badges in the header — the same "content height + own vertical
+    padding" shape as the message header, so this is now literally the
+    same value rather than a separately computed copy. }
   CHATROW_HEADER_BAR_H = HEADER_BAR_H;
-  { Область превью — аватар (24px) переехал сюда, из заголовка (по
-    прямому запросу пользователя, 2026-09-08, второй заход) — высота
-    ряда теперь считается от аватара, тем же приёмом, что раньше
-    считала высоту заголовка (AVATAR_SIZE + свой вертикальный отступ,
-    здесь — MSG_PAD_V, у контента сообщения та же роль). Строка текста
-    (по высоте как REPLY_LINE_H) вписывается внутрь этой же высоты, по
-    центру рядом с аватаром — второй отдельной константы под неё не
-    заводим. }
+  { Preview area — the avatar (24px) lives here, next to the preview
+    text, so row height is computed from the avatar the same way the
+    header height used to be computed (AVATAR_SIZE + its own vertical
+    padding, MSG_PAD_V here plays the same role as in message content).
+    The text line (REPLY_LINE_H-sized) fits within this same height,
+    vertically centered next to the avatar — no separate constant for
+    it. }
   CHATROW_CONTENT_H = AVATAR_SIZE + 2 * MSG_PAD_V;
   CHATROW_CARD_H = CHATROW_HEADER_BAR_H + CHATROW_CONTENT_H;
   ROW_HEIGHT = CHATROW_CARD_H + CHATROW_GAP;
-  { Радиус скругления карточки — своя ручка, не MSG_CORNER_RADIUS
-    напрямую (тот же принцип, что и у FORWARD/REPLY/AUDIO/FILE_CORNER_
-    RADIUS в группе выше — каждая карточка подстраивается по отдельности
-    независимо), начальное значение то же, что у сообщений. }
+  { Card corner radius — its own knob, not MSG_CORNER_RADIUS directly
+    (same principle as FORWARD/REPLY/AUDIO/FILE_CORNER_RADIUS above —
+    each card type tunable independently), initial value matches
+    messages. }
   CHATROW_CORNER_RADIUS = MSG_CORNER_RADIUS;
-  { Заливка строки ЗА карточкой на выделении — цветом самого контакта
-    (ChatAccentColor), не системным clHighlight (по прямому запросу
-    пользователя, 2026-09-08, третий заход: "цвет выделения строки надо
-    сделать в соответствии с цветом контакта"). Сама карточка (тело/
-    заголовок/обводка) при этом больше НЕ реагирует на выделение —
-    считается всегда относительно clWindow, как в обычном состоянии;
-    видимый признак выделения — только эта заливка вокруг карточки, в
-    прежних 2px сверху/снизу и уже существующих отступах слева/справа
-    (CHATROW_GAP). Опорная точка — 0.5, тот же порядок величины, что и
-    у SENDER_BORDER_OPACITY ("не тонировка, а заметный акцент"). }
+  { Selection fill behind the card uses the chat's own accent color
+    (ChatAccentColor), not the system clHighlight. The card itself
+    (body/header/outline) no longer reacts to selection at all — it's
+    always computed against clWindow, as in the unselected state; the
+    only visible selection cue is this surrounding fill, in the
+    existing 2px top/bottom and left/right (CHATROW_GAP) gaps. Anchor
+    value 0.5 is the same order of magnitude as SENDER_BORDER_OPACITY
+    ("a visible accent, not a tint"). }
   CHATROW_SELECTED_OPACITY = 0.5;
-  { Псевдо-строки "Архив"/"Все чаты" (DrawHeaderRow) — фиксированный
-    цвет карточки, не ChatAccentColor (у них нет своего чата/accent_
-    color_id) — по прямому запросу пользователя, 2026-09-08, четвёртый
-    заход. #2196F3 (Material Blue 500) — TColor хранит BGR, поэтому
-    байты идут в обратном порядке. }
+  { "Archive"/"All chats" pseudo-rows (DrawHeaderRow) — a fixed card
+    color, not ChatAccentColor (they have no chat/accent_color_id of
+    their own). #2196F3 (Material Blue 500) — TColor stores BGR, so the
+    bytes are reversed. }
   CHATROW_PSEUDO_COLOR = $F39621;  { RGB(33, 150, 243) }
 
-  { Коды пунктов контекстного меню. }
+  { Context-menu item codes. }
   MI_NONE    = 0;
   MI_READ    = 1;
   MI_UNREAD  = 2;
@@ -392,103 +364,122 @@ const
 
   { ================= framelog.pas ================= }
 
-  { Лог не должен расти бесконечно: мемо с сотнями тысяч строк
-    съедает память и начинает тормозить при перерисовке. }
+  { The log must not grow without bound: a memo with hundreds of
+    thousands of lines eats memory and starts stalling on repaint. }
   MAX_LOG_LINES = 500;
 
   { ================= framesettingsautodownload.pas ================= }
 
-  { Пять типов медиа × пять типов чата — сетка чекбоксов раздела
-    "Auto download" окна настроек. AUTODL_*_KINDS — ключи персистенса
-    в config.ini/[autodownload] (ключ "<медиа>.<чат>", напр.
-    "images.private"), AUTODL_*_CAPTIONS — подписи в UI, тот же порядок
-    в обеих парах массивов (порядок отрисовки: медиа — секции/столбцы,
-    чат — строки внутри секции). }
+  { Five media types x five chat types — the checkbox grid in the
+    "Auto download" settings section. AUTODL_*_KINDS are persistence
+    keys in config.ini/[autodownload] (key "<media>.<chat>", e.g.
+    "images.private"), AUTODL_*_CAPTIONS are the UI labels; both array
+    pairs share the same order (media = sections/columns, chat = rows
+    within a section). }
   AUTODL_MEDIA_KINDS: array[0..4] of string = ('images', 'video', 'audio', 'gif', 'files');
   AUTODL_MEDIA_CAPTIONS: array[0..4] of string = ('Images', 'Video', 'Audio', 'GIF', 'Files');
   AUTODL_CHAT_KINDS: array[0..4] of string = ('private', 'secret', 'groups', 'channels', 'bots');
   AUTODL_CHAT_CAPTIONS: array[0..4] of string = ('Private chats', 'Secret chats', 'Groups', 'Channels', 'Bots');
-  { Сколько сообщений за пределами видимой области упреждающе качать
-    при включённой автозагрузке (TMsgScroller.PrefetchAutoDownload,
-    framehistory.pas) — по прямому запросу пользователя ("загружать
-    изображения сильно заранее"), было 1 (буквально следующее
-    сообщение по направлению скролла). MaybeAutoDownload сам по себе
-    идемпотентен (Ensure*File — no-op, если уже скачано/уже запрошено),
-    так что пересканировать это окно на каждый тик скролла безопасно —
-    реальная работа запускается только для строк, впервые попавших в
-    окно. }
+  { How many messages beyond the visible area to prefetch when
+    auto-download is enabled (TMsgScroller.PrefetchAutoDownload,
+    framehistory.pas). MaybeAutoDownload itself is idempotent
+    (Ensure*File is a no-op if already downloaded/already requested),
+    so rescanning this window on every scroll tick is safe — real work
+    only starts for rows newly entering the window. }
   AUTODL_PREFETCH_MESSAGES = 30;
 
   { ================= msglayout.pas ================= }
 
-  { Небольшой межстрочный запас поверх TextHeight. }
+  { Small line-spacing margin on top of TextHeight. }
   LINE_LEADING = 4;
   PLACEHOLDER_BOX   = 160;
   PLACEHOLDER_BOX_H = 120;
   CAPTION_GAP       = 6;
-  { Пересчитано под новый TAudioWidget (framehistory.pas): 2*MSG_PAD_H
-    (внутренний отступ сверху/снизу) + max(32 [кнопка play/pause],
+  { textEntityTypeBlockQuote (msglayout.pas WrapText/PaintQuoteBands) —
+    colored from the MESSAGE's own resolved accent color (framehistory.
+    SenderColor, threaded down through Paint), not a fixed constant —
+    a quote is visually "part of" its message (per direct request; a
+    fixed color read as simply wrong once tested against a message
+    whose accent clearly wasn't blue). BLOCKQUOTE_INDENT is how far
+    quoted lines start from the left edge (bar width + a visual gap),
+    not tied to MSG_PAD_H — a quote needs more breathing room than an
+    ordinary icon-to-text gap. BG/BAR opacity per direct request (0.2/
+    0.5 of the accent, matching the SENDER_BG_OPACITY/SENDER_BORDER_OPACITY
+    "faint tint + stronger accent border" language already used
+    everywhere else in this app) — first version (0.12, solid bar)
+    looked wrong for an UNRELATED reason too: PaintQuoteBands originally
+    skipped ColorToRGB before blending, so clWindow's raw pseudo-color
+    bits got read as if they were an actual RGB triple, rendering as a
+    near-arbitrary dark color instead of a light tint — fixed in
+    BlendColor itself, this isn't a tuning knob for that part.
+    BLOCKQUOTE_BAND_PAD is no longer a fixed number — vertical padding
+    is now one full line's height, computed from an actual TTextRun in
+    ComputeQuoteBands (msglayout.pas), also by direct request. }
+  BLOCKQUOTE_BG_OPACITY  = 0.2;
+  BLOCKQUOTE_BAR_OPACITY = 0.5;
+  BLOCKQUOTE_BAR_W       = 2;
+  BLOCKQUOTE_INDENT      = 12;
+  { Computed for TAudioWidget (framehistory.pas): 2*MSG_PAD_H (top/
+    bottom inner padding) + max(32 [play/pause button],
     REPLY_LINE_H + HEADER_PAD_V + AUDIO_THUMB_H + HEADER_PAD_V +
-    REPLY_LINE_H [название+прогресс+время]) = 2*11 + max(32,48) = 70. }
+    REPLY_LINE_H [title+progress+time]) = 2*11 + max(32,48) = 70. }
   AUDIO_WIDGET_H    = 70;
-  { Виджет файла (TFileWidget, framehistory.pas) — тот же приём
-    подложки/контура/скругления, что и у AUDIO_WIDGET_H, но без полосы
-    прогресса — высота не переиспользует AUDIO_WIDGET_H целиком (тот
-    считался под кнопку+название+прогресс+время), а собственная
-    формула: значок (AUDIO_BUTTON_SIZE) + отступ сверху/снизу
-    (MSG_PAD_H=11 по месту пользователя) с каждой стороны. }
+  { File widget (TFileWidget, framehistory.pas) — same backing/outline/
+    rounding treatment as AUDIO_WIDGET_H, but with no progress bar, so
+    height is not reused wholesale (that one accounts for
+    button+title+progress+time) — its own formula: icon
+    (AUDIO_BUTTON_SIZE) plus top/bottom padding (MSG_PAD_H=11) on each
+    side. }
   FILE_WIDGET_H     = AUDIO_BUTTON_SIZE + 2 * MSG_PAD_H;
 
-  { Превью фото (TPhotoWidget, framehistory.pas). Вертикальное
-    (height>width) — ширина не больше PHOTO_MAX_WIDTH, высота
-    пропорционально; горизонтальное — наоборот, высота не больше
-    PHOTO_MAX_HEIGHT. Не увеличиваем маленькие изображения — если
-    натуральный размер уже меньше потолка, превью остаётся в
-    натуральную величину. Это только верхний потолок — реальная ширина
-    колонки в этом месте может быть у́же (окно не широкое), тогда решает
-    она, см. AMaxW у ComputePhotoPreviewSize (msglayout.pas). Было 400,
-    затем 300 — по прямому запросу пользователя (2026-09-06, вместе с
-    заходом на встроенный просмотрщик) уменьшено ещё раз, до 220. Тот
-    же потолок используется и видео-превью (TVideoWidget тоже вызывает
-    ComputePhotoPreviewSize) — не отдельная константа, оба сообщения
-    должны занимать в чате одинаково скромное место. Просмотр в полном
-    размере (mediaviewer.pas) НЕ ограничен этим потолком вовсе — у него
-    свой расчёт вписывания в размер окна, см. её же комментарий. }
+  { Photo preview (TPhotoWidget, framehistory.pas). Portrait
+    (height>width): width capped at PHOTO_MAX_WIDTH, height scaled
+    proportionally; landscape: height capped at PHOTO_MAX_HEIGHT
+    instead. Small images are not upscaled — if the natural size is
+    already below the cap, the preview stays natural size. This is only
+    the upper cap — the actual column width at this point may be
+    narrower (a non-wide window), in which case that wins, see AMaxW in
+    ComputePhotoPreviewSize (msglayout.pas). Video previews
+    (TVideoWidget also calls ComputePhotoPreviewSize) share the same
+    cap rather than having their own — both message types should take
+    up equally modest space in the chat. The full-size viewer
+    (mediaviewer.pas) is NOT bound by this cap at all — it fits to the
+    viewer window instead, see its own comment. }
   PHOTO_MAX_WIDTH     = 220;
   PHOTO_MAX_HEIGHT    = 220;
-  { Скругление/обводка превью фото и видео убраны целиком по прямому
-    запросу пользователя (2026-09-06) — TPhotoWidget.DrawBmpRounded/
-    TVideoWidget.Paint рисуют изображение как есть, прямоугольным, без
-    этих двух констант. Обе остались только ради "гифки"
-    (TAnimationWidget.Paint, framehistory.pas) — там скругление/обводка
-    не трогали (запрос касался явно "изображений и видео", не гифок). }
+  { Rounding/outline for photo and video previews were removed
+    entirely — TPhotoWidget.DrawBmpRounded / TVideoWidget.Paint draw
+    the image as-is, rectangular, without these two constants. Both
+    constants remain in use only for the "GIF" widget
+    (TAnimationWidget.Paint, framehistory.pas), which keeps its
+    rounding/outline. }
   PHOTO_CORNER_RADIUS = 4;
   PHOTO_BORDER_COLOR = $cccccc;
 
-  { Максимальный размер стикера (TStickerWidget, framehistory.pas) —
-    официальный клиент вписывает стикеры в квадратный бокс порядка
-    150-190px, не растягивает во всю ширину колонки, как фото. Без
-    рамки/подложки/скругления — стикер рисуется как есть (прозрачный
-    PNG/вектор), никаких PHOTO_CORNER_RADIUS-аналогов не нужно. }
+  { Maximum sticker size (TStickerWidget, framehistory.pas) — the
+    official client fits stickers into a roughly 150-190px square box
+    rather than stretching them to the column width like photos. No
+    frame/backing/rounding — a sticker is drawn as-is (transparent
+    PNG/vector), so no PHOTO_CORNER_RADIUS analog is needed. }
   STICKER_MAX_SIZE = 170;
 
   { ================= qrrender.pas ================= }
 
-  { Тихая зона по стандарту — 4 модуля с каждой стороны.
-    Без неё заметная часть сканеров код не видит. }
+  { Standard quiet zone — 4 modules on each side. Without it a
+    significant fraction of scanners fail to read the code. }
   QR_QUIET_ZONE = 4;
 
   { ================= splash.pas ================= }
 
-  { Минимальное время показа сплэша. Если TDLib ответит быстрее,
-    окно всё равно повисит столько — иначе оно мигает. }
+  { Minimum splash-screen display time. If TDLib responds faster, the
+    window still stays up this long — otherwise it flashes. }
   MIN_SPLASH_MS = 2000;
 
   { ================= tdaccentcolors.pas ================= }
 
-  { TColor — $00BBGGRR. Комментарий у каждого значения — RGB и
-    название по core.telegram.org/api/colors, не официальный hex
-    (нигде не опубликован). }
+  { TColor is $00BBGGRR. The comment on each value gives its RGB and
+    name per core.telegram.org/api/colors — not an official hex value
+    (none is published). }
   BUILT_IN_COLORS: array[0..6] of TColor = (
     $3C3CE6,  { RGB(230, 60, 60)   red }
     $1E8CE6,  { RGB(230,140, 30)   orange }
@@ -505,10 +496,10 @@ const
 
   { ================= tdchats.pas ================= }
 
-  { Было COALESCE_MS — переименовано при переносе: то же имя, с тем
-    же значением 50, независимо объявлено и в tdmessages.pas
-    (MESSAGES_COALESCE_MS ниже) — единственная явная коллизия имён при
-    сведении всех констант проекта в один юнит, см. шапку файла. }
+  { Was COALESCE_MS — renamed on consolidation: the same name and value
+    (50) was independently declared in tdmessages.pas
+    (MESSAGES_COALESCE_MS below) — the only real name collision when
+    merging every project constant into one unit, see file header. }
   CHATS_COALESCE_MS = 50;
 
   { ================= tdcore.pas ================= }
@@ -522,26 +513,26 @@ const
 
   { ================= tdmessages.pas ================= }
 
-  { Было COALESCE_MS — переименовано при переносе, см. комментарий у
-    CHATS_COALESCE_MS выше: та же коллизия имён, тот же смысл (интервал
-    коалесации отложенной пересборки), другой юнит-источник. }
+  { Was COALESCE_MS — renamed on consolidation, see the comment on
+    CHATS_COALESCE_MS above: the same collision, same meaning (debounce
+    interval for a deferred rebuild), different source unit. }
   MESSAGES_COALESCE_MS = 50;
-  { getChatHistory может честно вернуть меньше сообщений, чем limit
-    (или вовсе один дубликат якоря), даже если история не кончилась —
-    см. HistoryDone в tdmessages.pas. Даём несколько попыток тем же
-    якорем с реальной задержкой между ними (НЕ синхронно — синхронный
-    повтор внутри того же колбэка — ровно то, что однажды подвесило
-    приложение плотным циклом запрос/ответ). }
+  { getChatHistory can legitimately return fewer messages than limit
+    (or even a single duplicate of the anchor) even when history isn't
+    exhausted — see HistoryDone in tdmessages.pas. Retries the same
+    anchor a few times with a real delay between attempts (not
+    synchronously — a synchronous retry inside the same callback once
+    hung the app in a tight request/response loop). }
   MAX_NO_PROGRESS_RETRIES = 5;
   RETRY_DELAY_MS = 400;
-  { Гранулярность id сообщений TDLib: id = server_message_id shl 20 —
-    подтверждено по логу (tdlib_raw.log), у каждого id из реальных
-    сообщений младшие 20 бит нулевые, соседние сообщения отличаются
-    ровно на эту константу. from_message_id ОБЯЗАН быть кратен ей —
-    TDLib отклоняет что угодно другое с "code":400 "Invalid value of
-    parameter from_message_id specified" (тоже подтверждено логом:
-    попытка передавать "якорь минус 1" вместо "якорь минус эта
-    константа" уронила почти каждый запрос в этот код ошибки). }
+  { TDLib message-id granularity: id = server_message_id shl 20 —
+    confirmed from tdlib_raw.log: every real message id has its low 20
+    bits zero, and adjacent messages differ by exactly this constant.
+    from_message_id must be a multiple of it — TDLib rejects anything
+    else with code 400 "Invalid value of parameter from_message_id
+    specified" (also confirmed from the log: passing "anchor minus 1"
+    instead of "anchor minus this constant" made almost every request
+    fail with that error). }
   TD_MESSAGE_ID_STEP = 1048576;
 
   { ================= tdrecv.pas ================= }
@@ -551,13 +542,13 @@ const
 
   { ================= tdreq.pas ================= }
 
-  { Свой префикс @extra. У TTdAuth собственный ('auth:'), и пересекаться
-    им нельзя — иначе два владельца будут драться за одни и те же ответы. }
+  { Own @extra prefix. TTdAuth has its own ('auth:'), and they must not
+    collide — otherwise two owners would compete for the same responses. }
   REQ_PREFIX = 'req:';
 
-  { Синтетический код ошибки для запросов, оставшихся без ответа. }
+  { Synthetic error code for requests left unanswered. }
   TD_ERR_TIMEOUT = -1;
-  { Синтетический код для запросов, отменённых закрытием клиента. }
+  { Synthetic code for requests canceled by client shutdown. }
   TD_ERR_CLOSED  = -2;
 
 implementation

@@ -21,9 +21,9 @@ type
     procedure btnCancelClick(Sender: TObject);
   private
     FDone:      boolean;
-    FSettled:   boolean;   { состояние авторизации уже определилось }
-    FStartTick: QWord;     { момент показа, для минимальной выдержки }
-    FTimer:     TTimer;    { создаётся в коде, чтобы не трогать .lfm }
+    FSettled:   boolean;   { authorization state has resolved }
+    FStartTick: QWord;     { time shown, for the minimum display duration }
+    FTimer:     TTimer;    { created in code, not in the .lfm }
     procedure TimerTick(Sender: TObject);
     procedure TryHide;
   public
@@ -45,8 +45,8 @@ procedure TFormSplash.FormCreate(Sender: TObject);
 begin
   FDone := False;
   FSettled := False;
-  { GetTickCount64 монотонен — в отличие от Now он не поедет
-    при переводе часов или смене летнего времени. }
+  { GetTickCount64 is monotonic — unlike Now, it does not jump on a
+    clock adjustment or DST change. }
   FStartTick := GetTickCount64;
 
   lblStatus.Caption := 'Connecting to Telegram...';
@@ -73,9 +73,10 @@ begin
   TryHide;
 end;
 
-{ Прячемся, когда выполнены ОБА условия: состояние определилось
-  и прошла минимальная выдержка. Если выдержка ещё не истекла —
-  ждём тиков таймера, не блокируя очередь сообщений. }
+{ Hides once BOTH conditions hold: the state has resolved and the
+  minimum display duration has elapsed. If the duration has not
+  elapsed yet, waits for timer ticks without blocking the message
+  queue. }
 procedure TFormSplash.TryHide;
 begin
   if FDone or (not FSettled) then begin
@@ -101,8 +102,8 @@ begin
     Exit;
   end;
 
-  { Прячемся только на осмысленном состоянии. WaitTdlibParameters
-    прилетает почти мгновенно и означает лишь «TDLib проснулся». }
+  { Hides only on a meaningful state. WaitTdlibParameters arrives
+    almost instantly and only means "TDLib has woken up". }
   if TdIsPromptState(AState) or (AState = tasReady) then begin
     FSettled := True;
     TryHide;
@@ -116,8 +117,9 @@ begin
   if FDone then begin
     Exit;
   end;
-  { Типовой случай — неверный api_id/api_hash: состояние застревает
-    на WaitTdlibParameters, и без этого окно висело бы молча. }
+  { Typical case: a wrong api_id/api_hash — the state gets stuck on
+    WaitTdlibParameters, and without this the window would just hang
+    silently. }
   lblStatus.Caption := 'Error ' + IntToStr(ACode) + ': ' + string(AMessage);
   btnCancel.Visible := True;
 end;

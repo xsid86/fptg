@@ -5,35 +5,34 @@ unit framehistory;
 interface
 
 uses
-  { Windows — первым: юниты, идущие позже в uses, перекрывают его
-    символы при неквалифицированном использовании (LCLIntf/LCLType
-    объявляют часть одноимённых GDI-функций кросс-платформенно) — сам
-    Windows нужен здесь только за CreateRoundRectRgn/SelectClipRgn/
-    DeleteObject (TPhotoWidget.DrawBmpRounded, SMOOTH_CORNERS=False —
-    у LCLIntf/LCLType их нет вовсе, проверено чтением исходников LCL,
-    не угадано), все три вызываются квалифицированно (Windows.), но
-    порядок в uses всё равно имеет значение для перегрузок. }
+  { Windows comes first: units listed later in uses shadow its symbols
+    for unqualified use (LCLIntf/LCLType declare some of the same-named
+    GDI functions cross-platform) — Windows itself is needed here only
+    for CreateRoundRectRgn/SelectClipRgn/DeleteObject
+    (TPhotoWidget.DrawBmpRounded, SMOOTH_CORNERS=False branch —
+    LCLIntf/LCLType don't have these at all, confirmed by reading the
+    LCL sources, not guessed); all three calls are qualified (Windows.),
+    but the uses order still matters for overload resolution. }
   Windows,
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
   Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
-  uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer, lottieplayer;
+  uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer,
+  lottieplayer, customemoji;
 
 type
   { TAudioWidget
 
-    UI-заглушка аудио-сообщения: подложка/контур тем же приёмом, что и
-    у плашки цитаты ответа (AUDIO_COLOR вместо цвета отправителя),
-    кнопка play/pause (ImageList1 у TFrameHistory, назначается через
-    Images), название трека, полоса прогресса. Реального
-    воспроизведения нет (только UI) — та часть, что реально требует
-    декодирования (через ffmpeg), заедет отдельным заходом поверх этого
-    же класса; пока прогресс всегда 0%, кнопка всегда в состоянии
-    "play". Recycled-контрол: живёт в пуле TMsgScroller, Visible
-    переключается, сам объект не пересоздаётся на каждый скролл — но
-    данные ТРЕКА меняются при каждом переиспользовании под другое
-    сообщение, см. SetTrack. }
+    An audio message's UI: backing/outline the same way as the reply
+    quote box (AUDIO_COLOR instead of the sender's color), a play/pause
+    button (TFrameHistory's ImageList1, assigned via Images), the track
+    title, a progress bar. This class draws the UI only — playback
+    happens through the interface below (SetPlayback/OnPlayClick/OnSeek),
+    with the actual decoding/output living in audioplayer.pas.
+    Recycled control: lives in TMsgScroller's pool, Visible is toggled,
+    the object itself isn't recreated on every scroll — but the TRACK
+    data changes on every reuse for a different message, see SetTrack. }
   TAudioSeekEvent = procedure(Sender: TObject; AFraction: double) of object;
 
   TAudioWidget = class(TCustomControl)
@@ -42,29 +41,29 @@ type
     FTitle, FPerformer, FFileName: utf8string;
     FDuration: integer;
     FImages: TImageList;
-    { Проигрывание — см. SetPlayback/TMsgScroller.AudioPlayClick.
-      FIsActive=False — сообщение не то, что сейчас играет/на паузе
-      (обычное состояние подавляющего большинства виджетов). }
+    { Playback state — see SetPlayback/TMsgScroller.AudioPlayClick.
+      FIsActive=False means this message isn't the one currently
+      playing/paused (the ordinary state of most widgets). }
     FIsActive:    boolean;
     FPlaying:     boolean;
     FPositionSec: double;
-    { Перетаскивание ползунка — предпросмотр локальный (FDragFraction),
-      сам факт перемотки (TMsgScroller.AudioSeek — новый TAudioPlayer с
-      позиции) срабатывает один раз по отпусканию, не на каждый пиксель
-      движения мыши: иначе пересоздавали бы поток декодирования/wave-
-      устройство на каждый MouseMove, дорого и дёргано. }
+    { Dragging the thumb — the preview is local (FDragFraction), the
+      actual seek (TMsgScroller.AudioSeek — a new TAudioPlayer at that
+      position) fires once on mouse release, not on every pixel of
+      mouse movement: otherwise the decode thread/wave device would be
+      recreated on every MouseMove, expensive and jittery. }
     FDraggingSeek: boolean;
     FDragFraction: double;
     FOnPlayClick: TNotifyEvent;
     FOnSeek: TAudioSeekEvent;
-    { Фон снаружи скруглённой подложки — см. WidgetBackdropColor и
-      комментарий у TPhotoWidget.FBgColor, тот же приём. }
+    { Background outside the rounded backing — see WidgetBackdropColor
+      and the comment on TPhotoWidget.FBgColor, the same approach. }
     FBgColor: TColor;
     function PlayButtonRect: TRect;
-    { Общая геометрия контента (справа от кнопки play) — один источник
-      правды для Paint И для хит-теста ползунка (TrackAreaRect/
-      FractionFromX), чтобы не разъехались при правке. False, если
-      места не хватает (см. Paint). }
+    { Shared content geometry (right of the play button) — a single
+      source of truth for both Paint AND the thumb hit test
+      (TrackAreaRect/FractionFromX), so they can't drift apart on a
+      later edit. Returns False if there's not enough room (see Paint). }
     function ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
     function TrackAreaRect: TRect;
     function FractionFromX(AX: integer): double;
@@ -75,20 +74,20 @@ type
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
   public
     constructor Create(AOwner: TComponent); override;
-    { Данные конкретного сообщения — вызывается из LayoutAudioWidgets
-      при каждом переиспользовании виджета под (возможно) другое
-      сообщение, не только при создании. Сбрасывает состояние
-      проигрывания (виджет из пула мог до этого представлять активный
-      трек) — актуальное состояние восстанавливает SetPlayback сразу
-      следом, если новый ARowId и есть активный трек. }
+    { A specific message's data — called from LayoutAudioWidgets every
+      time the widget is reused for a (possibly different) message, not
+      only when created. Resets playback state (a pooled widget may
+      have previously represented the active track) — the actual state
+      is restored right after by SetPlayback, if the new ARowId happens
+      to be the active track. }
     procedure SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
     procedure SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
     property Images: TImageList read FImages write FImages;
     property RowId: Int64 read FRowId;
-    { Идёт перетаскивание ползунка ПРЯМО СЕЙЧАС — LayoutAudioWidgets
-      должен пропустить SetPlayback на этот заход, иначе перезапишет
-      локальный предпросмотр перетаскивания реальной (ещё старой)
-      позицией на следующем же Paint. }
+    { A thumb drag is happening RIGHT NOW — LayoutAudioWidgets must skip
+      SetPlayback for this pass, otherwise it would overwrite the local
+      drag preview with the real (still stale) position on the very
+      next Paint. }
     property Dragging: boolean read FDraggingSeek;
     property OnPlayClick: TNotifyEvent read FOnPlayClick write FOnPlayClick;
     property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
@@ -99,15 +98,15 @@ type
 
   { TFileWidget
 
-    Виджет файла-документа — по прямому запросу пользователя, тот же
-    внешний вид, что и у финальной реализации TAudioWidget (подложка/
-    контур/скругление/отступы, одна и та же FILE_WIDGET_H=AUDIO_WIDGET_H),
-    но без play/pause и полосы прогресса (у файла нет ни того, ни
-    другого): слева — значок по расширению файла (FileIconIndex,
-    FileTypes ImageList на TFrameHistory), справа — имя файла (там же,
-    где у аудио заголовок трека) и его размер (там же, где у аудио
-    время). Курсор — рука на всём виджете (не только над значком, как
-    у play/pause кнопки audio), клик в любом месте — сохранить файл. }
+    A document-file widget — the same look as the finished TAudioWidget
+    (backing/outline/rounding/padding, the same FILE_WIDGET_H=
+    AUDIO_WIDGET_H), but without play/pause or a progress bar (a file
+    has neither): an icon by file extension on the left (FileIconIndex,
+    the FileTypes ImageList on TFrameHistory), the file name on the
+    right (where audio's track title sits) and its size below (where
+    audio's time sits). Cursor is a hand over the whole widget (not
+    just over an icon like audio's play/pause button), a click anywhere
+    saves the file. }
   TFileWidget = class(TCustomControl)
   private
     FRowId: Int64;
@@ -115,11 +114,11 @@ type
     FFileSize: Int64;
     FIconIndex: integer;
     FDownloaded: boolean;
-    FImages: TImageList;         { FileTypes — значки по расширению }
-    FDownloadImages: TImageList; { ImageList1 — значок "скачать" (AUDIO_ICON_DOWNLOAD) }
+    FImages: TImageList;         { FileTypes — icons by extension }
+    FDownloadImages: TImageList; { ImageList1 — the "download" icon (AUDIO_ICON_DOWNLOAD) }
     FOnClick: TNotifyEvent;
-    { Фон снаружи скруглённой подложки — см. WidgetBackdropColor и
-      комментарий у TPhotoWidget.FBgColor, тот же приём. }
+    { Background outside the rounded backing — see WidgetBackdropColor
+      and the comment on TPhotoWidget.FBgColor, the same approach. }
     FBgColor: TColor;
     function IconRect: TRect;
   protected
@@ -127,48 +126,50 @@ type
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
   public
     constructor Create(AOwner: TComponent); override;
-    { ADownloaded — файл уже есть на диске (ARow.DocLocalPath<>'') —
-      значок мим-типа; иначе значок "скачать" (AUDIO_ICON_DOWNLOAD). }
+    { ADownloaded: the file already exists on disk (ARow.DocLocalPath<>'')
+      — shows the mime-type icon; otherwise shows the "download" icon
+      (AUDIO_ICON_DOWNLOAD). }
     procedure SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64;
       ADownloaded: boolean);
     property Images: TImageList read FImages write FImages;
     property DownloadImages: TImageList read FDownloadImages write FDownloadImages;
     property RowId: Int64 read FRowId;
-    { Левый клик: не скачан — качает молча (без диалога); скачан —
-      открывает файл системным приложением по умолчанию (см.
-      TMsgScroller.FileWidgetClick). Контекстное меню (правый клик) —
-      не своё, общий компонент формы (см. TMsgScroller.FilePopupMenu),
-      LCL показывает его сам через унаследованное свойство PopupMenu. }
+    { Left click: not downloaded — downloads silently (no dialog);
+      downloaded — opens the file with the system's default application
+      (see TMsgScroller.FileWidgetClick). The context menu (right
+      click) isn't its own — it's a shared form component (see
+      TMsgScroller.FilePopupMenu), which LCL shows itself via the
+      inherited PopupMenu property. }
     property OnFileClick: TNotifyEvent read FOnClick write FOnClick;
     property BackgroundColor: TColor read FBgColor write FBgColor;
   end;
 
-  { Не TFileMap — то имя уже занято tdchats.TFileMap (file_id -> TChatRow,
-    для аватарок), framehistory тянет tdchats в uses. }
+  { Not TFileMap — that name is already taken by tdchats.TFileMap
+    (file_id -> TChatRow, for avatars), and framehistory imports
+    tdchats. }
   TFileWidgetMap = specialize TFPGMap<Int64, TFileWidget>;
 
   { TPhotoWidget
 
-    Превью фото — по прямому запросу пользователя. В отличие от
-    TAudioWidget/TFileWidget — БЕЗ подложки/контура-карточки: "рамки
-    вокруг предпросмотра не нужно". Скругление и серая обводка, что
-    были здесь раньше (PHOTO_CORNER_RADIUS/PHOTO_BORDER_COLOR), убраны
-    целиком по прямому запросу пользователя (2026-09-06) — само
-    изображение теперь рисуется как есть, прямоугольным, см.
-    DrawBmpRounded (имя — по историческим причинам). Взаимодействие —
-    тот же приём, что у TFileWidget: курсор-рука на весь виджет, левый
-    клик качает (молча, если не скачано) либо открывает встроенный
-    просмотрщик (mediaviewer.pas, если уже скачано), контекстное меню
-    — тот же общий FilePopupMenu.
+    A photo preview. Unlike TAudioWidget/TFileWidget — NO backing/
+    outline card: a photo preview needs no frame around it. Rounding
+    and the gray outline that used to be here (PHOTO_CORNER_RADIUS/
+    PHOTO_BORDER_COLOR) were removed entirely — the image itself is now
+    drawn as-is, rectangular, see DrawBmpRounded (the name is a
+    historical leftover). Interaction is the same as TFileWidget: a
+    hand cursor over the whole widget, a left click downloads (silently
+    if not yet downloaded) or opens the built-in viewer
+    (mediaviewer.pas, if already downloaded); the context menu is the
+    same shared FilePopupMenu.
 
-    Пока файл не скачан — показываем блюр-плейсхолдер из
-    content.photo.minithumbnail (крошечный JPEG, приходит сразу в
-    контенте, без скачивания) поверх которого — значок "скачать"
-    (тот же AUDIO_ICON_DOWNLOAD, что и у TFileWidget). Оба декодированных
-    битмапа (блюр-превью и настоящее фото) кэшируются в самом виджете —
-    тот recycled (пул TMsgScroller), пересчитываются только когда
-    виджет реально переиспользован под ДРУГОЕ сообщение (см. SetPhoto),
-    не на каждую перерисовку. }
+    Until the file is downloaded, a blurred placeholder from
+    content.photo.minithumbnail (a tiny JPEG, arriving directly in the
+    content, no download needed) is shown, with a "download" icon over
+    it (the same AUDIO_ICON_DOWNLOAD as TFileWidget). Both decoded
+    bitmaps (the blur preview and the real photo) are cached in the
+    widget itself — it's recycled (TMsgScroller's pool), and they're
+    only recomputed when the widget is actually reused for a DIFFERENT
+    message (see SetPhoto), not on every repaint. }
   TPhotoWidget = class(TCustomControl)
   private
     FRowId: Int64;
@@ -176,29 +177,31 @@ type
     FTargetW, FTargetH: integer;
     FLocalPath: utf8string;
     FDownloaded: boolean;
-    FBlurBmp: TBGRABitmap;   { блюр-плейсхолдер из minithumbnail, до скачивания }
-    FRealBmp: TBGRABitmap;   { настоящее фото, после скачивания }
-    FDownloadImages: TImageList; { ImageList1 — значок "скачать" }
-    { Цвет фона БЛОКА сообщения в этой точке (BlendWithBackground(
-      SenderColor(R), SENDER_BG_OPACITY, clWindow) — та же формула, что
-      красит сам блок в TMsgScroller.Paint) — НЕ голый clWindow: виджет,
-      как и TAudioWidget/TFileWidget, реальный дочерний control и не
-      просвечивает canvas родителя, а у фото (в отличие от аудио/файла)
-      нет своей непрозрачной карточки-подложки поверх этого фона — без
-      подмены угол превью снаружи скруглённой маски показывал бы белый
-      clWindow, заметно отличающийся от подкрашенного фона блока
-      ("белые треугольники по углам"). }
+    FBlurBmp: TBGRABitmap;   { blurred placeholder from minithumbnail, before download }
+    FRealBmp: TBGRABitmap;   { the real photo, after download }
+    FDownloadImages: TImageList; { ImageList1 — the "download" icon }
+    { The message BLOCK's background color at this point
+      (BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY,
+      clWindow) — the same formula that colors the block itself in
+      TMsgScroller.Paint) — NOT bare clWindow: this widget, like
+      TAudioWidget/TFileWidget, is a real child control and doesn't let
+      the parent's canvas show through, and unlike audio/file, a photo
+      has no opaque backing card over that background — without this
+      substitution, the preview's corners outside the rounded mask
+      would show plain clWindow white, visibly different from the
+      block's tinted background ("white triangles in the corners"). }
     FBgColor: TColor;
     FOnClick: TNotifyEvent;
-    { Декод настоящего (не блюр-плейсхолдера) фото — в фоновом потоке,
-      см. photodecoder.pas и комментарий у DecodeDone/SetPhoto.
-      FDecodeThread <> nil — декод для ЭТОГО виджета сейчас идёт;
-      старый декод, ставший неактуальным (виджет переиспользован под
-      другое сообщение/путь, или сам виджет уничтожается), ВСЕГДА
-      явно отменяется через Cancel ДО того, как заведут новый/
-      уничтожат виджет — тогда DoDone для него просто освободит
-      результат сам, ни разу не тронув поля этого объекта, и отдельная
-      проверка "для какого пути был этот декод" не нужна. }
+    { Decoding the real (not blur-placeholder) photo happens in a
+      background thread, see photodecoder.pas and the comment on
+      DecodeDone/SetPhoto. FDecodeThread <> nil means a decode for THIS
+      widget is currently in progress; a stale decode that's become
+      irrelevant (the widget was reused for a different
+      message/path, or the widget itself is being destroyed) is ALWAYS
+      explicitly canceled via Cancel BEFORE starting a new one/
+      destroying the widget — DoDone for it then simply frees the
+      result on its own, never touching this object's fields, so no
+      separate "which path was this decode for" check is needed. }
     FDecodeThread: TPhotoDecodeThread;
     procedure ClearBitmaps;
     procedure DrawBmpRounded(ABmp: TBGRABitmap);
@@ -209,12 +212,12 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    { AMinithumb — сырые (уже base64-декодированные) байты JPEG, может
-      быть '' (не пришёл/уже не нужен — скачано). ADownloaded/ALocalPath
-      — есть ли уже настоящий файл на диске. AMaxW — реальная доступная
-      ширина колонки в этом месте (см. ComputePhotoPreviewSize) — без
-      неё превью могло вылезти за карточку сообщения на нешироких
-      окнах. }
+    { AMinithumb is the raw (already base64-decoded) JPEG bytes, can be
+      '' (not sent / no longer needed — already downloaded).
+      ADownloaded/ALocalPath say whether the real file already exists
+      on disk. AMaxW is the actual available column width at this
+      point (see ComputePhotoPreviewSize) — without it, the preview
+      could overflow the message card on narrow windows. }
     procedure SetPhoto(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
       AMaxW: integer);
@@ -230,41 +233,43 @@ type
 
   { TAnimationWidget
 
-    "Гифка" (messageAnimation — физически короткое MP4/H.264 без звука)
-    — тот же интерфейс, что у TPhotoWidget: курсор-рука на весь виджет,
-    скругление PHOTO_CORNER_RADIUS, БЕЗ подложки/контура-карточки. Пока
-    не скачано — блюр-плейсхолдер из content.animation.minithumbnail
-    (тот же пайплайн декодирования, что у фото), поверх — значок
-    "скачать".
+    A "GIF" (messageAnimation — physically a short MP4/H.264 with no
+    sound) — the same interface as TPhotoWidget: a hand cursor over the
+    whole widget, PHOTO_CORNER_RADIUS rounding, NO backing/outline
+    card. Until downloaded, a blurred placeholder from
+    content.animation.minithumbnail (the same decode pipeline as
+    photos) is shown, with a "download" icon over it.
 
-    Клики — по прямому запросу пользователя, как у файла: первый клик
-    по недокачанному — только скачивание, БЕЗ автопоказа; второй клик
-    по уже скачанному, ещё не играющему — запускает зацикленное
-    воспроизведение. Клик по УЖЕ играющему — ничего не делает: никаких
-    контролов запуска/остановки, "гифка" либо не играет, либо крутится
-    в цикле, пока виджет жив и виден (framehistory.pas это решает через
-    OnAnimClick/StartLoop/StopLoop).
+    Clicks work like a file: the first click on an undownloaded widget
+    only downloads it, with NO auto-play; a second click on an
+    already-downloaded, not-yet-playing widget starts looped playback.
+    A click on an ALREADY-playing widget does nothing — there are no
+    start/stop controls; a "GIF" either isn't playing or loops
+    continuously for as long as the widget is alive and visible
+    (framehistory.pas decides this through OnAnimClick/StartLoop/
+    StopLoop).
 
-    Живое воспроизведение — TAnimationPlayer (videoplayer.pas), фоновый
-    поток-декодер, зацикленный сам по себе. У КАЖДОГО виджета — свой
-    независимый поток и свой TTimer-опрос нового кадра (PollTick), НЕ
-    общий с TMsgScroller.FPlaybackTimer (тот — про позицию ОДНОГО
-    активного аудио-плеера; "гифок" на экране одновременно может
-    крутиться сколько угодно, никакого "только один разом" ограничения
-    для видео нет).
+    Live playback uses TAnimationPlayer (videoplayer.pas), a background
+    decoder thread that loops on its own. EACH widget has its own
+    independent thread and its own TTimer poll for new frames
+    (PollTick), NOT shared with TMsgScroller.FPlaybackTimer (that one
+    tracks the position of the ONE active audio player; any number of
+    "GIFs" can loop on screen at once, there's no "only one at a time"
+    restriction for video).
 
-    Скругление — ВСЕГДА через дешёвый GDI-регион (CreateRoundRectRgn/
-    SelectClipRgn, тот же приём, что у TPhotoWidget при
-    SMOOTH_CORNERS=False), НЕЗАВИСИМО от глобального SMOOTH_CORNERS —
-    сознательное отличие от остальных 13 мест в файле: живой кадр видео
-    обновляется десятки раз в секунду на КАЖДУЮ одновременно играющую
-    "гифку", пересчитывать BGRA-маску (ApplyMask/RoundRectAntialias) на
-    каждый такой кадр — совсем другой порядок затрат CPU, чем та же
-    операция на статичном фото (там перерисовка не идёт непрерывным
-    потоком). Использовать РАЗНЫЕ способы скругления для плейсхолдера
-    и живого кадра ОДНОГО И ТОГО ЖЕ виджета тоже нежелательно — граница
-    заметно "мигнула" бы в момент старта воспроизведения — поэтому оба
-    состояния виджета красятся одним и тем же дешёвым способом. }
+    Rounding is ALWAYS done through a cheap GDI region
+    (CreateRoundRectRgn/SelectClipRgn, the same approach as
+    TPhotoWidget's SMOOTH_CORNERS=False branch), REGARDLESS of the
+    global SMOOTH_CORNERS — a deliberate exception among the other 13
+    places in this file that round corners: a live video frame updates
+    dozens of times a second for EACH simultaneously playing "GIF", and
+    recomputing a BGRA mask (ApplyMask/RoundRectAntialias) on every such
+    frame is a completely different order of CPU cost than the same
+    operation on a static photo (which doesn't repaint in a continuous
+    stream). Using DIFFERENT rounding methods for the placeholder and
+    the live frame of the SAME widget is also undesirable — the border
+    would visibly "flicker" the moment playback starts — so both states
+    of the widget are painted with the same cheap method. }
   TAnimationWidget = class(TCustomControl)
   private
     FRowId: Int64;
@@ -278,7 +283,7 @@ type
     FOnClick: TNotifyEvent;
     FPlayer: TAnimationPlayer;
     FPlaying: boolean;
-    FFrameBuf: PByte;           { BGRA, FTargetW*FTargetH*4 байт }
+    FFrameBuf: PByte;           { BGRA, FTargetW*FTargetH*4 bytes }
     FFrameKnownVersion: cardinal;
     FPollTimer: TTimer;
     procedure ClearBitmap;
@@ -289,13 +294,14 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    { Та же сигнатура/роль, что у TPhotoWidget.SetPhoto — AMinithumb
-      может быть '' (не пришёл/уже не нужен), ADownloaded/ALocalPath —
-      есть ли уже настоящий файл на диске, AMaxW — реальная доступная
-      ширина колонки (см. ComputePhotoPreviewSize). НЕ запускает
-      воспроизведение сама — только готовит плейсхолдер/состояние
-      "скачано"; старт — отдельно, StartLoop (framehistory.pas решает,
-      когда: второй клик или авто-воспроизведение по настройкам). }
+    { The same signature/role as TPhotoWidget.SetPhoto — AMinithumb can
+      be '' (not sent / no longer needed), ADownloaded/ALocalPath say
+      whether the real file already exists on disk, AMaxW is the
+      actual available column width (see ComputePhotoPreviewSize).
+      Does NOT start playback itself — only prepares the placeholder/
+      "downloaded" state; starting is separate, via StartLoop
+      (framehistory.pas decides when: a second click, or
+      auto-play from settings). }
     procedure SetAnim(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
       AMaxW: integer);
@@ -316,50 +322,54 @@ type
 
   { TVideoWidget
 
-    Видео-сообщение (messageVideo — настоящее видео со звуком, в
-    отличие от "гифки") — по прямому запросу пользователя: размер и
-    плейсхолдер-до-скачивания как у TPhotoWidget/TAnimationWidget
-    (натуральные пропорции, значок "скачать"), но по центру — кнопка
-    play/pause, снизу — полоса прокрутки
-    "ровно такая же, как на аудио файле, с такой же визуализацией
-    времени" (те же AUDIO_TRACK_H/AUDIO_THUMB_H/W/AUDIO_PLAYED_OPACITY/
-    AUDIO_REMAIN_OPACITY/FormatAudioTime, что у TAudioWidget — не
-    отдельно придуманные числа).
+    A video message (messageVideo — real video with sound, unlike a
+    "GIF"): sizing and the pre-download placeholder work like
+    TPhotoWidget/TAnimationWidget (natural proportions, a "download"
+    icon), but with a play/pause button in the center and a scrub bar
+    at the bottom "exactly like the one on an audio file, with the same
+    time display" (the same AUDIO_TRACK_H/AUDIO_THUMB_H/W/
+    AUDIO_PLAYED_OPACITY/AUDIO_REMAIN_OPACITY/FormatAudioTime as
+    TAudioWidget — not separately invented numbers).
 
-    Плейсхолдер до появления первого живого кадра — резкий статичный
-    кадр из content.video.thumbnail (320×180 JPEG, качается безусловно,
-    см. TTdMessages.EnsureVideoThumbFile), НЕ блюр из minithumbnail —
-    тот убран по прямому отзыву пользователя (2026-09-06, "блюр при
-    включённой автозагрузке выглядит по-ублюдски"): раз реальный кадр
-    теперь качается сразу при показе строки, независимо от настроек
-    автозагрузки самого видео, окно, в котором вообще есть что
-    показать вместо блюра, стало достаточно узким, чтобы блюр просто
-    выкинуть, а не городить условную логику "блюрить только если
-    автозагрузка выключена".
+    The placeholder before the first live frame appears is a sharp
+    static frame from content.video.thumbnail (a 320x180 JPEG,
+    downloaded unconditionally, see TTdMessages.EnsureVideoThumbFile),
+    NOT a blur from the minithumbnail — that was removed since a real
+    frame is now downloaded right away as soon as the row is shown,
+    independent of the video's own auto-download settings; the window
+    in which there's even anything to show instead of a blur became
+    narrow enough that the blur is simply dropped, rather than adding
+    conditional logic for "blur only if auto-download is off".
 
-    Видимость: в ЧАТЕ (FIsActive всегда False) — ВСЕГДА одна и та же
-    большая PLAY-иконка по центру, вне зависимости от курсора, тем же
-    приёмом, что и раньше. В ПРОСМОТРЩИКЕ (FIsActive всегда True, см.
-    класс-комментарий ниже) — по прямому запросу пользователя
-    (2026-09-07) центральная иконка убрана вовсе, play/pause переехал в
-    ряд транспортных кнопок под полосой прокрутки (см. PlaybackButtonRect/
-    ControlsVisible): полоса/время/весь ряд кнопок показываются ВСЕГДА,
-    пока видео НЕ играет (пауза/ещё не запущено — тот же случай, когда
-    раньше показывалась одинокая центральная иконка), и ТОЛЬКО под
-    курсором (MouseEnter/MouseLeave, FHovering), пока видео активно
-    играет — чистая картинка, ничем не закрытая, пока пользователь явно
-    не наведёт мышь.
+    Visibility: in the CHAT (FIsActive always False) — ALWAYS the same
+    large centered PLAY icon, regardless of cursor position, the same
+    approach as before. In the VIEWER (FIsActive always True, see the
+    class comment below) — the center icon is removed entirely,
+    play/pause moved into the transport-button row under the scrub bar
+    (see PlaybackButtonRect/ControlsVisible): the bar/time/whole button
+    row are shown ALWAYS while the video is NOT playing (paused/not yet
+    started — the same case that used to show the lone center icon),
+    and ONLY on hover (MouseEnter/MouseLeave, FHovering) while the video
+    is actively playing — a clean picture, unobstructed, until the user
+    explicitly hovers.
 
-    Живое воспроизведение — TMediaPlayer (mediaplayer.pas), но НЕ
-    отсюда: по прямому запросу пользователя (2026-09-06) инлайн-
-    проигрывание в чате убрано целиком — клик по play-кнопке ИЛИ по
-    самому кадру открывает встроенный просмотрщик (mediaviewer.pas,
-    TMsgScroller.VideoBodyClick), тот и держит свой, независимый
-    TMediaPlayer. Здесь, в чате, виджет — просто кликабельный превью
-    (та же роль, что у TPhotoWidget): своего плеера не имеет, никогда
-    не оказывается "активным" (FIsActive всегда False, см. SetPlayback
-    в LayoutVideoWidgets), полоса прокрутки/пауза поэтому никогда не
-    показывается — только неизменная play-иконка. }
+    Live playback uses TMediaPlayer (mediaplayer.pas), but NOT from
+    here: inline playback in the chat was removed entirely — clicking
+    the play button OR the frame itself opens the built-in viewer
+    (mediaviewer.pas, TMsgScroller.VideoBodyClick), which holds its own,
+    independent TMediaPlayer. Here, in the chat, the widget is just a
+    clickable preview (the same role as TPhotoWidget): it has no player
+    of its own, is never "active" (FIsActive always False, see
+    SetPlayback in LayoutVideoWidgets), so the scrub bar/pause are never
+    shown — only the fixed play icon. }
+  { Repeat mode for the transport row's button: three states, in the
+    order the button cycles through them (mediaviewer.pas,
+    VideoWidgetRepeatClick): off -> repeat all (on reaching the end,
+    advances to the next video in the chat, wrapping to the first after
+    the last) -> repeat one (on reaching the end, replays the same
+    file) -> off again. }
+  TVideoRepeatMode = (vrmOff, vrmAll, vrmOne);
+
   TVideoWidget = class(TCustomControl)
   private
     FRowId: Int64;
@@ -368,63 +378,64 @@ type
     FLocalPath: utf8string;
     FDownloaded: boolean;
     FDuration: integer;
-    FThumbBmp: TBGRABitmap;     { резкий кадр из content.video.thumbnail, пока не показан ни один живой кадр — см. SetVideoCore }
-    FFrameBuf: PByte;           { последний живой кадр, BGRA, FTargetW*FTargetH*4 — под замороженным паузой видео тоже он же }
-    FHaveFrame: boolean;        { хоть один живой кадр когда-либо получен этим виджетом }
-    FDownloadImages: TImageList; { значок "скачать" }
-    FImages: TImageList;         { play/pause — тот же ImageList1, что у TAudioWidget }
+    FThumbBmp: TBGRABitmap;     { the sharp frame from content.video.thumbnail, shown until the first live frame arrives — see SetVideoCore }
+    FFrameBuf: PByte;           { the latest live frame, BGRA, FTargetW*FTargetH*4 — also what's shown while paused }
+    FHaveFrame: boolean;        { whether this widget has ever received a live frame }
+    FDownloadImages: TImageList; { the "download" icon }
+    FImages: TImageList;         { play/pause — the same ImageList1 as TAudioWidget }
     FBgColor: TColor;
     FHovering: boolean;
-    { Проигрывание — см. SetPlayback/UpdateFrame, тот же принцип, что
-      TAudioWidget.SetPlayback/FIsActive. }
+    { Playback state — see SetPlayback/UpdateFrame, the same principle
+      as TAudioWidget.SetPlayback/FIsActive. }
     FIsActive:    boolean;
     FPlaying:     boolean;
     FPositionSec: double;
     FDraggingSeek: boolean;
     FDragFraction: double;
-    FOnClick: TNotifyEvent;       { клик по недокачанному виджету целиком — скачать }
-    FOnPlayClick: TNotifyEvent;   { клик по кнопке play/pause (центр виджета в чате, ряд транспорта в просмотрщике) }
+    FOnClick: TNotifyEvent;       { a click anywhere on an undownloaded widget — download }
+    FOnPlayClick: TNotifyEvent;   { a click on the play/pause button (widget center in chat, transport row in the viewer) }
     FOnSeek: TAudioSeekEvent;
-    { Клик по уже скачанному видео, НЕ по кнопке play/pause и НЕ по
-      полосе прокрутки — то есть по самому кадру/превью. Инлайн-плеер
-      в чате на это никак не реагировал (только play/pause) — заведено
-      специально для просмотрщика (mediaviewer.pas): "открыть покрупнее"
-      должно быть отдельным от "проиграть тут же, маленьким" жестом. }
+    { A click on an already-downloaded video, NOT on the play/pause
+      button and NOT on the scrub bar — i.e. on the frame/preview
+      itself. The chat's inline player never reacted to this (only
+      play/pause) — added specifically for the viewer
+      (mediaviewer.pas): "open bigger" needs to be a separate gesture
+      from "play inline, small". }
     FOnBodyClick: TNotifyEvent;
-    { Ряд транспортных кнопок под полосой прокрутки — по прямому запросу
-      пользователя (2026-09-07), только для просмотрщика (см. класс-
-      комментарий и ControlsVisible ниже). Prev/next/repeat не может
-      решить сам виджет (не знает про соседние сообщения/режим повтора)
-      — три новых события у владельца (mediaviewer.pas), тем же приёмом,
-      что уже есть OnPlayClick/OnSeek/OnBodyClick. Skip ±10с переиспользует
-      УЖЕ существующий OnSeek (виджет сам считает целевую долю от
-      FPositionSec/FDuration, см. SkipBy) — новое событие под это не
-      заводили. }
+    { The transport-button row under the scrub bar, viewer only (see
+      the class comment and ControlsVisible below). Prev/next/repeat
+      can't be decided by the widget itself (it doesn't know about
+      neighboring messages or the repeat mode) — three new events on
+      the owner (mediaviewer.pas), the same approach already used for
+      OnPlayClick/OnSeek/OnBodyClick. Skip ±10s reuses the ALREADY
+      existing OnSeek (the widget computes the target fraction from
+      FPositionSec/FDuration itself, see SkipBy) — no new event was
+      added for it. }
     FPlaybackImages: TImageList;
     FHasPrevVideo, FHasNextVideo: boolean;
-    FRepeatOn: boolean;
+    FRepeatMode: TVideoRepeatMode;
     FOnPrevClick, FOnNextClick, FOnRepeatClick: TNotifyEvent;
     function PlayButtonRect: TRect;
     function ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
     function TrackAreaRect: TRect;
     function FractionFromX(AX: integer): double;
-    { Верхний край ряда транспортных кнопок — общий источник и для
-      Paint (где рисовать), и для PlaybackButtonRect (где хит-тест). }
+    { The top edge of the transport-button row — a shared source for
+      both Paint (where to draw) and PlaybackButtonRect (where to hit
+      test). }
     function ButtonsRowTop: integer;
-    { Прямоугольник кнопки AIndex (0=prev,1=-10с,2=play/pause,3=repeat,
-      4=+10с,5=next) — ряд из 6 кнопок PLAYBACK_BTN_SIZE, с зазором
-      PLAYBACK_BTN_GAP, отцентрированный по горизонтали в ClientRect. }
+    { The rectangle for button AIndex (0=prev,1=-10s,2=play/pause,
+      3=repeat,4=+10s,5=next) — a row of 6 PLAYBACK_BTN_SIZE buttons,
+      with a PLAYBACK_BTN_GAP gap, centered horizontally in ClientRect. }
     function PlaybackButtonRect(AIndex: integer): TRect;
-    { Показывать ли ряд транспортных кнопок/полосу/время СЕЙЧАС — то же
-      условие, что и решает видимость этого блока в Paint (см. её же
-      комментарий), вынесено отдельно, чтобы MouseDown/MouseMove не
-      могли разойтись с тем, что реально нарисовано (не кликать по
-      невидимой кнопке). }
+    { Whether to show the transport row/bar/time RIGHT NOW — the same
+      condition that decides this block's visibility in Paint (see its
+      comment), factored out so MouseDown/MouseMove can never drift
+      from what's actually drawn (no clicking an invisible button). }
     function ControlsVisible: boolean;
-    { Перемотка на ADeltaSec секунд от текущей позиции (отрицательное —
-      назад), с клампом в [0, FDuration] — через уже существующий
-      OnSeek (тот же путь, что и перетаскивание ползунка), новой
-      инфраструктуры не потребовалось. }
+    { Seeks by ADeltaSec seconds from the current position (negative
+      means backward), clamped to [0, FDuration] — through the already
+      existing OnSeek (the same path as dragging the thumb), no new
+      infrastructure was needed. }
     procedure SkipBy(ADeltaSec: double);
     procedure ClearBitmap;
     procedure SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
@@ -440,37 +451,40 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    { Та же сигнатура/роль, что у TAnimationWidget.SetAnim, плюс
-      ADuration (секунды, как AudioDuration) — виджету нужен для
-      подписи времени на полосе прокрутки, даже пока видео не активно.
-      AThumbLocalPath — путь к уже скачанному content.video.thumbnail
-      (320×180 JPEG), '' пока ещё не скачан (см. TMsgRow.VideoThumbFileId
-      и класс-комментарий выше про отказ от блюра). }
+    { The same signature/role as TAnimationWidget.SetAnim, plus
+      ADuration (seconds, like AudioDuration) — needed by the widget
+      for the time label on the scrub bar, even while the video isn't
+      active. AThumbLocalPath is the path to the already-downloaded
+      content.video.thumbnail (a 320x180 JPEG), '' while not yet
+      downloaded (see TMsgRow.VideoThumbFileId and the class comment
+      above about dropping the blur). }
     procedure SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
       AMaxW: integer; ADuration: integer);
-    { Тот же SetVideo, но с ЯВНО заданным целевым размером — не через
-      ComputePhotoPreviewSize/AMaxW (тот всегда клампит к PHOTO_MAX_
-      WIDTH/HEIGHT, маленькому потолку инлайн-превью в чате). Нужен
-      просмотрщику (mediaviewer.pas) — там видео показывается БОЛЬШИМ,
-      вписанным в размер окна программы, не в размер строки в чате. }
+    { The same as SetVideo, but with an EXPLICIT target size, not via
+      ComputePhotoPreviewSize/AMaxW (which always clamps to
+      PHOTO_MAX_WIDTH/HEIGHT, the small cap for an inline chat
+      preview). Needed by the viewer (mediaviewer.pas) — there the
+      video is shown LARGE, fit to the application window's size, not
+      the size of a chat row. }
     procedure SetVideoSized(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
       ATargetW, ATargetH, ADuration: integer);
     procedure SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
-    { Помечает, что FrameBuf только что обновился (сам плеер пишет
-      ПРЯМО в FrameBuf, см. её комментарий — вызывающий зовёт
-      TryGetFrame(Widget.FrameBuf, ...), а следом, если тот вернул
-      True, — это) и просит перерисоваться. В чате этот виджет своего
-      плеера не имеет и сюда не приходит вовсе (см. шапку класса) —
-      метод используется только просмотрщиком (mediaviewer.pas). }
+    { Marks that FrameBuf has just been updated (the player itself
+      writes DIRECTLY into FrameBuf, see its comment — the caller calls
+      TryGetFrame(Widget.FrameBuf, ...), and follows up with this if it
+      returned True) and requests a repaint. In the chat, this widget
+      has no player of its own and never reaches this at all (see the
+      class header) — the method is only used by the viewer
+      (mediaviewer.pas). }
     procedure NotifyNewFrame;
     property TargetWidth: integer read FTargetW;
     property TargetHeight: integer read FTargetH;
-    { Указатель на собственный буфер кадра — TryGetFrame плеера пишет
-      прямо сюда, не через промежуточную копию (тот же размер, что
-      TargetWidth*TargetHeight*4, актуален, пока виджет не переиспользован
-      под другой размер — см. SetVideo). }
+    { A pointer to the widget's own frame buffer — the player's
+      TryGetFrame writes directly here, no intermediate copy (the same
+      size as TargetWidth*TargetHeight*4, valid until the widget is
+      reused for a different size — see SetVideo). }
     property FrameBuf: PByte read FFrameBuf;
     property DownloadImages: TImageList read FDownloadImages write FDownloadImages;
     property Images: TImageList read FImages write FImages;
@@ -484,15 +498,18 @@ type
     property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
     property OnBodyClick: TNotifyEvent read FOnBodyClick write FOnBodyClick;
     property PlaybackImages: TImageList read FPlaybackImages write FPlaybackImages;
-    { Серый/цветной вариант кнопок prev/next ряда — владелец (mediaviewer.
-      pas) сам знает про соседние видео-сообщения, виджет — нет. }
+    { Gray/colored variant of the row's prev/next buttons — the owner
+      (mediaviewer.pas) knows about neighboring video messages itself,
+      the widget doesn't. }
     property HasPrevVideo: boolean read FHasPrevVideo write FHasPrevVideo;
     property HasNextVideo: boolean read FHasNextVideo write FHasNextVideo;
-    { Состояние кнопки повтора — сознательно НЕ сбрасывается в
-      SetVideoCore при переключении на другое сообщение (см. её же
-      комментарий) — липкий режим на весь просмотрщик, как и положено
-      "повтору" в обычных плеерах, не разовая настройка одного видео. }
-    property RepeatOn: boolean read FRepeatOn write FRepeatOn;
+    { The repeat button's state — deliberately NOT reset in
+      SetVideoCore when switching to a different message (see its
+      comment) — a sticky mode for the whole viewer session, as
+      "repeat" should behave in an ordinary player, not a per-video
+      setting. Three states (TVideoRepeatMode), was previously a simple
+      on/off. }
+    property RepeatMode: TVideoRepeatMode read FRepeatMode write FRepeatMode;
     property OnPrevClick: TNotifyEvent read FOnPrevClick write FOnPrevClick;
     property OnNextClick: TNotifyEvent read FOnNextClick write FOnNextClick;
     property OnRepeatClick: TNotifyEvent read FOnRepeatClick write FOnRepeatClick;
@@ -502,44 +519,43 @@ type
 
   { TStickerWidget
 
-    Стикер (messageSticker) — три формата TDLib (см. TStickerFormat,
-    tdmessages.pas), каждый со своим декодером, но одним и тем же
-    внешним видом/интерфейсом: БЕЗ подложки/контура/скругления (стикер
-    сам по себе уже правильной формы — прозрачная картинка/вектор, не
-    нужно ни маскировать, ни обрамлять, в отличие от фото/видео/
-    "гифки") и БЕЗ кликов вовсе — ни скачивание, ни запуск анимации не
-    требуют клика пользователя (см. MaybeAutoDownload/
-    LayoutStickerWidgets, framehistory.pas): по прямому выбору
-    пользователя ("полная анимация, включая TGS") стикеры ведут себя
-    так же, как в официальном клиенте — появляются и сразу играют сами.
+    A sticker (messageSticker) — three TDLib formats (see
+    TStickerFormat, tdmessages.pas), each with its own decoder, but one
+    shared look/interface: NO backing/outline/rounding (a sticker is
+    already the right shape by itself — a transparent image/vector,
+    needing neither masking nor framing, unlike photo/video/"GIF") and
+    NO clicks at all — neither downloading nor starting the animation
+    requires a user click (see MaybeAutoDownload/LayoutStickerWidgets,
+    framehistory.pas): stickers behave like the official client —
+    appearing and playing themselves immediately.
 
-      sfTgs (Lottie/вектор) — TLottiePlayer (lottieplayer.pas, свой
-      поток на виджет, тот же принцип, что и TAnimationPlayer у
-      "гифки" — стикеров на экране может быть сколько угодно
-      одновременно, каждый со своим независимым потоком). Формат вывода
-      — ARGB32_Premultiplied (см. rlottie.pas) — рисуется через
-      DrawPremultipliedArgbBuffer (GDI AlphaBlend, ниже), не через
-      DrawBgraBuffer: та не умеет альфу, стикеры почти всегда
-      прозрачные.
+      sfTgs (Lottie/vector) uses TLottiePlayer (lottieplayer.pas, its
+      own thread per widget, the same principle as TAnimationPlayer for
+      a "GIF" — any number of stickers can be on screen at once, each
+      with its own independent thread). The output format is
+      ARGB32_Premultiplied (see rlottie.pas) — drawn via
+      DrawPremultipliedArgbBuffer (GDI AlphaBlend, below), not
+      DrawBgraBuffer: that one can't handle alpha, and stickers are
+      almost always transparent.
 
-      sfWebm (видео, VP9) — TAnimationPlayer, тот же класс и тот же
-      декодер, что и у "гифки" (videoplayer.pas) — контейнер ему
-      безразличен, ffmpeg открывает файл как обычное видео независимо
-      от расширения. Рисуется через DrawBgraBuffer (opaque блит, как у
-      "гифки") — альфа-канал VP9 (WebM alpha extension) через этот путь
-      НЕ композитится (открытый вопрос, см. CLAUDE.md) — редкий формат
-      на практике (единственный живой пример в tdlib_raw.log за всю
-      сессию — TGS), решили не блокировать весь заход на нём.
+      sfWebm (video, VP9) uses TAnimationPlayer, the same class and
+      decoder as a "GIF" (videoplayer.pas) — the container doesn't
+      matter to it, ffmpeg opens the file as ordinary video regardless
+      of extension. Drawn via DrawBgraBuffer (an opaque blit, like a
+      "GIF") — the VP9 alpha channel (WebM alpha extension) is NOT
+      composited through this path (a known gap) — rare in practice
+      (the only live example seen in tdlib_raw.log across the whole
+      session was TGS), so this wasn't blocked on.
 
-      sfWebp (статика) — TBGRABitmap.Create(путь) один раз (декодер уже
-      в комплекте BGRABitmapPack, см. её же комментарий в rlottie.pas
-      про libwebp64.dll), без потока — рисуется через FStaticBmp.Draw,
-      та же альфа-композиция, что уже используется для FBlurBmp у
-      фото/"гифки" в других виджетах.
+      sfWebp (static) uses TBGRABitmap.Create(path) once (the decoder
+      is already part of BGRABitmapPack, see its own comment in
+      rlottie.pas about libwebp64.dll), no thread needed — drawn via
+      FStaticBmp.Draw, the same alpha compositing already used for
+      FBlurBmp on photo/"GIF" in other widgets.
 
-    Опрос нового кадра (FPollTimer/PollTick) — тот же приём, что у
-    TAnimationWidget, но нужен только для sfTgs/sfWebm (у sfWebp кадр
-    один, опрашивать нечего). }
+    Polling for a new frame (FPollTimer/PollTick) uses the same
+    approach as TAnimationWidget, but is only needed for sfTgs/sfWebm
+    (sfWebp has a single frame, nothing to poll). }
   TStickerWidget = class(TCustomControl)
   private
     FRowId: Int64;
@@ -551,22 +567,22 @@ type
     FLottiePlayer: TLottiePlayer;
     FAnimPlayer: TAnimationPlayer;
     FStaticBmp: TBGRABitmap;
-    FFrameBuf: PByte;           { sfTgs — ARGB32_Premultiplied; sfWebm — BGRA; sfWebp не используется }
+    FFrameBuf: PByte;           { sfTgs — ARGB32_Premultiplied; sfWebm — BGRA; unused for sfWebp }
     FFrameKnownVersion: cardinal;
-    { True, только если хотя бы один настоящий кадр УЖЕ скопирован в
-      FFrameBuf через TryGetFrame — GetMem НЕ обнуляет память: между
-      StartLoop (буфер только выделен) и первым успешным PollTick окно
-      в несколько миллисекунд, и LCL вполне может позвать Paint внутри
-      этого окна (сразу после SetBounds/Visible:=True в
-      LayoutStickerWidgets, ДО первого тика 33мс-таймера) — без этой
-      проверки Paint нарисовал бы мусор из ещё не инициализированной
-      памяти (пойман по диагностике sticker_paint_input.bmp: реальный
-      дамп из работающего приложения оказался чистым шумом, не
-      стикером). Тот же класс защиты, что уже есть у TVideoWidget
-      (FHaveFrame) — здесь заведена отдельно, не проверялась при
-      портировании паттерна с TAnimationWidget (у того такой защиты
-      нет вовсе, тот же риск теоретически есть и там, не исправлялся
-      в этом заходе — см. TODO). }
+    { True only once at least one real frame has ALREADY been copied
+      into FFrameBuf via TryGetFrame — GetMem does NOT zero memory:
+      there's a window of a few milliseconds between StartLoop (the
+      buffer is only just allocated) and the first successful PollTick,
+      and LCL can easily call Paint within that window (right after
+      SetBounds/Visible:=True in LayoutStickerWidgets, BEFORE the first
+      tick of the 33ms timer) — without this check, Paint would draw
+      garbage from still-uninitialized memory (caught by diagnostics: a
+      real dump from the running application turned out to be pure
+      noise, not a sticker). The same class of guard TVideoWidget
+      already has (FHaveFrame) — set up separately here, since it
+      wasn't checked when the pattern was ported from TAnimationWidget
+      (which has no such guard at all — the same risk theoretically
+      exists there too, not fixed in this pass — see TODO). }
     FHaveFrame: boolean;
     FPollTimer: TTimer;
     procedure ClearBitmaps;
@@ -576,8 +592,9 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    { Та же роль, что TAnimationWidget.SetAnim — готовит состояние
-      "скачано"/размер, НЕ запускает анимацию сама (см. StartLoop). }
+    { The same role as TAnimationWidget.SetAnim — prepares the
+      "downloaded"/size state, does NOT start the animation itself (see
+      StartLoop). }
     procedure SetSticker(ARowId: Int64; AFormat: TStickerFormat;
       ANaturalW, ANaturalH: integer; const ALocalPath: utf8string; AMaxW: integer);
     procedure StartLoop;
@@ -591,43 +608,45 @@ type
 
   TStickerWidgetMap = specialize TFPGMap<Int64, TStickerWidget>;
 
-  { Ключ — id пользователя или чата-источника репоста (см. поле у
-    TMsgScroller, где заведены два разных инстанса этого типа). }
+  { Key — the id of the user or source chat of a forward (see the field
+    on TMsgScroller where two separate instances of this type are set
+    up). }
   TForwardAvatarMap = specialize TFPGMap<Int64, TBGRABitmap>;
 
-  { Что сделать с файлом-документом, как только он скачается — "Save
-    as..."/"Show in folder" в контекстном меню на ещё не скачанном
-    файле сначала запускают загрузку (FPendingSaveMsgId), действие
-    выполняется отложенно, см. TMsgScroller.ModelChanged. У клика по
-    превью фото — своя, ПРЯМАЯ (без отложенного действия) логика
-    "первый клик качает, второй открывает" (см. PhotoWidgetClick), этот
-    enum её не касается. }
+  { What to do with a document file as soon as it's downloaded —
+    "Save as..."/"Show in folder" in the context menu on a not-yet-
+    downloaded file first start the download (FPendingSaveMsgId), and
+    the action runs afterward, see TMsgScroller.ModelChanged. A click
+    on a photo preview has its own DIRECT logic (no deferred action)
+    of "first click downloads, second opens" (see PhotoWidgetClick) —
+    this enum doesn't apply there. }
   TPendingFileAction = (pfaNone, pfaSaveDialog, pfaShowInFolder);
 
   { TMsgScroller
 
-    Сердце фрейма переписки: сам виртуально скроллит (позиция —
-    FScrollTop, диапазон синхронизируется с нативным TScrollBar в
-    TFrameHistory через OnScrollRangeChanged/OnScroll — своей
-    прорисовки скроллбара тут больше нет), сам раскладывает и красит
-    видимые сообщения через msglayout.RendererFor, сам считает
-    попадание мыши (ссылки, выделение текста), сам держит пул
-    TAudioWidget. Высоты сообщений кэшируются на TMsgRow.LayoutCache —
-    пересчитывается только то, что реально изменилось (см. RebuildOffsets). }
+    The heart of the chat frame: does its own virtual scrolling
+    (position is FScrollTop, its range synced with the native
+    TScrollBar in TFrameHistory via OnScrollRangeChanged/OnScroll — it
+    no longer paints its own scrollbar), lays out and paints visible
+    messages itself via msglayout.RendererFor, handles its own mouse
+    hit testing (links, text selection), holds its own TAudioWidget
+    pool. Message heights are cached on TMsgRow.LayoutCache — only
+    what actually changed gets recomputed (see RebuildOffsets). }
   TMsgScroller = class(TCustomControl)
   private
     FModel:   TTdMessages;
-    FOffsets: array of integer;   { длина Count+1, накопленная высота }
-    { id сообщения на каждой позиции FOffsets — снимок ТОГО ЖЕ момента,
-      что и сам FOffsets (заполняется в том же цикле RebuildOffsets).
-      Нужен ModelChanged: к моменту его вызова FModel уже отражает
-      НОВОЕ состояние (TTdMessages.Rebuild отработал до FOnChanged), а
-      FOffsets — ещё СТАРОЕ. Если якорь верхней видимой строки читать
-      через FModel[индекс из старых FOffsets], после LoadOlder (который
-      добавляет сообщения В НАЧАЛО, сдвигая индексы всех остальных)
-      получится id случайного другого сообщения — отсюда и "вставляются
-      вразнобой". FRowIds всегда того же винтажа, что и FOffsets,
-      поэтому такого смешения нет. }
+    FOffsets: array of integer;   { length Count+1, cumulative height }
+    { The message id at each FOffsets position — a snapshot from the
+      SAME moment as FOffsets itself (filled in the same
+      RebuildOffsets loop). Needed by ModelChanged: by the time it's
+      called, FModel already reflects the NEW state (TTdMessages.Rebuild
+      ran before FOnChanged), while FOffsets is still the OLD one. If
+      the top visible row's anchor were read via FModel[index from the
+      old FOffsets], after LoadOlder (which inserts messages AT THE
+      START, shifting every other index) that would resolve to a
+      random unrelated message's id — hence rows appearing to jump
+      around. FRowIds is always the same vintage as FOffsets, so this
+      mismatch can't happen. }
     FRowIds:  array of Int64;
     FTotalHeight: integer;
     FScrollTop:   integer;
@@ -636,210 +655,240 @@ type
     FSelAnchorChar, FSelFocusChar: integer;
     FSelecting: boolean;
 
-    FAudioPool:   TFPList;   { of TAudioWidget, все когда-либо созданные }
-    FAudioActive: TAudioMap; { сейчас позиционированные, по id сообщения }
-    { Кнопки play/pause для TAudioWidget — назначается TFrameHistory
-      сразу после создания FScroller (см. её конструктор), свой список
-      на форме (не framechats.ImageList1 — те 16x16, эти 32x32). }
+    FAudioPool:   TFPList;   { of TAudioWidget, every one ever created }
+    FAudioActive: TAudioMap; { currently positioned, by message id }
+    { Play/pause icons for TAudioWidget — assigned by TFrameHistory
+      right after FScroller is created (see its constructor), its own
+      list on the form (not framechats.ImageList1 — that one is 16x16,
+      this one 32x32). }
     FAudioImages: TImageList;
-    { Ряд транспортных кнопок TVideoWidget (в просмотрщике) — только
-      прокидывается дальше в TMediaViewerPanel.ShowMessage, сам
-      TMsgScroller его нигде не использует (в чате виджет никогда не
-      активен, ряд не рисуется, см. TVideoWidget). }
+    { TVideoWidget's transport-button row (in the viewer) — only passed
+      along to TMediaViewerPanel.ShowMessage, TMsgScroller itself never
+      uses it (in the chat, the widget is never active, the row is
+      never drawn, see TVideoWidget). }
     FPlaybackImages: TImageList;
 
-    { Виджет файла-документа — тот же пул-приём, что у аудио. }
+    { The document-file widget — the same pool approach as audio. }
     FFilePool:   TFPList;       { of TFileWidget }
     FFileActive: TFileWidgetMap;
-    FFileImages: TImageList;    { FileTypes на TFrameHistory }
-    { Общее контекстное меню файла (правый клик) — компонент формы
-      (TFrameHistory.FilePopupMenu, в LFM, редактируется пользователем
-      в дизайнере), не создаётся здесь: каждый TFileWidget получает на
-      него ссылку через свойство PopupMenu (LCL сам показывает его по
-      правому клику и выставляет PopupComponent на нажатый виджет —
-      обработчики пунктов меню читают его оттуда, см.
-      TFrameHistory.MenuItemFileSaveAsClick/MenuItemFileShowInFolderClick). }
+    FFileImages: TImageList;    { FileTypes on TFrameHistory }
+    { The shared file context menu (right click) — a form component
+      (TFrameHistory.FilePopupMenu, in the LFM, editable by the user in
+      the designer), not created here: each TFileWidget gets a
+      reference to it via the inherited PopupMenu property (LCL shows
+      it itself on right click and sets PopupComponent to the clicked
+      widget — the menu item handlers read it from there, see
+      TFrameHistory.MenuItemFileSaveAsClick/
+      MenuItemFileShowInFolderClick). }
     FFilePopupMenu: TPopupMenu;
-    { Клик по ещё не скачанному файлу в контекстном меню ("Save as..."/
-      "Show in folder") — EnsureDocFile только запрашивает загрузку;
-      когда путь придёт (ModelChanged/Touch), нужное действие
-      выполняется само (FPendingFileAction решает, какое) — тот же
-      приём, что FPendingPlayMsgId у аудио. }
+    { A click on a not-yet-downloaded file in the context menu ("Save
+      as..."/"Show in folder") — EnsureDocFile only requests the
+      download; once the path arrives (ModelChanged/Touch), the needed
+      action runs on its own (FPendingFileAction says which) — the same
+      approach as FPendingPlayMsgId for audio. }
     FPendingSaveMsgId: Int64;
     FPendingFileAction: TPendingFileAction;
 
-    { Превью фото — тот же пул-приём, что у аудио/файла; общий
-      FilePopupMenu/FAudioImages переиспользуются, свой список
-      значков-по-типу не нужен (нет "типа" — только само фото). }
+    { The photo preview — the same pool approach as audio/file; the
+      shared FilePopupMenu/FAudioImages are reused, no separate
+      icon-by-type list is needed (there's no "type" — just the photo
+      itself). }
     FPhotoPool:   TFPList;       { of TPhotoWidget }
     FPhotoActive: TPhotoWidgetMap;
-    { Тот же приём, что FPendingSaveMsgId у файла — своя пара полей,
-      не общая: разные Kind, разные Local-поля у TMsgRow. }
+    { The same approach as FPendingSaveMsgId for files — its own pair
+      of fields, not shared: different Kind, different Local fields on
+      TMsgRow. }
     FPendingPhotoMsgId: Int64;
     FPendingPhotoAction: TPendingFileAction;
 
-    { "Гифки" (messageAnimation) — тот же recycled-пул, что у фото/
-      аудио/файла. Воспроизведение — НЕ здесь (в отличие от аудио, у
-      которого один активный плеер на весь скроллер): у каждого
-      TAnimationWidget свой независимый TAnimationPlayer, "гифок"
-      одновременно может крутиться сколько угодно — состояние
-      проигрывания живёт в самом виджете (см. TAnimationWidget.FPlayer),
-      скроллеру достаточно пула позиционирования. }
+    { "GIFs" (messageAnimation) — the same recycled pool as
+      photo/audio/file. Playback is NOT handled here (unlike audio,
+      which has one active player for the whole scroller): each
+      TAnimationWidget has its own independent TAnimationPlayer, any
+      number of "GIFs" can loop at once — playback state lives in the
+      widget itself (see TAnimationWidget.FPlayer), the scroller only
+      needs the positioning pool. }
     FAnimPool:   TFPList;       { of TAnimationWidget }
     FAnimActive: TAnimationWidgetMap;
 
-    { Стикеры (messageSticker) — тот же приём recycled-пула, что и у
-      "гифок" (см. FAnimPool/FAnimActive выше): своя, независимая
-      анимация на каждый видимый стикер, состояние живёт в самом
-      TStickerWidget. В отличие от "гифки" — БЕЗ клика: скачивание
-      (EnsureStickerFile) и старт анимации оба безусловные, см.
-      MaybeAutoDownload/LayoutStickerWidgets. }
+    { Stickers (messageSticker) — the same recycled-pool approach as
+      "GIFs" (see FAnimPool/FAnimActive above): its own independent
+      animation for each visible sticker, state lives in the
+      TStickerWidget itself. Unlike a "GIF" — NO click involved:
+      downloading (EnsureStickerFile) and starting the animation are
+      both unconditional, see MaybeAutoDownload/LayoutStickerWidgets. }
     FStickerPool:   TFPList;       { of TStickerWidget }
     FStickerActive: TStickerWidgetMap;
 
-    { Проигрывание аудио — один активный плеер на весь скроллер (как и
-      в самом Telegram, играет не более одного трека разом). Виджет —
-      recycled-пул (см. FAudioActive/FAudioPool выше), состояние
-      проигрывания живёт ЗДЕСЬ, не в виджете: тот может уйти с экрана
-      при скролле, пока сообщение продолжает играть.
-      FDonePlayer — плеер, чей поток уже завершается/завершился
-      (TAudioPlayer.State перешёл в apsStopped/apsError через
-      PlayerStateChanged, вызванный самим потоком через Synchronize) —
-      освобождать TThread ИЗНУТРИ его же Synchronize-колбэка нельзя
-      (Free внутри может ждать завершения потока — тот самый поток,
-      что сейчас заблокирован в Synchronize, ожидая нас — взаимная
-      блокировка); PlaybackTick освобождает его безопасно, из другого
-      контекста (обычный вызов по таймеру, не изнутри Synchronize). }
+    { Audio playback — one active player for the whole scroller (same
+      as Telegram itself, at most one track plays at a time). The
+      widget is a recycled pool (see FAudioActive/FAudioPool above),
+      playback state lives HERE, not in the widget: it can scroll off
+      screen while the message keeps playing.
+      FDonePlayer is a player whose thread is finishing/finished
+      (TAudioPlayer.State moved to apsStopped/apsError via
+      PlayerStateChanged, called by the thread itself through
+      Synchronize) — a TThread cannot be freed FROM INSIDE its own
+      Synchronize callback (Free inside it could wait for the thread to
+      finish — the very thread currently blocked inside Synchronize,
+      waiting on us — deadlock); PlaybackTick frees it safely, from a
+      different context (an ordinary timer call, not inside
+      Synchronize). }
     FActivePlayer:      TAudioPlayer;
     FActivePlayerMsgId: Int64;
     FDonePlayer:        TAudioPlayer;
-    { Клик по play, когда файл ещё не скачан — EnsureAudioFile только
-      запрашивает загрузку; когда путь придёт (ModelChanged/Touch),
-      если он всё ещё нужен (пользователь мог передумать/кликнуть по
-      другому треку), проигрывание запускается автоматически. }
+    { A click on play while the file isn't downloaded yet —
+      EnsureAudioFile only requests the download; once the path arrives
+      (ModelChanged/Touch), if it's still wanted (the user may have
+      changed their mind / clicked a different track), playback starts
+      automatically. }
     FPendingPlayMsgId:  Int64;
     FPlaybackTimer:     TTimer;
 
-    { Видео-сообщения (messageVideo) — recycled-пул, тем же приёмом,
-      что у фото/аудио/файла/"гифки". По прямому запросу пользователя
-      (2026-09-06) видео БОЛЬШЕ НЕ проигрывается инлайн вовсе — клик
-      по кадру ИЛИ по кнопке play (уже скачанному видео) открывает
-      просмотрщик (mediaviewer.pas, свой независимый TMediaPlayer);
-      здесь, в чате, виджет — просто кликабельный превью, тем же путём,
-      что и TPhotoWidget. Раньше был "один активный плеер на весь
-      скроллер" (тот же приём, что у аудио) — вся эта инфраструктура
-      (FActiveVideoPlayer/StartVideoPlayback/VideoSeek/VideoPlaybackTick
-      и т.д.) убрана целиком вместе с этой правкой: без клика,
-      который её запускал, она была бы мёртвым, никогда не
-      достижимым кодом. }
+    { Video messages (messageVideo) — a recycled pool, the same
+      approach as photo/audio/file/"GIF". Video is NO LONGER played
+      inline at all — a click on the frame OR the play button (an
+      already-downloaded video) opens the viewer (mediaviewer.pas, its
+      own independent TMediaPlayer); here, in the chat, the widget is
+      just a clickable preview, the same way as TPhotoWidget. There
+      used to be "one active player for the whole scroller" (the same
+      approach as audio) — all of that infrastructure
+      (FActiveVideoPlayer/StartVideoPlayback/VideoSeek/
+      VideoPlaybackTick, etc.) was removed entirely along with this
+      change: without the click that used to start it, it would have
+      been dead, unreachable code. }
     FVideoPool:   TFPList;       { of TVideoWidget }
     FVideoActive: TVideoWidgetMap;
 
-    { Аватарки источников репоста — маленькие (диаметр HEADER_H),
-      свой кэш, а не avatarcache.TAvatarCache: тот заточен под
-      AVATAR_SIZE=44 и TChatRow (список чатов), здесь же нужны и чаты
-      (mfoChat/mfoChannel — по ForwardChatId), и пользователи (mfoUser —
-      по ForwardUserId, для которых в проекте вообще нет скачанных фото,
-      только TChatRow их имеет). Раздельные карты — id пользователя и
-      id чата не одно и то же пространство, а совпадение по значению
-      возможно. Ключ — Id источника; значение освобождается в Destroy. }
+    { Forward-source avatars — small (diameter HEADER_H), their own
+      cache rather than avatarcache.TAvatarCache: that one is tailored
+      to AVATAR_SIZE=44 and TChatRow (the chat list), while here both
+      chats (mfoChat/mfoChannel, by ForwardChatId) and users (mfoUser,
+      by ForwardUserId, for whom the project has no downloaded photos
+      at all — only TChatRow has them) are needed. Separate maps: a
+      user id and a chat id aren't the same namespace, and a value
+      collision is possible. Key is the source's Id; values are freed
+      in Destroy. }
     FForwardChatAvatars: TForwardAvatarMap;
     FForwardUserAvatars: TForwardAvatarMap;
+
+    { Custom (Premium) emoji in text are canvas-drawn glyphs inside
+      PaintRuns, not child widgets — there's no per-occurrence control to
+      hang a poll timer off of, unlike TStickerWidget. One shared timer
+      instead, same 33ms/30fps cadence as a sticker's own FPollTimer
+      (tried 10fps first — visibly slower/choppier motion than intended,
+      since sampling the live player only 10x/s discards most of the
+      frames it actually renders; a whole-control Invalidate at 30fps is
+      less surgical than one widget's own, but not a new cadence
+      standard, just the same one already accepted for stickers). While
+      customemoji.AnyLiveAnimating is true, it just calls Invalidate,
+      same as any other repaint trigger — PaintRuns already re-reads
+      whatever frame customemoji.pas currently has on every repaint. }
+    FCustomEmojiTimer: TTimer;
 
     FOnScrollRangeChanged: TNotifyEvent;
     FOnNearTop: TNotifyEvent;
 
-    { Кэш "тип текущего чата -> ключ AUTODL_CHAT_KINDS" (см.
-      CurrentChatKind) — вычисляется лениво и только заново при смене
-      чата (FChatKindChatId <> FModel.ChatId), не на каждый вызов: тот
-      вызывается из ClampScrollTop, самого частого места в файле (колесо
-      мыши/драг скроллбара), TdChatList.Lookup+case там был бы не
-      бесплатным. FChatKindChatId=0 — ещё не считали (0 не бывает
-      настоящим chat_id). }
+    { A cache of "current chat's type -> AUTODL_CHAT_KINDS key" (see
+      CurrentChatKind) — computed lazily and only recomputed when the
+      chat changes (FChatKindChatId <> FModel.ChatId), not on every
+      call: it's called from ClampScrollTop, the hottest spot in this
+      file (mouse wheel/scrollbar drag), where TdChatList.Lookup+case
+      wouldn't be free. FChatKindChatId=0 means not computed yet (0
+      is never a real chat_id). }
     FChatKindChatId: Int64;
     FChatKindCache:  string;
     function CurrentChatKind: string;
-    { Автозагрузка (FormMain.AutoDownloadEnabled) — если включена для
-      пары (тип медиа этого сообщения, тип текущего чата), запрашивает
-      файл ЗАРАНЕЕ (Ensure*File), тем же вызовом, что и первый клик по
-      виджету сейчас, но без открытия/проигрывания — только загрузка,
-      по прямому запросу пользователя. Idempotent (как и сами Ensure*),
-      можно звать сколько угодно раз на одну и ту же строку. }
+    { Auto-download (FormMain.AutoDownloadEnabled) — if enabled for the
+      pair (this message's media type, the current chat's type),
+      requests the file AHEAD OF TIME (Ensure*File), the same call as
+      a first click on the widget makes now, but without opening/
+      playing — download only. Idempotent (like the Ensure* calls
+      themselves), safe to call any number of times on the same row. }
     procedure MaybeAutoDownload(ARow: TMsgRow);
-    { Однократно, на весь диапазон [FirstVisible..LastVisible] — вызывается
-      из ModelChanged (открытие чата, новые сообщения, догрузка истории). }
+    { Runs once over the whole [FirstVisible..LastVisible] range —
+      called from ModelChanged (opening a chat, new messages, history
+      loaded further). }
     procedure AutoDownloadVisible;
-    { На каждое РЕАЛЬНОЕ изменение позиции скролла (см. ClampScrollTop) —
-      с упреждением на AUTODL_PREFETCH_MESSAGES сообщений в сторону
-      скролла (ADirection>0 — вниз/к новым, <0 — вверх/к старым), чтобы
-      к моменту, когда сообщение реально появится на экране, загрузка
-      уже давно шла или уже завершилась. Было ровно ОДНО сообщение
-      вперёд — по прямому запросу пользователя расширено до целого окна
-      ("загружать изображения сильно заранее", жалоба на подтормаживание
-      прокрутки: сеть — не единственная причина задержки, см. её же
-      запрос про декод в отдельном потоке, DecodeDone/photodecoder.pas
-      — но и сама сеть, когда файл ещё даже не запрошен к моменту
-      появления строки на экране, вносит свою задержку, окно шире её
-      устраняет тоже). }
+    { Runs on every REAL scroll position change (see ClampScrollTop) —
+      prefetches AUTODL_PREFETCH_MESSAGES messages ahead in the scroll
+      direction (ADirection>0 is down/toward newer, <0 is up/toward
+      older), so that by the time a message actually appears on
+      screen, its download has been running for a while or already
+      finished. This used to prefetch exactly ONE message ahead —
+      widened to a whole window in response to a complaint about
+      scroll stutter: the network isn't the only source of delay (see
+      the related request for background-thread decoding,
+      DecodeDone/photodecoder.pas) — but the network itself, when a
+      file hasn't even been requested yet by the time its row appears
+      on screen, adds its own delay too, and a wider window removes
+      that as well. }
     procedure PrefetchAutoDownload(ADirection: integer);
 
     procedure AudioPlayClick(Sender: TObject);
     procedure AudioSeek(Sender: TObject; AFraction: double);
     procedure PlayerStateChanged(Sender: TObject);
     procedure PlaybackTick(Sender: TObject);
+    { See FCustomEmojiTimer's comment above (fields section). }
+    procedure CustomEmojiAnimTick(Sender: TObject);
     procedure FlushDonePlayer;
     procedure StopActivePlayer;
     procedure StartPlayback(ARow: TMsgRow; AStartPositionSec: double = 0);
 
-    { Видео (messageVideo) — БЕЗ инлайн-проигрывания вовсе (см.
-      комментарий у FVideoPool): и клик по кнопке play (уже
-      скачанному видео), и клик по самому кадру ведут в один и тот же
-      VideoBodyClick — просмотрщик (mediaviewer.pas). Недокачанное —
-      VideoPlayClick только просит загрузку (EnsureVideoFile), без
-      автозапуска чего-либо по готовности — повторный клик, когда файл
-      уже готов, откроет просмотрщик, тот же принцип "строго два
-      клика", что и у фото (PhotoWidgetClick). }
+    { Video (messageVideo) — NO inline playback at all (see the comment
+      on FVideoPool): both a click on the play button (an already-
+      downloaded video) and a click on the frame itself lead to the
+      same VideoBodyClick — the viewer (mediaviewer.pas). Not yet
+      downloaded — VideoPlayClick only requests the download
+      (EnsureVideoFile), with no auto-start on completion — a repeat
+      click, once the file is ready, opens the viewer, the same
+      "strictly two clicks" principle as for photos (PhotoWidgetClick). }
     procedure VideoPlayClick(Sender: TObject);
     procedure VideoBodyClick(Sender: TObject);
     procedure LayoutVideoWidgets(ALo, AHi: integer);
     function ObtainVideoWidget: TVideoWidget;
 
     procedure RebuildOffsets;
-    { Левая/правая граница центрированной колонки сообщений — не шире
-      MAX_MSG_W. Один источник правды для RebuildOffsets (ширина
-      переноса текста), BlockRect и ContentRect — иначе разъедутся при
-      малейшей правке одного из них. }
+    { The left/right bounds of the centered message column — no wider
+      than MAX_MSG_W. A single source of truth for RebuildOffsets (text
+      wrap width), BlockRect, and ContentRect — otherwise they'd drift
+      apart at the slightest edit to one of them. }
     procedure ColumnBounds(out ALeft, ARight: integer);
-    { Единый расчёт для строки с репостом — сколько места до и после
-      контента занимает цитата (шапка+паддинги источника, БЕЗ высоты
-      самого контента) и какая ширина остаётся контенту внутри неё.
-      ARow=nil или не репост — APreH/APostH такие же, как и без цитаты
-      (см. реализацию), AInnerW=AAvailW без изменений. Источник истины
-      и для RebuildOffsets (высота строки), и для ContentRect/
-      ForwardCardRect/ForwardHeaderRect (где рисовать) — как ColumnBounds. }
-    { Обычный вертикальный отступ контента от заголовка/от нижнего края —
-      MSG_PAD_V, кроме аудио: у него оба этих отступа совпадают с его же
-      собственным внутренним отступом (MSG_PAD_H). Один источник правды
-      для ForwardMetrics И ForwardCardRect — раньше ForwardCardRect не
-      знал про этот особый случай и всегда прибавлял MSG_PAD_V, отчего
-      нижний отступ аудио-виджета внутри карточки репоста был у́же
-      остальных трёх сторон (6px вместо 11px). }
+    { A shared computation for a row with a forward — how much space
+      before and after the content the quote takes up (the source's
+      header+padding, WITHOUT the content's own height) and how much
+      width remains for the content inside it. ARow=nil or not a
+      forward: APreH/APostH are the same as without a quote (see the
+      implementation), AInnerW=AAvailW unchanged. The single source of
+      truth for both RebuildOffsets (row height) and ContentRect/
+      ForwardCardRect/ForwardHeaderRect (where to draw), same as
+      ColumnBounds. }
+    { The ordinary vertical gap from the header/to the bottom edge is
+      MSG_PAD_V, except for audio: both of those gaps there match its
+      own inner padding (MSG_PAD_H) instead. A single source of truth
+      for both ForwardMetrics AND ForwardCardRect — ForwardCardRect
+      used to not know about this special case and always add
+      MSG_PAD_V, making the audio widget's bottom padding inside a
+      forward card narrower than its other three sides (6px instead of
+      11px). }
     function ContentPadV(ARow: TMsgRow): integer;
     procedure ForwardMetrics(ARow: TMsgRow; AColW: integer;
       out APreH, APostH, AInnerW: integer);
-    { Рамка цитаты целиком (для заливки/обводки) и её собственная строка
-      "аватар+имя+время" (для отрисовки и хит-теста клика по имени). }
+    { The forward quote's whole frame (for fill/outline) and its own
+      "avatar+name+time" row (for drawing and hit-testing a click on
+      the name). }
     function ForwardCardRect(AIndex: integer): TRect;
     function ForwardHeaderRect(AIndex: integer): TRect;
-    { Высота плашки цитаты ответа (reply_to) + отступ до того, что
-      после неё — 0, если у сообщения нет reply_to. Складывается с
-      PreH из ForwardMetrics (ортогональные свойства, см. реализацию). }
+    { Height of the reply quote (reply_to) box plus the gap to what
+      follows it — 0 if the message has no reply_to. Added to PreH from
+      ForwardMetrics (orthogonal properties, see the implementation). }
     function ReplyExtraH(ARow: TMsgRow): integer;
     function ReplyBoxRect(AIndex: integer): TRect;
     procedure PaintReplyBox(AIndex: integer; ARow: TMsgRow);
-    { AOwned=True — вызывающий обязан сам освободить результат (снимок
-      "пока не скачано", не кэшируется, см. реализацию); False —
-      результат в кэше, освобождать нельзя. }
+    { AOwned=True means the caller must free the result itself (a
+      "not downloaded yet" snapshot, not cached, see the
+      implementation); False means the result is in the cache and must
+      not be freed. }
     function ForwardAvatarBmp(ARow: TMsgRow; out AOwned: boolean): TBGRABitmap;
     procedure ClearForwardAvatars;
     procedure PaintForwardCard(AIndex: integer; ARow: TMsgRow);
@@ -870,15 +919,16 @@ type
     procedure ClampScrollTop(AValue: integer);
     procedure SetScrollTop(AValue: integer);
     procedure DoLinkClick(const AUrl: utf8string);
-    { Клик по источнику цитаты репоста (только mfoChannel — см. вызов) —
-      не строим шэрабельную ссылку (getMessageLink требует членства в
-      чате, для чужого источника обычно не наш случай), а переходим,
-      как в официальном клиенте: открываем чат-источник и
-      прокручиваем к сообщению. }
+    { A click on a forward quote's source (mfoChannel only — see the
+      call site) — doesn't build a shareable link (getMessageLink
+      requires membership in the chat, usually not the case for
+      someone else's source), but navigates the same way the official
+      client does: opens the source chat and scrolls to the message. }
     procedure OpenForwardSource(ARow: TMsgRow);
-    { Прокрутить и показать конкретное сообщение — вызывается из
-      TFrameHistory в ответ на TTdMessages.OnJumpReady, когда нужная
-      пачка истории уже применена и FOffsets/FRowIds её видят. }
+    { Scrolls to and shows a specific message — called from
+      TFrameHistory in response to TTdMessages.OnJumpReady, once the
+      needed batch of history has been applied and FOffsets/FRowIds
+      reflect it. }
     procedure ScrollToMessage(AMessageId: Int64);
     procedure CopySelection;
   protected
@@ -893,10 +943,11 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    { AModel = nil отвязывает (смена аккаунта на пустой список). }
+    { AModel = nil detaches (switching accounts to an empty list). }
     procedure BindModel(AModel: TTdMessages);
-    { Модель прислала OnChanged: пересчитать оффсеты, удержать якорь
-      прокрутки (см. реализацию — без прыжка при подгрузке вверх). }
+    { The model sent OnChanged: recompute offsets, hold the scroll
+      anchor (see the implementation — no jump while loading more
+      history upward). }
     procedure ModelChanged;
     procedure ScrollToBottom;
     property ScrollTop: integer read FScrollTop write SetScrollTop;
@@ -907,48 +958,50 @@ type
     property PlaybackImages: TImageList read FPlaybackImages write FPlaybackImages;
     property FileImages: TImageList read FFileImages write FFileImages;
     property FilePopupMenu: TPopupMenu read FFilePopupMenu write FFilePopupMenu;
-    { Обработчики пунктов TFrameHistory.FilePopupMenu — вызываются
-      оттуда (LFM резолвит OnClick только на методы владельца-формы,
-      не динамически создаваемого TMsgScroller), Sender — сам
-      TFileWidget, добытый через PopupMenu.PopupComponent. }
+    { Handlers for TFrameHistory.FilePopupMenu's items — called from
+      there (the LFM resolves OnClick only to methods of the owning
+      form, not a dynamically created TMsgScroller), Sender is the
+      TFileWidget itself, obtained via PopupMenu.PopupComponent. }
     procedure FileWidgetSaveAsClick(Sender: TObject);
     procedure FileWidgetShowInFolderClick(Sender: TObject);
-    { Те же два — для TPhotoWidget, тот же общий FilePopupMenu. }
+    { The same two, for TPhotoWidget, the same shared FilePopupMenu. }
     procedure PhotoWidgetSaveAsClick(Sender: TObject);
     procedure PhotoWidgetShowInFolderClick(Sender: TObject);
   end;
 
   { TFrameHistory
 
-    Экран переписки. Открывается через OpenChat(chatId) — вызывающая
-    сторона (main.pas, клик по чату) сама решает, когда его показать
-    через навигатор. }
+    The chat history screen. Opened via OpenChat(chatId) — the caller
+    (main.pas, a click on a chat) decides itself when to show it
+    through the navigator. }
   TFrameHistory = class(TFrameBase, ITdActiveListener)
     ImageList1: TImageList;
     FileTypes: TImageList;
     Actions16: TImageList;
     FilePopupMenu: TPopupMenu;
+    ImageList2: TImageList;
     playback: TImageList;
     MenuItemFileSaveAs: TMenuItem;
     MenuItemFileShowInFolder: TMenuItem;
-    { Пункты FilePopupMenu (LFM, редактируется в дизайнере) — LFM
-      резолвит OnClick только на методы владельца-формы, поэтому сами
-      обработчики здесь, а не на TMsgScroller (тот создаётся в коде, не
-      компонент формы); дальше просто передают вызов в FScroller,
-      беря исходный TFileWidget из PopupMenu.PopupComponent — тот же
-      компонент показан по правому клику именно на этом виджете. }
+    { FilePopupMenu's items (LFM, editable in the designer) — the LFM
+      resolves OnClick only to methods of the owning form, so the
+      handlers live here, not on TMsgScroller (which is created in
+      code, not a form component); they simply forward the call to
+      FScroller, taking the source TFileWidget from
+      PopupMenu.PopupComponent — the same component shown by a right
+      click on that exact widget. }
     procedure MenuItemFileSaveAsClick(Sender: TObject);
     procedure MenuItemFileShowInFolderClick(Sender: TObject);
   private
     FReady: boolean;
     FModel: TTdMessages;
-    { Кэш имён — не "модель этого фрейма" в том же смысле, что FModel
-      (история одного открытого чата): один на аккаунт, переживает
-      смену чата, поэтому у него собственная лёгкая привязка внутри
-      BindModel/UnbindModel, а не полноценный Bind/Unbind как у FModel. }
+    { The name cache isn't "this frame's model" in the same sense as
+      FModel (one open chat's history): it's one per account, survives
+      a chat switch, so it gets its own lightweight binding inside
+      BindModel/UnbindModel rather than a full Bind/Unbind like FModel. }
     FUsers: TTdUsers;
-    { Тот же принцип, что у FUsers — один на аккаунт, лёгкая привязка,
-      без офсетов. }
+    { Same principle as FUsers — one per account, a lightweight
+      binding, no offsets. }
     FAccentColors: TTdAccentColors;
     FScroller:  TMsgScroller;
     FScrollbar: TScrollBar;
@@ -958,14 +1011,15 @@ type
     procedure UnbindModel;
     procedure ModelChanged(Sender: TObject);
     procedure LoadingChanged(Sender: TObject);
-    { Кэшу имён/аватарке отправителя пришёл ответ на getUser — просто
-      перерисовать: высота блока не меняется от того, что имя
-      дорезолвилось, полная пересборка офсетов не нужна. }
+    { The name cache/sender avatar got a getUser response — just
+      repaint: the block's height doesn't change when a name resolves,
+      so a full offset rebuild isn't needed. }
     procedure UsersChanged(Sender: TObject);
     procedure ActionError(Sender: TObject; ACode: integer;
       const AMessage, AAction: utf8string);
-    { Нужная вокруг AMessageId пачка истории применена (TTdMessages.
-      JumpTo/JumpDone) — переход по цитате репоста: прокрутить к ней. }
+    { The needed batch of history around AMessageId has been applied
+      (TTdMessages.JumpTo/JumpDone) — following a forward quote: scroll
+      to it. }
     procedure JumpReady(Sender: TObject; AMessageId: Int64);
     procedure ScrollerRangeChanged(Sender: TObject);
     procedure ScrollerNearTop(Sender: TObject);
@@ -978,7 +1032,7 @@ type
     constructor Create(TheOwner: TComponent); override;
     destructor Destroy; override;
 
-    { AJumpToMessageId <> 0 — переход по цитате репоста, см.
+    { AJumpToMessageId <> 0 means following a forward quote, see
       TTdMessages.OpenChat/JumpTo. }
     procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0);
 
@@ -986,34 +1040,36 @@ type
     procedure TdActiveChanged(ANew: TTdAccount);
     procedure TdAccountsChanged;
 
-    { Модель ОТКРЫТОГО СЕЙЧАС чата — nil, если ни один чат ещё не
-      открывали. Нужен main.pas (панель ввода сообщения, msginput.pas):
-      та ничего не знает про TTdMessages сама, отправку решает
-      владелец — см. комментарий у TMessageInputPanel. }
+    { The model of the CURRENTLY open chat — nil if no chat has been
+      opened yet. Needed by main.pas (the message input panel,
+      msginput.pas): that panel knows nothing about TTdMessages itself,
+      sending is resolved by the owner — see the comment on
+      TMessageInputPanel. }
     property Model: TTdMessages read FModel;
   end;
 
 implementation
 
-{ main в реализации, а не в интерфейсе: main сам использует
-  framehistory (навигатор рабочей области), и в интерфейсе это дало бы
-  цикл — тот же приём, что у main/login (см. main.pas). Нужен только
-  ради FormMain.Chats.ImageList1 (значки статуса сообщения, §3 плана). }
+{ main is used in the implementation section, not the interface: main
+  itself uses framehistory (the work-area navigator), and using it from
+  the interface would create a cycle — the same approach as main/login
+  (see main.pas). Needed only for FormMain.Chats.ImageList1 (message
+  status icons). }
 uses
   main;
 
 {$R *.lfm}
 
-{ Цвет по кругу, детерминированно по id — общий резолвер для отправителя
-  сообщения (SenderColor), источника репоста (ForwardSourceColor) и
-  цитируемого в reply_to (ReplySenderColor): три структурно одинаковых
-  случая "раскрасить кого-то по id", вынесены в одно место. Ровно один
-  из AUserId/AChatId должен быть ненулевым (как и везде в проекте —
-  отправитель это либо пользователь, либо чат, не оба разом); оба
-  нулевые (напр. mfoHiddenUser) — берём Id=1, лишь бы не всегда одна и
-  та же ячейка палитры. AChatId у каналов/супергрупп бывает
-  отрицательным (см. tdlib_raw.log) — Abs, чтобы не уйти за границу
-  массива. }
+{ A color chosen deterministically from an id — the shared resolver for
+  a message's sender (SenderColor), a forward's source
+  (ForwardSourceColor), and a reply_to quote's sender (ReplySenderColor):
+  three structurally identical cases of "color someone by id", factored
+  into one place. Exactly one of AUserId/AChatId is expected to be
+  nonzero (as everywhere in the project — a sender is either a user or
+  a chat, never both); if both are zero (e.g. mfoHiddenUser), Id=1 is
+  used, just so it isn't always the same palette slot. AChatId can be
+  negative for channels/supergroups (confirmed from tdlib_raw.log) —
+  Abs keeps it from indexing out of the array's bounds. }
 function ResolveAccentColor(AUserId, AChatId: Int64): TColor;
 var
   Id: Int64;
@@ -1022,13 +1078,12 @@ var
   L: TTdChats;
   AC: TTdAccentColors;
 begin
-  { У Telegram уже есть свой закреплённый за контактом/чатом цвет
-    (accent_color_id, из updateUser/updateChatAccentColors — см.
-    tdaccentcolors.pas) — используем его вместо хэша по id, когда он
-    известен. Хэш по SENDER_PALETTE остаётся запасным вариантом: пока
-    accent_color_id ещё не резолвился (первая прорисовка нового
-    отправителя) или для совсем неожиданного случая, когда ни один
-    источник его не даёт. }
+  { Telegram already has its own color tied to a contact/chat
+    (accent_color_id, from updateUser/updateChatAccentColors — see
+    tdaccentcolors.pas) — used in place of a hash by id, when known.
+    The SENDER_PALETTE hash remains the fallback: while accent_color_id
+    hasn't resolved yet (a new sender's first paint) or for the
+    unexpected case where no source provides one at all. }
   AccId := -1;
   if AUserId <> 0 then begin
     if TdUserList <> nil then begin
@@ -1067,12 +1122,12 @@ begin
   Result := ResolveAccentColor(ARow.SenderUserId, ARow.SenderChatId);
 end;
 
-{ Смешивает AColor с ABackground в пропорции AOpacity (0..1) —
-  подложка блока сообщения, "цвет отправителя приглушённо поверх фона",
-  без настоящей альфа-композиции (BGRABitmap) — она была бы избыточна
-  для сплошной заливки прямоугольника, а Paint дёргается на каждый
-  скролл. ColorToRGB разворачивает системные цвета (напр. clWindow)
-  в реальные RGB — без этого блендинг псевдо-цвета дал бы мусор. }
+{ Blends AColor with ABackground by AOpacity (0..1) — the message
+  block's backing, "the sender's color, muted, over the background",
+  without real alpha compositing (BGRABitmap) — that would be overkill
+  for a solid rectangle fill, and Paint fires on every scroll tick.
+  ColorToRGB expands system colors (e.g. clWindow) into real RGB —
+  without this, blending a pseudo-color would produce garbage. }
 function BlendWithBackground(AColor: TColor; AOpacity: double; ABackground: TColor): TColor;
 var
   Fg, Bg: longint;
@@ -1086,31 +1141,31 @@ begin
   );
 end;
 
-{ Единая антиалиасинговая замена GDI Canvas.RoundRect для ЛЮБОЙ
-  скруглённой заливки/обводки в этом файле (блок сообщения, карточка
-  репоста, плашка цитаты ответа, аудио/файл-виджет). Рисует во
-  временный прозрачный BGRA-битмап размером ровно с ABox и композитит
-  его на ACanvas с альфа-блендингом (Draw ... False) — то, что снаружи
-  скругления, остаётся тем, что уже было на canvas, ничего лишнего не
-  перекрывает.
+{ A single antialiased replacement for GDI Canvas.RoundRect, used for
+  EVERY rounded fill/outline in this file (message block, forward
+  card, reply quote box, audio/file widget). Draws into a temporary
+  transparent BGRA bitmap sized exactly to ABox and composites it onto
+  ACanvas with alpha blending (Draw ... False) — whatever is outside
+  the rounded shape stays whatever was already on the canvas, nothing
+  extra is overwritten.
 
-  AFillColor/ABorderColor = clNone — соответствующий проход пропускается
-  (только заливка, только обводка, или разом, если оба заданы). Радиус
-  (ARadius) — ПРИНИМАЕТСЯ КАК ЕСТЬ, ни один вызывающий не поменял ни
-  одного числа при переходе на эту функцию, только сам способ рисовать
-  скругление.
+  AFillColor/ABorderColor = clNone skips the corresponding pass (fill
+  only, outline only, or both if both are given). The radius (ARadius)
+  is used AS GIVEN — no caller changed a single number when switching
+  to this function, only the drawing method changed.
 
-  Три захода на TPhotoWidget.DrawBmpRounded (белый зазор в углу →
-  обрезанная обводка → мутная обводка, все три — см. CLAUDE.md)
-  свелись к одному факту: FillRoundRectAntialias/RoundRectAntialias
-  по умолчанию (APixelCenteredCoordinates=True, подтверждено чтением
-  исходника BGRABitmap, не угадано) считают целую координату N ЦЕНТРОМ
-  пикселя N, не границей между пикселями N-1 и N, как в GDI. Отсюда две
-  поправки ниже, сразу верные, без повторения того же пути проб:
-  -0.5 у заливки (её край должен пройти ровно между "пиксель ещё есть"
-  и "пикселя уже нет") и AWidth-ABorderWidth/2-0.5 у дальнего края
-  обводки (сама линия centered на своём пути, толщиной ABorderWidth —
-  весь её след обязан остаться внутри битмапа). }
+  Three rounds of fixes on TPhotoWidget.DrawBmpRounded (a white gap in
+  the corner -> a clipped outline -> a blurry outline) all boiled down
+  to one fact: FillRoundRectAntialias/RoundRectAntialias, by default
+  (APixelCenteredCoordinates=True, confirmed by reading the BGRABitmap
+  source, not guessed), treat an integer coordinate N as the CENTER of
+  pixel N, not the boundary between pixels N-1 and N as GDI does. Hence
+  the two corrections below, correct from the start, without repeating
+  that same trial-and-error path: -0.5 for the fill (its edge must fall
+  exactly between "pixel still exists" and "pixel no longer exists")
+  and AWidth-ABorderWidth/2-0.5 for the outline's far edge (the line
+  itself is centered on its path, ABorderWidth thick — its entire
+  extent must stay inside the bitmap). }
 procedure PaintRoundRectAA(ACanvas: TCanvas; const ABox: TRect; ARadius: single;
   AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor;
   ABorderWidth: single = 1);
@@ -1126,20 +1181,21 @@ begin
   end;
 
   if not SMOOTH_CORNERS then begin
-    { Старый метод, ДО перехода на BGRA (см. CLAUDE.md) — обычный GDI
-      Canvas.RoundRect, без единого TBGRABitmap. Заведено по прямому
-      запросу пользователя — тест, действительно ли сама антиалиасинговая
-      отрисовка (аллокация+заливка временного битмапа на каждый вызов,
-      их тут 12 на кадр в худшем случае) заметна на плавности скролла,
-      не только субъективно "выглядит более гладко".
-      GDI RoundRect не умеет per-corner — единственный набор AOptions,
-      реально встречающийся в этом файле, [rrBottomLeftSquare,
-      rrBottomRightSquare] (спрямить низ у мини-заголовка), и оба места,
-      что его просят, всегда без обводки (ABorderColor=clNone) — тем же
-      старым трюком "нарисовать все 4 скруглёнными, потом спрямить низ
-      отдельным FillRect", что и был в проекте до перехода на BGRA.
-      Другие сочетания AOptions в файле не встречаются — не обобщаем
-      сверх того, что реально нужно. }
+    { The older method, from before the switch to BGRA — plain GDI
+      Canvas.RoundRect, no TBGRABitmap at all. This branch exists to
+      test whether antialiased drawing itself (allocating and filling a
+      temporary bitmap on every call, up to 12 per frame in the worst
+      case) is actually noticeable in scroll smoothness, not just
+      subjectively "looks smoother".
+      GDI RoundRect can't do per-corner rounding — the only AOptions
+      combination actually used in this file is [rrBottomLeftSquare,
+      rrBottomRightSquare] (squaring off the bottom of a mini-header),
+      and both call sites that request it never pass a border
+      (ABorderColor=clNone) — using the same older trick of "draw all 4
+      corners rounded, then square off the bottom with a separate
+      FillRect" that predates the switch to BGRA. No other AOptions
+      combination occurs in this file — this isn't generalized beyond
+      what's actually needed. }
     IRadius := Round(ARadius);
     ACanvas.Pen.Style := psClear;
     if ABorderColor <> clNone then begin
@@ -1181,9 +1237,9 @@ begin
   end;
 end;
 
-{ Обрезает S по ширине AMaxW (пикселей, шрифтом уже выставленным на
-  ACanvas) с "…" на конце — используется и цитатой ответа, и аудио-
-  виджетом, оба однострочные, без word-wrap. }
+{ Truncates S to AMaxW pixels wide (using the font already set on
+  ACanvas), appending "…" — used by both the reply quote and the audio
+  widget, both single-line, no word-wrap. }
 function TruncateToWidth(ACanvas: TCanvas; const S: string; AMaxW: integer): string;
 var
   Lo, Hi, Mid: integer;
@@ -1209,7 +1265,7 @@ begin
   end;
 end;
 
-{ ЧЧ:ММ:СС, "-" спереди для отрицательных (оставшееся время трека). }
+{ HH:MM:SS, with a leading "-" for negative values (a track's remaining time). }
 function FormatAudioTime(ASeconds: integer): string;
 var
   H, M, S: integer;
@@ -1228,10 +1284,11 @@ begin
   end;
 end;
 
-{ Имя по id — общий резолвер, тем же приёмом, что и ResolveAccentColor
-  (отправитель сообщения / источник репоста / цитируемый в reply_to).
-  AChatId (анонимный админ/пост от имени канала) резолвится через уже
-  загруженный список чатов, не через TTdUsers — это не пользователь. }
+{ A name by id — a shared resolver, the same approach as
+  ResolveAccentColor (a message's sender / a forward's source / a
+  reply_to quote's sender). AChatId (an anonymous admin/post on behalf
+  of a channel) is resolved through the already-loaded chat list, not
+  TTdUsers — it isn't a user. }
 function ResolveDisplayName(AUserId, AChatId: Int64): utf8string;
 var
   C: TChatRow;
@@ -1263,8 +1320,8 @@ begin
   Result := ResolveDisplayName(ARow.SenderUserId, ARow.SenderChatId);
 end;
 
-{ Индекс кадра в ImageList1 (framechats.pas) под значок статуса
-  исходящего сообщения; -1 — не рисовать (crNone, входящее). }
+{ Frame index in ImageList1 (framechats.pas) for an outgoing message's
+  status icon; -1 means don't draw one (crNone, incoming). }
 function ReceiptIconIndex(AKind: TChatReceipt): integer;
 begin
   case AKind of
@@ -1277,11 +1334,12 @@ begin
   end;
 end;
 
-{ Отображаемое имя источника репоста. mfoChannel/mfoChat резолвятся
-  через уже загруженный список чатов (ForwardChatId) — тот же приём,
-  что и SenderDisplayName для анонимных постов от чата. mfoUser — через
-  кэш пользователей. mfoHiddenUser — TDLib присылает готовое имя и
-  больше ничего (отправитель сам скрыл, откуда переслано). }
+{ The display name of a forward's source. mfoChannel/mfoChat are
+  resolved through the already-loaded chat list (ForwardChatId) — the
+  same approach as SenderDisplayName for anonymous posts from a chat.
+  mfoUser goes through the user cache. mfoHiddenUser: TDLib sends a
+  ready-made name and nothing else (the sender chose to hide where the
+  forward came from). }
 function ForwardSourceName(ARow: TMsgRow): utf8string;
 var
   C: TChatRow;
@@ -1319,11 +1377,12 @@ begin
   end;
 end;
 
-{ Цвет источника репоста — тот же приём, что и SenderColor (настоящий
-  accent_color_id, хэш по SENDER_PALETTE запасным вариантом), но по
-  ForwardUserId/ForwardChatId, а не по отправителю самого сообщения:
-  это два разных, независимо раскрашенных участка одного блока — кто
-  прислал репост (внешний заголовок) и откуда он изначально (цитата). }
+{ A forward's source color — the same approach as SenderColor (a real
+  accent_color_id, a SENDER_PALETTE hash as fallback), but keyed by
+  ForwardUserId/ForwardChatId rather than the message's own sender:
+  these are two separately colored parts of one block — who sent the
+  forward (the outer header) and where it originally came from (the
+  quote). }
 function ForwardSourceColor(ARow: TMsgRow): TColor;
 var
   Id: Int64;
@@ -1361,34 +1420,35 @@ begin
   end;
 
   if Id = 0 then begin
-    { mfoHiddenUser (и любой другой случай без числового id) — стабильный,
-      но произвольный запасной цвет: важно не 0, иначе всегда одна и та
-      же ячейка палитры для всех подряд. }
+    { mfoHiddenUser (and any other case with no numeric id) — a stable
+      but arbitrary fallback color: it just must not be 0, otherwise
+      it's always the same palette slot for everyone. }
     Id := 1;
   end;
   Result := SENDER_PALETTE[Abs(Id) mod Length(SENDER_PALETTE)];
 end;
 
-{ Цвет фона ПОД скруглённым виджетом (аудио/файл/фото) в этой точке —
-  для их собственного BackgroundColor: реальные дочерние control'ы не
-  просвечивают canvas родителя (см. комментарий у TPhotoWidget), и без
-  подмены их угла СНАРУЖИ скруглённой заливки/маски показывали бы
-  clWindow (белый) — заметно отличается от того, что там на самом деле
-  нарисовано.
+{ The background color UNDER a rounded widget (audio/file/photo) at
+  this point — for their own BackgroundColor: real child controls
+  don't let the parent's canvas show through (see the comment on
+  TPhotoWidget), and without this substitution, their corners OUTSIDE
+  the rounded fill/mask would show plain clWindow white — visibly
+  different from what's actually drawn there.
 
-  Раньше формула (BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY,
-  clWindow)) была только у TPhotoWidget и всегда брала цвет ВНЕШНЕГО
-  блока — верно для фото не внутри репоста, но ВНУТРИ репоста виджет
-  сидит на подложке карточки цитаты (свой, независимый цвет —
-  ForwardSourceColor, не SenderColor), не самого блока — не учитывалось
-  нигде, включая LayoutPhotoWidgets: угол виджета внутри репоста был
-  подкрашен цветом блока, а не цветом карточки, в которой он реально
-  лежит. Пойман на аудио-виджете (белые углы внутри цветной карточки
-  репоста, см. CLAUDE.md) — тот же класс, что и "белые треугольники" у
-  фото, но TAudioWidget/TFileWidget вообще не имели BackgroundColor:
-  предполагалось, что их собственная непрозрачная карточка покрывает
-  всё до края — ошибочно, скруглённая карточка «до края» не доходит по
-  определению, у неё как раз скруглённые (не залитые) углы. }
+  This formula (BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY,
+  clWindow)) used to belong only to TPhotoWidget and always took the
+  OUTER block's color — correct for a photo not inside a forward, but
+  INSIDE a forward the widget sits on the quote card's own backing
+  (its own, independent color — ForwardSourceColor, not SenderColor),
+  not the block's — this wasn't accounted for anywhere, including
+  LayoutPhotoWidgets: a widget's corner inside a forward was tinted
+  with the block's color instead of the card it actually sits in. This
+  was caught on the audio widget (white corners inside a colored
+  forward card) — the same class of bug as the "white triangles" on
+  photos, except TAudioWidget/TFileWidget had no BackgroundColor at
+  all: it was assumed their own opaque card covered everything to the
+  edge — wrong, a rounded card by definition doesn't reach the edge,
+  its corners are rounded, not filled. }
 function WidgetBackdropColor(ARow: TMsgRow): TColor;
 begin
   if ARow.ForwardKind <> mfoNone then begin
@@ -1404,20 +1464,21 @@ constructor TAudioWidget.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   DoubleBuffered := True;
-  FBgColor := clWindow;   { запасной вариант до первого LayoutAudioWidgets }
+  FBgColor := clWindow;   { fallback until the first LayoutAudioWidgets }
 end;
 
 procedure TAudioWidget.SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
 begin
   if ARowId <> FRowId then begin
-    { Виджет из пула переиспользован под ДРУГОЕ сообщение — старое
-      состояние проигрывания/перетаскивания относится не к этому
-      треку, обнуляем. Если ARowId тот же (обычный повторный проход
-      LayoutAudioWidgets — вызывается на КАЖДЫЙ Paint скроллера, в том
-      числе каждый тик таймера прогресса) — состояние НЕ трогаем: раньше
-      именно это и рвало перетаскивание ползунка и клик по полосе —
-      следующий же Paint (буквально через доли секунды) отбрасывал
-      FDraggingSeek/позицию обратно к нулю прямо под курсором. }
+    { The pooled widget was reused for a DIFFERENT message — the old
+      playback/dragging state belongs to a different track, reset it.
+      If ARowId is the same (an ordinary repeat pass of
+      LayoutAudioWidgets — called on EVERY Paint of the scroller,
+      including every tick of the progress timer), the state is NOT
+      touched: that's exactly what used to break thumb dragging and
+      clicking the bar — the very next Paint (a fraction of a second
+      later) would snap FDraggingSeek/position back to zero right
+      under the cursor. }
     FIsActive := False;
     FPlaying := False;
     FPositionSec := 0;
@@ -1468,8 +1529,9 @@ begin
     Result := Rect(0, 0, 0, 0);
     Exit;
   end;
-  { Хит-зона выше и ниже визуальной полосы/ползунка — тем удобнее в
-    неё попасть мышью, сам ползунок всего AUDIO_THUMB_H пикселей. }
+  { The hit area extends above and below the visual bar/thumb — makes
+    it easier to hit with the mouse, since the thumb itself is only
+    AUDIO_THUMB_H pixels. }
   Result := Rect(CX, PT - 4, CX + CW, PT + AUDIO_THUMB_H + 4);
 end;
 
@@ -1498,8 +1560,8 @@ begin
     end;
     Exit;
   end;
-  { Перемотка — только у активного (проигрывается/на паузе) трека:
-    у остальных ползунок всегда в начале, тащить там нечего. }
+  { Seeking is only for the active (playing/paused) track — for the
+    rest, the thumb is always at the start, there's nothing to drag. }
   if FIsActive and PtInRect(TrackAreaRect, Point(X, Y)) then begin
     FDraggingSeek := True;
     FDragFraction := FractionFromX(X);
@@ -1545,25 +1607,25 @@ begin
   Box := ClientRect;
   Radius := Min(AUDIO_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
 
-  { TAudioWidget — настоящий дочерний control, не рисуется "сквозь"
-    canvas родителя, как цитаты/карточки репоста — вне скруглённых
-    углов нужен сплошной фон, FBgColor (WidgetBackdropColor,
-    LayoutAudioWidgets) — реальный цвет блока/карточки репоста под
-    виджетом в этой точке, не голый clWindow: тот был виден белыми
-    углами по краям скруглённой подложки, особенно заметно внутри
-    цветной карточки репоста — пойман пользователем по скриншоту. }
+  { TAudioWidget is a real child control, unlike quotes/forward cards
+    it doesn't paint "through" the parent's canvas — a solid
+    background is needed outside the rounded corners, FBgColor
+    (WidgetBackdropColor, LayoutAudioWidgets) is the real color of the
+    block/forward card under the widget at this point, not bare
+    clWindow: that showed up as white corners around the rounded
+    backing, especially visible inside a colored forward card. }
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
   Canvas.Brush.Color := FBgColor;
   Canvas.FillRect(Box);
 
-  { Подложка — тем же приёмом, что и у плашки цитаты ответа/карточки
-    репоста (SENDER_BG_OPACITY), но своим цветом (AUDIO_COLOR), не
-    завязанным на отправителя — один и тот же для любого аудио. }
+  { The backing — the same approach as the reply quote box/forward
+    card (SENDER_BG_OPACITY), but its own color (AUDIO_COLOR), not tied
+    to the sender — the same for any audio. }
   PaintRoundRectAA(Canvas, Box, Radius, [],
     BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow), clNone);
 
-  { Кнопка play/pause — левый край, по вертикали центрирована. }
+  { The play/pause button — left edge, vertically centered. }
   PlayRect := PlayButtonRect;
   if FIsActive and FPlaying then begin
     IconIdx := AUDIO_ICON_PAUSE;
@@ -1580,8 +1642,9 @@ begin
     Exit;
   end;
 
-  { Название — исполнитель и трек через дефис; то, что есть из двух,
-    если не хватает второго; имя файла, если метаданных нет вовсе. }
+  { The title — performer and track name separated by a dash;
+    whichever one is present if the other is missing; the file name if
+    there's no metadata at all. }
   if (FPerformer <> '') and (FTitle <> '') then begin
     TitleStr := string(FPerformer) + ' - ' + string(FTitle);
   end else if FTitle <> '' then begin
@@ -1599,8 +1662,8 @@ begin
   Canvas.Font.Color := AUDIO_COLOR;
   Canvas.TextOut(ContentX, Box.Top + MSG_PAD_H, TruncateToWidth(Canvas, TitleStr, ContentW));
 
-  { Полоса прогресса — реальная позиция, только пока ЭТО сообщение
-    активно (проигрывается/на паузе); иначе, как и раньше, 0%. }
+  { The progress bar shows the real position only while THIS message is
+    active (playing/paused); otherwise, as always, 0%. }
   ProgressTop := Box.Top + MSG_PAD_H + REPLY_LINE_H + HEADER_PAD_V;
   TrackRect := Rect(ContentX, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2,
     ContentX + ContentW, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2 + AUDIO_TRACK_H);
@@ -1629,10 +1692,11 @@ begin
   Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, clWindow);
   Canvas.FillRect(ThumbRect);
 
-  { Время — слева от начала трека, справа до конца (отрицательное).
-    Brush.Style сброшен обратно в bsClear явно — FillRect выше (трек/
-    ползунок) на этом виджет-сете переключает его в bsSolid как побочный
-    эффект заливки, иначе текст рисовался бы с непрозрачным фоном. }
+  { Time: elapsed on the left, remaining (negative) on the right.
+    Brush.Style is reset back to bsClear explicitly — the FillRect
+    calls above (track/thumb) switch it to bsSolid as a side effect of
+    filling, otherwise the text would be drawn with an opaque
+    background. }
   if FDraggingSeek then begin
     ElapsedStr := FormatAudioTime(Round(FDragFraction * FDuration));
     RemainStr := FormatAudioTime(Round(FDragFraction * FDuration) - FDuration);
@@ -1650,8 +1714,8 @@ begin
   Canvas.TextOut(ContentX + ContentW - Canvas.TextWidth(RemainStr),
     ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, RemainStr);
 
-  { Контур — последним, поверх содержимого, тем же приёмом, что и у
-    прочих карточек (SENDER_BORDER_OPACITY). }
+  { The outline — drawn last, on top of the content, the same approach
+    as other cards (SENDER_BORDER_OPACITY). }
   PaintRoundRectAA(Canvas, Box, Radius, [], clNone,
     BlendWithBackground(AUDIO_COLOR, SENDER_BORDER_OPACITY, clWindow));
 end;
@@ -1666,19 +1730,20 @@ type
 
 const
   FILE_ICON_COUNT = 98;
-  { Расширение -> индекс кадра в FileTypes (TFrameHistory). Не считано
-    со скриншотов на глаз — сгенерировано из реального списка файлов в
-    res/file_types/ (тот самый каталог, откуда пользователь массово
-    импортировал кадры в ImageList редактором Lazarus): отсортированные
-    по имени file_extension_<ext>.png дают ТОЧНО тот же порядок, что и
-    кадры 1..98 (кадр 0 — page_white.png, общая заглушка, добавлена до
-    массового импорта). Poka строится один раз командой в оболочке
-    (ls | sed | awk), не вручную — почти по определению без ошибок
-    транскрипции, в отличие от более ранней версии этой таблицы,
-    считанной со скриншотов (там едва не потерялись MSWMM и TORRENT —
-    оба между соседними по алфавиту расширениями, глазом за них легко
-    проскочить). Каждая запись — независимая пара (индекс, расширение),
-    не позиция в массиве, на случай будущей ручной правки одной строки. }
+  { Extension -> frame index in FileTypes (TFrameHistory). Not
+    transcribed from screenshots by eye — generated from the real file
+    list in res/file_types/ (the same directory the frames were bulk-
+    imported into the ImageList from, via the Lazarus designer): the
+    file_extension_<ext>.png names, sorted alphabetically, give EXACTLY
+    the same order as frames 1..98 (frame 0 is page_white.png, a
+    generic placeholder added before the bulk import). Built once via a
+    shell command (ls | sed | awk), not by hand — free of transcription
+    errors almost by construction, unlike an earlier version of this
+    table read off screenshots (which nearly lost MSWMM and TORRENT —
+    both sitting between alphabetically adjacent extensions, easy to
+    skip past by eye). Each entry is an independent (index, extension)
+    pair, not an array position, in case a future manual edit touches
+    just one line. }
   FILE_ICONS: array[1..FILE_ICON_COUNT] of TFileIconEntry = (
     (Idx:1;Ext:'3GP'),    (Idx:2;Ext:'7Z'),     (Idx:3;Ext:'ACE'),    (Idx:4;Ext:'AI'),
     (Idx:5;Ext:'AIF'),    (Idx:6;Ext:'AIFF'),   (Idx:7;Ext:'AMR'),    (Idx:8;Ext:'ASF'),
@@ -1741,18 +1806,18 @@ begin
   end;
 end;
 
-{ "Show in folder" — открывает Проводник с уже выделенным файлом.
-  Только Windows (explorer.exe /select) — тот же класс правки, что и
-  audiodevices.pas/winmm для вывода звука: платформенный шим, декод/
-  модель остаются общими, меняется только это тонкое место при
-  будущем переносе на другую ОС. }
+{ "Show in folder" — opens Explorer with the file already selected.
+  Windows only (explorer.exe /select) — the same class of shim as
+  audiodevices.pas/winmm for audio output: a platform-specific layer,
+  while decoding/the model stay shared; only this thin spot would need
+  to change on a future port to another OS. }
 procedure ShowDocInFolder(const APath: utf8string);
 begin
   if APath = '' then begin
     Exit;
   end;
-  { SW_SHOWNORMAL = 1 — общеизвестное значение Win32, не тянуть Windows
-    юнит целиком ради одной константы. }
+  { SW_SHOWNORMAL = 1 — a well-known Win32 value, not worth importing
+    the whole Windows unit for one constant. }
   ShellExecute(0, 'open', 'explorer.exe',
     PChar('/select,"' + string(APath) + '"'), nil, 1);
 end;
@@ -1761,8 +1826,8 @@ constructor TFileWidget.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   DoubleBuffered := True;
-  Cursor := crHandPoint;   { весь виджет кликабелен, не только значок }
-  FBgColor := clWindow;   { запасной вариант до первого LayoutFileWidgets }
+  Cursor := crHandPoint;   { the whole widget is clickable, not just the icon }
+  FBgColor := clWindow;   { fallback until the first LayoutFileWidgets }
 end;
 
 procedure TFileWidget.SetFile(ARowId: Int64; const AFileName: utf8string; AFileSize: Int64;
@@ -1802,10 +1867,10 @@ begin
   Box := ClientRect;
   Radius := Min(FILE_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
 
-  { Тот же приём, что у TAudioWidget — настоящий дочерний control, не
-    просвечивает canvas родителя, поэтому сплошной фон вне скруглённых
-    углов обязателен — FBgColor (WidgetBackdropColor), не голый
-    clWindow (см. комментарий в TAudioWidget.Paint). }
+  { The same approach as TAudioWidget — a real child control, doesn't
+    let the parent's canvas show through, so a solid background outside
+    the rounded corners is required — FBgColor (WidgetBackdropColor),
+    not bare clWindow (see the comment in TAudioWidget.Paint). }
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
   Canvas.Brush.Color := FBgColor;
@@ -1816,8 +1881,9 @@ begin
 
   IconR := IconRect;
   if not FDownloaded then begin
-    { Файла ещё нет на диске — значок "скачать", не мим-тип: клик по
-      нему запускает загрузку, не открытие несуществующего файла. }
+    { The file isn't on disk yet — shows the "download" icon, not the
+      mime type: clicking it starts a download, not opening a
+      nonexistent file. }
     if (FDownloadImages <> nil) and (AUDIO_ICON_DOWNLOAD < FDownloadImages.Count) then begin
       FDownloadImages.Draw(Canvas, IconR.Left, IconR.Top, AUDIO_ICON_DOWNLOAD, True);
     end;
@@ -1833,9 +1899,9 @@ begin
     Exit;
   end;
 
-  { Нет полосы прогресса (в отличие от аудио) — незачем разносить
-    строки на её высоту: имя — по верхнему краю значка, размер — по
-    нижнему, без зазора между ними, кроме собственной высоты строк. }
+  { No progress bar (unlike audio) — no need to spread the lines across
+    its height: the name aligns with the icon's top edge, the size with
+    its bottom, with no gap between them beyond the lines' own height. }
   NameStr := string(FFileName);
   if NameStr = '' then begin
     NameStr := 'File';
@@ -1863,15 +1929,15 @@ constructor TPhotoWidget.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   DoubleBuffered := True;
-  Cursor := crHandPoint;   { весь виджет кликабелен }
-  FBgColor := clWindow;    { запасной вариант до первого LayoutPhotoWidgets }
+  Cursor := crHandPoint;   { the whole widget is clickable }
+  FBgColor := clWindow;    { fallback until the first LayoutPhotoWidgets }
 end;
 
 destructor TPhotoWidget.Destroy;
 begin
-  { ClearBitmaps отменяет ещё не завершившийся фоновый декод (см. её
-    же комментарий) — без этого DecodeDone позже вызвала бы метод на
-    уже уничтоженном объекте. }
+  { ClearBitmaps cancels a background decode still in progress (see its
+    own comment) — without this, DecodeDone would later call a method
+    on an already-destroyed object. }
   ClearBitmaps;
   inherited Destroy;
 end;
@@ -1879,12 +1945,13 @@ end;
 procedure TPhotoWidget.ClearBitmaps;
 begin
   if FDecodeThread <> nil then begin
-    { Виджет переиспользован под другое сообщение/размер до того, как
-      прежний фоновый декод успел закончиться — тот больше не нужен;
-      Cancel гарантирует, что DoDone не тронет поля этого объекта
-      результатом, который уже никого не интересует (см. её же
-      комментарий). Указатель обнуляем сразу — виджет живёт дальше,
-      "декод для меня сейчас не идёт" должно быть верно немедленно. }
+    { The widget was reused for a different message/size before the
+      previous background decode finished — that decode is no longer
+      needed; Cancel guarantees DoDone won't touch this object's
+      fields with a result nobody cares about anymore (see its own
+      comment). The pointer is cleared right away — the widget keeps
+      living, and "no decode is running for me right now" must be true
+      immediately. }
     FDecodeThread.Cancel;
     FDecodeThread := nil;
   end;
@@ -1901,11 +1968,12 @@ var
   OldTargetW, OldTargetH: integer;
 begin
   if ARowId <> FRowId then begin
-    { Виджет из пула переиспользован под ДРУГОЕ сообщение — старые
-      декодированные битмапы относятся не к этому фото, обнуляем.
-      Если ARowId тот же (обычный повторный проход LayoutPhotoWidgets,
-      вызывается на каждый Paint скроллера) — битмапы НЕ трогаем, та
-      же причина, что уже документирована у TAudioWidget.SetTrack. }
+    { The pooled widget was reused for a DIFFERENT message — the old
+      decoded bitmaps belong to a different photo, cleared. If ARowId
+      is the same (an ordinary repeat pass of LayoutPhotoWidgets,
+      called on every Paint of the scroller), the bitmaps are NOT
+      touched, the same reason already documented for
+      TAudioWidget.SetTrack. }
     ClearBitmaps;
   end;
   FRowId := ARowId;
@@ -1915,22 +1983,23 @@ begin
   OldTargetH := FTargetH;
   ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, FTargetW, FTargetH);
   if (FTargetW <> OldTargetW) or (FTargetH <> OldTargetH) then begin
-    { Ширина колонки поменялась (окно изменило размер) — уже
-      декодированные битмапы теперь не того размера. FLocalPath
-      сбрасываем тоже — иначе блок "путь появился/сменился" ниже не
-      перезайдёт в decode заново для того же самого пути. }
+    { The column width changed (the window was resized) — the already-
+      decoded bitmaps are now the wrong size. FLocalPath is cleared
+      too — otherwise the "path appeared/changed" block below wouldn't
+      re-enter decode for the same path. }
     ClearBitmaps;
     FLocalPath := '';
   end;
 
-  { Блюр-плейсхолдер из minithumbnail — декодируем и блюрим один раз
-    (пока не готов), не при каждом заходе: сам файл крошечный, но
-    ресемпл+блюр не бесплатны, а этот метод вызывается на каждый Paint.
-    Двойной блюр (10px на источнике, растягивание, ещё 10px на
-    результате) — первый проход на крошечном (~30×40) исходнике убирает
-    блочность JPEG ДО растягивания, второй — сглаживает сам ресемпл
-    (rmFineResample и так даёт мягкую интерполяцию, но второй блюр
-    добавляет запас на случай, если исходник был не настолько мал). }
+  { The blur placeholder from minithumbnail is decoded and blurred once
+    (until ready), not on every pass: the file itself is tiny, but
+    resample+blur aren't free, and this method is called on every
+    Paint. A double blur (10px on the source, stretching, then another
+    10px on the result) — the first pass on the tiny (~30x40) source
+    removes JPEG blockiness BEFORE stretching, the second smooths the
+    resample itself (rmFineResample already gives soft interpolation,
+    but the second blur adds a margin in case the source wasn't quite
+    that small). }
   if (FBlurBmp = nil) and (AMinithumb <> '') then begin
     Ms := TMemoryStream.Create;
     Src := nil;
@@ -1956,22 +2025,23 @@ begin
     end;
   end;
 
-  { Настоящее фото — декодируем, только когда путь реально появился/
-    сменился, не на каждый заход, и ТЕПЕРЬ В ФОНОВОМ ПОТОКЕ (photodecoder.
-    pas), не синхронно здесь — при агрессивной автозагрузке "далеко
-    вперёд" несколько строк с уже скачанным, но ещё ни разу не
-    показанным фото могут стать видимыми почти одновременно при
-    быстром скролле; полноразмерный JPEG-декод+ресемпл на каждую из
-    них синхронно внутри SetPhoto (а тот вызывается из LayoutPhotoWidgets,
-    из Paint) ощутимо подвешивал прокрутку — отчёт пользователя. Сам
-    результат применяется позже, в DecodeDone (Synchronize, главный
-    поток) — Invalidate ниже в этом методе картинку ещё не покажет,
-    только фон/блюр-плейсхолдер, актуальный кадр придёт отдельно. }
+  { The real photo is decoded only when the path actually appeared or
+    changed, not on every pass, and now IN A BACKGROUND THREAD
+    (photodecoder.pas), not synchronously here — with aggressive
+    lookahead auto-download, several rows with an already-downloaded
+    but never-yet-shown photo can become visible almost simultaneously
+    during a fast scroll; a full-size JPEG decode+resample for each one
+    synchronously inside SetPhoto (which is called from
+    LayoutPhotoWidgets, from Paint) noticeably stalled scrolling. The
+    result itself is applied later, in DecodeDone (Synchronize, main
+    thread) — the Invalidate below in this method doesn't show the
+    image yet, only the background/blur placeholder; the real frame
+    arrives separately. }
   if (ALocalPath <> '') and (ALocalPath <> FLocalPath) then begin
     if FDecodeThread <> nil then begin
-      { Не должно случаться на практике (путь для одной и той же строки
-        меняется максимум один раз, с '' на реальный) — но если всё же
-        случится, прежний ещё не завершившийся декод больше не нужен. }
+      { Shouldn't happen in practice (the path for one row changes at
+        most once, from '' to a real value) — but if it does, the
+        previous, still-unfinished decode is no longer needed. }
       FDecodeThread.Cancel;
     end;
     FreeAndNil(FRealBmp);
@@ -1983,14 +2053,14 @@ begin
   Invalidate;
 end;
 
-{ Колбэк TPhotoDecodeThread — уже на главном потоке (Synchronize).
-  FDecodeThread обнуляется здесь безусловно: это ЕДИНСТВЕННОЕ место,
-  где декод завершается сам, естественным путём (ClearBitmaps —
-  единственное ДРУГОЕ место, трогающее это поле — само обнуляет его,
-  когда декод отменяется ДО этого момента, см. её комментарий, так что
-  к моменту, когда DoDone вызвал этот колбэк, если он вообще вызвал —
-  FCanceled уже был бы True и этот метод не вызвался бы, см.
-  TPhotoDecodeThread.DoDone). }
+{ TPhotoDecodeThread's callback — already on the main thread
+  (Synchronize). FDecodeThread is unconditionally cleared here: this is
+  the ONLY place where the decode finishes naturally, on its own
+  (ClearBitmaps — the only OTHER place touching this field — clears it
+  itself when the decode is canceled BEFORE this point, see its
+  comment, so by the time DoDone would call this callback — if it ever
+  did — FCanceled would already be True and this method wouldn't be
+  called at all, see TPhotoDecodeThread.DoDone). }
 procedure TPhotoWidget.DecodeDone(Sender: TObject);
 var
   Bmp: TBGRABitmap;
@@ -2005,15 +2075,14 @@ begin
   Invalidate;
 end;
 
-{ Заливает клиентскую область (уже настоящим цветом фона clWindow —
-  реальный дочерний control, не просвечивает canvas родителя) и рисует
-  переданный битмап как есть. Раньше здесь была маска скругления
-  (PHOTO_CORNER_RADIUS) — BGRA-маска на SMOOTH_CORNERS=True, GDI-регион
-  на False, плюс серая обводка поверх — оба убраны по прямому запросу
-  пользователя (2026-09-06, обводка и скругление превью фото/видео).
-  Имя метода ("Rounded") — по историческим причинам, не переименовано:
-  риск задеть остальные вызовы не стоил переименования ради одного
-  слова. }
+{ Fills the client area (already with the real background color
+  clWindow — a real child control, doesn't let the parent's canvas
+  show through) and draws the given bitmap as-is. This used to include
+  rounding (PHOTO_CORNER_RADIUS) — a BGRA mask when SMOOTH_CORNERS=True,
+  a GDI region when False — plus a gray outline on top; both were
+  removed entirely. The method's name ("Rounded") is a historical
+  leftover, left unchanged: the risk of touching other call sites
+  wasn't worth renaming for one word. }
 procedure TPhotoWidget.DrawBmpRounded(ABmp: TBGRABitmap);
 begin
   Canvas.Brush.Style := bsSolid;
@@ -2038,8 +2107,8 @@ begin
   end;
 
   if not FDownloaded then begin
-    { Значок "скачать" — по центру превью, тот же кадр, что и у
-      TFileWidget для недокачанного файла. }
+    { The "download" icon, centered over the preview, the same frame
+      TFileWidget uses for an undownloaded file. }
     if (FDownloadImages <> nil) and (AUDIO_ICON_DOWNLOAD < FDownloadImages.Count) then begin
       IconR := Rect((ClientWidth - AUDIO_BUTTON_SIZE) div 2, (ClientHeight - AUDIO_BUTTON_SIZE) div 2,
         (ClientWidth + AUDIO_BUTTON_SIZE) div 2, (ClientHeight + AUDIO_BUTTON_SIZE) div 2);
@@ -2058,27 +2127,27 @@ end;
 
 { ---------------- TAnimationWidget ---------------- }
 
-{ Блит уже готового BGRA-буфера (AWidth*AHeight*4 байт, порядок строк
-  сверху вниз — тот же, что отдаёт swscale в videoplayer.pas) напрямую
-  на Canvas, без промежуточного TBGRABitmap — единственная причина
-  завести отдельную функцию, не переиспользовать TBGRABitmap.Draw:
-  тому пришлось бы каждый раз оборачивать чужую память во временный
-  объект, а SetDIBitsToDevice делает то же самое одним системным
-  вызовом. AV_PIX_FMT_BGRA (ffdecode.pas) — тот же порядок байт
-  (B,G,R,A) в памяти, что и стандартный 32-битный DIB Windows
-  (biBitCount=32, BI_RGB) — конвертация не нужна, только описать
-  формат. biHeight отрицательный — DIB "сверху вниз", без переворота
-  строк. }
+{ Blits an already-ready BGRA buffer (AWidth*AHeight*4 bytes, top-to-
+  bottom row order — the same swscale produces in videoplayer.pas)
+  directly onto Canvas, with no intermediate TBGRABitmap — the sole
+  reason for a separate function rather than reusing TBGRABitmap.Draw:
+  that would have to wrap the foreign memory in a temporary object
+  every time, whereas SetDIBitsToDevice does the same thing in one
+  system call. AV_PIX_FMT_BGRA (ffdecode.pas) matches the byte order
+  (B,G,R,A) of a standard 32-bit Windows DIB (biBitCount=32, BI_RGB) —
+  no conversion needed, just describing the format. A negative
+  biHeight makes it a top-down DIB, no row flip required. }
 procedure DrawBgraBuffer(ACanvas: TCanvas; ABuf: PByte; AWidth, AHeight: integer);
 var
   Bmi: Windows.BITMAPINFO;
 begin
-  { Windows.BITMAPINFO квалифицировано явно — LCLType тоже объявляет
-    свой TBitmapInfo (другой, нижнеуровнево несовместимый тип), а он
-    идёт позже Windows в uses этого файла и перекрывает имя при
-    неквалифицированном использовании (та же ловушка, что уже описана
-    в комментарии у самого uses) — SetDIBitsToDevice из модуля Windows
-    требует именно Windows.BITMAPINFO, не чужой одноимённый тип. }
+  { Windows.BITMAPINFO is qualified explicitly — LCLType also declares
+    its own TBitmapInfo (a different, binary-incompatible type), and it
+    comes later than Windows in this file's uses, shadowing the name
+    for unqualified use (the same pitfall already described in the
+    comment on the uses clause itself) — SetDIBitsToDevice from the
+    Windows module requires exactly Windows.BITMAPINFO, not the other
+    same-named type. }
   FillChar(Bmi, SizeOf(Bmi), 0);
   Bmi.bmiHeader.biSize := SizeOf(Bmi.bmiHeader);
   Bmi.bmiHeader.biWidth := AWidth;
@@ -2095,10 +2164,11 @@ begin
   inherited Create(AOwner);
   Cursor := crHandPoint;
   FBgColor := clWindow;
-  { Интервал опроса — частота "проверить, не появился ли новый кадр и
-    перерисоваться", НЕ пауза между кадрами исходного видео (ту решает
-    сам поток-декодер, см. TAnimationPlayer.ExecuteInner/HandleFrame) —
-    ~30 раз в секунду с запасом относительно типичного видео 24-30fps. }
+  { The poll interval is how often to "check for a new frame and
+    repaint", NOT the pause between frames of the source video (that's
+    decided by the decoder thread itself, see
+    TAnimationPlayer.ExecuteInner/HandleFrame) — ~30 times a second,
+    with margin over a typical 24-30fps video. }
   FPollTimer := TTimer.Create(Self);
   FPollTimer.Interval := 33;
   FPollTimer.OnTimer := @PollTick;
@@ -2129,10 +2199,10 @@ var
   OldTargetW, OldTargetH: integer;
 begin
   if ARowId <> FRowId then begin
-    { Виджет из пула переиспользован под ДРУГОЕ сообщение — тот же
-      приём, что у TPhotoWidget.SetPhoto: старое воспроизведение (если
-      играло) и старый декодированный плейсхолдер к этому сообщению
-      больше не относятся. }
+    { The pooled widget was reused for a DIFFERENT message — the same
+      approach as TPhotoWidget.SetPhoto: any old playback (if it was
+      running) and the old decoded placeholder no longer belong to
+      this message. }
     StopLoop;
     ClearBitmap;
     FLocalPath := '';
@@ -2144,10 +2214,10 @@ begin
   OldTargetH := FTargetH;
   ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, FTargetW, FTargetH);
   if (FTargetW <> OldTargetW) or (FTargetH <> OldTargetH) then begin
-    { Ширина колонки поменялась — старые FFrameBuf/декодированный
-      плейсхолдер теперь не того размера. FFrameBuf освобождаем
-      (не просто оставляем) — иначе следующий TryGetFrame записал бы
-      кадр НОВОГО размера в буфер СТАРОГО размера, повреждая память. }
+    { The column width changed — the old FFrameBuf/decoded placeholder
+      are now the wrong size. FFrameBuf is freed (not just left as is)
+      — otherwise the next TryGetFrame would write a NEW-size frame
+      into an OLD-size buffer, corrupting memory. }
     StopLoop;
     ClearBitmap;
     FLocalPath := '';
@@ -2170,11 +2240,11 @@ begin
         Resized := TBGRABitmap(FilterBlurRadial(Src, 10, rbNormal));
         Resized.ResampleFilter := rfBestQuality;
         Stretched := Resized.Resample(FTargetW, FTargetH, rmFineResample);
-        { НЕ композитим маску/обводку в сам битмап (в отличие от
-          TPhotoWidget) — скругление у этого виджета всегда рисуется в
-          Paint через дешёвый GDI-регион, одинаково для плейсхолдера и
-          живого кадра (см. комментарий у класса) — FBlurBmp остаётся
-          простым прямоугольным битмапом. }
+        { The mask/outline are NOT composited into the bitmap itself
+          (unlike TPhotoWidget) — this widget's rounding is always
+          drawn in Paint through a cheap GDI region, the same for both
+          the placeholder and the live frame (see the class comment) —
+          FBlurBmp stays a plain rectangular bitmap. }
         FBlurBmp := TBGRABitmap(FilterBlurRadial(Stretched, 10, rbNormal));
       except
         ClearBitmap;
@@ -2210,11 +2280,11 @@ procedure TAnimationWidget.StopLoop;
 begin
   FPollTimer.Enabled := False;
   if FPlayer <> nil then begin
-    { FreeOnTerminate=True на стороне TAnimationPlayer (videoplayer.pas,
-      см. её же комментарий про причину) — StopPlayback асинхронно
-      просит поток остановиться и забываем указатель сразу же, не
-      обращаемся к объекту после: он может быть уничтожен (сам собой,
-      из своего же потока) в любой момент после этого. }
+    { TAnimationPlayer's own FreeOnTerminate=True (videoplayer.pas, see
+      its comment for why) — StopPlayback asynchronously asks the
+      thread to stop, and the pointer is forgotten right away, never
+      touching the object afterward: it may be destroyed (on its own,
+      from its own thread) at any moment after this. }
     FPlayer.StopPlayback;
     FPlayer := nil;
   end;
@@ -2264,10 +2334,10 @@ begin
   end;
 
   if not FDownloaded then begin
-    { Значок "скачать" — по центру превью, тот же кадр, что и у
-      TFileWidget/TPhotoWidget для недокачанного. Не рисуется, пока
-      играет (FPlaying) — если уже скачано и играет, показывать нечего:
-      никаких контролов, скачивание давно позади. }
+    { The "download" icon, centered over the preview, the same frame
+      TFileWidget/TPhotoWidget use for an undownloaded item. Not drawn
+      while playing (FPlaying) — if already downloaded and playing,
+      there's nothing to show: no controls, downloading is long over. }
     if (FDownloadImages <> nil) and (AUDIO_ICON_DOWNLOAD < FDownloadImages.Count) then begin
       IconR := Rect((ClientWidth - AUDIO_BUTTON_SIZE) div 2, (ClientHeight - AUDIO_BUTTON_SIZE) div 2,
         (ClientWidth + AUDIO_BUTTON_SIZE) div 2, (ClientHeight + AUDIO_BUTTON_SIZE) div 2);
@@ -2289,7 +2359,7 @@ end;
 constructor TVideoWidget.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  Cursor := crDefault;   { меняется по месту наведения, см. MouseMove — как у TAudioWidget }
+  Cursor := crDefault;   { changes based on hover position, see MouseMove — like TAudioWidget }
   FBgColor := clWindow;
 end;
 
@@ -2332,10 +2402,9 @@ var
   OldTargetW, OldTargetH: integer;
 begin
   if ARowId <> FRowId then begin
-    { Виджет из пула переиспользован под ДРУГОЕ сообщение — тот же
-      приём, что у TAnimationWidget.SetAnim: старое состояние
-      проигрывания/декодированный плейсхолдер относятся не к этому
-      видео. }
+    { The pooled widget was reused for a DIFFERENT message — the same
+      approach as TAnimationWidget.SetAnim: any old playback state/
+      decoded placeholder no longer belong to this video. }
     ClearBitmap;
     FLocalPath := '';
     FHaveFrame := False;
@@ -2353,10 +2422,10 @@ begin
   FTargetW := ATargetW;
   FTargetH := ATargetH;
   if (FTargetW <> OldTargetW) or (FTargetH <> OldTargetH) then begin
-    { Размер поменялся — старый FrameBuf теперь не того размера; кто
-      угодно (плеер через FrameBuf-указатель) писавший в него по
-      старым FTargetW/FTargetH мог бы повредить память при следующей
-      записи, если бы буфер остался старого размера. }
+    { The size changed — the old FrameBuf is now the wrong size;
+      whoever (the player, through the FrameBuf pointer) was writing to
+      it using the old FTargetW/FTargetH could corrupt memory on the
+      next write if the buffer stayed the old size. }
     ClearBitmap;
     FLocalPath := '';
     FHaveFrame := False;
@@ -2370,10 +2439,11 @@ begin
   end;
 
   if (FThumbBmp = nil) and (AThumbLocalPath <> '') then begin
-    { Резкий кадр из content.video.thumbnail (320×180 JPEG, уже на диске
-      к этому моменту, см. класс-комментарий про отказ от блюра) — файл
-      маленький, декод+ресемпл синхронный, отдельный поток (как у
-      TPhotoDecodeThread для полноразмерных фото) не оправдан. }
+    { A sharp frame from content.video.thumbnail (a 320x180 JPEG,
+      already on disk by this point, see the class comment about
+      dropping the blur) — the file is small, decode+resample is
+      synchronous, a separate thread (like TPhotoDecodeThread for
+      full-size photos) isn't warranted. }
     Src := nil;
     try
       try
@@ -2425,11 +2495,10 @@ begin
   AContentX := Box.Left + MSG_PAD_H;
   AContentW := Box.Right - MSG_PAD_H - AContentX;
   TimeH := Canvas.TextHeight('0');
-  { Снизу вверх: MSG_PAD_V (нижний отступ), ряд транспортных кнопок
-    (PLAYBACK_BTN_SIZE, см. ButtonsRowTop/PlaybackButtonRect — только в
-    просмотрщике, FIsActive, по прямому запросу пользователя,
-    2026-09-07), HEADER_PAD_V (зазор), строка времени (TimeH),
-    HEADER_PAD_V (зазор), полоса прокрутки (AUDIO_THUMB_H). }
+  { Bottom to top: MSG_PAD_V (bottom padding), the transport-button row
+    (PLAYBACK_BTN_SIZE, see ButtonsRowTop/PlaybackButtonRect — viewer
+    only, FIsActive), HEADER_PAD_V (gap), the time row (TimeH),
+    HEADER_PAD_V (gap), the scrub bar (AUDIO_THUMB_H). }
   AProgressTop := Box.Bottom - MSG_PAD_V - PLAYBACK_BTN_SIZE - HEADER_PAD_V -
     TimeH - HEADER_PAD_V - AUDIO_THUMB_H;
   Result := AContentW >= 10;
@@ -2485,8 +2554,8 @@ begin
     Result := Rect(0, 0, 0, 0);
     Exit;
   end;
-  { Хит-зона выше и ниже визуальной полосы/ползунка — тот же запас
-    (4px), что и у TAudioWidget.TrackAreaRect. }
+  { The hit area extends above and below the visual bar/thumb — the
+    same margin (4px) as TAudioWidget.TrackAreaRect. }
   Result := Rect(CX, PT - 4, CX + CW, PT + AUDIO_THUMB_H + 4);
 end;
 
@@ -2516,16 +2585,17 @@ begin
     Exit;
   end;
   if not FDownloaded then begin
-    { Весь виджет кликабелен для скачивания, тем же приёмом, что у
-      TFileWidget/TPhotoWidget — тут ещё нет ни play-кнопки, ни бара. }
+    { The whole widget is clickable to start downloading, the same
+      approach as TFileWidget/TPhotoWidget — there's no play button or
+      bar yet at this point. }
     if Assigned(FOnClick) then begin
       FOnClick(Self);
     end;
     Exit;
   end;
   if not FIsActive then begin
-    { Чат — единственная кликабельная зона поверх кадра (см. Paint —
-      здесь виджет никогда не показывает ряд транспортных кнопок). }
+    { In the chat, this is the only clickable zone over the frame (see
+      Paint — the widget never shows the transport row here). }
     if PtInRect(PlayButtonRect, Point(X, Y)) then begin
       if Assigned(FOnPlayClick) then begin
         FOnPlayClick(Self);
@@ -2533,11 +2603,12 @@ begin
     end;
     Exit;
   end;
-  { Просмотрщик — ряд транспортных кнопок, только пока реально виден
-    (см. ControlsVisible/Paint) — иначе можно было бы кликнуть по
-    невидимой кнопке. Skip ±10с — через SkipBy (уже существующий
-    OnSeek, см. её комментарий), остальные четыре — свои события,
-    prev/next/repeat решает владелец (mediaviewer.pas). }
+  { In the viewer — the transport-button row, only while it's actually
+    visible (see ControlsVisible/Paint) — otherwise an invisible button
+    could be clicked. Skip ±10s goes through SkipBy (the already
+    existing OnSeek, see its comment), the other four are their own
+    events — prev/next/repeat are decided by the owner
+    (mediaviewer.pas). }
   if ControlsVisible then begin
     for I := 0 to 5 do begin
       if PtInRect(PlaybackButtonRect(I), Point(X, Y)) then begin
@@ -2554,18 +2625,19 @@ begin
       end;
     end;
   end;
-  { Перемотка — только пока полоса реально видна (см. ControlsVisible),
-    тем же приёмом, что и TAudioWidget, плюс требование видимости,
-    которого у аудио нет (там полоса всегда на экране). }
+  { Seeking is only possible while the bar is actually visible (see
+    ControlsVisible), the same approach as TAudioWidget, plus a
+    visibility requirement that audio doesn't have (its bar is always
+    on screen). }
   if ControlsVisible and PtInRect(TrackAreaRect, Point(X, Y)) then begin
     FDraggingSeek := True;
     FDragFraction := FractionFromX(X);
     Invalidate;
     Exit;
   end;
-  { Клик по самому кадру — не по play/pause, не по полосе, не по ряду
-    кнопок — "открыть покрупнее" (см. FOnBodyClick). В самом
-    просмотрщике этот колбэк не назначен — безопасный no-op. }
+  { A click on the frame itself — not play/pause, not the bar, not the
+    button row — means "open bigger" (see FOnBodyClick). Inside the
+    viewer itself, this callback isn't assigned — a safe no-op. }
   if Assigned(FOnBodyClick) then begin
     FOnBodyClick(Self);
   end;
@@ -2636,10 +2708,11 @@ procedure TVideoWidget.MouseLeave;
 begin
   inherited MouseLeave;
   FHovering := False;
-  { Перетаскивание НЕ обрывается — FDraggingSeek/ShowSeekBar в Paint
-    учитывают его отдельно от FHovering (см. Paint), иначе полоса
-    визуально исчезала бы прямо под удерживаемым ползунком, стоит
-    мыши на долю секунды выйти за пределы виджета во время протяжки. }
+  { Dragging is NOT interrupted — FDraggingSeek/ShowSeekBar in Paint
+    account for it separately from FHovering (see Paint), otherwise the
+    bar would visually vanish right under the held thumb the moment the
+    mouse leaves the widget for a fraction of a second during the
+    drag. }
   Invalidate;
 end;
 
@@ -2656,12 +2729,10 @@ begin
   Canvas.Brush.Color := FBgColor;
   Canvas.FillRect(Box);
 
-  { Раньше здесь было скругление (клип-регион PHOTO_CORNER_RADIUS,
-    переключаемое свойством Rounded — True в чате, False в
-    просмотрщике) + серая обводка. Оба убраны по прямому запросу
-    пользователя (2026-09-06) — теперь чат и просмотрщик рисуют кадр
-    одинаково, во весь прямоугольник виджета, различать их стало
-    незачем, свойство Rounded удалено вместе с веткой. }
+  { Rounding (a PHOTO_CORNER_RADIUS clip region) plus a gray outline
+    used to be drawn here. Both were removed entirely — the chat and
+    the viewer now paint the frame the same way, filling the widget's
+    whole rectangle, with nothing left to distinguish. }
   if (Box.Right > Box.Left) and (Box.Bottom > Box.Top) then begin
     if FHaveFrame and (FFrameBuf <> nil) then begin
       DrawBgraBuffer(Canvas, FFrameBuf, FTargetW, FTargetH);
@@ -2679,10 +2750,9 @@ begin
   end;
 
   if not FIsActive then begin
-    { Чат — виджет здесь НИКОГДА не активен, своего плеера/ряда
-      транспортных кнопок не имеет (см. класс-комментарий) — просто
-      одна большая PLAY-иконка по центру, ВСЕГДА, тем же приёмом, что
-      и раньше. }
+    { In the chat, the widget is NEVER active, has no player/transport
+      row of its own (see the class comment) — just one large,
+      centered PLAY icon, ALWAYS. }
     PlayRect := PlayButtonRect;
     if (FImages <> nil) and (AUDIO_ICON_PLAY < FImages.Count) then begin
       FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, AUDIO_ICON_PLAY, True);
@@ -2690,16 +2760,16 @@ begin
     Exit;
   end;
 
-  { Просмотрщик (дошли сюда — FIsActive точно True). Весь блок (плашка+
-    полоса+время+ряд транспортных кнопок) — единым целым: показывается
-    ВСЕГДА, пока видео не играет (пауза/ещё не запущено — тот же
-    случай, когда раньше показывалась одинокая центральная PLAY, теперь
-    её роль перешла кнопке play/pause в ряду), и ТОЛЬКО под курсором
-    (или пока идёт перетаскивание, начатое под курсором — см.
-    MouseLeave), пока видео активно играет — чистая картинка, ничем не
-    закрытая, по прямому ТЗ пользователя (2026-09-07). }
+  { In the viewer (having reached here means FIsActive is True). The
+    whole block (bar+time+transport row) acts as one unit: shown
+    ALWAYS while the video isn't playing (paused/not yet started —
+    the same case that used to show a lone centered PLAY, whose role
+    now belongs to the play/pause button in the row), and ONLY on
+    hover (or while a drag started on hover is still in progress, see
+    MouseLeave) while the video is actively playing — a clean picture,
+    unobstructed. }
   if FPlaying and (not ControlsVisible) then begin
-    Exit;   { чистое видео, никаких контролов, пока не навели мышь }
+    Exit;   { a clean video, no controls, until the mouse hovers }
   end;
 
   if not ContentGeometry(ContentX, ContentW, ProgressTop) then begin
@@ -2708,25 +2778,25 @@ begin
 
   TimeH := Canvas.TextHeight('0');
 
-  { Тёмная плашка под баром/временем/рядом кнопок — иначе плохо читаются
-    на произвольном видео. Сплошная заливка, не полупрозрачная —
-    настоящий альфа-блендинг по кадру, который меняется десятки раз в
-    секунду, стоил бы заметно дороже (та же причина, что и у дешёвого
-    скругления в других виджетах). Раз мы вообще дошли досюда — весь
-    блок показывается целиком, отдельного условия на сам факт заливки
-    больше нет. }
+  { A dark backing under the bar/time/button row — otherwise they'd be
+    hard to read against an arbitrary video. A solid fill, not
+    semi-transparent — real alpha blending against a frame that changes
+    dozens of times a second would cost noticeably more (the same
+    reason other widgets use cheap rounding). Having reached this
+    point, the whole block is shown as-is — no separate condition on
+    the fill itself is needed. }
   OverlayRect := Rect(Box.Left, ProgressTop - MSG_PAD_V, Box.Right, Box.Bottom);
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
   Canvas.Brush.Color := RGBToColor(20, 20, 20);
   Canvas.FillRect(OverlayRect);
 
-  { Полоса прокрутки — та же геометрия/цвета/поведение, что у
-    TAudioWidget.Paint (AUDIO_TRACK_H/AUDIO_THUMB_H/W/AUDIO_PLAYED_
-    OPACITY/AUDIO_REMAIN_OPACITY/FormatAudioTime), по прямому ТЗ
-    пользователя "точно такая же". Блендится к чёрному (clBlack), не
-    к clWindow, как у аудио — здесь подложка тёмная (см. OverlayRect
-    выше), не светлый фон блока сообщения. }
+  { The scrub bar — the same geometry/colors/behavior as
+    TAudioWidget.Paint (AUDIO_TRACK_H/AUDIO_THUMB_H/W/
+    AUDIO_PLAYED_OPACITY/AUDIO_REMAIN_OPACITY/FormatAudioTime), matching
+    it exactly. Blended toward black (clBlack), not clWindow like
+    audio — the backing here is dark (see OverlayRect above), not the
+    message block's light background. }
   TrackRect := Rect(ContentX, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2,
     ContentX + ContentW, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2 + AUDIO_TRACK_H);
   if FDraggingSeek then begin
@@ -2774,19 +2844,24 @@ begin
   Canvas.TextOut(ContentX + ContentW - Canvas.TextWidth(RemainStr),
     ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, RemainStr);
 
-  { Ряд транспортных кнопок — по прямому запросу пользователя
-    (2026-09-07): слева направо prev / -10с / play-pause / repeat /
-    +10с / next. Серый/цветной вариант — недоступность (prev/next без
-    соседнего видео, -10с/+10с уже у границы) либо режим (repeat
-    вкл/выкл), не hover-состояние самой кнопки (отдельных "нажатых"
-    кадров в playback-списке нет). }
+  { The transport-button row: left to right, prev / -10s / play-pause /
+    repeat / +10s / next. The gray/colored variant reflects
+    availability (prev/next with no neighboring video, -10s/+10s
+    already at the edge) or mode (repeat state), not the button's own
+    hover state (there are no separate "pressed" frames in the
+    playback list). }
   if FPlaybackImages <> nil then begin
     for I := 0 to 5 do begin
       case I of
         0: IconIdx := IfThen(FHasPrevVideo, PLAYBACK_ICON_PREV_ON, PLAYBACK_ICON_PREV_OFF);
         1: IconIdx := IfThen(FPositionSec > 0.01, PLAYBACK_ICON_BACK10_ON, PLAYBACK_ICON_BACK10_OFF);
         2: IconIdx := IfThen(FPlaying, PLAYBACK_ICON_PAUSE, PLAYBACK_ICON_PLAY);
-        3: IconIdx := IfThen(FRepeatOn, PLAYBACK_ICON_REPEAT_ON, PLAYBACK_ICON_REPEAT_OFF);
+        3: case FRepeatMode of
+             vrmAll: IconIdx := PLAYBACK_ICON_REPEAT_ALL;
+             vrmOne: IconIdx := PLAYBACK_ICON_REPEAT_ONE;
+           else
+             IconIdx := PLAYBACK_ICON_REPEAT_OFF;
+           end;
         4: IconIdx := IfThen((FDuration > 0) and (FPositionSec < FDuration - 0.01),
              PLAYBACK_ICON_FWD10_ON, PLAYBACK_ICON_FWD10_OFF);
       else
@@ -2802,19 +2877,20 @@ end;
 
 { ---------------- TStickerWidget ---------------- }
 
-{ Композитит уже готовый ARGB32_Premultiplied-буфер (AWidth*AHeight*4
-  байт) через GDI AlphaBlend — в отличие от DrawBgraBuffer/
-  SetDIBitsToDevice (тот просто заменяет пиксели, без альфы), здесь
-  нужна настоящая прозрачность: стикеры (в первую очередь rlottie/TGS)
-  почти всегда рисуются на прозрачном фоне. AlphaBlend требует
-  ИСХОДНЫЙ HDC, не сырой буфер напрямую — оборачиваем буфер во
-  временную DIB-секцию (CreateDIBSection), выбираем её в совместимый
-  memory DC, блендим, освобождаем. AC_SRC_ALPHA ожидает ПРЕУМНОЖЕННУЮ
-  альфу — ровно то, что отдаёт rlottie (см. rlottie.pas), конвертация
-  не нужна. AlphaBlend — не из FPC Windows-юнита (там есть только тип
-  TBlendFunction/константы AC_SRC_*, самой функции нет, проверено
-  чтением rtl/win исходников) — биндинг ниже, msimg32.dll, стандартная
-  часть Windows, новых DLL/зависимостей не требует. }
+{ Composites an already-ready ARGB32_Premultiplied buffer
+  (AWidth*AHeight*4 bytes) via GDI AlphaBlend — unlike DrawBgraBuffer/
+  SetDIBitsToDevice (which just replaces pixels, no alpha), real
+  transparency is needed here: stickers (rlottie/TGS especially) are
+  almost always drawn on a transparent background. AlphaBlend requires
+  a SOURCE HDC, not a raw buffer directly — the buffer is wrapped in a
+  temporary DIB section (CreateDIBSection), selected into a compatible
+  memory DC, blended, and released. AC_SRC_ALPHA expects PREMULTIPLIED
+  alpha — exactly what rlottie provides (see rlottie.pas), no
+  conversion needed. AlphaBlend isn't declared by FPC's Windows unit
+  (which has only the TBlendFunction type/AC_SRC_* constants, not the
+  function itself, confirmed by reading the rtl/win sources) — the
+  binding below targets msimg32.dll, a standard part of Windows,
+  requiring no new DLLs/dependencies. }
 function AlphaBlend(hdcDest: HDC; nXOriginDest, nYOriginDest, nWidthDest, nHeightDest: longint;
   hdcSrc: HDC; nXOriginSrc, nYOriginSrc, nWidthSrc, nHeightSrc: longint;
   ABlendFunction: TBlendFunction): BOOL; stdcall; external 'msimg32.dll' name 'AlphaBlend';
@@ -2864,8 +2940,8 @@ begin
   inherited Create(AOwner);
   Cursor := crDefault;
   FBgColor := clWindow;
-  { Тот же интервал опроса, что у TAnimationWidget/TVideoWidget — см. их
-    же комментарий. }
+  { The same poll interval as TAnimationWidget/TVideoWidget — see their
+    comment. }
   FPollTimer := TTimer.Create(Self);
   FPollTimer.Interval := 33;
   FPollTimer.OnTimer := @PollTick;
@@ -2893,10 +2969,10 @@ var
   OldTargetW, OldTargetH: integer;
 begin
   if (ARowId <> FRowId) or (AFormat <> FFormat) then begin
-    { Виджет из пула переиспользован под ДРУГОЕ сообщение (или тот же
-      файл, но другого формата — теоретически не встречается на
-      практике, но дешевле проверить, чем предполагать) — тот же приём,
-      что и у TAnimationWidget.SetAnim. }
+    { The pooled widget was reused for a DIFFERENT message (or the same
+      file with a different format — theoretically doesn't happen in
+      practice, but cheaper to check than assume) — the same approach
+      as TAnimationWidget.SetAnim. }
     StopLoop;
     ClearBitmaps;
     FLocalPath := '';
@@ -2948,10 +3024,10 @@ begin
       FPollTimer.Enabled := True;
     end;
     sfWebp: begin
-      { Статика — декодируется ОДИН раз (не в фоновом потоке: файлы
-        стикеров на порядки меньше полноразмерных фото, синхронный
-        декод здесь не тот дорогой случай, что оправдывал
-        TPhotoDecodeThread у фото). }
+      { Static — decoded ONCE (not in a background thread: sticker
+        files are orders of magnitude smaller than full-size photos, so
+        synchronous decoding here isn't the expensive case that
+        justified TPhotoDecodeThread for photos). }
       if FStaticBmp = nil then begin
         try
           FStaticBmp := TBGRABitmap.Create(FLocalPath);
@@ -2974,10 +3050,10 @@ procedure TStickerWidget.StopLoop;
 begin
   FPollTimer.Enabled := False;
   if FLottiePlayer <> nil then begin
-    { FreeOnTerminate=True (lottieplayer.pas) — та же конвенция, что и
-      TAnimationPlayer: StopPlayback асинхронно просит поток
-      остановиться, указатель забываем сразу, не обращаемся к объекту
-      после. }
+    { FreeOnTerminate=True (lottieplayer.pas) — the same convention as
+      TAnimationPlayer: StopPlayback asynchronously asks the thread to
+      stop, the pointer is forgotten right away, never touching the
+      object afterward. }
     FLottiePlayer.StopPlayback;
     FLottiePlayer := nil;
   end;
@@ -3011,23 +3087,21 @@ begin
   if (FTargetW <= 0) or (FTargetH <= 0) or (not FPlaying) then begin
     Exit;
   end;
-  { sfWebp у FHaveFrame не нуждается вовсе (FStaticBmp декодируется
-    синхронно в StartLoop, готов сразу целиком, не по кадрам) — гейт
-    касается только живых, поступающих по таймеру буферов. }
+  { sfWebp doesn't need FHaveFrame at all (FStaticBmp is decoded
+    synchronously in StartLoop, ready whole right away, not
+    frame-by-frame) — the gate applies only to live buffers arriving on
+    a timer. }
   if (FFormat in [sfTgs, sfWebm]) and (not FHaveFrame) then begin
     Exit;
   end;
-  { FTargetW/FTargetH, НЕ Width/Height — тот же класс правки, что уже
-    документирован для видео-виджета в другом заходе (буфер выделен и
-    заполнен РОВНО под FTargetW*FTargetH*4 байт; если контрол когда-либо
-    сообщает Width/Height, отличные от того, что реально просили при
-    SetBounds — например, из-за пересчёта размеров LCL/DPI между
-    SetBounds и Paint — AlphaBlend получил бы destination-прямоугольник
-    другого размера, чем есть данных в буфере, и растянул/сжал бы кадр
-    средствами самого AlphaBlend, куда более грубыми, чем наш собственный
-    BoxDownscaleArgb — ровно тот класс "куда-то пропадают детали",
-    который не удалось объяснить ничем другим при разборе жалобы
-    пользователя на TGS-рендер). }
+  { FTargetW/FTargetH, NOT Width/Height — the buffer is allocated and
+    filled for EXACTLY FTargetW*FTargetH*4 bytes; if the control ever
+    reports a Width/Height different from what was actually requested
+    in SetBounds (e.g. due to LCL/DPI size recalculation between
+    SetBounds and Paint), AlphaBlend would get a destination rectangle
+    of a different size than the data in the buffer, and would
+    stretch/shrink the frame using AlphaBlend's own, much cruder
+    algorithm than our BoxDownscaleArgb. }
   case FFormat of
     sfTgs: if FFrameBuf <> nil then begin
       DrawPremultipliedArgbBuffer(Canvas, FFrameBuf, FTargetW, FTargetH);
@@ -3078,6 +3152,11 @@ begin
   FPlaybackTimer.Interval := 250;
   FPlaybackTimer.OnTimer := @PlaybackTick;
   FPlaybackTimer.Enabled := False;
+
+  FCustomEmojiTimer := TTimer.Create(Self);
+  FCustomEmojiTimer.Interval := 33;
+  FCustomEmojiTimer.OnTimer := @CustomEmojiAnimTick;
+  FCustomEmojiTimer.Enabled := True;
 end;
 
 destructor TMsgScroller.Destroy;
@@ -3085,8 +3164,8 @@ begin
   StopActivePlayer;
   FlushDonePlayer;
   FAudioActive.Free;
-  { Сами виджеты не освобождаем: они дочерние control'ы Self,
-    их уничтожит LCL вместе с родителем. }
+  { The widgets themselves aren't freed: they're child controls of
+    Self, LCL destroys them along with the parent. }
   FAudioPool.Free;
   FFileActive.Free;
   FFilePool.Free;
@@ -3123,12 +3202,12 @@ var
   I, H, Cnt, ColL, ColR, PreH, PostH, InnerW: integer;
   Ctx: TMsgLayoutCtx;
 begin
-  { Align/Resize может дёрнуть это ещё в конструкторе TFrameHistory,
-    когда у фрейма самого ещё нет Parent (навигатор выставляет его
-    только ПОСЛЕ Create) — обращение к Canvas в этот момент кидает
-    EInvalidOperation "Control has no parent window". Досчитаем,
-    когда появится настоящий хэндл: BindModel и следующий Resize это
-    гарантируют. }
+  { Align/Resize can trigger this while still inside TFrameHistory's
+    constructor, when the frame itself has no Parent yet (the
+    navigator sets it only AFTER Create) — touching Canvas at that
+    point raises EInvalidOperation "Control has no parent window". This
+    gets recomputed once a real handle exists: BindModel and the
+    following Resize guarantee that. }
   if not HandleAllocated then begin
     SetLength(FOffsets, 1);
     SetLength(FRowIds, 0);
@@ -3155,10 +3234,11 @@ begin
   for I := 0 to Cnt - 1 do begin
     FRowIds[I] := FModel[I].Id;
     ForwardMetrics(FModel[I], ColR - ColL, PreH, PostH, InnerW);
-    { Цитата ответа (reply_to) рисуется ВЫШЕ цитаты репоста/контента —
-      её высота добавляется к PreH отдельно, а не внутри ForwardMetrics
-      (это два независимых, ортогональных свойства сообщения: реплай и
-      репост технически могут встретиться на одном сообщении разом). }
+    { A reply quote (reply_to) is drawn ABOVE the forward quote/content
+      — its height is added to PreH separately, not inside
+      ForwardMetrics (these are two independent, orthogonal message
+      properties: a reply and a forward can technically both occur on
+      the same message). }
     PreH := PreH + ReplyExtraH(FModel[I]);
     Ctx.AvailWidth := InnerW;
     H := HEADER_BAR_H + PreH + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + PostH;
@@ -3168,29 +3248,29 @@ begin
   FTotalHeight := FOffsets[Cnt];
 end;
 
-{ Метрики цитаты репоста — единый источник для RebuildOffsets (высота
-  строки) и ContentRect/ForwardCardRect/ForwardHeaderRect (где рисовать),
-  тем же приёмом, что ColumnBounds. AColW — ШИРИНА КОЛОНКИ целиком
-  (ColR-ColL, ДО вычитания чьих-либо паддингов) — у цитаты свой,
-  цитата структурно нарочно то же самое "заголовок+контент", что и весь
-  блок, вложенное — переиспользует ровно те же MSG_PAD_H/MSG_PAD_V, что
-  и обычный (не вложенный) блок, чтобы отступы контента от рамки цитаты
-  визуально совпадали с отступами обычного сообщения от рамки блока.
-  FORWARD_HEADER_GAP — единственное по-настоящему отдельное число,
-  и только для одного места: зазор МЕЖДУ основным заголовком блока и
-  рамкой цитаты (см. FORWARD_HEADER_GAP выше). Не репост — APreH/APostH/
-  AInnerW как у обычного блока. }
+{ Forward-quote metrics — the single source of truth for both
+  RebuildOffsets (row height) and ContentRect/ForwardCardRect/
+  ForwardHeaderRect (where to draw), the same approach as ColumnBounds.
+  AColW is the FULL COLUMN WIDTH (ColR-ColL, BEFORE subtracting anyone's
+  padding) — the quote is structurally the same "header+content" shape
+  as the whole block, nested, and reuses exactly the same
+  MSG_PAD_H/MSG_PAD_V as the outer (non-nested) block, so the content's
+  padding from the quote's frame visually matches an ordinary message's
+  padding from the block's frame. FORWARD_HEADER_GAP is the one
+  genuinely separate number, and only for one spot: the gap BETWEEN the
+  block's main header and the quote's frame (see FORWARD_HEADER_GAP
+  above). Not a forward: APreH/APostH/AInnerW match the ordinary block. }
 function TMsgScroller.ContentPadV(ARow: TMsgRow): integer;
 begin
-  { Обычный вертикальный отступ контента от заголовка блока/от нижнего
-    края блока — MSG_PAD_V, кроме аудио/голосового/файла/фото/"гифки"/
-    видео: у всех по месту пользователя этот отступ должен совпадать с
-    MSG_PAD_H=11, не с обычным вертикальным (MSG_PAD_V=6). Список рос
-    по одному правкой "по месту" на каждый новый тип виджета —
-    ContentPadV затем единственное место, которое их всех и покрывает
-    разом (голосовое — тот же TAudioWidget, что и аудио, "гифка"/видео
-    — тот же класс отступа, что у фото, тем же рассуждением — все три
-    используют NaturalMediaSize/ComputePhotoPreviewSize). }
+  { The ordinary vertical gap from the block's header/from the block's
+    bottom edge is MSG_PAD_V, except for audio/voice/file/photo/"GIF"/
+    video: for all of these, this gap should match MSG_PAD_H=11, not
+    the ordinary vertical value (MSG_PAD_V=6). This list grew one entry
+    at a time as each new widget type was added — ContentPadV is the
+    single place that covers all of them at once (voice reuses
+    TAudioWidget, same as audio; "GIF"/video share the same padding
+    class as photo, by the same reasoning — all three use
+    NaturalMediaSize/ComputePhotoPreviewSize). }
   if (ARow <> nil) and
     (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto, mckAnimation, mckVideo, mckSticker]) then begin
     Result := MSG_PAD_H;
@@ -3215,20 +3295,20 @@ begin
     end;
     Exit;
   end;
-  { До контента: зазор от основного заголовка (FORWARD_HEADER_GAP) +
-    мини-заголовок цитаты (HEADER_BAR_H) + её собственный отступ до
-    контента — тот же PadV, что и у обычного блока. После контента
-    — собственный нижний отступ цитаты (PadV, симметричен верхнему
-    внутри самой цитаты) + отступ ОТ рамки цитаты до края основного
-    блока — тот же FORWARD_HEADER_GAP, что и сверху (симметрия с
-    зазором "заголовок блока → цитата", а не обычный PadV: цитата
-    — не обычный контент, а вложенный элемент со своим отступом от
-    родителя с обеих сторон). }
+  { Before the content: the gap from the main header (FORWARD_HEADER_GAP)
+    + the quote's mini-header (HEADER_BAR_H) + its own gap to the
+    content — the same PadV as the ordinary block. After the content:
+    the quote's own bottom padding (PadV, symmetric with the top,
+    inside the quote itself) + the gap FROM the quote's frame to the
+    outer block's edge — the same FORWARD_HEADER_GAP as at the top
+    (mirroring the "block header -> quote" gap, not the plain PadV:
+    the quote is a nested element with its own padding from its parent
+    on both sides, not ordinary content). }
   APreH := FORWARD_HEADER_GAP + HEADER_BAR_H + PadV;
   APostH := PadV + FORWARD_HEADER_GAP;
-  { Ширина контента: рамка цитаты отстоит от краёв блока на MSG_PAD_H
-    (как обычный контент от блока), содержимое внутри рамки — ещё на
-    такой же MSG_PAD_H от неё. }
+  { Content width: the quote's frame is inset from the block's edges
+    by MSG_PAD_H (like ordinary content from the block), and the
+    content inside the frame is inset by the same MSG_PAD_H again. }
   AInnerW := AColW - 4 * MSG_PAD_H;
   if AInnerW < 20 then begin
     AInnerW := 20;
@@ -3239,7 +3319,7 @@ procedure TMsgScroller.ColumnBounds(out ALeft, ARight: integer);
 var
   W: integer;
 begin
-  { MAX_MSG_W = 0 — колонка во всю ширину фрейма, без ограничения. }
+  { MAX_MSG_W = 0 means the column spans the frame's full width, no cap. }
   W := ClientWidth;
   if (MAX_MSG_W > 0) and (W > MAX_MSG_W) then begin
     W := MAX_MSG_W;
@@ -3288,7 +3368,7 @@ begin
   Result := IndexAtY(FScrollTop + ClientHeight - 1);
 end;
 
-{ ---------------- автозагрузка ---------------- }
+{ ---------------- auto-download ---------------- }
 
 function TMsgScroller.CurrentChatKind: string;
 var
@@ -3332,13 +3412,13 @@ begin
     Exit;
   end;
 
-  { Стикеры — БЕЗ гейта настроек Auto download вовсе, по прямому
-    запросу пользователя (см. её же комментарий у
-    TTdMessages.EnsureStickerFile, tdmessages.pas): файлы крошечные,
-    сама суть стикера — мгновенный визуальный отклик. Загрузка
-    достаточна сама по себе — старт анимации делает
-    LayoutStickerWidgets на каждом заходе раскладки, как только файл
-    готов, той же безусловной логикой, что уже есть там. }
+  { Stickers — WITHOUT the Auto download settings gate at all (see the
+    comment on TTdMessages.EnsureStickerFile, tdmessages.pas): the
+    files are tiny, and the whole point of a sticker is an instant
+    visual response. Downloading is enough on its own — starting the
+    animation is LayoutStickerWidgets's job, on every layout pass, as
+    soon as the file is ready, using the same unconditional logic
+    already there. }
   if ARow.Kind = mckSticker then begin
     FModel.EnsureStickerFile(ARow);
     Exit;
@@ -3346,9 +3426,10 @@ begin
 
   case ARow.Kind of
     mckPhoto: MediaKind := 'images';
-    { Голосовое — тот же виджет и та же настройка "Audio", что и
-      обычное аудио (см. LayoutAudioWidgets) — отдельной категории для
-      voice note в настройках Auto download нет и не нужно. }
+    { Voice notes use the same widget and the same "Audio" setting as
+      regular audio (see LayoutAudioWidgets) — there's no separate
+      category for voice notes in the Auto download settings, and none
+      is needed. }
     mckAudio, mckVoiceNote: MediaKind := 'audio';
     mckFile:  MediaKind := 'files';
     mckAnimation: MediaKind := 'gif';
@@ -3367,10 +3448,10 @@ begin
 
   case ARow.Kind of
     mckPhoto: begin
-      { Обе копии — превью (для инлайн-показа в самом чате) и оригинал
-        (чтобы открытие по клику потом было мгновенным) — то же самое,
-        что уже сейчас качает первый клик по фото (см. PhotoWidgetClick),
-        только без клика. }
+      { Both copies — the preview (for inline display in the chat
+        itself) and the original (so opening it later is instant) —
+        the same thing a first click on a photo already downloads (see
+        PhotoWidgetClick), just without the click. }
       FModel.EnsurePhotoFile(ARow);
       FModel.EnsurePhotoBestFile(ARow);
     end;
@@ -3379,20 +3460,20 @@ begin
     mckFile:
       FModel.EnsureDocFile(ARow);
     mckAnimation: begin
-      { По прямому запросу пользователя — при включённой автозагрузке
-        "гифка" не просто качается, а сразу зацикленно проигрывается.
-        AnimAutoPlay — постоянная пометка строки (не разовая команда):
-        сам запуск StartLoop делает LayoutAnimationWidgets на каждом
-        заходе раскладки, как только файл готов (см. её комментарий) —
-        здесь достаточно попросить загрузку и выставить флаг. }
+      { With auto-download enabled, a "GIF" isn't just downloaded but
+        immediately played on a loop. AnimAutoPlay is a permanent mark
+        on the row (not a one-shot command): actually starting playback
+        via StartLoop is LayoutAnimationWidgets's job, on every layout
+        pass, as soon as the file is ready (see its comment) — here it
+        only needs requesting the download and setting the flag. }
       FModel.EnsureAnimFile(ARow);
       ARow.AnimAutoPlay := True;
     end;
     mckVideo:
-      { В отличие от "гифки" — ТОЛЬКО скачивание, без автостарта: видео
-        со звуком, запускающееся само при прокрутке мимо, было бы
-        навязчивым UX (пользователь не просил автовоспроизведение для
-        видео, только автозагрузку — см. запрос). }
+      { Unlike a "GIF" — download ONLY, no auto-start: a video with
+        sound starting to play on its own while scrolled past would be
+        intrusive UX (auto-download was requested for video, not
+        auto-playback). }
       FModel.EnsureVideoFile(ARow);
   end;
 end;
@@ -3411,6 +3492,11 @@ begin
   end;
   for I := Lo to Hi do begin
     MaybeAutoDownload(FModel[I]);
+    { No Auto download gate, same as stickers/video-thumbnail above —
+      see the comment on TTdMessages.EnsureCustomEmojiForRow. Cheap to
+      call unconditionally: it scans ARow.Entities and no-ops at once
+      for the common case of a row with no mekCustomEmoji entity. }
+    FModel.EnsureCustomEmojiForRow(FModel[I]);
   end;
 end;
 
@@ -3421,11 +3507,23 @@ begin
   if (FModel = nil) or (ADirection = 0) then begin
     Exit;
   end;
+  { EnsureCustomEmojiForRow belongs here alongside MaybeAutoDownload, not
+    only in AutoDownloadVisible (ModelChanged) — a real, reported bug:
+    scrolling to reveal an OLDER row that was already loaded (no new
+    message arrived, no model change at all) never ran it, so a custom
+    emoji entity sitting in already-cached history could go forever
+    unrequested (confirmed directly: its custom_emoji_id never once
+    appeared in a getCustomEmojiStickers request in tdlib_raw.log, even
+    though the message was fully visible on screen — ModelChanged simply
+    never fired for it after the initial load). Same idempotent,
+    no-op-if-already-known/pending guard as everywhere else in this
+    project — safe to call on every scroll tick. }
   if ADirection > 0 then begin
     Idx := LastVisible + 1;
     EndIdx := Min(FModel.Count - 1, LastVisible + AUTODL_PREFETCH_MESSAGES);
     while Idx <= EndIdx do begin
       MaybeAutoDownload(FModel[Idx]);
+      FModel.EnsureCustomEmojiForRow(FModel[Idx]);
       Inc(Idx);
     end;
   end else begin
@@ -3433,6 +3531,7 @@ begin
     EndIdx := Max(0, FirstVisible - AUTODL_PREFETCH_MESSAGES);
     while Idx >= EndIdx do begin
       MaybeAutoDownload(FModel[Idx]);
+      FModel.EnsureCustomEmojiForRow(FModel[Idx]);
       Dec(Idx);
     end;
   end;
@@ -3460,11 +3559,12 @@ begin
   ContentH := BlockH - HEADER_BAR_H - PreH - PostH;
   TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + PreH;
   if (R <> nil) and (R.ForwardKind <> mfoNone) then begin
-    { Контент цитаты — внутри рамки ForwardCardRect, у которой уже свой
-      MSG_PAD_H от краёв блока (как у обычного контента); ещё один такой
-      же MSG_PAD_H — собственный отступ содержимого ОТ этой рамки (см.
-      ForwardMetrics) — тот же по величине отступ, что у контента
-      обычного сообщения от его блока, не отдельное число. }
+    { The quote's content sits inside the ForwardCardRect frame, which
+      already has its own MSG_PAD_H from the block's edges (like
+      ordinary content); one more MSG_PAD_H is the content's own
+      padding FROM that frame (see ForwardMetrics) — the same padding
+      value as ordinary message content has from its block, not a
+      separate number. }
     Result := Rect(ColL + 2 * MSG_PAD_H, TopY,
       ColR - 2 * MSG_PAD_H, TopY + ContentH);
     Exit;
@@ -3472,14 +3572,14 @@ begin
   Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + ContentH);
 end;
 
-{ Рамка цитаты целиком (заливка/обводка) — от конца основного заголовка
-  плюс FORWARD_HEADER_GAP (единственный отступ, специфичный для цитаты),
-  до нижнего внутреннего отступа цитаты после ContentRect (см.
-  ForwardMetrics: APostH = 2*MSG_PAD_V, первый MSG_PAD_V — как раз этот
-  нижний отступ). Горизонтально — тот же MSG_PAD_H, что и у обычного
-  (не вложенного) контента от блока — см. комментарий у ForwardMetrics.
-  Не репост — пустой Rect, вызывающий обязан сам проверить ForwardKind
-  перед вызовом. }
+{ The quote's whole frame (fill/outline) — from the end of the main
+  header plus FORWARD_HEADER_GAP (the one gap specific to the quote),
+  down to the quote's inner bottom padding after ContentRect (see
+  ForwardMetrics: APostH = 2*MSG_PAD_V, the first MSG_PAD_V is exactly
+  this bottom padding). Horizontally, the same MSG_PAD_H as ordinary
+  (non-nested) content has from the block — see the comment on
+  ForwardMetrics. Not a forward: returns an empty Rect, the caller must
+  check ForwardKind before calling. }
 function TMsgScroller.ForwardCardRect(AIndex: integer): TRect;
 var
   ColL, ColR: integer;
@@ -3487,20 +3587,22 @@ var
 begin
   ColumnBounds(ColL, ColR);
   CR := ContentRect(AIndex);
-  { ReplyExtraH — если у сообщения ЕЩЁ и есть цитата ответа (reply_to),
-    она рисуется первой, а карточка репоста сдвигается ниже её.
-    Нижний отступ — ContentPadV(ARow), НЕ голый MSG_PAD_V: у аудио он
-    11px (как и остальные три стороны), не обычные 6px — раньше здесь
-    было захардкожено MSG_PAD_V, отчего у аудио-виджета внутри карточки
-    репоста нижний отступ был у́же трёх остальных сторон. }
+  { ReplyExtraH: if the message ALSO has a reply quote (reply_to), it's
+    drawn first, and the forward card is shifted below it. The bottom
+    padding is ContentPadV(ARow), NOT bare MSG_PAD_V: for audio it's
+    11px (matching the other three sides), not the ordinary 6px — this
+    used to be hardcoded to MSG_PAD_V, making the audio widget's
+    bottom padding inside a forward card narrower than the other
+    three sides. }
   Result := Rect(ColL + MSG_PAD_H,
     FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + ReplyExtraH(FModel[AIndex]) + FORWARD_HEADER_GAP,
     ColR - MSG_PAD_H, CR.Bottom + ContentPadV(FModel[AIndex]));
 end;
 
-{ Строка "аватар+имя+время" внутри цитаты — верхняя полоса ForwardCardRect,
-  высотой HEADER_BAR_H (та же величина, что и у основного заголовка блока —
-  цитата структурно то же самое "заголовок+контент", см. ForwardMetrics). }
+{ The "avatar+name+time" row inside the quote — the top strip of
+  ForwardCardRect, HEADER_BAR_H tall (the same value as the block's
+  main header — the quote is structurally the same "header+content"
+  shape, see ForwardMetrics). }
 function TMsgScroller.ForwardHeaderRect(AIndex: integer): TRect;
 var
   Card: TRect;
@@ -3509,21 +3611,20 @@ begin
   Result := Rect(Card.Left, Card.Top, Card.Right, Card.Top + HEADER_BAR_H);
 end;
 
-{ FORWARD_HEADER_GAP — зазор ОТ ОСНОВНОГО ЗАГОЛОВКА до плашки цитаты
-  ответа, тот же самый (не просто равный по значению), что и у карточки
-  репоста, по месту пользователя: "цитата от верхнего края основного
-  сообщения так же должна отстоять на 11 пикселей, как и пересланное
-  сообщение" — переиспользуем именно эту константу, а не заводим
-  REPLY_TOP_GAP с тем же числом, чтобы они не могли разъехаться при
-  следующей правке. "REPLY_BOX_H" ниже — уже сама плашка; отступ ПОСЛЕ
-  неё (до карточки репоста, если есть, либо до контента) — обычный
-  MSG_PAD_V, как и у всего остального в ForwardMetrics, см. вызовы
-  ReplyExtraH в RebuildOffsets/ContentRect/ForwardCardRect: везде это
-  прибавляется К ГОЛОВЕ уже готового PreH из ForwardMetrics (который
-  сам начинается с MSG_PAD_V для обычного контента или с
-  FORWARD_HEADER_GAP для карточки репоста) — то есть "отступ после
-  плашки" тут получается автоматически, из уже существующего PreH, а
-  не отдельным слагаемым здесь. }
+{ FORWARD_HEADER_GAP is the gap FROM THE MAIN HEADER to the reply quote
+  box — the same constant (not just an equal value) used by the
+  forward card, so the quote sits exactly as far from the main
+  message's top edge as a forwarded message does. Reusing this
+  constant rather than defining a separate REPLY_TOP_GAP with the same
+  number keeps them from drifting apart at a later edit. "REPLY_BOX_H"
+  below is the box itself; the gap AFTER it (to the forward card, if
+  any, or to the content) is the ordinary MSG_PAD_V, same as everything
+  else in ForwardMetrics — see the ReplyExtraH calls in
+  RebuildOffsets/ContentRect/ForwardCardRect: it's always added ON TOP
+  of the already-computed PreH from ForwardMetrics (which itself starts
+  with MSG_PAD_V for ordinary content or FORWARD_HEADER_GAP for a
+  forward card) — so "the gap after the box" falls out automatically
+  from the existing PreH, rather than being a separate term here. }
 function TMsgScroller.ReplyExtraH(ARow: TMsgRow): integer;
 begin
   if (ARow = nil) or (ARow.ReplyMessageId = 0) then begin
@@ -3533,10 +3634,11 @@ begin
   end;
 end;
 
-{ Плашка цитаты ответа — сразу под основным заголовком блока, на том же
-  отступе (FORWARD_HEADER_GAP), что и карточка репоста от него. Если у
-  сообщения ЕЩЁ и репост — карточка репоста и контент сдвинуты ниже
-  неё, см. ReplyExtraH в ForwardCardRect/ContentRect/RebuildOffsets. }
+{ The reply quote box — right below the block's main header, at the
+  same gap (FORWARD_HEADER_GAP) as a forward card sits from it. If the
+  message ALSO has a forward, the forward card and content are shifted
+  below it — see ReplyExtraH in ForwardCardRect/ContentRect/
+  RebuildOffsets. }
 function TMsgScroller.ReplyBoxRect(AIndex: integer): TRect;
 var
   ColL, ColR, TopY: integer;
@@ -3546,12 +3648,12 @@ begin
   Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + REPLY_BOX_H);
 end;
 
-{ Зажимает и применяет позицию без уведомления "около верха — догрузи
-  ещё". Внутренняя бухгалтерия (ModelChanged, Resize) правит
-  FScrollTop программно и НЕ должна интерпретироваться как "юзер
-  прокрутил и хочет больше" — за досыл короткой истории отвечает
-  MaybeLoadMore в TFrameHistory.ModelChanged, вызываемый отдельно и
-  ровно один раз. }
+{ Clamps and applies the position without the "near the top — load
+  more" notification. Internal bookkeeping (ModelChanged, Resize) sets
+  FScrollTop programmatically and must NOT be interpreted as "the user
+  scrolled and wants more" — loading a short history further is
+  MaybeLoadMore's job in TFrameHistory.ModelChanged, called separately,
+  exactly once. }
 procedure TMsgScroller.ClampScrollTop(AValue: integer);
 var
   MaxTop, OldTop: integer;
@@ -3572,11 +3674,10 @@ begin
   OldTop := FScrollTop;
   FScrollTop := AValue;
   Invalidate;
-  { Упреждающая автозагрузка на AUTODL_PREFETCH_MESSAGES сообщений
-    вперёд по направлению скролла — единственное место, где ЛЮБОЕ
-    реальное изменение позиции (колесо, клавиши, драг скроллбара,
-    программные правки вроде ScrollToBottom) проходит, см. комментарий
-    у SetScrollTop. }
+  { Lookahead auto-download for AUTODL_PREFETCH_MESSAGES messages ahead
+    in the scroll direction — the single place through which EVERY real
+    position change passes (wheel, keys, scrollbar drag, programmatic
+    changes like ScrollToBottom), see the comment on SetScrollTop. }
   if AValue > OldTop then begin
     PrefetchAutoDownload(1);
   end else if AValue < OldTop then begin
@@ -3587,24 +3688,23 @@ begin
   end;
 end;
 
-{ Публичный сеттер — только для настоящей прокрутки пользователем
-  (колесо, клавиши, нативный скроллбар). Раньше OnNearTop дёргался
-  отсюда же ИЗНУТРИ вложенной цепочки ModelChanged->ScrollToBottom
-  ->SetScrollTop->OnNearTop->LoadOlder ещё до возврата в сам
-  ModelChanged — рабочей эта цепочка была, но реентрантной и хрупкой.
-  Теперь программные правки позиции идут через ClampScrollTop и в
-  OnNearTop не заходят вовсе. }
+{ The public setter — for actual user scrolling only (wheel, keys, the
+  native scrollbar). OnNearTop used to fire from right here, INSIDE the
+  nested chain ModelChanged -> ScrollToBottom -> SetScrollTop ->
+  OnNearTop -> LoadOlder, before ever returning to ModelChanged itself
+  — that chain worked, but was reentrant and fragile. Now programmatic
+  position changes go through ClampScrollTop and never reach OnNearTop
+  at all. }
 procedure TMsgScroller.SetScrollTop(AValue: integer);
 begin
   ClampScrollTop(AValue);
-  { НЕ внутри проверки "значение изменилось" у ClampScrollTop: если
-    пользователь уже упёрся в самый верх (FScrollTop=0=MaxTop) и
-    продолжает крутить колесо вверх, зажатое AValue совпадёт с уже
-    текущим FScrollTop — и если бы OnNearTop звался только при
-    изменении, подгрузка старой истории переставала бы запускаться
-    намертво ровно тогда, когда она нужнее всего.
-    ScrollerNearTop idempotent (гвардится LoadingOlder/OldestLoaded),
-    повторный вызов безопасен. }
+  { Deliberately NOT inside ClampScrollTop's "value changed" check: if
+    the user has already hit the very top (FScrollTop=0=MaxTop) and
+    keeps scrolling the wheel up, the clamped AValue matches the
+    already-current FScrollTop — and if OnNearTop only fired on change,
+    loading older history would stop firing entirely right when it's
+    needed most. ScrollerNearTop is idempotent (guarded by
+    LoadingOlder/OldestLoaded), so a repeat call is safe. }
   if (FScrollTop <= NEAR_TOP_PX) and Assigned(FOnNearTop) then begin
     FOnNearTop(Self);
   end;
@@ -3625,28 +3725,31 @@ var
 begin
   OldCount := Length(FRowIds);
   OldMax := FTotalHeight - ClientHeight;
-  { "Была внизу" — только когда реально существовала прокручиваемая
-    область и мы были у её конца. OldMax<=0 (весь список помещался на
-    экране) раньше ЛЮБОЙ такой случай засчитывал как "внизу" — из-за
-    этого короткий, ещё догружаемый чат (MaybeLoadMore подгружает
-    историю сам, пока контента не хватает на экран) на каждую подгрузку
-    прыгал к низу, забивая попытку пользователя проскроллить вверх ДО
-    того, как список вырастет больше экрана. Для OldCount=0 (самое
-    первое открытие чата) низ всё равно нужен явно — якорить не к чему. }
+  { "Was at the bottom" only counts when a scrollable area actually
+    existed and we were at its end. OldMax<=0 (the whole list fit on
+    screen) used to count as "at the bottom" for ANY such case — which
+    made a short, still-loading chat (MaybeLoadMore fetches more
+    history on its own while there isn't enough content to fill the
+    screen) jump to the bottom on every load, defeating the user's
+    attempt to scroll up BEFORE the list grew taller than the screen.
+    For OldCount=0 (the very first time a chat is opened), the bottom
+    is still forced explicitly — there's nothing to anchor to. }
   WasAtBottom := (OldCount > 0) and (OldMax > 0) and (FScrollTop >= OldMax - 4);
 
-  { Запоминаем сообщение в верхней видимой строке — после подгрузки
-    истории (LoadOlder добавляет контент ВЫШЕ) вернём его на то же
-    место в окне, иначе список визуально прыгнет.
+  { The message in the top visible row is remembered — after loading
+    more history (LoadOlder adds content ABOVE), it's returned to the
+    same spot in the window, otherwise the list would visibly jump.
 
-    ВАЖНО: id берём из FRowIds, СВОЕГО снимка того же винтажа, что и
-    FOffsets/AnchorIdx — НЕ из FModel[AnchorIdx]. К моменту вызова
-    ModelChanged модель (TTdMessages) уже перестроена (Rebuild отработал
-    до FOnChanged), а FOffsets/FRowIds — ещё старые. LoadOlder вставляет
-    новые сообщения В НАЧАЛО списка, сдвигая индексы всех остальных;
-    FModel[тот же индекс] после такой вставки — уже СОВСЕМ ДРУГОЕ
-    сообщение. Отсюда и "вставляются вразнобой" при подгрузке во время
-    скролла вверх — старый индекс молча читался из уже сдвинутых данных. }
+    IMPORTANT: the id comes from FRowIds, our OWN snapshot of the same
+    vintage as FOffsets/AnchorIdx — NOT from FModel[AnchorIdx]. By the
+    time ModelChanged is called, the model (TTdMessages) has already
+    been rebuilt (Rebuild ran before FOnChanged), while FOffsets/FRowIds
+    are still the old ones. LoadOlder inserts new messages AT THE START
+    of the list, shifting every other index; FModel[the same index]
+    after such an insert is an ENTIRELY DIFFERENT message. This used to
+    show up as rows jumping around when loading more during an
+    upward scroll — the old index was silently read from data that had
+    already shifted. }
   AnchorId := 0;
   AnchorOldOffset := 0;
   AnchorIdx := IndexAtY(FScrollTop);
@@ -3671,9 +3774,9 @@ begin
     ClampScrollTop(FScrollTop);
   end;
 
-  { Ждали скачивания файла, чтобы начать проигрывание (клик по play на
-    ещё не скачанном треке, см. AudioPlayClick) — путь мог появиться
-    именно в этом апдейте. }
+  { Waiting for a file to download before starting playback (a play
+    click on a not-yet-downloaded track, see AudioPlayClick) — the path
+    may have arrived in this very update. }
   if FPendingPlayMsgId <> 0 then begin
     PendingIdx := FModel.IndexOfId(FPendingPlayMsgId);
     if (PendingIdx >= 0) and (PlayableLocalPath(FModel[PendingIdx]) <> '') then begin
@@ -3682,8 +3785,8 @@ begin
     end;
   end;
 
-  { То же самое для "Save as..."/"Show in folder" на ещё не скачанном
-    файле, см. FileWidgetSaveAsClick/FileWidgetShowInFolderClick. }
+  { Same for "Save as..."/"Show in folder" on a not-yet-downloaded
+    file, see FileWidgetSaveAsClick/FileWidgetShowInFolderClick. }
   if FPendingSaveMsgId <> 0 then begin
     PendingIdx := FModel.IndexOfId(FPendingSaveMsgId);
     if (PendingIdx >= 0) and (FModel[PendingIdx].DocLocalPath <> '') then begin
@@ -3696,10 +3799,11 @@ begin
     end;
   end;
 
-  { То же для фото, см. PhotoWidgetSaveAsClick/PhotoWidgetShowInFolderClick.
-    PhotoBestLocalPath (оригинал), не PhotoLocalPath (превью-копия) —
-    оба меню-действия ждут именно оригинал, см. комментарий у
-    TMsgRow.PhotoBestFileId. }
+  { Same for photos, see
+    PhotoWidgetSaveAsClick/PhotoWidgetShowInFolderClick.
+    PhotoBestLocalPath (the original), not PhotoLocalPath (the preview
+    copy) — both menu actions wait for the original specifically, see
+    the comment on TMsgRow.PhotoBestFileId. }
   if FPendingPhotoMsgId <> 0 then begin
     PendingIdx := FModel.IndexOfId(FPendingPhotoMsgId);
     if (PendingIdx >= 0) and (FModel[PendingIdx].PhotoBestLocalPath <> '') then begin
@@ -3712,11 +3816,12 @@ begin
     end;
   end;
 
-  { Открытие чата и новые сообщения проходят ЗДЕСЬ, не через
-    ClampScrollTop — то упреждает окном сообщений ТОЛЬКО при реальном
-    изменении позиции скролла, а самая первая страница чата (и любое
-    сообщение, прилетевшее сразу в уже видимую область без скролла)
-    иначе не попала бы под автозагрузку вовсе. }
+  { Opening a chat and new messages pass through HERE, not
+    ClampScrollTop — that one only prefetches its message window on a
+    real scroll position change, and the chat's very first page (plus
+    any message arriving straight into the already-visible area
+    without scrolling) would otherwise never trigger auto-download at
+    all. }
   AutoDownloadVisible;
 
   Invalidate;
@@ -3728,10 +3833,10 @@ end;
 procedure TMsgScroller.Resize;
 begin
   inherited Resize;
-  { Тоже вне try/except-обвязки TFrameHistory.ModelChanged: Resize
-    зовёт LCL напрямую (изменение размера окна, сплиттер), а не
-    ModelChanged. RebuildOffsets — то же измерение реальных
-    сообщений, что и там, значит те же риски. }
+  { Also outside TFrameHistory.ModelChanged's try/except wrapper:
+    Resize is triggered by LCL directly (window resize, the splitter),
+    not by ModelChanged. RebuildOffsets does the same real-message
+    measuring as there, so it carries the same risks. }
   try
     RebuildOffsets;
     ClampScrollTop(FScrollTop);
@@ -3761,7 +3866,7 @@ begin
     Exit;
   end;
   if (AnchorIdx = FocusIdx) and (FSelAnchorChar = FSelFocusChar) then begin
-    Exit;   { пустое выделение — обычный клик без drag }
+    Exit;   { empty selection — a plain click, no drag }
   end;
   if AnchorIdx <= FocusIdx then begin
     ALowIdx := AnchorIdx;
@@ -3809,15 +3914,16 @@ begin
   FForwardUserAvatars.Clear;
 end;
 
-{ Аватарка источника репоста. AOwned=False (обычный случай) — результат
-  в FForwardChatAvatars/FForwardUserAvatars, вызывающий НЕ освобождает.
-  AOwned=True — снимок "фото ещё не скачано" (см. ниже), вызывающий
-  обязан освободить сам. nil — строить не из чего вовсе (mfoHiddenUser,
-  нет числового id — см. вызов в PaintForwardCard, там свой запасной
-  вариант без кэша). Источник данных — TChatRow (mfoChat/mfoChannel, по
-  ForwardChatId через TdChatList) или ничего, кроме имени (mfoUser — в
-  проекте пока нет скачанных фото произвольных пользователей,
-  tdusers.pas хранит только имя/цвет, см. ARCHITECTURE.md). }
+{ A forward's source avatar. AOwned=False (the ordinary case) means the
+  result lives in FForwardChatAvatars/FForwardUserAvatars, and the
+  caller must NOT free it. AOwned=True is a "photo not downloaded yet"
+  snapshot (see below), which the caller must free itself. nil means
+  there's nothing to build one from at all (mfoHiddenUser, no numeric
+  id — see the call in PaintForwardCard, which has its own cache-free
+  fallback). The data source is TChatRow (mfoChat/mfoChannel, via
+  ForwardChatId through TdChatList) or nothing but a name (mfoUser —
+  the project has no downloaded photos of arbitrary users yet,
+  tdusers.pas only stores name/color). }
 function TMsgScroller.ForwardAvatarBmp(ARow: TMsgRow; out AOwned: boolean): TBGRABitmap;
 var
   Idx: integer;
@@ -3843,7 +3949,7 @@ begin
       Id := ARow.ForwardChatId;
     end;
   else
-    Exit;   { mfoNone/mfoHiddenUser — нет стабильного id, см. комментарий выше }
+    Exit;   { mfoNone/mfoHiddenUser — no stable id, see the comment above }
   end;
   if Id = 0 then begin
     Exit;
@@ -3863,27 +3969,27 @@ begin
       C := L.Lookup(Id);
     end;
     if C <> nil then begin
-      { Список чатов сам скачивает настоящее фото только для строк,
-        реально видимых в TDrawGrid (framechats.pas:757,
-        TTdChats.EnsureAvatar) — источник репоста туда обычно не входит
-        (это ЧУЖОЙ канал/группа, необязательно наш, в списке чатов).
-        Без явного запроса здесь PhotoPath остался бы пустым навсегда, и
-        рисовалось бы только Minithumb — заведомо мелкое, размытое
-        превью (Telegram сам генерирует его таким, "заглушка на время
-        загрузки", не полноценная миниатюра — вот и вся причина
-        "размытости" из жалобы). }
+      { The chat list only downloads the real photo for rows actually
+        visible in the TDrawGrid (framechats.pas:757,
+        TTdChats.EnsureAvatar) — a forward's source usually isn't one
+        of them (it's someone ELSE's channel/group, not necessarily in
+        our chat list). Without an explicit request here, PhotoPath
+        would stay empty forever, and only Minithumb would be drawn —
+        deliberately small and blurry (Telegram itself generates it
+        that way, a "placeholder while loading", not a real
+        thumbnail). }
       L.EnsureAvatar(C);
       Result := RenderAvatarBmp(C.PhotoPath, C.Minithumb, SrcName, Id, HEADER_H, True);
       if C.PhotoPath = '' then begin
-        { Настоящее фото ещё не скачано — НЕ кэшируем: со следующей
-          перерисовкой (скролл, новое сообщение, что угодно) попробуем
-          снова, и как только EnsureAvatar докачает файл, подхватим уже
-          настоящую картинку вместо Minithumb. Результат при этом уже
-          не принадлежит кэшу — вызывающий обязан его освободить сам
-          (иначе утечка: RenderAvatarBmp создаёт новый TBGRABitmap на
-          каждый такой вызов). Не идеально (decode Minithumb на каждый
-          Paint, пока файл не готов), но дёшево и временно — реальных
-          цитат на экране одновременно немного. }
+        { The real photo isn't downloaded yet — NOT cached: the next
+          repaint (scroll, a new message, anything) will try again, and
+          as soon as EnsureAvatar finishes downloading it, the real
+          image will replace the Minithumb. The result therefore
+          doesn't belong to the cache — the caller must free it itself
+          (otherwise a leak: RenderAvatarBmp creates a new TBGRABitmap
+          on every such call). Not ideal (decoding the Minithumb on
+          every Paint until the file is ready), but cheap and
+          temporary — there are rarely many quotes on screen at once. }
         AOwned := True;
         Exit;
       end;
@@ -3891,9 +3997,9 @@ begin
       Result := RenderAvatarBmp('', '', SrcName, Id, HEADER_H, True);
     end;
   end else begin
-    { mfoUser — для произвольных пользователей в проекте вообще нет
-      механизма скачивания фото (см. TODO.md), апгрейда не будет —
-      кэшировать инициалы насовсем можно спокойно. }
+    { mfoUser — the project has no mechanism at all for downloading
+      photos of arbitrary users, so there's no upgrade coming — it's
+      safe to cache the initials permanently. }
     Result := RenderAvatarBmp('', '', SrcName, Id, HEADER_H, True);
   end;
   if Result <> nil then begin
@@ -3901,18 +4007,19 @@ begin
   end;
 end;
 
-{ Цитата репоста — рамка (заливка тем же приёмом, что и подложка
-  внешнего блока, SENDER_BG_OPACITY) и внутри неё своя строка
-  "аватар+имя+время" с СОБСТВЕННОЙ подложкой (SENDER_HEADER_OPACITY,
-  скруглены только верхние углы — тот же приём "нарисовать всё
-  скруглённым и спрямить низ FillRect'ом", что и у основного заголовка
-  блока, см. Paint) — оба цвета источника, не отправителя. Обводка
-  рамки рисуется отдельно, в Paint, ПОСЛЕ содержимого цитаты — тем же
-  порядком, что и у внешнего блока (контур поверх всего). Имя — ссылка
-  (курсор меняется на руку в MouseMove) только для mfoChannel: только
-  там TDLib вообще даёт message_id исходного поста, без которого
-  getMessageLink нечего резолвить (см. TMsgForwardKind в tdmessages.pas
-  — приватность остальных случаев запрещает строить ссылку). }
+{ A forward quote — a frame (filled the same way as the outer block's
+  backing, SENDER_BG_OPACITY) with its own "avatar+name+time" row
+  inside it, with its OWN backing (SENDER_HEADER_OPACITY, rounded only
+  at the top corners — the same "draw it all rounded and square off
+  the bottom with a FillRect" approach as the block's main header, see
+  Paint) — both colored with the source's color, not the sender's. The
+  frame's outline is drawn separately, in Paint, AFTER the quote's
+  content — the same order as the outer block (the outline on top of
+  everything). The name is a link (cursor changes to a hand in
+  MouseMove) only for mfoChannel: only there does TDLib provide the
+  source post's message_id at all, without which getMessageLink has
+  nothing to resolve (see TMsgForwardKind in tdmessages.pas — privacy
+  forbids building a link for the other cases). }
 procedure TMsgScroller.PaintForwardCard(AIndex: integer; ARow: TMsgRow);
 var
   CardRect, HeaderRect: TRect;
@@ -3928,33 +4035,35 @@ begin
   Clr := ForwardSourceColor(ARow);
   Radius := Min(FORWARD_CORNER_RADIUS, (CardRect.Bottom - CardRect.Top) div 2);
 
-  { NEW_STYLE (см. константу new_style, constants.pas) — по прямому
-    запросу пользователя фон ВСЕЙ карточки репоста не рисуется вовсе,
-    остаётся только подложка её строки заголовка ниже (+ своя обводка,
-    в конце функции). Старая ветка не убрана — сравнение на лету. }
+  { NEW_STYLE (see the new_style constant, constants.pas): when set, the
+    WHOLE forward card's background isn't drawn at all, leaving only
+    its header row's backing below (+ its own outline, at the end of
+    this function). The old branch is kept for a live comparison. }
   if not new_style then begin
     PaintRoundRectAA(Canvas, CardRect, Radius, [],
       BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow), clNone);
   end;
 
-  { Скруглены только верхние углы — своим набором AOptions вместо
-    прежнего трюка "нарисовать все 4 и спрямить низ FillRect'ом"
-    (GDI RoundRect не умел per-corner, BGRA умеет нативно). }
+  { Only the top corners are rounded — via its own AOptions set instead
+    of the older "draw all 4 and square off the bottom with a
+    FillRect" trick (GDI RoundRect can't do per-corner, BGRA does it
+    natively). }
   HeaderRadius := Min(FORWARD_CORNER_RADIUS, HEADER_BAR_H div 2);
   PaintRoundRectAA(Canvas, HeaderRect, HeaderRadius, [rrBottomLeftSquare, rrBottomRightSquare],
     BlendWithBackground(Clr, SENDER_HEADER_OPACITY, clWindow), clNone);
 
   AvBmp := ForwardAvatarBmp(ARow, FreeAvBmp);
   if AvBmp = nil then begin
-    { mfoHiddenUser (или ещё не резолвившийся id) — рендерим на месте,
-      без кэша: это только инициалы, decode файла/превью тут не бывает
-      (см. ForwardAvatarBmp), так что дёшево даже каждую перерисовку. }
+    { mfoHiddenUser (or an id that hasn't resolved yet) — rendered
+      on the spot, no cache: this is just initials, no file/preview
+      decode happens here (see ForwardAvatarBmp), so it's cheap even on
+      every repaint. }
     AvBmp := RenderAvatarBmp('', '', ForwardSourceName(ARow), 0, HEADER_H, True);
     FreeAvBmp := True;
   end;
-  { Тот же горизонтальный отступ, что и у внешнего заголовка
-    (HeaderX := BR.Left + MSG_PAD_H, см. Paint) — и та же вертикальная
-    центровка (HEADER_PAD_V). }
+  { The same horizontal padding as the outer header (HeaderX := BR.Left
+    + MSG_PAD_H, see Paint) — and the same vertical centering
+    (HEADER_PAD_V). }
   AvX := HeaderRect.Left + MSG_PAD_H;
   AvY := HeaderRect.Top + HEADER_PAD_V;
   if AvBmp <> nil then begin
@@ -3964,9 +4073,10 @@ begin
     end;
   end;
 
-  { Имя+время — ОДНОЙ строкой в цвете источника, тем же приёмом, что и
-    у внешнего заголовка (там тоже единый TextOut на "Имя (HH:MM)",
-    цветом отправителя целиком — время не отдельным серым суффиксом). }
+  { Name+time — ONE line in the source's color, the same approach as
+    the outer header (which also does a single TextOut for "Name
+    (HH:MM)", entirely in the sender's color — time isn't a separate
+    gray suffix). }
   NameX := AvX + HEADER_H + MSG_ICON_GAP;
   LocalDT := UniversalTimeToLocal(UnixToDateTime(ARow.ForwardDate));
   if SameDate(LocalDT, Date) then begin
@@ -3984,24 +4094,25 @@ begin
   Canvas.TextOut(NameX, HeaderRect.Top + HEADER_PAD_V, S);
 
   if new_style then begin
-    { NEW_STYLE: обводка вместо целой карточки — только у её строки
-      заголовка, той же формы (скруглены только верхние углы), что и
-      подложка выше; рисуется последней, поверх аватара/текста. }
+    { NEW_STYLE: an outline instead of the whole card — only on its
+      header row, the same shape (only the top corners rounded) as its
+      backing above; drawn last, over the avatar/text. }
     PaintRoundRectAA(Canvas, HeaderRect, HeaderRadius, [rrBottomLeftSquare, rrBottomRightSquare],
       clNone, BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow));
   end;
 end;
 
-{ Цитата ответа (reply_to) — компактная плашка: значок цитаты + имя
-  цитируемого отправителя (жирным, цветом) + первая строка его текста
-  (серым) — подложка/контур/скругление тем же приёмом, что и у карточки
-  репоста (см. константы REPLY_*), но без аватара — источник тут не
-  внешний объект, а просто своё же более раннее сообщение, значок
-  вместо фото. Данные — FModel.ReplyPreview: если ещё не разрешены
-  (сообщение ещё грузится через getRepliedMessage), рисуем временную
-  серую заглушку — перерисуется сама, как только придут (см.
-  TTdMessages.GetRepliedDone → Touch → полный ModelChanged, не просто
-  Invalidate: высота плашки не меняется, но текст появляется). }
+{ Reply quote (reply_to) — a compact box: a quote icon + the quoted
+  sender's name (bold, colored) + the first line of their text (gray)
+  — backing/outline/rounding the same way as a forward card (see the
+  REPLY_* constants), but without an avatar — the source here isn't an
+  external object, just an earlier message of the same conversation,
+  hence an icon instead of a photo. The data comes from
+  FModel.ReplyPreview: if not resolved yet (the message is still
+  loading via getRepliedMessage), a temporary gray placeholder is
+  drawn — it repaints itself once the data arrives (see
+  TTdMessages.GetRepliedDone -> Touch -> a full ModelChanged, not just
+  Invalidate: the box's height doesn't change, but the text appears). }
 procedure TMsgScroller.PaintReplyBox(AIndex: integer; ARow: TMsgRow);
 var
   Box: TRect;
@@ -4025,8 +4136,8 @@ begin
     SnippetStr := string(PreviewText);
     NlPos := Pos(#10, SnippetStr);
     if NlPos > 0 then begin
-      { Только первая строка — многострочный текст сжимаем в одну,
-        как и оригинальный клиент. }
+      { First line only — a multi-line text is squeezed into one, the
+        same way the original client does. }
       SnippetStr := Copy(SnippetStr, 1, NlPos - 1);
     end;
   end else begin
@@ -4035,19 +4146,19 @@ begin
     SnippetStr := 'Loading…';
   end;
 
-  { Подложка — тем же приёмом, что и у карточки репоста (SENDER_BG_
-    OPACITY, скруглённые углы с той же защитой от "капсулы", см.
-    PaintForwardCard) — но свой радиус, REPLY_CORNER_RADIUS, не
-    FORWARD_CORNER_RADIUS напрямую: по прямому запросу пользователя
-    каждая карточка получила свою ручку, раньше значение было общим. }
+  { The backing — the same approach as a forward card (SENDER_BG_
+    OPACITY, rounded corners with the same "capsule" guard, see
+    PaintForwardCard) — but its own radius, REPLY_CORNER_RADIUS, not
+    FORWARD_CORNER_RADIUS directly: each card type has its own knob,
+    rather than sharing one value. }
   Radius := Min(REPLY_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
-  { NEW_STYLE (см. константу new_style, constants.pas) — по прямому
-    запросу пользователя ("то же самое про цитаты") — фон получает
-    только строка "значок+имя" (первая строка, HdrRect), тем же приёмом,
-    что и у заголовка блока/карточки репоста (скруглены только верхние
-    углы); вторая строка (текст цитируемого сообщения, SnippetStr) —
-    без фона, прямо на фоне окна. Старая ветка (фон+обводка на весь
-    Box) не убрана — сравнение на лету. }
+  { NEW_STYLE (see the new_style constant, constants.pas): when set,
+    only the "icon+name" row (the first line, HdrRect) gets a
+    background, the same approach as the block header/forward card
+    (only the top corners rounded); the second line (the quoted
+    message's text, SnippetStr) has no background, sitting directly on
+    the window background. The old branch (background+outline on the
+    whole Box) is kept for a live comparison. }
   if new_style then begin
     HdrRect := Rect(Box.Left, Box.Top, Box.Right, Box.Top + HEADER_PAD_V + REPLY_LINE_H);
     HdrRadius := Min(Radius, (HdrRect.Bottom - HdrRect.Top) div 2);
@@ -4058,9 +4169,10 @@ begin
       BlendWithBackground(Clr, SENDER_BG_OPACITY, clWindow), clNone);
   end;
 
-  { Значок цитаты — из того же ImageList1, что и значки статуса
-    сообщения/аватар источника репоста (FormMain.Chats.ImageList1, см.
-    комментарий в Paint про общий список с одной сквозной нумерацией). }
+  { The quote icon comes from the same ImageList1 as the message-status
+    icons/a forward's source avatar (FormMain.Chats.ImageList1, see the
+    comment in Paint about the shared list with one continuous
+    numbering). }
   IconX := Box.Left + MSG_PAD_H;
   IconY := Box.Top + HEADER_PAD_V;
   IconList := nil;
@@ -4087,10 +4199,10 @@ begin
     Canvas.TextOut(TextX, Box.Top + HEADER_PAD_V + REPLY_LINE_H, TruncateToWidth(Canvas, SnippetStr, MaxW));
   end;
 
-  { Контур — последним, поверх содержимого, тем же приёмом, что и у
-    карточки репоста (SENDER_BORDER_OPACITY, тот же Radius).
-    NEW_STYLE — обводка только у HdrRect (той же формы, что и её
-    подложка выше), не у всей плашки целиком. }
+  { The outline — drawn last, on top of the content, the same approach
+    as a forward card (SENDER_BORDER_OPACITY, the same Radius).
+    NEW_STYLE: the outline applies only to HdrRect (the same shape as
+    its backing above), not the whole box. }
   if new_style then begin
     PaintRoundRectAA(Canvas, HdrRect, HdrRadius, [rrBottomLeftSquare, rrBottomRightSquare],
       clNone, BlendWithBackground(Clr, SENDER_BORDER_OPACITY, clWindow));
@@ -4131,9 +4243,9 @@ begin
 
   HasSel := ResolveSelection(LowIdx, HighIdx, LowChar, HighChar);
 
-  { Значок статуса — по чату целиком, не по строке: LastReadOutbox
-    одинаков для всех сообщений текущего чата, доставать его на
-    каждую строку внутри цикла ниже незачем. }
+  { The status icon is resolved once per chat, not per row:
+    LastReadOutbox is the same for every message in the current chat,
+    no need to fetch it for each row inside the loop below. }
   ChatRow := nil;
   if TdChatList <> nil then begin
     ChatRow := TdChatList.Lookup(FModel.ChatId);
@@ -4148,54 +4260,51 @@ begin
     IconList := FormMain.Chats.ImageList1;
   end;
 
-  { Единственный путь исполнения из всей смены чата, где раньше не
-    было try/except: Paint вызывается напрямую системой отрисовки
-    (WM_PAINT), а не через ModelChanged, поэтому туда не долетала
-    защита, добавленная в TFrameHistory.ModelChanged/OpenChat.
-    Необработанное исключение внутри WM_PAINT — классический источник
-    зависаний Win32-приложений (окно перестаёт отвечать на дальнейшую
-    перерисовку/ввод); каждая строка — в своём try/except, чтобы одно
-    проблемное сообщение не убивало всю перерисовку. }
+  { The one execution path in the whole chat-switch flow that had no
+    try/except before: Paint is called directly by the drawing system
+    (WM_PAINT), not through ModelChanged, so the guards added in
+    TFrameHistory.ModelChanged/OpenChat never reached it. An unhandled
+    exception inside WM_PAINT is a classic source of Win32 application
+    hangs (the window stops responding to further repaints/input);
+    each row runs in its own try/except so one problematic message
+    can't kill the whole repaint. }
   for I := Lo to Hi do begin
     try
       R := FModel[I];
       BR := BlockRect(I);
       CR := ContentRect(I);
 
-      { Подложка блока — цвет отправителя приглушённо поверх фона,
-        SENDER_BG_OPACITY. Заливаем ПЕРЕД заголовком/контентом, чтобы
-        текст и разделительная линия легли поверх, не под. Только
-        заливка, без обводки — PaintRoundRectAA (BGRA-антиалиасинг
-        вместо GDI Canvas.RoundRect, см. её комментарий) сама не
-        трогает состояние Canvas.Brush/Pen.
-        NEW_STYLE (см. константу new_style, constants.pas) — по прямому
-        запросу пользователя тестируем более лёгкий вид: фон ТЕЛА
-        блока не рисуется вовсе, остаётся только подложка строки
-        заголовка ниже. Старая ветка не убрана — сравнение на лету. }
+      { The block's backing — the sender's color, muted, over the
+        background, SENDER_BG_OPACITY. Filled BEFORE the header/
+        content, so text and the divider line lie on top, not under.
+        Fill only, no outline — PaintRoundRectAA (BGRA antialiasing in
+        place of GDI Canvas.RoundRect, see its comment) doesn't touch
+        Canvas.Brush/Pen state itself.
+        NEW_STYLE (see the new_style constant, constants.pas): a
+        lighter-weight look under test — the block's BODY background
+        isn't drawn at all, leaving only the header row's backing
+        below. The old branch is kept for a live comparison. }
       if not new_style then begin
         PaintRoundRectAA(Canvas, BR, MSG_CORNER_RADIUS, [],
           BlendWithBackground(SenderColor(R), SENDER_BG_OPACITY, clWindow), clNone);
       end;
 
-      { Подложка самой строки заголовка (значок+имя) — заметнее фона
-        блока (SENDER_HEADER_OPACITY > SENDER_BG_OPACITY), поверх уже
-        закрашенного фона блока. Отступ значка/текста от верхнего и
-        нижнего края этой полосы — свой, HEADER_PAD_V, не MSG_GAP
-        (HeaderY, а не BR.Top напрямую). Скруглены только ВЕРХНИЕ углы —
-        те же, что у блока снаружи; нижние скруглённые превращали бы
-        короткую полосу в подобие таблетки, отдельной от блока под ней
-        — раньше это требовало нарисовать все 4 скруглёнными и спрямить
-        низ отдельным FillRect (GDI RoundRect не умел per-corner),
-        теперь низ просто квадратный по built-in опциям BGRA
-        (rrBottomLeftSquare/rrBottomRightSquare). Радиус для этой
-        полосы — свой, HeaderRadius, не MSG_CORNER_RADIUS напрямую:
-        полоса всего HEADER_BAR_H пикселей высотой, и если радиус
-        блока больше её половины, скругление вместо аккуратных углов
-        превращается в растянутую "таблетку" (оба конца — полукруги,
-        сходящиеся у середины) — тот же класс проблемы, что уже был у
-        превью фото (см. TPhotoWidget.DrawBmpRounded/CLAUDE.md), не
-        исчезает сам по себе просто оттого, что рисуем через BGRA, а
-        не GDI — защита остаётся нужна. }
+      { The header row's own backing (icon+name) is more prominent than
+        the block's background (SENDER_HEADER_OPACITY > SENDER_BG_
+        OPACITY), drawn over the already-painted block background. The
+        icon/text padding from this strip's top and bottom edges is
+        its own, HEADER_PAD_V, not MSG_GAP (hence HeaderY, not BR.Top
+        directly). Only the TOP corners are rounded, matching the
+        block outside; rounding the bottom corners too would turn a
+        short strip into a capsule shape, detached from the block
+        beneath it — the radius for this strip is its own,
+        HeaderRadius, not MSG_CORNER_RADIUS directly: the strip is only
+        HEADER_BAR_H pixels tall, and if the block's radius exceeds
+        half of that, rounding turns into a stretched "capsule" (both
+        ends becoming semicircles meeting in the middle) — the same
+        class of problem already seen with photo previews (see
+        TPhotoWidget.DrawBmpRounded) — this doesn't go away just from
+        switching to BGRA instead of GDI, the guard is still needed. }
       HeaderRect := Rect(BR.Left, BR.Top, BR.Right, BR.Top + HEADER_BAR_H);
       HeaderRadius := Min(MSG_CORNER_RADIUS, HEADER_BAR_H div 2);
       PaintRoundRectAA(Canvas, HeaderRect, HeaderRadius, [rrBottomLeftSquare, rrBottomRightSquare],
@@ -4207,11 +4316,11 @@ begin
       Canvas.Font.Height := -11;
       HeaderX := BR.Left + MSG_PAD_H;
 
-      { У исходящих — статус доставки, у входящих — просто маркер
-        направления (ICON_MSG_INCOMING, не статус: у чужого сообщения
-        "доставлено/прочитано" с нашей стороны не бывает). Слот
-        зарезервирован в любом случае, чтобы имя не "прыгало" по
-        горизонтали от строки к строке. }
+      { Outgoing messages get a delivery status, incoming ones just a
+        direction marker (ICON_MSG_INCOMING, not a status: there's no
+        such thing as "delivered/read" from our side for someone
+        else's message). The slot is reserved either way, so the name
+        doesn't shift horizontally row to row. }
       if R.IsOutgoing then begin
         IconIdx := ReceiptIconIndex(MessageReceipt(R, LastReadOutbox));
       end else begin
@@ -4270,24 +4379,44 @@ begin
         SelEnd := -1;
       end;
 
-      RendererFor(R.Kind).Paint(R, Canvas, CR, SelStart, SelEnd);
+      { Real, reported bug: this was previously wired ONLY into
+        AutoDownloadVisible (fires on ModelChanged — a new message
+        arriving or an edit) and, since the fix just above,
+        PrefetchAutoDownload (fires just outside the visible band on
+        scroll) — neither covers a row that's ALREADY on screen and
+        simply gets repainted (e.g. after a big scroll jump/LoadOlder
+        batch that skips the narrow prefetch band entirely). Confirmed
+        directly: a custom_emoji_id in an already-loaded, fully visible
+        message never once appeared in a getCustomEmojiStickers request
+        in tdlib_raw.log. Media widgets (photo/audio/video/sticker)
+        already have this exact safety net — their own Layout*Widgets
+        call Ensure*File unconditionally on every layout pass, not only
+        on scroll/model-change — this brings custom-emoji text entities
+        up to the same guarantee, the same way TFrameChats.GridDrawCell
+        already does for the chat list (calls it on every row draw).
+        Cheap: no-ops at once for a row with no mekCustomEmoji entity,
+        and idempotent for one already known/pending. }
+      FModel.EnsureCustomEmojiForRow(R);
+
+      RendererFor(R.Kind).Paint(R, Canvas, CR, SelStart, SelEnd, SenderColor(R));
 
       if (R.ForwardKind <> mfoNone) and not new_style then begin
-        { Контур цитаты — тем же порядком, что и у внешнего блока ниже:
-          после содержимого, поверх него.
-          NEW_STYLE: карточка репоста целиком без обводки — своя
-          обводка есть только у её заголовка, см. PaintForwardCard. }
+        { The quote's outline — the same order as the outer block
+          below: after the content, on top of it.
+          NEW_STYLE: the whole forward card has no outline — only its
+          header has one, see PaintForwardCard. }
         FwdBR := ForwardCardRect(I);
         FwdRadius := Min(FORWARD_CORNER_RADIUS, (FwdBR.Bottom - FwdBR.Top) div 2);
         PaintRoundRectAA(Canvas, FwdBR, FwdRadius, [], clNone,
           BlendWithBackground(ForwardSourceColor(R), SENDER_BORDER_OPACITY, clWindow));
       end;
 
-      { Контур блока — рисуется последним, поверх содержимого: только
-        обводка, сам текст на MSG_PAD_H от края и краем не задевается.
-        NEW_STYLE — по прямому запросу пользователя тело блока вообще
-        без обводки; вместо неё — обводка строки заголовка (та же форма,
-        что и её подложка выше: скруглены только верхние углы). }
+      { The block's outline — drawn last, on top of the content: only
+        an outline, the text itself sits MSG_PAD_H from the edge and
+        isn't touched by it.
+        NEW_STYLE: the block body has no outline at all; instead, the
+        header row gets one (the same shape as its backing above: only
+        the top corners rounded). }
       if new_style then begin
         PaintRoundRectAA(Canvas, HeaderRect, HeaderRadius, [rrBottomLeftSquare, rrBottomRightSquare],
           clNone, BlendWithBackground(SenderColor(R), SENDER_BORDER_OPACITY, clWindow));
@@ -4296,9 +4425,9 @@ begin
           BlendWithBackground(SenderColor(R), SENDER_BORDER_OPACITY, clWindow));
       end;
     except
-      { Молча пропускаем эту строку: статус-строка обновляется из
-        ModelChanged, а не отсюда — Paint может вызываться десятками
-        раз в секунду, спамить в неё было бы только хуже. }
+      { Silently skips this row: the status bar is updated from
+        ModelChanged, not from here — Paint can fire dozens of times a
+        second, spamming it would only make things worse. }
     end;
   end;
 
@@ -4355,9 +4484,8 @@ begin
     SetLength(WantIds, AHi - ALo + 2);
     for I := ALo to AHi do begin
       R := FModel[I];
-      { Голосовое — тот же виджет, что и обычное аудио (по прямому
-        запросу пользователя, "функционал и внешний вид идентичные"),
-        не отдельный класс. }
+      { Voice notes use the same widget as regular audio ("identical
+        functionality and appearance"), not a separate class. }
       if R.Kind in [mckAudio, mckVoiceNote] then begin
         WantIds[N] := R.Id;
         Inc(N);
@@ -4385,27 +4513,27 @@ begin
       W := ObtainAudioWidget;
       FAudioActive.Add(WantIds[I], W);
     end;
-    { Виджет из пула переиспользован — мог представлять ДРУГОЕ
-      сообщение до этого, данные трека обновляем при каждом заходе,
-      не только при первом получении. }
+    { The pooled widget may have represented a DIFFERENT message
+      before this — track data is refreshed on every pass, not just
+      the first time. }
     W.Images := FAudioImages;
     R := FModel[MIdx];
     W.BackgroundColor := WidgetBackdropColor(R);
-    { Голосовое — без title/performer/file_name (TDLib их не даёт, см.
-      TMsgRow.VoiceDuration) — статичная подпись вместо них, тем же
-      TAudioWidget.SetTrack, без единой правки в самом виджете:
-      TitleStr там уже падает на AFileName, когда Title/Performer
-      пусты. }
+    { Voice notes have no title/performer/file_name (TDLib doesn't
+      provide them, see TMsgRow.VoiceDuration) — a static label is
+      used instead, through the same TAudioWidget.SetTrack, with no
+      change needed in the widget itself: TitleStr there already falls
+      back to AFileName when Title/Performer are empty. }
     if R.Kind = mckVoiceNote then begin
       W.SetTrack(R.Id, '', '', 'Voice message', R.VoiceDuration);
     end else begin
       W.SetTrack(R.Id, R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration);
     end;
-    { Пока идёт перетаскивание ползунка — не трогаем состояние
-      проигрывания этим заходом (LayoutAudioWidgets вызывается на
-      КАЖДЫЙ Paint, в т.ч. каждый тик FPlaybackTimer): иначе реальная
-      (ещё не догнавшая клик/драг) позиция перезаписала бы локальный
-      предпросмотр прямо под курсором. }
+    { While a thumb drag is in progress, playback state is left
+      untouched on this pass (LayoutAudioWidgets is called on EVERY
+      Paint, including every tick of FPlaybackTimer): otherwise the
+      real (not-yet-caught-up) position would overwrite the local drag
+      preview right under the cursor. }
     if not W.Dragging then begin
       if (FActivePlayer <> nil) and (FActivePlayerMsgId = R.Id) then begin
         W.SetPlayback(True, FActivePlayer.State = apsPlaying, FActivePlayer.PositionSec);
@@ -4437,8 +4565,8 @@ begin
   FAudioPool.Add(Result);
 end;
 
-{ Копия LayoutAudioWidgets — тот же приём recycled-пула, для файлов
-  вместо аудио (Kind=mckFile). }
+{ A copy of LayoutAudioWidgets — the same recycled-pool approach, for
+  files instead of audio (Kind=mckFile). }
 procedure TMsgScroller.LayoutFileWidgets(ALo, AHi: integer);
 var
   I, N, MIdx, AIdx: integer;
@@ -4538,14 +4666,16 @@ begin
   Row := FModel[Idx];
 
   if Row.DocLocalPath <> '' then begin
-    { Файл уже скачан — открываем системным приложением по умолчанию,
-      не диалог сохранения (тот теперь только через контекстное меню
-      "Save as...", см. FileWidgetSaveAsClick). }
+    { The file is already downloaded — opened with the system's
+      default application, not a save dialog (that's now reached only
+      through the context menu's "Save as...", see
+      FileWidgetSaveAsClick). }
     OpenDocument(string(Row.DocLocalPath));
     Exit;
   end;
-  { Ещё не скачан — просто качаем, без диалога: значок сам сменится на
-    мим-тип, как только путь придёт (см. ModelChanged/LayoutFileWidgets). }
+  { Not downloaded yet — just download, no dialog: the icon switches to
+    the mime type on its own once the path arrives (see
+    ModelChanged/LayoutFileWidgets). }
   FModel.EnsureDocFile(Row);
 end;
 
@@ -4569,9 +4699,9 @@ begin
     SaveDocFile(Row);
     Exit;
   end;
-  { Ещё не скачан — запрашиваем и запоминаем, что диалог сохранения
-    нужно открыть, как только путь придёт (см. ModelChanged), тот же
-    приём, что FPendingPlayMsgId у аудио. }
+  { Not downloaded yet — request it and remember that the save dialog
+    needs to open once the path arrives (see ModelChanged), the same
+    approach as FPendingPlayMsgId for audio. }
   FPendingSaveMsgId := Row.Id;
   FPendingFileAction := pfaSaveDialog;
   FModel.EnsureDocFile(Row);
@@ -4618,8 +4748,8 @@ begin
     if not Dlg.Execute then begin
       Exit;
     end;
-    { Файл уже скачан TDLib'ом в свой кэш — здесь просто копия в место,
-      выбранное пользователем, не повторное скачивание. }
+    { The file is already downloaded to TDLib's own cache — this is
+      just a copy to the location the user chose, not a re-download. }
     Src := TFileStream.Create(string(ARow.DocLocalPath), fmOpenRead or fmShareDenyWrite);
     try
       Dst := TFileStream.Create(Dlg.FileName, fmCreate);
@@ -4636,11 +4766,11 @@ begin
   end;
 end;
 
-{ Копия LayoutFileWidgets — тот же приём recycled-пула, для фото
-  вместо файла (Kind=mckPhoto). Отличие — ширина/высота виджета не
-  во всю колонку (CR), а натуральный размер превью (TargetWidth/
-  TargetHeight, посчитан внутри SetPhoto): узкое вертикальное фото не
-  должно растягиваться на всю ширину блока. }
+{ A copy of LayoutFileWidgets — the same recycled-pool approach, for
+  photos instead of files (Kind=mckPhoto). The difference: the
+  widget's width/height isn't the full column (CR) but the preview's
+  natural size (TargetWidth/TargetHeight, computed inside SetPhoto) —
+  a narrow portrait photo shouldn't stretch to the block's full width. }
 procedure TMsgScroller.LayoutPhotoWidgets(ALo, AHi: integer);
 var
   I, N, MIdx, AIdx: integer;
@@ -4698,11 +4828,11 @@ begin
     W.DownloadImages := FAudioImages;
     W.PopupMenu := FFilePopupMenu;
     R := FModel[MIdx];
-    { WidgetBackdropColor — не голый BlendWithBackground(SenderColor(R),
-      ...): та версия всегда брала цвет ВНЕШНЕГО блока, даже когда фото
-      внутри репоста (сидит на подложке карточки цитаты, свой,
-      независимый цвет — ForwardSourceColor). Тот же класс правки, что
-      и у аудио/файла — см. WidgetBackdropColor. }
+    { WidgetBackdropColor, not bare BlendWithBackground(SenderColor(R),
+      ...): that version always took the OUTER block's color, even when
+      a photo sits inside a forward (which sits on the quote card's
+      backing, its own independent color — ForwardSourceColor). The
+      same class of fix as audio/file — see WidgetBackdropColor. }
     W.BackgroundColor := WidgetBackdropColor(R);
     W.SetPhoto(R.Id, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
       R.PhotoLocalPath <> '', R.PhotoLocalPath, CR.Right - CR.Left);
@@ -4744,13 +4874,13 @@ begin
   end;
   Row := FModel[Idx];
 
-  { Строго два клика, по прямому запросу пользователя — без
-    автоматического открытия, как только оригинал докачается: первый
-    клик ТОЛЬКО качает (и превью — блюр -> настоящая миниатюра в самом
-    чате, и оригинал — для последующего открытия), повторный клик,
-    когда оригинал уже готов — открывает. Ensure*File сами не делают
-    лишнего — no-op, если уже скачано/уже запрошено, так что вызывать
-    оба безусловно безопасно. }
+  { Strictly two clicks — no automatic opening once the original
+    finishes downloading: the first click ONLY downloads (both the
+    preview — blur -> real thumbnail in the chat itself — and the
+    original, for opening afterward), a second click, once the
+    original is ready, opens it. The Ensure*File calls are no-ops if
+    already downloaded/already requested, so calling both
+    unconditionally is safe. }
   if Row.PhotoLocalPath = '' then begin
     FModel.EnsurePhotoFile(Row);
   end;
@@ -4758,28 +4888,28 @@ begin
     FModel.EnsurePhotoBestFile(Row);
     Exit;
   end;
-  { Раньше — OpenDocument (системный просмотрщик); по прямому запросу
-    пользователя теперь открывается ВСТРОЕННЫЙ просмотрщик
-    (mediaviewer.pas), тем же приёмом, что и у видео (VideoBodyClick). }
+  { Opens the BUILT-IN viewer (mediaviewer.pas), the same approach as
+    video (VideoBodyClick), rather than OpenDocument (the system
+    viewer). }
   if (FormMain <> nil) and (FormMain.MediaViewer <> nil) then begin
     FormMain.MediaViewer.ShowMessage(FModel, Row.Id, FAudioImages, FPlaybackImages,
       utf8string(FormMain.AudioDeviceName));
   end;
 end;
 
-{ Копия LayoutPhotoWidgets — тот же приём recycled-пула, для "гифок"
-  (Kind=mckAnimation) вместо фото. Отличие — после обычного
-  позиционирования проверяет R.AnimAutoPlay (см. MaybeAutoDownload):
-  если автозагрузка для этого типа диалога включена и файл уже
-  скачан, а виджет ещё не играет — запускает луп сам, без клика. Эта
-  проверка выполняется на КАЖДЫЙ заход (дёшево — два boolean и
-  сравнение строки), а не только в момент, когда файл только что
-  докачался — самовосстанавливающееся поведение: если проигрывание
-  почему-то остановилось (пересоздание виджета при смене размера
-  колонки и т.п.), следующий же заход снова его запустит, пока
-  R.AnimAutoPlay не снят (а он не снимается никогда — это постоянное
-  свойство строки "эта настройка хотела, чтобы это крутилось", не
-  разовый флаг). }
+{ A copy of LayoutPhotoWidgets — the same recycled-pool approach, for
+  "GIFs" (Kind=mckAnimation) instead of photos. Difference: after
+  ordinary positioning, it checks R.AnimAutoPlay (see
+  MaybeAutoDownload): if auto-download is enabled for this chat's kind
+  and the file is already downloaded but the widget isn't playing yet,
+  it starts the loop itself, without a click. This check runs on
+  EVERY pass (cheap — two booleans and a string comparison), not just
+  the moment the file finishes downloading — a self-healing behavior:
+  if playback stops for any reason (the widget being recreated on a
+  column-width change, etc.), the very next pass restarts it, as long
+  as R.AnimAutoPlay is set (which it never clears — it's a permanent
+  property of the row, "this setting wanted this to loop", not a
+  one-shot flag). }
 procedure TMsgScroller.LayoutAnimationWidgets(ALo, AHi: integer);
 var
   I, N, MIdx, AIdx: integer;
@@ -4816,10 +4946,10 @@ begin
 
   for AIdx := FAnimActive.Count - 1 downto 0 do begin
     if not IsWanted(FAnimActive.Keys[AIdx]) then begin
-      { Виджет уходит из видимой области — останавливаем воспроизведение
-        (не пускаем "гифку" бесконечно крутиться в фоне после того, как
-        её прокрутили мимо), тем же StopLoop, что и при переиспользовании
-        под другое сообщение (см. SetAnim). }
+      { The widget leaves the visible area — playback is stopped (a
+        "GIF" isn't left looping endlessly in the background after
+        being scrolled past), using the same StopLoop as when reused
+        for a different message (see SetAnim). }
       FAnimActive.Data[AIdx].StopLoop;
       FAnimActive.Data[AIdx].Visible := False;
       FAnimActive.Delete(AIdx);
@@ -4869,13 +4999,12 @@ begin
   FAnimPool.Add(Result);
 end;
 
-{ Ровно два клика, по прямому запросу пользователя, тем же приёмом,
-  что и у файла (не как у фото — там дополнительно догружается
-  "оригинал" для сохранения, здесь ровно один файл): первый клик по
-  недокачанной — только запрашивает скачивание, БЕЗ автопоказа; второй
-  клик, когда уже скачано — запускает зацикленное воспроизведение.
-  Клик по уже играющей — намеренно ничего не делает: контролов
-  запуска/остановки у "гифки" нет вовсе. }
+{ Exactly two clicks, the same approach as a file (not like a photo,
+  which also fetches an "original" for saving — here there's exactly
+  one file): the first click on an undownloaded "GIF" only requests
+  the download, with NO auto-play; a second click, once downloaded,
+  starts looped playback. A click on an already-playing widget
+  deliberately does nothing: a "GIF" has no start/stop controls at all. }
 procedure TMsgScroller.AnimationWidgetClick(Sender: TObject);
 var
   W: TAnimationWidget;
@@ -4901,16 +5030,16 @@ begin
   end;
 end;
 
-{ Копия LayoutAudioWidgets — тот же приём recycled-пула и та же
-  "не трогать состояние проигрывания при переиспользовании, показ
-  реального идёт через SetVideo/SetPlayback" логика, для видео вместо
-  аудио. Отличие от LayoutAnimationWidgets — здесь НЕТ StopLoop при
-  эвикшене: активный видео-плеер (со звуком) продолжает играть, даже
-  когда его строка прокручена за пределы видимого диапазона, тем же
-  принципом, что и у аудио (реальный Telegram не обрывает звук только
-  потому, что сообщение временно не на экране) — не тем же принципом,
-  что у "гифки" (та беззвучная, останавливать её при эвикшене не жалко
-  и экономит CPU/декод впустую невидимого). }
+{ A copy of LayoutAudioWidgets — the same recycled-pool approach and
+  the same "don't touch playback state on reuse, real state flows
+  through SetVideo/SetPlayback" logic, for video instead of audio.
+  Different from LayoutAnimationWidgets: there's NO StopLoop on
+  eviction here — an active video player (with sound) keeps playing
+  even once its row scrolls past the visible range, the same principle
+  as audio (the real Telegram doesn't cut sound just because a message
+  is temporarily off screen) — not the same principle as a "GIF" (which
+  is silent, so stopping it on eviction costs nothing and saves
+  CPU/decoding time on something invisible). }
 procedure TMsgScroller.LayoutVideoWidgets(ALo, AHi: integer);
 var
   I, N, MIdx, AIdx, NatW, NatH: integer;
@@ -4969,19 +5098,20 @@ begin
     W.Images := FAudioImages;
     R := FModel[MIdx];
     W.BackgroundColor := WidgetBackdropColor(R);
-    { Превью-кадр — качается БЕЗУСЛОВНО, независимо от настроек Auto
-      download (см. комментарий у TMsgRow.VideoThumbFileId) — как
-      только строка видна, не только когда пользователь явно кликнул. }
+    { The preview frame is downloaded UNCONDITIONALLY, independent of
+      the Auto download settings (see the comment on
+      TMsgRow.VideoThumbFileId) — as soon as the row is visible, not
+      only when the user explicitly clicks. }
     FModel.EnsureVideoThumbFile(R);
-    { Размер превью в чате — по разрешению САМОГО thumbnail (известно
-      из метаданных сразу, без ожидания скачивания), не по реальному
-      разрешению видео (часто 720p/1080p) — по прямому запросу
-      пользователя (2026-09-06, см. комментарий у TMsgRow.
-      VideoThumbWidth): показываем статичную картинку из thumbnail,
-      крупнее неё всё равно ничего нет, растягивать бокс под разрешение
-      видео значило бы просто размазывать Resample'ом ту же картинку.
-      Резерв на VideoWidth/VideoHeight — на случай отсутствия thumbnail
-      в контенте (в теории возможно, вживую не встречалось). }
+    { The chat preview's size follows the thumbnail's OWN resolution
+      (known from the metadata right away, no need to wait for the
+      download), not the real video's resolution (often 720p/1080p,
+      see the comment on TMsgRow.VideoThumbWidth): a static picture
+      from the thumbnail is shown, and there's nothing sharper than it
+      anyway — sizing the box to the video's resolution would just
+      smear the same picture via Resample. VideoWidth/VideoHeight
+      remain a fallback for the case where the content has no
+      thumbnail at all (theoretically possible, never observed live). }
     if (R.VideoThumbWidth > 0) and (R.VideoThumbHeight > 0) then begin
       NatW := R.VideoThumbWidth;
       NatH := R.VideoThumbHeight;
@@ -4991,10 +5121,10 @@ begin
     end;
     W.SetVideo(R.Id, NatW, NatH, R.VideoThumbLocalPath,
       R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left, R.VideoDuration);
-    { Инлайн-проигрывания больше нет (см. комментарий у FVideoPool) —
-      виджет в чате всегда в "неактивном" состоянии (play-иконка,
-      никакой полосы прокрутки без наведения); настоящее проигрывание
-      — только в просмотрщике, см. VideoBodyClick. }
+    { There's no inline playback (see the comment on FVideoPool) — the
+      chat widget is always "inactive" (a play icon, no scrub bar on
+      hover); real playback happens only in the viewer, see
+      VideoBodyClick. }
     W.SetPlayback(False, False, 0);
     W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
     W.Visible := True;
@@ -5022,12 +5152,13 @@ begin
   FVideoPool.Add(Result);
 end;
 
-{ Копия LayoutAnimationWidgets — тот же приём recycled-пула и та же
-  StopLoop-при-эвикшене (стикеры, как и "гифки", беззвучные — не жалко
-  останавливать анимацию, когда строка ушла с экрана, экономит CPU).
-  Отличие — БЕЗ клика вовсе: скачивание и старт анимации оба
-  безусловные (см. MaybeAutoDownload), не ждут никакого взаимодействия
-  пользователя, в отличие от "гифки" (там нужны ровно два клика). }
+{ A copy of LayoutAnimationWidgets — the same recycled-pool approach
+  and the same StopLoop-on-eviction (stickers, like "GIFs", are
+  silent — stopping the animation once a row leaves the screen costs
+  nothing and saves CPU). Difference: NO click involved at all —
+  downloading and starting the animation are both unconditional (see
+  MaybeAutoDownload), waiting for no user interaction, unlike a "GIF"
+  (which needs exactly two clicks). }
 procedure TMsgScroller.LayoutStickerWidgets(ALo, AHi: integer);
 var
   I, N, MIdx, AIdx: integer;
@@ -5126,9 +5257,9 @@ begin
   end;
   Row := FModel[Idx];
 
-  { "Save as" сохраняет ОРИГИНАЛ (PhotoBestLocalPath), не мелкую
-    превью-копию (PhotoLocalPath — та для быстрого инлайн-показа,
-    см. комментарий у TMsgRow.PhotoBestFileId). }
+  { "Save as" saves the ORIGINAL (PhotoBestLocalPath), not the small
+    preview copy (PhotoLocalPath, which is for fast inline display,
+    see the comment on TMsgRow.PhotoBestFileId). }
   if Row.PhotoBestLocalPath <> '' then begin
     SavePhotoFile(Row);
     Exit;
@@ -5154,7 +5285,7 @@ begin
   end;
   Row := FModel[Idx];
 
-  { "Show in folder" — тот же оригинал, что и "Save as" (см. там же). }
+  { "Show in folder" uses the same original as "Save as" (see there). }
   if Row.PhotoBestLocalPath <> '' then begin
     ShowDocInFolder(Row.PhotoBestLocalPath);
     Exit;
@@ -5180,7 +5311,7 @@ begin
     if not Dlg.Execute then begin
       Exit;
     end;
-    { Оригинал (PhotoBestLocalPath) — не превью-копия. }
+    { The original (PhotoBestLocalPath), not the preview copy. }
     Src := TFileStream.Create(string(ARow.PhotoBestLocalPath), fmOpenRead or fmShareDenyWrite);
     try
       Dst := TFileStream.Create(Dlg.FileName, fmCreate);
@@ -5197,7 +5328,7 @@ begin
   end;
 end;
 
-{ ---------------- проигрывание аудио ---------------- }
+{ ---------------- audio playback ---------------- }
 
 procedure TMsgScroller.FlushDonePlayer;
 begin
@@ -5250,7 +5381,7 @@ begin
   Row := FModel[Idx];
 
   if (FActivePlayer <> nil) and (FActivePlayerMsgId = W.RowId) then begin
-    { Тот же трек — просто пауза/продолжить, не пересоздаём плеер. }
+    { Same track — just pause/resume, the player isn't recreated. }
     if FActivePlayer.State = apsPlaying then begin
       FActivePlayer.Pause;
     end else if FActivePlayer.State = apsPaused then begin
@@ -5260,14 +5391,16 @@ begin
     Exit;
   end;
 
-  { Другой трек (или ничего не играло) — прежний останавливаем. }
+  { A different track (or nothing was playing) — the previous one is
+    stopped. }
   FPendingPlayMsgId := 0;
 
   if PlayableLocalPath(Row) = '' then begin
-    { Файл ещё не скачан — запрашиваем и запомним, что именно этот
-      трек нужно начать проигрывать, как только путь придёт (см.
-      ModelChanged). Прежний плеер, если играл, всё равно останавливаем
-      сейчас — не ждать же его до момента, когда новый файл скачается. }
+    { The file isn't downloaded yet — request it and remember that
+      this specific track should start playing once the path arrives
+      (see ModelChanged). The previous player, if any, is stopped
+      right now regardless — no point waiting for it until the new
+      file finishes downloading. }
     StopActivePlayer;
     FPendingPlayMsgId := W.RowId;
     FModel.EnsurePlayableFile(Row);
@@ -5283,10 +5416,10 @@ var
   Row: TMsgRow;
   Idx: integer;
 begin
-  { Перемотка имеет смысл только для АКТИВНОГО (проигрывается/на паузе)
-    трека — виджет разрешает драг ползунка только когда FIsActive
-    (см. TAudioWidget.MouseDown), так что сюда и не должно прилетать
-    иначе, но проверяем ещё раз на всякий случай. }
+  { Seeking only makes sense for the ACTIVE (playing/paused) track —
+    the widget only allows dragging the thumb when FIsActive (see
+    TAudioWidget.MouseDown), so this shouldn't be reached otherwise,
+    but it's checked again just in case. }
   if FModel = nil then begin
     Exit;
   end;
@@ -5325,14 +5458,22 @@ begin
   end;
 end;
 
-{ Видео (messageVideo) — по прямому запросу пользователя (2026-09-06)
-  БОЛЬШЕ НЕ проигрывается инлайн вовсе: и клик по кнопке play, и клик
-  по самому кадру ведут в просмотрщик (VideoBodyClick, mediaviewer.pas)
-  — тот держит свой, независимый TMediaPlayer. Вся прежняя
-  инфраструктура "один активный плеер на весь скроллер" (FActiveVideoPlayer/
-  StartVideoPlayback/VideoSeek/VideoPlayerStateChanged/VideoPlaybackTick/
-  FVideoPlaybackTimer) убрана целиком — без клика, который её запускал,
-  она была бы мёртвым кодом, никогда не достижимым ни из одного пути. }
+procedure TMsgScroller.CustomEmojiAnimTick(Sender: TObject);
+begin
+  if AnyLiveAnimating then begin
+    Invalidate;
+  end;
+end;
+
+{ Video (messageVideo) is NO LONGER played inline at all: both a click
+  on the play button and a click on the frame itself lead to the
+  viewer (VideoBodyClick, mediaviewer.pas), which holds its own,
+  independent TMediaPlayer. All of the earlier "one active player for
+  the whole scroller" infrastructure (FActiveVideoPlayer/
+  StartVideoPlayback/VideoSeek/VideoPlayerStateChanged/
+  VideoPlaybackTick/FVideoPlaybackTimer) was removed entirely — without
+  the click that used to trigger it, it would have been dead code,
+  unreachable from any path. }
 procedure TMsgScroller.VideoPlayClick(Sender: TObject);
 var
   W: TVideoWidget;
@@ -5349,9 +5490,10 @@ begin
   end;
   Row := FModel[Idx];
   if Row.VideoLocalPath = '' then begin
-    { Не скачано — только качаем, тот же принцип "строго два клика",
-      что и у фото (PhotoWidgetClick): без файла открывать нечего,
-      повторный клик, когда он уже готов, откроет просмотрщик сам. }
+    { Not downloaded — just download, the same "strictly two clicks"
+      principle as a photo (PhotoWidgetClick): there's nothing to open
+      without the file, and a repeat click, once it's ready, opens the
+      viewer on its own. }
     FModel.EnsureVideoFile(Row);
     Exit;
   end;
@@ -5422,10 +5564,11 @@ begin
   if (FormMain = nil) or (FormMain.Nav = nil) then begin
     Exit;
   end;
-  { TFrameHistory — синглтон навигатора (TFrameNavigator.ShowFrame сам
-    решает создавать или переиспользовать), так что если источник —
-    ТЕКУЩИЙ открытый чат, это буквально вызов метода у самого Self же
-    владельца, просто через новую точку входа TFrameHistory.OpenChat. }
+  { TFrameHistory is the navigator's singleton (TFrameNavigator.
+    ShowFrame decides itself whether to create or reuse it), so if the
+    source is the CURRENTLY open chat, this is literally a call to a
+    method on Self's own owner, just through the new
+    TFrameHistory.OpenChat entry point. }
   F := TFrameHistory(FormMain.Nav.ShowFrame(TFrameHistory));
   if F <> nil then begin
     F.OpenChat(ARow.ForwardChatId, ARow.ForwardMessageId);
@@ -5441,13 +5584,15 @@ begin
   end;
   Idx := FModel.IndexOfId(AMessageId);
   if Idx < 0 then begin
-    { Не должно случаться после синхронного Rebuild в TTdMessages.
-      JumpDone, но на всякий случай — просто не скроллим, не падаем. }
+    { Shouldn't happen after the synchronous Rebuild in
+      TTdMessages.JumpDone, but just in case — simply doesn't scroll,
+      doesn't crash. }
     Exit;
   end;
   RowH := FOffsets[Idx + 1] - FOffsets[Idx];
-  { Центрируем сообщение в видимой области, а не прижимаем к верху —
-    так виднее и то, что было до, и то, что после. }
+  { The message is centered in the visible area rather than pinned to
+    the top — this makes both what came before and what came after
+    more visible. }
   ClampScrollTop(FOffsets[Idx] - (ClientHeight - RowH) div 2);
   Invalidate;
 end;
@@ -5497,21 +5642,21 @@ begin
   end;
 
   R := FModel[Idx];
-  { Клик по плашке цитаты ответа — прыжок к цитируемому сообщению В ТОМ
-    ЖЕ чате (ReplyPreview/JumpTo поддерживают только этот случай, см.
-    комментарий у TTdMessages.ReplyPreview) — тем же приёмом, что тап
-    по цитате в оригинальном клиенте. }
+  { A click on the reply quote box jumps to the quoted message in the
+    SAME chat (ReplyPreview/JumpTo only support this case, see the
+    comment on TTdMessages.ReplyPreview) — the same behavior as tapping
+    a quote in the original client. }
   if (R.ReplyMessageId <> 0) and (FModel <> nil) and (R.ReplyChatId = FModel.ChatId)
     and PtInRect(ReplyBoxRect(Idx), Point(X, Y)) then begin
     FModel.JumpTo(R.ReplyMessageId);
     Exit;
   end;
 
-  { Имя источника в цитате репоста — ссылка только у mfoChannel (только
-    там TDLib знает message_id исходного поста, см. TMsgForwardKind).
-    Кликабельна вся строка "аватар+имя+время", не только текст имени —
-    для такой маленькой строки точный хит-тест по ширине текста не
-    стоит лишнего кода. }
+  { The source name in a forward quote is a link only for mfoChannel
+    (only there does TDLib know the source post's message_id, see
+    TMsgForwardKind). The whole "avatar+name+time" row is clickable,
+    not just the name text — for a row this small, an exact hit test
+    against the text width isn't worth the extra code. }
   if (R.ForwardKind = mfoChannel) and PtInRect(ForwardHeaderRect(Idx), Point(X, Y)) then begin
     OpenForwardSource(R);
     Exit;
@@ -5531,12 +5676,12 @@ begin
   end;
   FSelFocusChar := FSelAnchorChar;
   FSelecting := True;
-  { Без захвата мыши: увели курсор за пределы control'а во время
-    drag'а и отпустили кнопку там — MouseUp сюда не долетит (LCL не
-    маршрутизирует его без MouseCapture), FSelecting зависает в True
-    навсегда, и дальше обычное движение мыши БЕЗ зажатой кнопки
-    начинает выглядеть как продолжающееся выделение. Это и есть
-    "странное поведение выделения". }
+  { Without capturing the mouse: if the cursor leaves the control
+    during a drag and the button is released outside it, MouseUp never
+    reaches here (LCL doesn't route it without MouseCapture),
+    FSelecting stays stuck at True forever, and ordinary mouse movement
+    with NO button held afterward starts looking like an ongoing
+    selection — "buggy selection behavior". }
   MouseCapture := True;
   Invalidate;
 end;
@@ -5646,11 +5791,11 @@ begin
   FScrollbar.Parent := Self;
   FScrollbar.Kind := sbVertical;
   FScrollbar.Align := alRight;
-  { Не константа: список чатов (framechats, TDrawGrid) рисует свой
-    скроллбар нативно, шириной под системный метрик — тот же
-    GetSystemMetrics(SM_CXVSCROLL), которым Windows и масштабирует
-    его под DPI. Фиксированное число здесь просто разъезжалось бы с
-    ним при любом отличном от 100% масштабе экрана. }
+  { Not a constant: the chat list (framechats, TDrawGrid) draws its own
+    scrollbar natively, sized to the system metric — the same
+    GetSystemMetrics(SM_CXVSCROLL) Windows uses to scale it for DPI. A
+    fixed number here would simply drift out of sync with it at any
+    display scale other than 100%. }
   FScrollbar.Width := GetSystemMetrics(SM_CXVSCROLL);
   FScrollbar.OnScroll := @ScrollbarScroll;
 
@@ -5659,25 +5804,29 @@ begin
   FScroller.Align := alClient;
   FScroller.OnScrollRangeChanged := @ScrollerRangeChanged;
   FScroller.OnNearTop := @ScrollerNearTop;
-  { ImageList1/FileTypes — компоненты фрейма (LFM), к этому моменту уже
-    созданы inherited-стримингом, до тела этого конструктора. }
+  { ImageList1/FileTypes are frame components (LFM), already created
+    by inherited streaming by this point, before this constructor's
+    body runs. }
   FScroller.AudioImages := ImageList1;
-  FScroller.PlaybackImages := playback;
+  { ImageList2 is a 32x32 list replacing the older 16x16 "playback"
+    list — the old one stays in the .lfm as-is (the component wasn't
+    removed), just no longer read by name. }
+  FScroller.PlaybackImages := ImageList2;
   FScroller.FileImages := FileTypes;
   FScroller.FilePopupMenu := FilePopupMenu;
 
-  { Флаг ставится последним по тому же правилу, что и во всех формах
-    и фреймах проекта: LFM-стриминг (тут его формально нет, но
-    Align-докинг может дёрнуть Resize раньше) не должен наткнуться на
-    недособранные поля. }
+  { The flag is set last, the same rule as every form/frame in the
+    project: LFM streaming (not formally happening here, but
+    Align-docking can trigger Resize earlier) must not run into
+    not-yet-assembled fields. }
   FReady := True;
 
-  { BindModel сюда, в конструктор, НЕ зовём: у фрейма в этот момент
-    ещё нет Parent (TFrameNavigator.ShowFrame выставляет его только
-    ПОСЛЕ Create) — до тех пор у control'ов нет настоящего окна, и
-    любое обращение к Canvas валит EInvalidOperation "has no parent
-    window". Первое связывание — в DoActivate, куда навигатор
-    попадает уже после Parent/Visible. }
+  { BindModel is NOT called here, in the constructor: the frame has no
+    Parent yet at this point (TFrameNavigator.ShowFrame sets it only
+    AFTER Create) — until then, controls have no real window, and any
+    Canvas access raises EInvalidOperation "has no parent window". The
+    first binding happens in DoActivate, which the navigator reaches
+    only after Parent/Visible are set. }
   TdApp.SubscribeActive(Self);
 end;
 
@@ -5724,8 +5873,9 @@ begin
   FModel := TdMsgList;
   FScroller.BindModel(FModel);
 
-  { Кэш имён и кэш акцентных цветов — не смотрим на nil-раннюю Exit
-    ниже: привязываются независимо от того, есть ли уже открытый чат. }
+  { The name cache and accent-color cache aren't affected by the nil
+    early Exit below — they're bound regardless of whether a chat is
+    already open. }
   FUsers := TdUserList;
   if FUsers <> nil then begin
     FUsers.OnChanged := @UsersChanged;
@@ -5783,13 +5933,13 @@ begin
   if FModel = nil then begin
     Exit;
   end;
-  { OpenChat синхронно дёргает FOnChanged (=ModelChanged) прямо
-    отсюда — та цепочка сама уже обвязана try/except, но ловим и
-    здесь: если исключение всё же прорвётся откуда-то ещё по пути
-    (напр. из самой TTdMessages.OpenChat/Clear), пусть осядет в
-    статус-строке, а не уйдёт необработанным в LCL — под отладчиком
-    это выглядит как наглухо зависшее приложение, если диалог
-    исключения всплывает не поверх активного окна. }
+  { OpenChat synchronously fires FOnChanged (=ModelChanged) right from
+    here — that chain already has its own try/except, but this catches
+    it too: if an exception still breaks through from somewhere else
+    along the way (e.g. from TTdMessages.OpenChat/Clear itself), it
+    settles in the status bar instead of escaping unhandled into LCL —
+    under a debugger this looks like a completely frozen application
+    if the exception dialog doesn't surface above the active window. }
   try
     FModel.OpenChat(AChatId, AJumpToMessageId);
   except
@@ -5812,7 +5962,7 @@ end;
 
 procedure TFrameHistory.TdAccountsChanged;
 begin
-  { состав аккаунтов фрейму переписки не важен }
+  { The account roster doesn't matter to the chat history frame }
 end;
 
 procedure TFrameHistory.ModelChanged(Sender: TObject);
@@ -5820,14 +5970,14 @@ begin
   if (not FReady) or (FModel = nil) then begin
     Exit;
   end;
-  { Диагностическая обвязка: FScroller.ModelChanged — самый сложный
-    кусок (пересчёт оффсетов, удержание якоря прокрутки, измерение
-    реальных сообщений через msglayout) и единственное на весь чейн
-    смены чата место без своего try/except. Если зависание при
-    переключении чатов вызвано необработанным исключением где-то
-    здесь (напр. неожиданная форма контента конкретного сообщения при
-    первом реальном измерении) — оно осядет в статус-строке вместо
-    того, чтобы просочиться в Application.HandleException. }
+  { A diagnostic wrapper: FScroller.ModelChanged is the most complex
+    piece (offset recomputation, holding the scroll anchor, measuring
+    real messages through msglayout) and the one spot in the whole
+    chat-switch chain with no try/except of its own. If a hang while
+    switching chats is caused by an unhandled exception somewhere in
+    here (e.g. an unexpected content shape for a specific message on
+    its first real measurement), it settles in the status bar instead
+    of leaking into Application.HandleException. }
   try
     FScroller.ModelChanged;
     MaybeLoadMore;
@@ -5858,18 +6008,19 @@ end;
 procedure TFrameHistory.ActionError(Sender: TObject; ACode: integer;
   const AMessage, AAction: utf8string);
 begin
-  { Ошибка getChatHistory/sendMessage/viewMessages — без этого сбой
-    RPC был бы совсем незаметен: пустой список и тишина. }
+  { A getChatHistory/sendMessage/viewMessages failure — without this,
+    an RPC failure would go completely unnoticed: an empty list and
+    silence. }
   if lblStatus = nil then begin
     Exit;
   end;
   if AAction = 'jump' then begin
-    { getChatHistory вокруг сообщения (переход по цитате репоста) не
-      удался — обычно потому, что само сообщение с тех пор удалено в
-      чате-источнике, а не баг: chat_id/message_id идут как есть из
-      forward_info.origin, без ручных преобразований (см.
-      TMsgForwardKind в tdmessages.pas). }
-    lblStatus.Caption := 'Не удалось перейти к сообщению — возможно, оно удалено';
+    { getChatHistory around a message (following a forward quote)
+      failed — usually because the message has since been deleted in
+      the source chat, not a bug: chat_id/message_id are passed as-is
+      from forward_info.origin, with no manual conversion (see
+      TMsgForwardKind in tdmessages.pas). }
+    lblStatus.Caption := 'Could not jump to the message — it may have been deleted';
     Exit;
   end;
   lblStatus.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
@@ -5884,9 +6035,9 @@ end;
 
 procedure TFrameHistory.UsersChanged(Sender: TObject);
 begin
-  { Дорезолвилось (или обновилось) чьё-то имя — высота блоков от этого
-    не меняется, полная FScroller.ModelChanged (пересчёт офсетов) не
-    нужна, только перерисовать. }
+  { Someone's name finished resolving (or was updated) — block heights
+    don't change because of this, a full FScroller.ModelChanged (offset
+    recompute) isn't needed, just a repaint. }
   if FReady and (FScroller <> nil) then begin
     FScroller.Invalidate;
   end;
@@ -5897,9 +6048,9 @@ begin
   if (FModel = nil) or FModel.LoadingOlder or FModel.OldestLoaded then begin
     Exit;
   end;
-  { Загруженной истории не хватает даже на один экран — подгружаем
-    ещё, иначе пользователь увидит короткий обрубок списка без
-    возможности проскроллить и без triggerа "около верха". }
+  { The loaded history doesn't even fill one screen — more is loaded,
+    otherwise the user would see a short, truncated list with nothing
+    to scroll and no "near the top" trigger to fire. }
   if FScroller.TotalHeight < FScroller.ClientHeight then begin
     FModel.LoadOlder;
   end;
@@ -5917,10 +6068,10 @@ procedure TFrameHistory.ScrollerRangeChanged(Sender: TObject);
 var
   Max: integer;
 begin
-  { Классическая Win32-семантика SCROLLINFO: Max — верх диапазона
-    прокрутки целиком (как TotalHeight), PageSize вычитается из него
-    самим контролом при вычислении крайней позиции ползунка — так же,
-    как у нативного скролла в любом другом приложении. }
+  { Classic Win32 SCROLLINFO semantics: Max is the top of the whole
+    scroll range (like TotalHeight), PageSize is subtracted from it by
+    the control itself when computing the thumb's extreme position —
+    same as native scrolling in any other application. }
   Max := FScroller.TotalHeight;
   if Max < FScroller.ClientHeight then begin
     Max := FScroller.ClientHeight;
@@ -5946,8 +6097,8 @@ end;
 procedure TFrameHistory.DoActivate;
 begin
   inherited DoActivate;
-  { Первый настоящий показ — Parent и Visible навигатор уже
-    выставил, здесь Canvas-операции внутри BindModel безопасны. }
+  { The first real display — the navigator has already set Parent and
+    Visible, so Canvas operations inside BindModel are safe here. }
   if FModel = nil then begin
     BindModel;
   end;

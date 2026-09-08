@@ -5,35 +5,53 @@ unit msglayout;
 interface
 
 uses
-  Classes, SysUtils, Types, Math, Graphics,
-  constants, tdmessages;
+  Classes, SysUtils, Types, Math, Graphics, BGRABitmap,
+  constants, tdmessages, emojiassets, customemoji;
 
 type
-  TRunKind = (rkText, rkLink);
+  TRunKind = (rkText, rkLink, rkEmoji);
 
-  { Один "прогон" текста — слово или его кусок после жёсткого переноса,
-    уже измеренный и позиционированный внутри локальных координат
-    контента сообщения (0,0 — левый верхний угол области под текст,
-    БЕЗ отступов бабла — их накладывает framehistory). }
+  { A single text "run" — a word or a piece of one after a hard break,
+    already measured and positioned in the message content's local
+    coordinates (0,0 is the top-left of the text area, WITHOUT the
+    bubble's own padding — that's applied by framehistory). }
   TTextRun = record
     Kind:               TRunKind;
     Rect:               TRect;
     Text:               utf8string;
-    URL:                utf8string;   { только rkLink }
+    URL:                utf8string;   { rkLink only }
     Bold, Italic:       boolean;
-    { Байтовые смещения в TMsgRow.PlainText, CharEnd не включая —
-      как у TMsgEntity. Нужны выделению текста и copy. }
+    { Byte offsets into TMsgRow.PlainText, CharEnd exclusive — same
+      convention as TMsgEntity. Needed for text selection and copy. }
     CharStart, CharEnd: integer;
+    { rkEmoji only, 0 if this is a plain Unicode emoji. Set from the
+      covering mekCustomEmoji entity, if any (see CustomEmojiEntityAt in
+      WrapText) — PaintRuns tries the real custom sticker first
+      (customemoji.CustomEmojiBitmapFor) and falls back to the
+      plain-Unicode alt-emoji bitmap (still the same run, same Text —
+      the entity's underlying text) while it isn't ready yet. }
+    CustomEmojiId:      Int64;
   end;
   TTextRunArray = array of TTextRun;
 
-  { Кэш разметки одного сообщения. Хранится в TMsgRow.LayoutCache как
-    непрозрачный TObject — tdmessages о TMsgLayout не знает. }
+  { One decorative band per textEntityTypeBlockQuote span — the Y range
+    (in the same local coordinates as TTextRun.Rect) covering every run
+    that entity's byte range touches, X spanning the full column width.
+    Computed post-hoc from already-wrapped Runs (ComputeQuoteBands), not
+    tracked live during wrapping — PaintQuoteBands draws these BEHIND
+    the text (background tint + left bar), and WrapText separately
+    reserves BLOCKQUOTE_INDENT of left margin on any line a blockquote
+    entity covers so the bar never overlaps a glyph. }
+  TQuoteBandArray = array of TRect;
+
+  { Layout cache for a single message. Stored in TMsgRow.LayoutCache as
+    an opaque TObject — tdmessages knows nothing about TMsgLayout. }
   TMsgLayout = class
   public
     CachedWidth: integer;
     Height:      integer;
     Runs:        TTextRunArray;
+    QuoteBands:  TQuoteBandArray;
   end;
 
   TMsgLayoutCtx = record
@@ -45,67 +63,73 @@ type
   TMsgHit = record
     Kind:       TMsgHitKind;
     URL:        utf8string;
-    CharOffset: integer;   { байтовое смещение в PlainText; -1, если неприменимо }
+    CharOffset: integer;   { byte offset into PlainText; -1 if not applicable }
   end;
 
   { TMsgContentRenderer
 
-    Точка расширения по типу контента сообщения: один класс на вид
-    (текст, аудио, будущие фото/видео/стикеры), реестр — RendererFor
-    ниже. Framehistory всегда работает через эту абстракцию и не знает
-    про конкретные классы-наследники. }
+    Extension point by message content type: one class per kind (text,
+    audio, photo/video/stickers, ...), looked up via RendererFor below.
+    framehistory always goes through this abstraction and knows nothing
+    about the concrete subclasses. }
   TMsgContentRenderer = class
   public
-    { Возвращает высоту при данной доступной ширине; попутно
-      (пере)строит и кладёт разметку в ARow.LayoutCache. }
+    { Returns the height for the given available width; along the way
+      (re)builds the layout and stores it in ARow.LayoutCache. }
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; virtual; abstract;
-    { ASelStart/ASelEnd — байтовый диапазон выделения в PlainText ЭТОГО
-      сообщения (уже посчитанный вызывающим на границах многосообщенного
-      выделения); ASelStart < 0 означает «выделения нет». }
+    { ASelStart/ASelEnd is the byte range selected in THIS message's
+      PlainText (already resolved by the caller against the bounds of a
+      multi-message selection); ASelStart < 0 means no selection.
+      AAccentColor is the message's own resolved accent color (what the
+      header/sender name is painted in, framehistory.SenderColor) — only
+      the text-bearing renderers (Text/Photo/Placeholder, the ones with
+      a quote band to draw) actually use it; the rest accept and ignore
+      it, same as ASelStart/ASelEnd already are for several of them. }
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-      ASelStart, ASelEnd: integer); virtual; abstract;
+      ASelStart, ASelEnd: integer; AAccentColor: TColor); virtual; abstract;
     function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; virtual;
-    { True только у аудио: framehistory заводит для таких строк
-      настоящий дочерний control из пула, а не рисует их сама. }
+    { True only for widget-backed content: framehistory creates a real
+      pooled child control for such rows instead of painting them
+      itself. }
     function WantsWidget: boolean; virtual;
   end;
 
-{ Реестр — простой lookup по виду контента. }
+{ Registry — a simple lookup by content kind. }
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
 
-{ Целевой размер превью фото по натуральным ANaturalW/ANaturalH —
-  общая формула для TPhotoContentRenderer.Measure/Paint (высота строки)
-  И TPhotoWidget в framehistory.pas (сам рендер) — один источник
-  правды, а не две копии одной арифметики. Вертикальное изображение
-  (height>width) — ограничена ширина (PHOTO_MAX_WIDTH), горизонтальное
-  — высота (PHOTO_MAX_HEIGHT); маленькие изображения не увеличиваем.
-  AMaxW — реальная доступная ширина колонки в этом месте (Ctx.AvailWidth/
-  ширина ContentRect) — второй, обязательный проход поверх первого:
-  PHOTO_MAX_WIDTH сам по себе НЕ гарантирует, что превью влезет в
-  колонку (окно может быть у́же MAX_MSG_W) — без этой правки картинка
-  вылезала за карточку сообщения на нешироких окнах (баг, пойманный
-  пользователем по скриншоту). AMaxW<=0 — ограничение не действует
-  (вызывающий ещё не знает реальную ширину, напр. до первого layout). }
+{ Target photo preview size from natural ANaturalW/ANaturalH — shared
+  by TPhotoContentRenderer.Measure/Paint (row height) and TPhotoWidget
+  in framehistory.pas (the actual rendering), a single source of truth
+  rather than two copies of the same arithmetic. Portrait (height>width)
+  is width-capped (PHOTO_MAX_WIDTH), landscape is height-capped
+  (PHOTO_MAX_HEIGHT); small images are not upscaled. AMaxW is the
+  actual available column width at this point (Ctx.AvailWidth / the
+  ContentRect width) — a mandatory second pass on top of the first:
+  PHOTO_MAX_WIDTH alone does not guarantee the preview fits the column
+  (the window can be narrower than MAX_MSG_W) — without this pass the
+  image would overflow the message card on narrow windows. AMaxW<=0
+  means the cap doesn't apply (the caller doesn't know the real width
+  yet, e.g. before the first layout pass). }
 procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
 
-{ Целевой размер стикера — тот же приём, что ComputePhotoPreviewSize
-  (клампится к максимальному боксу STICKER_MAX_SIZE, второй проход по
-  реальной ширине колонки), но БЕЗ отдельной ширины/высоты — стикеры в
-  Telegram вписываются в КВАДРАТНЫЙ бокс по большей стороне, не в
-  прямоугольник PHOTO_MAX_WIDTH/PHOTO_MAX_HEIGHT (тот отличает
-  портретную/альбомную ориентацию, у стикеров эта разница не нужна —
-  и TGS/webm, и webp у Telegram практически всегда близки к квадрату,
-  официальный клиент тоже вписывает по одной стороне). }
+{ Target sticker size — same approach as ComputePhotoPreviewSize
+  (clamped to the STICKER_MAX_SIZE box, then a second pass against the
+  real column width), but with no separate width/height: Telegram fits
+  stickers into a SQUARE box by the longer side, not a
+  PHOTO_MAX_WIDTH/PHOTO_MAX_HEIGHT rectangle (that distinguishes
+  portrait/landscape, which doesn't matter for stickers — both TGS/webm
+  and webp are almost always close to square, and the official client
+  fits them the same way). }
 procedure ComputeStickerSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
 
 implementation
 
-{ ---------------- разбор текста в runs ---------------- }
+{ ---------------- text run splitting ---------------- }
 
-{ Длина UTF-8 символа по ведущему байту — та же логика, что в
-  avatarcache/tdmessages. msglayout не тянет ни один из этих юнитов
-  (avatarcache — LCL/BGRABitmap, tdmessages было бы обратной
-  зависимостью), поэтому копия локальная. }
+{ UTF-8 character length from its leading byte — same logic as
+  avatarcache/tdmessages. msglayout doesn't import either unit
+  (avatarcache pulls in LCL/BGRABitmap, tdmessages would be a reverse
+  dependency), so this is a local copy. }
 function Utf8CharLen(AByte: byte): integer;
 begin
   if AByte < $80 then begin
@@ -121,19 +145,63 @@ begin
   end;
 end;
 
-{ Жадный перенос по словам с ручной раскладкой стилей по entity-спанам.
-  Гранулярность — слово: если слово целиком попадает в спан ссылки —
-  вся ссылка кликабельна целиком, если частично — граница округляется
-  до начала слова. Для реальных сообщений (ссылка — токен без пробелов,
-  либо именованная ссылка на несколько слов) это не приближение, а
-  точный случай; для экзотики (спан обрывается на середине слова) —
-  упрощение, приемлемое для v1. }
+{ Greedy word wrap with manual style lookup per entity span. Wrap
+  granularity is the word: if a word falls entirely inside a link span,
+  the whole link is clickable; if only partially, the boundary rounds
+  to the start of the word. For real messages (a link is either a
+  space-free token or a named link spanning several words) this is
+  exact, not an approximation; for edge cases (a span ending mid-word)
+  it's a simplification, acceptable for v1. }
 function WrapText(const AText: utf8string; const AEntities: TMsgEntityArray;
   ACanvas: TCanvas; AAvailWidth: integer; out AHeight: integer): TTextRunArray;
 var
   N, I, WordStart, WordLen, LineTop, CurX, LineH, Cap, Cnt: integer;
-  SpaceW: integer;
+  SpaceW, EmojiLen: integer;
+  EmojiCustomId: Int64;
   AtLineStart: boolean;
+  { -1 until the first line has been started at all (so a message that
+    happens to OPEN inside a blockquote never gets a spurious leading
+    blank line); afterwards, the indent value (0 or BLOCKQUOTE_INDENT)
+    the PREVIOUS line started at — see StartLine below. }
+  PrevQuoteIndent: integer;
+
+  { A mekCustomEmoji entity covering APos, if any — its ByteLen is
+    authoritative (unlike a plain Unicode emoji, there's no atlas match
+    to fall back on for sizing: the entity itself says exactly how many
+    bytes this glyph is). }
+  function CustomEmojiEntityAt(APos: integer; out ALen: integer; out AId: Int64): boolean;
+  var
+    J: integer;
+    E: TMsgEntity;
+  begin
+    Result := False;
+    ALen := 0;
+    AId := 0;
+    for J := 0 to High(AEntities) do begin
+      E := AEntities[J];
+      if (E.Kind = mekCustomEmoji) and (APos >= E.ByteStart) and (APos < E.ByteStart + E.ByteLen) then begin
+        ALen := E.ByteStart + E.ByteLen - APos;
+        AId := E.CustomEmojiId;
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
+  { Single entry point for "is there a glyph-sized image at APos" — a
+    custom-emoji entity wins over a plain Unicode-emoji match (so an
+    entity whose underlying alt text isn't in the Twemoji atlas still
+    reserves its square instead of falling through to plain text), a
+    plain Unicode emoji otherwise. }
+  function SpecialGlyphAt(APos: integer; out ALen: integer; out ACustomId: Int64): boolean;
+  begin
+    if CustomEmojiEntityAt(APos, ALen, ACustomId) then begin
+      Result := True;
+      Exit;
+    end;
+    ACustomId := 0;
+    Result := EmojiMatchAt(AText, APos, ALen);
+  end;
 
   function StyleAt(APos: integer; out ABold, AItalic: boolean;
     out ALinkKind: TMsgEntityKind; out ALinkUrl: utf8string): boolean;
@@ -161,6 +229,52 @@ var
         end;
       end;
     end;
+  end;
+
+  { How far a line starting at APos should be indented — BLOCKQUOTE_INDENT
+    if APos falls inside a mekBlockQuote entity, 0 otherwise. Checked
+    fresh at every line break (not tracked as running state), so mixed
+    quoted/non-quoted paragraphs in the same message resolve correctly
+    without any extra bookkeeping — same style as StyleAt above. Must be
+    declared before EmitWord/HardBreakChars/EmitEmojiChunk, which call
+    it from their own forced-line-break branches. }
+  function QuoteIndentAt(APos: integer): integer;
+  var
+    J: integer;
+    E: TMsgEntity;
+  begin
+    Result := 0;
+    for J := 0 to High(AEntities) do begin
+      E := AEntities[J];
+      if (E.Kind = mekBlockQuote) and (APos >= E.ByteStart) and (APos < E.ByteStart + E.ByteLen) then begin
+        Result := BLOCKQUOTE_INDENT;
+        Exit;
+      end;
+    end;
+  end;
+
+  { Called at every point a new line begins (in place of a bare
+    "CurX := 0"/"CurX := QuoteIndentAt(...)") — sets CurX for the new
+    line AND, if this line crosses the boundary into or out of a
+    blockquote (indent changes between 0 and BLOCKQUOTE_INDENT relative
+    to the PREVIOUS line), inserts one extra blank line first, matching
+    the official client's visual paragraph break around a quote
+    (reported directly — text was butting straight up against the
+    quote's tinted band with no breathing room). Comparing against the
+    previous LINE's indent, not just "am I in a quote right now", is
+    what keeps this from firing between every wrapped line INSIDE a
+    multi-line quote (those all share the same nonzero indent, so no
+    transition, no extra gap) — only the true entry/exit lines get it. }
+  procedure StartLine(APos: integer);
+  var
+    NewIndent: integer;
+  begin
+    NewIndent := QuoteIndentAt(APos);
+    if (PrevQuoteIndent >= 0) and ((NewIndent > 0) <> (PrevQuoteIndent > 0)) then begin
+      Inc(LineTop, LineH);
+    end;
+    CurX := NewIndent;
+    PrevQuoteIndent := NewIndent;
   end;
 
   procedure EnsureCap(ANeed: integer);
@@ -192,9 +306,9 @@ var
     AtLineStart := False;
   end;
 
-  { Слово не влезает в строку целиком ни при каких обстоятельствах —
-    режем по символам, иначе вылезли бы за правый край или зациклились
-    на пустой строке. }
+  { The word doesn't fit on a line no matter what — break it by
+    character instead, otherwise it would overflow the right edge or
+    loop forever on an empty line. }
   procedure HardBreakChars(AStart, ALen: integer; ABold, AItalic, AIsLink: boolean;
     const AUrl: utf8string);
   var
@@ -215,9 +329,9 @@ var
 
       if (ChunkLen > 0) and (CurX + AccW + ChW > AAvailWidth) then begin
         EmitChunk(ChunkStart, ChunkLen, AccW, ABold, AItalic, AIsLink, AUrl);
-        CurX := 0;
         Inc(LineTop, LineH);
         AtLineStart := True;
+        StartLine(P);
         ChunkStart := P;
         ChunkLen := 0;
         AccW := 0;
@@ -232,6 +346,36 @@ var
     end;
   end;
 
+  { An emoji sequence is wrapped like a word (own line if it doesn't fit)
+    but painted as a fixed-size square image, not measured text — and,
+    unlike words, consecutive emoji with no space between them stay
+    flush against each other (CurX just continues, same as any other
+    chunk). }
+  procedure EmitEmojiChunk(AStart, ALen: integer; ACustomId: Int64);
+  var
+    Size: integer;
+  begin
+    Size := LineH - LINE_LEADING;
+    if (not AtLineStart) and (CurX + Size > AAvailWidth) then begin
+      Inc(LineTop, LineH);
+      AtLineStart := True;
+      StartLine(AStart);
+    end;
+    EnsureCap(Cnt + 1);
+    Result[Cnt].Kind := rkEmoji;
+    Result[Cnt].Rect := Rect(CurX, LineTop, CurX + Size, LineTop + Size);
+    Result[Cnt].Text := Copy(AText, AStart, ALen);
+    Result[Cnt].Bold := False;
+    Result[Cnt].Italic := False;
+    Result[Cnt].CharStart := AStart;
+    Result[Cnt].CharEnd := AStart + ALen;
+    Result[Cnt].URL := '';
+    Result[Cnt].CustomEmojiId := ACustomId;
+    Inc(Cnt);
+    CurX := CurX + Size;
+    AtLineStart := False;
+  end;
+
   procedure EmitWord(AStart, ALen: integer);
   var
     W: integer;
@@ -242,7 +386,7 @@ var
   begin
     IsLink := StyleAt(AStart, Bold, Italic, LKind, LUrl);
     if LKind = mekUrl then begin
-      LUrl := Copy(AText, AStart, ALen);   { авто-ссылка — URL это сам текст }
+      LUrl := Copy(AText, AStart, ALen);   { auto-link — the URL is the text itself }
     end;
 
     ACanvas.Font.Style := [];
@@ -261,9 +405,9 @@ var
     end;
 
     if (not AtLineStart) and (CurX + W > AAvailWidth) then begin
-      CurX := 0;
       Inc(LineTop, LineH);
       AtLineStart := True;
+      StartLine(AStart);
     end;
 
     EmitChunk(AStart, ALen, W, Bold, Italic, IsLink, LUrl);
@@ -273,9 +417,9 @@ begin
   Cnt := 0;
   Cap := 0;
   SetLength(Result, 0);
-  CurX := 0;
   LineTop := 0;
   AtLineStart := True;
+  PrevQuoteIndent := -1;
 
   ACanvas.Font.Style := [];
   LineH := ACanvas.TextHeight('Щ') + LINE_LEADING;
@@ -283,12 +427,13 @@ begin
 
   N := Length(AText);
   I := 1;
+  StartLine(I);
   while I <= N do begin
     if AText[I] = #10 then begin
-      CurX := 0;
       Inc(LineTop, LineH);
       AtLineStart := True;
       Inc(I);
+      StartLine(I);
       Continue;
     end;
     if AText[I] in [' ', #9, #13] then begin
@@ -299,12 +444,21 @@ begin
       Continue;
     end;
 
+    if SpecialGlyphAt(I, EmojiLen, EmojiCustomId) then begin
+      EmitEmojiChunk(I, EmojiLen, EmojiCustomId);
+      Inc(I, EmojiLen);
+      Continue;
+    end;
+
     WordStart := I;
-    while (I <= N) and not (AText[I] in [' ', #9, #10, #13]) do begin
+    while (I <= N) and not (AText[I] in [' ', #9, #10, #13])
+        and not SpecialGlyphAt(I, EmojiLen, EmojiCustomId) do begin
       Inc(I);
     end;
     WordLen := I - WordStart;
-    EmitWord(WordStart, WordLen);
+    if WordLen > 0 then begin
+      EmitWord(WordStart, WordLen);
+    end;
   end;
 
   if Cnt = 0 then begin
@@ -328,10 +482,67 @@ begin
   end;
 end;
 
-{ Общий кэш-строитель для рендереров, у которых есть текстовый блок
-  (сам текст либо подпись под плейсхолдером). ATopOffset — с какой
-  Y-координаты начинается текст: 0 для обычного текста, высота блока
-  превью + отступ для подписи. }
+{ One band per textEntityTypeBlockQuote entity — the Y range (already
+  in the same offset local coordinates as ARuns, so call AFTER
+  OffsetRuns) covering every run whose CharStart falls in that entity's
+  byte range, X spanning the full column width. Post-hoc over already-
+  wrapped runs, not tracked live during WrapText — the actual left
+  margin for quoted lines is reserved separately, via QuoteIndentAt
+  inside WrapText itself; this only computes where to paint the
+  decorative background/bar behind them. }
+function ComputeQuoteBands(const AEntities: TMsgEntityArray; const ARuns: TTextRunArray;
+  AAvailWidth: integer): TQuoteBandArray;
+var
+  I, J, Cnt, LinePad: integer;
+  E: TMsgEntity;
+  MinTop, MaxBottom: integer;
+  Found: boolean;
+begin
+  SetLength(Result, 0);
+  Cnt := 0;
+  for I := 0 to High(AEntities) do begin
+    E := AEntities[I];
+    if E.Kind <> mekBlockQuote then begin
+      Continue;
+    end;
+    Found := False;
+    MinTop := 0;
+    MaxBottom := 0;
+    LinePad := 0;
+    for J := 0 to High(ARuns) do begin
+      if (ARuns[J].CharStart >= E.ByteStart) and (ARuns[J].CharStart < E.ByteStart + E.ByteLen) then begin
+        if not Found then begin
+          MinTop := ARuns[J].Rect.Top;
+          MaxBottom := ARuns[J].Rect.Bottom;
+          { One line's worth of vertical breathing room above/below the
+            band, per direct request — derived from an actual run's own
+            height rather than a fixed pixel constant, so it tracks
+            whatever font size is in effect instead of drifting out of
+            proportion if that ever changes. }
+          LinePad := ARuns[J].Rect.Bottom - ARuns[J].Rect.Top;
+          Found := True;
+        end else begin
+          if ARuns[J].Rect.Top < MinTop then begin
+            MinTop := ARuns[J].Rect.Top;
+          end;
+          if ARuns[J].Rect.Bottom > MaxBottom then begin
+            MaxBottom := ARuns[J].Rect.Bottom;
+          end;
+        end;
+      end;
+    end;
+    if Found then begin
+      SetLength(Result, Cnt + 1);
+      Result[Cnt] := Rect(0, MinTop - LinePad, AAvailWidth, MaxBottom + LinePad);
+      Inc(Cnt);
+    end;
+  end;
+end;
+
+{ Shared cache builder for renderers that have a text block (either the
+  message text itself, or a caption under a placeholder). ATopOffset is
+  the Y coordinate the text starts at: 0 for plain text, the preview
+  block's height plus a gap for a caption. }
 function EnsureTextLayout(ARow: TMsgRow; const ACtx: TMsgLayoutCtx;
   ATopOffset: integer): TMsgLayout;
 var
@@ -347,9 +558,81 @@ begin
     L.CachedWidth := ACtx.AvailWidth;
     L.Runs := WrapText(ARow.PlainText, ARow.Entities, ACtx.Canvas, ACtx.AvailWidth, H);
     OffsetRuns(L.Runs, ATopOffset);
+    L.QuoteBands := ComputeQuoteBands(ARow.Entities, L.Runs, ACtx.AvailWidth);
     L.Height := ATopOffset + H;
   end;
   Result := L;
+end;
+
+{ Cheap RGB blend, no BGRA dependency — msglayout.pas doesn't otherwise
+  need alpha compositing for this, and quote bands repaint on every
+  scroll frame same as everything else in this file (see SMOOTH_CORNERS
+  in framehistory.pas for why that cost matters in this project).
+  ColorToRGB is mandatory on BOTH inputs, not optional — a TColor like
+  clWindow is a system-color PSEUDO-value (high bit set, a COLOR_xxx
+  index packed into the low bits), not a literal RGB triple; extracting
+  channels from it directly with Red/Green/Blue reads that index's raw
+  bits as if they were color bytes, producing a near-arbitrary dark
+  color instead of "blend toward white" (confirmed: this is exactly why
+  the first version of PaintQuoteBands rendered as a solid dark navy
+  box instead of a light tint). framehistory.BlendWithBackground already
+  gets this right, with the same explanation in its own comment — this
+  is the same fix, independently applied here since msglayout.pas can't
+  import framehistory.pas (reverse dependency). }
+function BlendColor(AFg, ABg: TColor; AOpacity: single): TColor;
+var
+  Fg, Bg: longint;
+begin
+  Fg := ColorToRGB(AFg);
+  Bg := ColorToRGB(ABg);
+  Result := RGBToColor(
+    Round((Bg and $FF) + AOpacity * ((Fg and $FF) - (Bg and $FF))),
+    Round(((Bg shr 8) and $FF) + AOpacity * (((Fg shr 8) and $FF) - ((Bg shr 8) and $FF))),
+    Round(((Bg shr 16) and $FF) + AOpacity * (((Fg shr 16) and $FF) - ((Bg shr 16) and $FF))));
+end;
+
+{ Drawn BEHIND the text (call before PaintRuns) — a light tint plus a
+  left bar per band, matching the indent WrapText already reserved for
+  quoted lines (BLOCKQUOTE_INDENT) so the bar never overlaps a glyph.
+  AAccentColor is the message's own resolved accent color (the same one
+  its header/sender name is painted in — framehistory.SenderColor,
+  threaded down through Paint, see TMsgContentRenderer.Paint's own
+  comment) — a quote is visually "part of" its message, not a fixed,
+  message-independent color (reported directly: the fixed blue read as
+  simply wrong once a message's own color was clearly something else).
+  Blended against clWindow, the same fixed background approximation
+  this content-rendering layer already uses elsewhere (e.g. clBtnFace/
+  clWindow placeholders in TAudioContentRenderer/TPhotoContentRenderer,
+  above) rather than the real per-message tinted block background —
+  that color lives one layer up, in framehistory.pas, not reachable
+  from here. Tint and bar use different opacities (BLOCKQUOTE_BG_OPACITY/
+  BLOCKQUOTE_BAR_OPACITY) — the bar is a stronger accent, not a solid
+  fill, matching the SENDER_BG_OPACITY/SENDER_BORDER_OPACITY "faint tint
+  + stronger accent" language already used everywhere else in this app
+  for this exact visual role. }
+procedure PaintQuoteBands(ACanvas: TCanvas; const AOrigin: TPoint; const ABands: TQuoteBandArray;
+  AAccentColor: TColor);
+var
+  I: integer;
+  R, BarR: TRect;
+begin
+  if Length(ABands) = 0 then begin
+    Exit;
+  end;
+  ACanvas.Pen.Style := psClear;
+  ACanvas.Brush.Style := bsSolid;
+  for I := 0 to High(ABands) do begin
+    R := ABands[I];
+    OffsetRect(R, AOrigin.X, AOrigin.Y);
+
+    ACanvas.Brush.Color := BlendColor(AAccentColor, clWindow, BLOCKQUOTE_BG_OPACITY);
+    ACanvas.FillRect(R);
+
+    BarR := Rect(R.Left, R.Top, R.Left + BLOCKQUOTE_BAR_W, R.Bottom);
+    ACanvas.Brush.Color := BlendColor(AAccentColor, clWindow, BLOCKQUOTE_BAR_OPACITY);
+    ACanvas.FillRect(BarR);
+  end;
+  ACanvas.Brush.Style := bsClear;
 end;
 
 procedure PaintRuns(ACanvas: TCanvas; const AOrigin: TPoint; const ARuns: TTextRunArray;
@@ -358,13 +641,15 @@ var
   I: integer;
   R: TTextRun;
   HasSel: boolean;
+  Bmp: TBGRABitmap;
 begin
   HasSel := (ASelStart >= 0) and (ASelEnd > ASelStart);
   for I := 0 to High(ARuns) do begin
     R := ARuns[I];
-    { Подсветка — целым run'ом (словом), если он хотя бы частично попал
-      в диапазон выделения. Точная подсветка внутри слова — не в этом
-      заходе: гранулярность выделения и так словная (см. framehistory). }
+    { Highlighting is per whole run (word) if it at least partially
+      falls within the selection range. Highlighting partway through a
+      word is not handled here — selection granularity is word-level
+      anyway (see framehistory). }
     if HasSel and (R.CharEnd > ASelStart) and (R.CharStart < ASelEnd) then begin
       ACanvas.Brush.Style := bsSolid;
       ACanvas.Brush.Color := clHighlight;
@@ -372,6 +657,26 @@ begin
         AOrigin.X + R.Rect.Right, AOrigin.Y + R.Rect.Bottom));
     end;
     ACanvas.Brush.Style := bsClear;
+
+    if R.Kind = rkEmoji then begin
+      Bmp := nil;
+      if R.CustomEmojiId <> 0 then begin
+        { The real custom sticker, once fetched+decoded (customemoji.pas)
+          — until then, fall through to the atlas bitmap for R.Text
+          below, which is the entity's own alt-emoji text, a reasonable
+          placeholder (not guaranteed related to the real glyph, but
+          not blank either — see EnsureCustomEmojiForRow). }
+        Bmp := CustomEmojiBitmapFor(R.CustomEmojiId, R.Rect.Bottom - R.Rect.Top);
+      end;
+      if Bmp = nil then begin
+        Bmp := EmojiBitmapFor(R.Text, R.Rect.Bottom - R.Rect.Top);
+      end;
+
+      if Bmp <> nil then begin
+        Bmp.Draw(ACanvas, AOrigin.X + R.Rect.Left, AOrigin.Y + R.Rect.Top, False);
+      end;
+      Continue;
+    end;
 
     ACanvas.Font.Style := [];
     if R.Bold then begin
@@ -414,7 +719,7 @@ begin
   end;
 end;
 
-{ ---------------- TMsgContentRenderer (база) ---------------- }
+{ ---------------- TMsgContentRenderer (base) ---------------- }
 
 function TMsgContentRenderer.HitTest(ARow: TMsgRow; const ARect: TRect;
   X, Y: integer): TMsgHit;
@@ -429,14 +734,14 @@ begin
   Result := False;
 end;
 
-{ ---------------- текст ---------------- }
+{ ---------------- text ---------------- }
 
 type
   TTextContentRenderer = class(TMsgContentRenderer)
   public
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-      ASelStart, ASelEnd: integer); override;
+      ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
     function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; override;
   end;
 
@@ -446,7 +751,7 @@ begin
 end;
 
 procedure TTextContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-  ASelStart, ASelEnd: integer);
+  ASelStart, ASelEnd: integer; AAccentColor: TColor);
 var
   Ctx: TMsgLayoutCtx;
   L: TMsgLayout;
@@ -454,6 +759,7 @@ begin
   Ctx.Canvas := ACanvas;
   Ctx.AvailWidth := ARect.Right - ARect.Left;
   L := EnsureTextLayout(ARow, Ctx, 0);
+  PaintQuoteBands(ACanvas, Point(ARect.Left, ARect.Top), L.QuoteBands, AAccentColor);
   PaintRuns(ACanvas, Point(ARect.Left, ARect.Top), L.Runs, ASelStart, ASelEnd);
 end;
 
@@ -472,14 +778,14 @@ begin
   Result := HitTestRuns(L.Runs, X - ARect.Left, Y - ARect.Top);
 end;
 
-{ ---------------- аудио: реальный виджет (framehistory.TAudioWidget) ---------------- }
+{ ---------------- audio: a real widget (framehistory.TAudioWidget) ---------------- }
 
 type
   TAudioContentRenderer = class(TMsgContentRenderer)
   public
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-      ASelStart, ASelEnd: integer); override;
+      ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
     function WantsWidget: boolean; override;
   end;
 
@@ -489,11 +795,11 @@ begin
 end;
 
 procedure TAudioContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-  ASelStart, ASelEnd: integer);
+  ASelStart, ASelEnd: integer; AAccentColor: TColor);
 begin
-  { Подложка на случай кадра до того, как framehistory успеет
-    позиционировать поверх настоящий TAudioWidget из пула — сам
-    виджет рисует себя сам поверх этого прямоугольника. }
+  { Backing shown for the one frame before framehistory positions the
+    real pooled TAudioWidget over it — the widget itself paints over
+    this rectangle. }
   ACanvas.Brush.Style := bsSolid;
   ACanvas.Brush.Color := clBtnFace;
   ACanvas.FillRect(ARect);
@@ -504,17 +810,17 @@ begin
   Result := True;
 end;
 
-{ ---------------- файл-документ: реальный виджет (framehistory.TFileWidget) ----------------
-  Та же схема, что и у аудио — этот renderer только резервирует высоту
-  и рисует подложку-заглушку на кадр до того, как TFrameHistory
-  позиционирует поверх настоящий TFileWidget из своего пула. }
+{ ---------------- file/document: a real widget (framehistory.TFileWidget) ----------------
+  Same scheme as audio — this renderer only reserves the height and
+  paints a placeholder backing for the one frame before TFrameHistory
+  positions the real pooled TFileWidget over it. }
 
 type
   TDocContentRenderer = class(TMsgContentRenderer)
   public
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-      ASelStart, ASelEnd: integer); override;
+      ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
     function WantsWidget: boolean; override;
   end;
 
@@ -524,7 +830,7 @@ begin
 end;
 
 procedure TDocContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-  ASelStart, ASelEnd: integer);
+  ASelStart, ASelEnd: integer; AAccentColor: TColor);
 begin
   ACanvas.Brush.Style := bsSolid;
   ACanvas.Brush.Color := clBtnFace;
@@ -536,7 +842,7 @@ begin
   Result := True;
 end;
 
-{ ---------------- фото: реальный виджет (framehistory.TPhotoWidget) ---------------- }
+{ ---------------- photo: a real widget (framehistory.TPhotoWidget) ---------------- }
 
 procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
 begin
@@ -544,18 +850,18 @@ begin
     AOutW := PHOTO_MAX_WIDTH;
     AOutH := PHOTO_MAX_HEIGHT;
   end else if ANaturalH > ANaturalW then begin
-    { Вертикальное — ограничена ширина, высота пропорционально. }
+    { Portrait — width-capped, height scaled proportionally. }
     AOutW := Min(ANaturalW, PHOTO_MAX_WIDTH);
     AOutH := Round(ANaturalH * (AOutW / ANaturalW));
   end else begin
-    { Горизонтальное (или квадратное) — ограничена высота. }
+    { Landscape (or square) — height-capped. }
     AOutH := Min(ANaturalH, PHOTO_MAX_HEIGHT);
     AOutW := Round(ANaturalW * (AOutH / ANaturalH));
   end;
 
-  { Второй проход — реальная ширина колонки в этом месте может быть
-    у́же PHOTO_MAX_WIDTH (окно не широкое): сжимаем ЕЩЁ, сохраняя
-    пропорции, иначе превью вылезает за карточку сообщения. }
+  { Second pass — the real column width at this point may be narrower
+    than PHOTO_MAX_WIDTH (a non-wide window): shrink further, keeping
+    proportions, otherwise the preview overflows the message card. }
   if (AMaxW > 0) and (AOutW > AMaxW) then begin
     AOutH := Round(AOutH * (AMaxW / AOutW));
     AOutW := AMaxW;
@@ -567,32 +873,31 @@ type
   public
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-      ASelStart, ASelEnd: integer); override;
+      ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
     function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; override;
     function WantsWidget: boolean; override;
   end;
 
-{ Натуральные (немасштабированные) размеры визуального превью — фото,
-  "гифки" (messageAnimation) или видео-сообщения (messageVideo), у всех
-  трёх один и тот же рендерер (см. RendererFor): всё это — картинка
-  переменного размера с опциональной подписью, отличается только тем,
-  ОТКУДА берутся width/height (PhotoWidth/Height у фото, AnimWidth/
-  Height у анимации — разные поля TMsgRow, см. её же комментарий).
+{ Natural (unscaled) size of the visual preview — photo, "GIF"
+  (messageAnimation), or video message (messageVideo); all three share
+  the same renderer (see RendererFor): each is a variable-size image
+  with an optional caption, differing only in WHERE width/height come
+  from (PhotoWidth/Height for a photo, AnimWidth/Height for an
+  animation — different TMsgRow fields, see its own comment).
 
-  mckVideo — ИСКЛЮЧЕНИЕ, с 2026-09-06: инлайн-виджет в чате
-  (TVideoWidget, framehistory.pas) показывает не декодированное видео,
-  а статичный кадр из content.video.thumbnail — и framehistory.pas
-  (LayoutVideoWidgets) считает его РЕАЛЬНЫЙ размер на экране от
-  VideoThumbWidth/Height (разрешение самого thumbnail), не от
-  VideoWidth/Height (разрешение исходного видео). Если здесь оставить
-  VideoWidth/Height — эта функция (через Measure/Paint ниже) резервирует
-  под блок сообщения БОЛЬШЕ места, чем реально занимает виджет, и
-  разница остаётся пустой серой полосой фона блока сбоку/снизу от
-  картинки — тот самый баг, пойманный по скриншоту пользователя. Оба
-  места должны считать по ОДНОЙ и той же величине — резерв на
-  VideoWidth/Height ниже нужен только пока VideoThumbWidth/Height ещё
-  не пришли ни разу (в теории — видео без thumbnail в контенте
-  вообще). }
+  mckVideo is an EXCEPTION: the inline chat widget (TVideoWidget,
+  framehistory.pas) shows a static frame from content.video.thumbnail
+  rather than decoded video, and framehistory.pas (LayoutVideoWidgets)
+  computes its ON-SCREEN size from VideoThumbWidth/Height (the
+  thumbnail's own resolution), not VideoWidth/Height (the source
+  video's resolution). Using VideoWidth/Height here instead would make
+  this function (via Measure/Paint below) reserve more space for the
+  message block than the widget actually occupies, leaving an empty
+  gray strip of block background beside/below the image. Both call
+  sites must agree on the same value — falling back to VideoWidth/
+  Height below only covers the case where VideoThumbWidth/Height
+  haven't arrived yet (in theory, a video with no thumbnail in its
+  content at all). }
 procedure NaturalMediaSize(ARow: TMsgRow; out AW, AH: integer);
 begin
   case ARow.Kind of
@@ -624,24 +929,23 @@ begin
   if ARow.PlainText = '' then begin
     Result := ImgH;
   end else begin
-    { Подпись — во всю доступную ширину колонки, не ограничена шириной
-      самого превью (та часто уже него). }
+    { The caption spans the full available column width, not limited
+      to the preview's own width (which is often narrower). }
     Result := EnsureTextLayout(ARow, ACtx, ImgH + CAPTION_GAP).Height;
   end;
 end;
 
 procedure TPhotoContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-  ASelStart, ASelEnd: integer);
+  ASelStart, ASelEnd: integer; AAccentColor: TColor);
 var
   NatW, NatH, ImgW, ImgH: integer;
   L: TMsgLayout;
   Ctx: TMsgLayoutCtx;
 begin
-  { Подложка на случай кадра до того, как framehistory успеет
-    позиционировать поверх настоящий виджет из пула (TPhotoWidget/
-    TAnimationWidget) — тот же приём, что и у аудио/файла. Только под
-    превью, не во всю ширину: у картинки свой натуральный размер, не
-    "во всю колонку". }
+  { Backing shown for the one frame before framehistory positions the
+    real pooled widget over it (TPhotoWidget/TAnimationWidget) — same
+    approach as audio/file. Only under the preview, not the full width:
+    the image has its own natural size, not "full column". }
   NaturalMediaSize(ARow, NatW, NatH);
   ComputePhotoPreviewSize(NatW, NatH, ARect.Right - ARect.Left, ImgW, ImgH);
   ACanvas.Brush.Style := bsSolid;
@@ -654,6 +958,7 @@ begin
   Ctx.Canvas := ACanvas;
   Ctx.AvailWidth := ARect.Right - ARect.Left;
   L := EnsureTextLayout(ARow, Ctx, ImgH + CAPTION_GAP);
+  PaintQuoteBands(ACanvas, Point(ARect.Left, ARect.Top), L.QuoteBands, AAccentColor);
   PaintRuns(ACanvas, Point(ARect.Left, ARect.Top), L.Runs, ASelStart, ASelEnd);
 end;
 
@@ -677,7 +982,7 @@ begin
   Result := True;
 end;
 
-{ ---------------- стикер: реальный виджет (framehistory.TStickerWidget) ---------------- }
+{ ---------------- sticker: a real widget (framehistory.TStickerWidget) ---------------- }
 
 procedure ComputeStickerSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
 begin
@@ -698,17 +1003,16 @@ begin
 end;
 
 type
-  { Стикер — БЕЗ подписи (у messageSticker нет поля caption вовсе,
-    проверено по официальным docs.core.telegram.org/tdlib — в отличие
-    от фото/видео/"гифки", у которых caption есть всегда, даже если
-    пустой), поэтому Measure/Paint здесь проще, чем у
-    TPhotoContentRenderer — ни ветки "текст есть/нет", ни
-    EnsureTextLayout. }
+  { A sticker has NO caption at all (messageSticker has no caption
+    field, per the official docs.core.telegram.org/tdlib — unlike
+    photo/video/"GIF", which always have one, even if empty), so
+    Measure/Paint here are simpler than TPhotoContentRenderer — no
+    text-present branch, no EnsureTextLayout. }
   TStickerContentRenderer = class(TMsgContentRenderer)
   public
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-      ASelStart, ASelEnd: integer); override;
+      ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
     function WantsWidget: boolean; override;
   end;
 
@@ -721,27 +1025,27 @@ begin
 end;
 
 procedure TStickerContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-  ASelStart, ASelEnd: integer);
+  ASelStart, ASelEnd: integer; AAccentColor: TColor);
 var
   ImgW, ImgH: integer;
 begin
-  { Подложка на случай кадра до того, как framehistory успеет
-    позиционировать поверх настоящий TStickerWidget — тот же приём, что
-    у фото/аудио/файла. Стикер сам по себе прозрачный — тут красить
-    ЧЕМ-ТО всё равно нужно, иначе виден пиксельный мусор предыдущего
-    кадра под ещё не поднятым виджетом; clWindow, не clBtnFace — фон
-    стикера должен сливаться с окном, а не выглядеть отдельной серой
-    плашкой (у стикера нет своей "карточки").
-    Только под самим стикером (его натуральный размер, тот же расчёт,
-    что и у LayoutStickerWidgets/SetSticker — ComputeStickerSize с той
-    же AMaxW), НЕ во всю ширину ARect — раньше красили ARect целиком,
-    из-за чего справа от маленького стикера был виден белый
-    прямоугольник ВМЕСТО тонировки блока (баг, пойманный по скриншоту
-    пользователя, не зависит от new_style — этот Paint вызывается на
-    КАЖДУЮ перерисовку, даже когда настоящий виджет уже поднят поверх,
-    и белый фон под ним просвечивал везде, где виджет физически меньше
-    ARect). TPhotoContentRenderer.Paint уже делает именно так — тот же
-    приём, перенесён сюда. }
+  { Backing shown for the one frame before framehistory positions the
+    real TStickerWidget over it — same approach as photo/audio/file. A
+    sticker is transparent by itself, so this still needs to paint
+    something, otherwise stale pixels from the previous frame show
+    through under the not-yet-positioned widget; clWindow, not
+    clBtnFace — the sticker's background should blend with the window,
+    not look like a separate gray card (a sticker has no card of its
+    own).
+    Only under the sticker itself (its natural size, the same
+    computation as LayoutStickerWidgets/SetSticker — ComputeStickerSize
+    with the same AMaxW), NOT the full ARect — painting the whole
+    ARect used to leave a white rectangle visible to the right of a
+    small sticker instead of the block's tint (this Paint runs on
+    every repaint, even once the real widget is already positioned
+    over it, and the white background showed through anywhere the
+    widget was physically smaller than ARect). TPhotoContentRenderer.
+    Paint already does exactly this — the same approach, applied here. }
   ComputeStickerSize(ARow.StickerWidth, ARow.StickerHeight, ARect.Right - ARect.Left, ImgW, ImgH);
   ACanvas.Brush.Style := bsSolid;
   ACanvas.Brush.Color := clWindow;
@@ -753,21 +1057,21 @@ begin
   Result := True;
 end;
 
-{ ---------------- контент без своего рендерера: плейсхолдер ---------------- }
+{ ---------------- content with no dedicated renderer: placeholder ---------------- }
 
 type
   TPlaceholderContentRenderer = class(TMsgContentRenderer)
   public
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-      ASelStart, ASelEnd: integer); override;
+      ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
     function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; override;
   end;
 
-{ mckVoiceNote/mckPhoto/mckAnimation/mckVideo/mckSticker убраны отсюда
-  — все они теперь реальные виджеты (см. RendererFor), эта ветка
-  недостижима для них; параметр оставлен ради будущих типов контента,
-  которым однажды тоже понадобится не-заглушка. }
+{ mckVoiceNote/mckPhoto/mckAnimation/mckVideo/mckSticker are excluded
+  here — all of them now have real widgets (see RendererFor), so this
+  branch is unreachable for them; the parameter is kept for future
+  content kinds that will eventually need a real renderer of their own. }
 function PlaceholderLabel(AKind: TMsgContentKind): string;
 begin
   Result := 'Unsupported';
@@ -789,7 +1093,7 @@ begin
 end;
 
 procedure TPlaceholderContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
-  ASelStart, ASelEnd: integer);
+  ASelStart, ASelEnd: integer; AAccentColor: TColor);
 var
   BoxRect: TRect;
   S: string;
@@ -817,6 +1121,7 @@ begin
   Ctx.Canvas := ACanvas;
   Ctx.AvailWidth := ARect.Right - ARect.Left;
   L := EnsureTextLayout(ARow, Ctx, PLACEHOLDER_BOX_H + CAPTION_GAP);
+  PaintQuoteBands(ACanvas, Point(ARect.Left, ARect.Top), L.QuoteBands, AAccentColor);
   PaintRuns(ACanvas, Point(ARect.Left, ARect.Top), L.Runs, ASelStart, ASelEnd);
 end;
 
@@ -835,7 +1140,7 @@ begin
   Result := HitTestRuns(L.Runs, X - ARect.Left, Y - ARect.Top);
 end;
 
-{ ---------------- реестр ---------------- }
+{ ---------------- registry ---------------- }
 
 var
   GTextRenderer:        TTextContentRenderer;
@@ -849,20 +1154,19 @@ function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
 begin
   case AKind of
     mckText:      Result := GTextRenderer;
-    { Голосовое — тот же реальный виджет (TAudioWidget), что и
-      обычное аудио, по прямому запросу пользователя ("функционал и
-      внешний вид идентичные") — не отдельный класс, GAudioRenderer
-      просто резервирует ту же AUDIO_WIDGET_H, содержимым виджета
-      ведает framehistory.pas (LayoutAudioWidgets теперь фильтрует и
-      mckAudio, и mckVoiceNote). }
+    { A voice note uses the same real widget (TAudioWidget) as regular
+      audio, matching the same look and behavior — not a separate
+      class; GAudioRenderer just reserves the same AUDIO_WIDGET_H, and
+      the widget's content is handled by framehistory.pas
+      (LayoutAudioWidgets filters both mckAudio and mckVoiceNote). }
     mckAudio, mckVoiceNote: Result := GAudioRenderer;
     mckFile:      Result := GDocRenderer;
-    { "Гифка" (messageAnimation) и видео-сообщение (messageVideo) — тот
-      же реальный рендерер, что и фото, тем же приёмом, что и голосовое
-      с GAudioRenderer: все три — картинка переменного размера с
-      опциональной подписью, NaturalMediaSize внутри
-      TPhotoContentRenderer различает их по ARow.Kind. Содержимым
-      виджета (загрузка/воспроизведение) ведает framehistory.pas. }
+    { "GIF" (messageAnimation) and video message (messageVideo) use the
+      same real renderer as a photo, the same way voice notes share
+      GAudioRenderer: all three are a variable-size image with an
+      optional caption, and NaturalMediaSize inside
+      TPhotoContentRenderer tells them apart by ARow.Kind. The widget's
+      content (downloading/playback) is handled by framehistory.pas. }
     mckPhoto, mckAnimation, mckVideo: Result := GPhotoRenderer;
     mckSticker: Result := GStickerRenderer;
   else
