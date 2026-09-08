@@ -8,11 +8,11 @@ uses
   avatarcache, BGRABitmap, BGRABitmapTypes,
   Classes, Clipbrd,
   Controls, constants, DateUtils, Dialogs, ExtCtrls, Forms, Graphics, Grids,
-  Menus, StdCtrls, SysUtils, tdauth, tdchats, tdcore, Types, uiframe;
+  Menus, StdCtrls, SysUtils, tdaccentcolors, tdauth, tdchats, tdcore, Types, uiframe;
 
 type
   { Кликабельные области внутри строки. }
-  TChatHitArea = (chaNone, chaBell, chaAvatar, chaHeader);
+  TChatHitArea = (chaNone, chaBell, chaAvatar, chaHeader, chaPin);
 
   { Какой список показан. }
   TChatListMode = (clmMain, clmArchive);
@@ -25,18 +25,36 @@ type
 
     Список чатов на TDrawGrid: у сетки нет собственной коллекции строк,
     поэтому модель остаётся единственным хранилищем данных, а
-    перестановка чата — это просто Invalidate. }
+    перестановка чата — это просто Invalidate.
+
+    Строка чата (2026-09-08, редизайн по прямому запросу пользователя —
+    "делаем элемент контакта таким же как и сообщения в истории")
+    оформлена тем же визуальным языком, что и блок сообщения в
+    framehistory.pas: скруглённая карточка, тонированная цветом чата
+    (accent_color_id), заголовок (значок типа + аватар 24x24 + имя +
+    время/галочка/пин/колокольчик) и область текста (превью + счётчик
+    непрочитанных). framechats.pas НЕ может импортировать framehistory.pas
+    (та сама уже импортирует framechats.pas — цикл), поэтому нужные
+    отсюда мелкие функции (резолвер цвета, блендинг с фоном, скруглённая
+    заливка/обводка) — свои копии той же логики, см. их комментарии
+    ниже, не общий код. }
 
   TFrameChats = class(TFrameBase, ITdActiveListener)
     Grid:      TDrawGrid;
+    icons12: TImageList;
     pnlBottom: TPanel;
     lblStatus: TLabel;
     mnuChat:   TPopupMenu;
     { Значки типов чата. Компонент положен на фрейм в дизайнере;
       имя должно совпадать с тем, что в .lfm. }
     ImageList1: TImageList;
-    { Крупные картинки размером с аватарку (44x44).
-      Индекс 0 — архив. }
+    { Не используется кодом с редизайна псевдо-строк "Архив"/"Все чаты"
+      под вид карточки (2026-09-08, четвёртый заход — те теперь берут
+      значок из icons12, см. CHATROW_ICON_ARCHIVE/ALLCHATS) — поле
+      оставлено НЕ убранным намеренно: компонент по-прежнему объявлен
+      в .lfm, а убирать типизированное поле под уже существующий в
+      дизайнере компонент рискованно без явной необходимости (не тот
+      случай, где выигрыш стоит риска сломать стриминг). }
     ImageListBig: TImageList;
     procedure GridDrawCell(Sender: TObject; ACol, ARow: Integer; ARect: TRect; AState: TGridDrawState);
     procedure GridSelectCell(Sender: TObject; ACol, ARow: Integer; var CanSelect: Boolean);
@@ -61,7 +79,7 @@ type
     FOnListMode: TListModeEvent;
     FMode:     TChatListMode;
     FOnAvatar: TAvatarClickEvent;
-    { Клик по значку/аватарке (chaBell/chaAvatar) — CanSelect:=False,
+    { Клик по значку/аватарке (chaBell/chaPin/chaAvatar) — CanSelect:=False,
       выделение вообще не двигаем, FOnSelect не зовём. }
     FSuppressSelect: Boolean;
     { Идёт переключение режима списка (chaHeader) — в отличие от
@@ -84,7 +102,23 @@ type
       чата, чего быть не должно. }
     function ChatAt(AGridRow: Integer): TChatRow;
     function TypeIconIndex(ARow: TChatRow): Integer;
-    procedure DrawColIcon(ACX, ACY, AIndex: Integer);
+    procedure DrawIcon12(const ARect: TRect; AIndex: Integer);
+    { Единственный источник геометрии карточки строки — и отрисовка
+      (GridDrawCell), и хит-тест (HitArea) считают одно и то же отсюда,
+      не копируют формулы по отдельности (та самая, не раз документированная
+      в этом проекте ловушка — см. CLAUDE.md про ContentPadV/ForwardCardRect
+      в framehistory.pas). ARect — либо реальный прямоугольник ячейки
+      (для отрисовки), либо (0,0,Width,Height) той же ячейки (для
+      хит-теста, координаты клика уже локальные). Result — сама карточка
+      (ARect за вычетом CHATROW_GAP снизу).
+      AHasPin=False (архивный список — там пинить нельзя, по прямому
+      запросу пользователя) — APinR схлопывается в нулевую ширину у
+      левого края MuteR, а не просто перестаёт рисоваться: TitleRight
+      (граница текста времени в GridDrawCell) считается от PinR.Left,
+      и без реального сокращения этого прямоугольника время наехало бы
+      на пустое место, где раньше был пин. }
+    function ChatRowRects(const ARect: TRect; AHasPin: Boolean; out AHeader, AContent,
+      AIconR, AAvatarR, AMuteR, APinR: TRect): TRect;
     { Одна проверка попадания на всех: и для нажатия, и для курсора.
       Дублировать геометрию в двух местах — верный способ развести
       их со временем. }
@@ -149,6 +183,82 @@ begin
   end
   else begin
     Result := FormatDateTime('dd.mm.yy', Dt);
+  end;
+end;
+
+{ Цвет чата по кругу — своя копия ResolveAccentColor (framehistory.pas):
+  та же идея (accent_color_id, из updateChatAccentColors — см.
+  tdaccentcolors.pas — вместо хэша по id, когда он известен; хэш по
+  SENDER_PALETTE запасным вариантом), но framechats.pas не может
+  импортировать framehistory.pas (та сама уже импортирует framechats.pas
+  — цикл), поэтому не общая функция, а независимая копия той же логики. }
+function ChatAccentColor(ARow: TChatRow): TColor;
+var
+  AC: TTdAccentColors;
+begin
+  if ARow.AccentColorId >= 0 then begin
+    AC := TdAccentColorList;
+    if (AC <> nil) and AC.TryGetColor(ARow.AccentColorId, Result) then begin
+      Exit;
+    end;
+  end;
+  Result := SENDER_PALETTE[Abs(ARow.Id) mod Length(SENDER_PALETTE)];
+end;
+
+{ Смешивает AColor с ABackground в пропорции AOpacity (0..1) — своя
+  копия BlendWithBackground (framehistory.pas), см. комментарий у
+  ChatAccentColor про то, почему копия, а не общий код. }
+function BlendWithBackground(AColor: TColor; AOpacity: double; ABackground: TColor): TColor;
+var
+  Fg, Bg: longint;
+begin
+  Fg := ColorToRGB(AColor);
+  Bg := ColorToRGB(ABackground);
+  Result := RGBToColor(
+    Round((Bg and $FF) + AOpacity * ((Fg and $FF) - (Bg and $FF))),
+    Round(((Bg shr 8) and $FF) + AOpacity * (((Fg shr 8) and $FF) - ((Bg shr 8) and $FF))),
+    Round(((Bg shr 16) and $FF) + AOpacity * (((Fg shr 16) and $FF) - ((Bg shr 16) and $FF)))
+  );
+end;
+
+{ Скруглённая заливка/обводка карточки строки — своя, урезанная копия
+  PaintRoundRectAA (framehistory.pas, SMOOTH_CORNERS=False ветка): та
+  же причина независимой копии, что и у ChatAccentColor выше, и тот же
+  выбор способа рисовать — список чатов скроллится ровно так же часто,
+  как история сообщений, и тот же урок про стоимость BGRA-антиалиасинга
+  на каждый кадр (см. CLAUDE.md, 2026-09-04) применим здесь один в
+  один — простой GDI Canvas.RoundRect, без единого TBGRABitmap.
+  AOptions/[rrBottomLeftSquare, rrBottomRightSquare] — тот же трюк
+  "спрямить низ" для заголовка карточки, что и у сообщений. }
+procedure PaintCardRoundRect(ACanvas: TCanvas; const ABox: TRect; ARadius: single;
+  AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor;
+  ABorderWidth: single = 1);
+var
+  IRadius: Integer;
+begin
+  if (ABox.Right - ABox.Left <= 0) or (ABox.Bottom - ABox.Top <= 0) then begin
+    Exit;
+  end;
+  IRadius := Round(ARadius);
+  ACanvas.Pen.Style := psClear;
+  if ABorderColor <> clNone then begin
+    ACanvas.Pen.Style := psSolid;
+    ACanvas.Pen.Color := ABorderColor;
+    ACanvas.Pen.Width := Round(ABorderWidth);
+  end;
+  if AFillColor <> clNone then begin
+    ACanvas.Brush.Style := bsSolid;
+    ACanvas.Brush.Color := AFillColor;
+  end else begin
+    ACanvas.Brush.Style := bsClear;
+  end;
+  ACanvas.RoundRect(ABox.Left, ABox.Top, ABox.Right, ABox.Bottom, IRadius * 2, IRadius * 2);
+  if (AFillColor <> clNone) and (rrBottomLeftSquare in AOptions) and
+    (rrBottomRightSquare in AOptions) then begin
+    ACanvas.Pen.Style := psClear;
+    ACanvas.Brush.Style := bsSolid;
+    ACanvas.Brush.Color := AFillColor;
+    ACanvas.FillRect(Rect(ABox.Left, ABox.Bottom - IRadius, ABox.Right, ABox.Bottom));
   end;
 end;
 
@@ -547,96 +657,158 @@ begin
 
   case ARow.Kind of
     ckChannel:
-      Result := ICON_CHANNEL;
+      Result := CHATROW_ICON_CHANNEL;
     ckBasicGroup, ckSupergroup:
-      Result := ICON_GROUP;
+      Result := CHATROW_ICON_GROUP;
     ckPrivate, ckSecret: begin
         { Бот — это свойство собеседника, а не чата: тип чата у него
           такой же личный. Признак приходит отдельным updateUser. }
       if FModel.IsBotChat(ARow) then begin
-        Result := ICON_BOT;
+        Result := CHATROW_ICON_BOT;
       end
       else begin
-        Result := ICON_PRIVATE;
+        Result := CHATROW_ICON_PRIVATE;
       end;
     end;
   end;
 end;
 
-procedure TFrameChats.DrawColIcon(ACX, ACY, AIndex: Integer);
+procedure TFrameChats.DrawIcon12(const ARect: TRect; AIndex: Integer);
 begin
-  if (AIndex < 0) or (ImageList1 = nil) or (AIndex >= ImageList1.Count) then begin
+  if (AIndex < 0) or (icons12 = nil) or (AIndex >= icons12.Count) then begin
     Exit;
   end;
-  { Центрируем по заданной точке — центру виртуального круга,
-    который сам не рисуется. }
-  ImageList1.Draw(Grid.Canvas,
-    ACX - ImageList1.Width div 2,
-    ACY - ImageList1.Height div 2, AIndex, True);
+  icons12.Draw(Grid.Canvas, ARect.Left, ARect.Top, AIndex, True);
 end;
 
+function TFrameChats.ChatRowRects(const ARect: TRect; AHasPin: Boolean; out AHeader, AContent,
+  AIconR, AAvatarR, AMuteR, APinR: TRect): TRect;
+var
+  IconY: Integer;
+begin
+  { Карточка — ARect с отступом CHATROW_GAP слева/справа (от края
+    списка, по прямому запросу пользователя) и, по вертикали, ПОЛОВИНОЙ
+    CHATROW_GAP сверху И снизу (по прямому запросу пользователя,
+    2026-09-08, третий заход: "отступ 2 пикселя сверху и 2 снизу, наши
+    4 в сумме") — раньше весь зазор в 4px уходил только вниз (та же
+    идея, что MSG_GAP у сообщений, "после блока"), из-за чего карточка
+    визуально начиналась прямо с верхнего края строки списка; итоговая
+    высота карточки не изменилась (4px по-прежнему уходят на зазор
+    целиком, просто поровну на обе стороны, а не только вниз). }
+  Result := Rect(ARect.Left + CHATROW_GAP, ARect.Top + CHATROW_GAP div 2,
+    ARect.Right - CHATROW_GAP, ARect.Bottom - CHATROW_GAP div 2);
+
+  AHeader := Rect(Result.Left, Result.Top, Result.Right, Result.Top + CHATROW_HEADER_BAR_H);
+  AContent := Rect(Result.Left, AHeader.Bottom, Result.Right, Result.Bottom);
+
+  { Заголовок теперь без аватара (тот переехал в область текста, см.
+    ниже — по прямому запросу пользователя): слева направо — только
+    значок типа чата, дальше имя (ширина которого зависит от текста
+    времени/галочки — считается на месте отрисовки, не здесь). }
+  IconY := AHeader.Top + (CHATROW_HEADER_BAR_H - CHATROW_ICON_SIZE) div 2;
+  AIconR := Rect(AHeader.Left + MSG_PAD_H, IconY,
+    AHeader.Left + MSG_PAD_H + CHATROW_ICON_SIZE, IconY + CHATROW_ICON_SIZE);
+
+  { Аватар — в области текста, перед превью сообщения (по прямому
+    запросу пользователя, 2026-09-08, второй заход), вертикально по
+    центру той же высоты, что и сама область (CHATROW_CONTENT_H
+    посчитана ИМЕННО под аватар, см. constants.pas). }
+  AAvatarR := Rect(AContent.Left + MSG_PAD_H, AContent.Top + MSG_PAD_V,
+    AContent.Left + MSG_PAD_H + AVATAR_SIZE, AContent.Top + MSG_PAD_V + AVATAR_SIZE);
+
+  { Справа налево: колокольчик уведомлений (у самого края), левее —
+    пин. Дальше левее (галочка/время) — переменной ширины, считается
+    на месте отрисовки, в хит-тест не входит (не кликабельны). }
+  AMuteR := Rect(AHeader.Right - MSG_PAD_H - CHATROW_ICON_SIZE, IconY,
+    AHeader.Right - MSG_PAD_H, IconY + CHATROW_ICON_SIZE);
+  if AHasPin then begin
+    APinR := Rect(AMuteR.Left - GAP - CHATROW_ICON_SIZE, IconY,
+      AMuteR.Left - GAP, IconY + CHATROW_ICON_SIZE);
+  end
+  else begin
+    { В архиве пинить нельзя (по прямому запросу пользователя) — нулевая
+      ширина у левого края MuteR, не просто "не рисовать": TitleRight
+      в GridDrawCell считается от PinR.Left, и время должно упираться
+      прямо в MuteR, как будто слота под пин никогда не было. }
+    APinR := Rect(AMuteR.Left, IconY, AMuteR.Left, IconY + CHATROW_ICON_SIZE);
+  end;
+end;
 
 procedure TFrameChats.DrawHeaderRow(ARect: TRect; ASelected: Boolean);
 var
   Cv:    TCanvas;
   Badge: TBGRABitmap;
   A:     TArchiveInfo;
-  TextRight, Y, Big: Integer;
+  Card, Header, Content, IconR, AvatarR, MuteR, PinR: TRect;
+  BodyFill, HeaderFill, BorderCol: TColor;
+  PrevRight, Y, IconIdx: Integer;
   S, Title: String;
 begin
   Cv := Grid.Canvas;
 
   { В основном списке заголовок ведёт в архив, в архиве — обратно.
-    Сводка берётся по тому списку, КУДА он ведёт. }
+    Сводка берётся по тому списку, КУДА он ведёт. Тот же вид карточки,
+    что и у настоящего чата (по прямому запросу пользователя,
+    2026-09-08, четвёртый заход) — только без времени/аватара/пина/
+    уведомлений (тем и остаётся "псевдо-строкой", не настоящим чатом) и
+    фиксированным цветом CHATROW_PSEUDO_COLOR вместо ChatAccentColor. }
   if FMode = clmArchive then begin
-    A     := FModel.MainInfo;
-    Big   := BIG_ALLCHATS;
-    Title := 'All chats';
+    A       := FModel.MainInfo;
+    IconIdx := CHATROW_ICON_ALLCHATS;
+    Title   := 'All chats';
   end
   else begin
-    A     := FModel.Archive;
-    Big   := BIG_ARCHIVE;
-    Title := 'Archive';
+    A       := FModel.Archive;
+    IconIdx := CHATROW_ICON_ARCHIVE;
+    Title   := 'Archive';
   end;
 
-  if (ImageListBig <> nil) and (Big < ImageListBig.Count) then begin
-    ImageListBig.Draw(Cv, ARect.Left + AV_LEFT,
-      ARect.Top + (ROW_HEIGHT - AVATAR_SIZE) div 2, Big, True);
+  { AvatarR/MuteR/PinR — та же геометрия, что и у настоящих чатов, но
+    здесь просто не используются (для этой карточки их нет). AHasPin —
+    неважно (False для единообразия, тут и без того нет ни одной иконки
+    из этой пары). }
+  Card := ChatRowRects(ARect, False, Header, Content, IconR, AvatarR, MuteR, PinR);
+
+  if ASelected then begin
+    Cv.Brush.Color := BlendWithBackground(CHATROW_PSEUDO_COLOR, CHATROW_SELECTED_OPACITY, clWindow);
+    Cv.Brush.Style := bsSolid;
+    Cv.FillRect(ARect);
   end;
+
+  BodyFill   := BlendWithBackground(CHATROW_PSEUDO_COLOR, SENDER_BG_OPACITY, clWindow);
+  HeaderFill := BlendWithBackground(CHATROW_PSEUDO_COLOR, SENDER_HEADER_OPACITY, clWindow);
+  BorderCol  := BlendWithBackground(CHATROW_PSEUDO_COLOR, SENDER_BORDER_OPACITY, clWindow);
+
+  PaintCardRoundRect(Cv, Card, CHATROW_CORNER_RADIUS, [], BodyFill, clNone);
+  PaintCardRoundRect(Cv, Header, CHATROW_CORNER_RADIUS,
+    [rrBottomLeftSquare, rrBottomRightSquare], HeaderFill, clNone);
+
+  DrawIcon12(IconR, IconIdx);
 
   Cv.Brush.Style := bsClear;
-  TextRight      := ARect.Right - PAD;
+  Cv.Font.Style  := [fsBold];
+  Cv.Font.Height := -13;
+  Cv.Font.Color  := clWindowText;
+  Cv.TextRect(Rect(IconR.Right + MSG_ICON_GAP, Header.Top, Header.Right - MSG_PAD_H, Header.Bottom),
+    IconR.Right + MSG_ICON_GAP, Header.Top + (CHATROW_HEADER_BAR_H - Cv.TextHeight(Title)) div 2, Title);
 
-  { Счётчик — число непрочитанных ЧАТОВ в архиве, как в Telegram. }
+  { Счётчик — число непрочитанных ЧАТОВ в архиве, как в Telegram —
+    в области текста, тем же местом, что и счётчик непрочитанных
+    сообщений у настоящего чата. }
+  PrevRight := Content.Right - MSG_PAD_H;
   if A.UnreadChats > 0 then begin
-    Badge := BadgeBitmap(IntToStr(A.UnreadChats), ASelected);
+    Badge := BadgeBitmap(IntToStr(A.UnreadChats), False);
     if Badge <> nil then begin
-      Y := ARect.Top + PREVIEW_TOP;
-      Badge.Draw(Cv, TextRight - Badge.Width, Y, False);
-      Dec(TextRight, Badge.Width + GAP);
+      Y := Content.Top + (CHATROW_CONTENT_H - Badge.Height) div 2;
+      Badge.Draw(Cv, PrevRight - Badge.Width, Y, False);
+      Dec(PrevRight, Badge.Width + GAP);
     end;
   end;
 
-  Cv.Font.Style  := [fsBold];
-  Cv.Font.Height := -13;
-  if ASelected then begin
-    Cv.Font.Color := clHighlightText;
-  end
-  else begin
-    Cv.Font.Color := clWindowText;
-  end;
-  Cv.TextRect(Rect(ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP,
-    ARect.Right - PAD, ARect.Top + TITLE_TOP + 18),
-    ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP, Title);
-
+  Cv.Brush.Style := bsClear;
   Cv.Font.Style  := [];
   Cv.Font.Height := -12;
-  if ASelected then begin
-    Cv.Font.Color := clHighlightText;
-  end
-  else begin
-    Cv.Font.Color := clGrayText;
-  end;
+  Cv.Font.Color  := clGrayText;
   S := String(A.Preview);
   if S = '' then begin
     if A.TotalChats > 0 then begin
@@ -646,9 +818,13 @@ begin
       S := 'Empty';
     end;
   end;
-  Cv.TextRect(Rect(ARect.Left + TEXT_LEFT, ARect.Top + PREVIEW_TOP,
-    TextRight, ARect.Top + PREVIEW_TOP + 19),
-    ARect.Left + TEXT_LEFT, ARect.Top + PREVIEW_TOP, S);
+  { Без аватара — текст начинается сразу от левого края области текста
+    (не после AvatarR, как у настоящего чата), по вертикали — по
+    центру той же строки. }
+  Cv.TextRect(Rect(Content.Left + MSG_PAD_H, Content.Top, PrevRight, Content.Bottom),
+    Content.Left + MSG_PAD_H, Content.Top + (CHATROW_CONTENT_H - Cv.TextHeight(S)) div 2, S);
+
+  PaintCardRoundRect(Cv, Card, CHATROW_CORNER_RADIUS, [], clNone, BorderCol);
 end;
 
 { ---------------- отрисовка ---------------- }
@@ -658,7 +834,9 @@ var
   R:   TChatRow;
   Cv:  TCanvas;
   Bmp, Badge, Rec: TBGRABitmap;
-  Y, W, TitleRight, PrevRight, AvTop, Ico, IcoX: Integer;
+  Card, Header, Content, IconR, AvatarR, MuteR, PinR: TRect;
+  BaseBg, Accent, BodyFill, HeaderFill, BorderCol: TColor;
+  TitleRight, PrevRight, Y, W, MuteIdx, PinIdx: Integer;
   Sel: Boolean;
   S:   String;
 begin
@@ -672,11 +850,12 @@ begin
 
   Sel := gdSelected in AState;
   if Sel then begin
-    Cv.Brush.Color := clHighlight;
+    BaseBg := clHighlight;
   end
   else begin
-    Cv.Brush.Color := clWindow;
+    BaseBg := clWindow;
   end;
+  Cv.Brush.Color := BaseBg;
   Cv.Brush.Style := bsSolid;
   Cv.FillRect(ARect);
 
@@ -689,59 +868,104 @@ begin
     Exit;
   end;
 
+  { Заливка "за карточкой" на выделении — цветом самого контакта, не
+    системным clHighlight (по прямому запросу пользователя, 2026-09-08,
+    третий заход) — перекрывает уже сделанную выше generic-заливку
+    (BaseBg=clHighlight), общую с псевдо-строкой "Архив"/"Все чаты",
+    которую эта правка не касается. Сама карточка (тело/заголовок/
+    обводка ниже) больше НЕ реагирует на Sel вовсе — считается всегда
+    относительно clWindow, видимый признак выделения — только эта
+    заливка вокруг неё, в зазорах CHATROW_GAP. }
+  Accent := ChatAccentColor(R);
+  if Sel then begin
+    Cv.Brush.Color := BlendWithBackground(Accent, CHATROW_SELECTED_OPACITY, clWindow);
+    Cv.Brush.Style := bsSolid;
+    Cv.FillRect(ARect);
+  end;
+
+  { В архиве пинить нельзя (по прямому запросу пользователя) — значок
+    пина не рисуется вовсе, не просто "неактивен". }
+  Card := ChatRowRects(ARect, FMode <> clmArchive, Header, Content, IconR, AvatarR, MuteR, PinR);
+
+  { Карточка — тот же визуальный язык, что и блок сообщения: тело
+    (SENDER_BG_OPACITY), заголовок поверх (SENDER_HEADER_OPACITY,
+    заметнее — низ спрямлён, чтобы не торчал скруглённым углом внутрь
+    тела), обводка — последней, поверх всего содержимого. }
+  BodyFill   := BlendWithBackground(Accent, SENDER_BG_OPACITY, clWindow);
+  HeaderFill := BlendWithBackground(Accent, SENDER_HEADER_OPACITY, clWindow);
+  BorderCol  := BlendWithBackground(Accent, SENDER_BORDER_OPACITY, clWindow);
+
+  PaintCardRoundRect(Cv, Card, CHATROW_CORNER_RADIUS, [], BodyFill, clNone);
+  PaintCardRoundRect(Cv, Header, CHATROW_CORNER_RADIUS,
+    [rrBottomLeftSquare, rrBottomRightSquare], HeaderFill, clNone);
+
   { Аватарку просим только для строк, которые реально рисуются, —
-    это и есть ленивость: качается лишь видимое. }
+    это и есть ленивость: качается лишь видимое. Рисуется в области
+    текста, перед превью (по прямому запросу пользователя, 2026-09-08,
+    второй заход) — сама позиция уже посчитана в AvatarR. }
   FModel.EnsureAvatar(R);
-  AvTop := ARect.Top + (ROW_HEIGHT - AVATAR_SIZE) div 2;
-  Bmp   := FCache.Get(R);
+  Bmp := FCache.Get(R);
   if Bmp <> nil then begin
     { Opaque=False — смешивание по альфе поверх уже залитого фона.
       Именно это даёт мягкий край на любом фоне, включая выделение. }
-    Bmp.Draw(Cv, ARect.Left + AV_LEFT, AvTop, False);
+    Bmp.Draw(Cv, AvatarR.Left, AvatarR.Top, False);
   end;
 
-  { Колонка значков слева: уведомления сверху, тип чата снизу.
-    Центры — те же, что были у круглых подложек. }
-  IcoX := ARect.Left + ICON_COL_L + ICON_COL_R;
+  DrawIcon12(IconR, TypeIconIndex(R));
 
   if R.IsMuted then begin
-    Ico := ICON_NOTIFY_OFF;
+    MuteIdx := CHATROW_ICON_NOTIFY_OFF;
   end
   else begin
-    Ico := ICON_NOTIFY_ON;
+    MuteIdx := CHATROW_ICON_NOTIFY_ON;
   end;
-  DrawColIcon(IcoX, AvTop + ICON_COL_R, Ico);
+  DrawIcon12(MuteR, MuteIdx);
 
-  DrawColIcon(IcoX, AvTop + AVATAR_SIZE - ICON_COL_R, TypeIconIndex(R));
+  if FMode <> clmArchive then begin
+    if R.IsPinned then begin
+      PinIdx := CHATROW_ICON_PIN;
+    end
+    else begin
+      PinIdx := CHATROW_ICON_UNPIN;
+    end;
+    DrawIcon12(PinR, PinIdx);
+  end;
 
   Cv.Brush.Style := bsClear;
 
-  { --- верхний ярус справа: время --- }
-  TitleRight := ARect.Right - PAD;
+  { --- заголовок: время + отметка о прочтении, справа налево от пина ---
+    Цвета текста внутри карточки больше НЕ зависят от Sel (см. комментарий
+    выше про заливку "за карточкой") — карточка выглядит одинаково,
+    выделена строка или нет, признак выделения — заливка вокруг неё. }
+  TitleRight := PinR.Left - GAP;
   S := ChatTimeStr(R.LastDate);
   if S <> '' then begin
     Cv.Font.Style  := [];
     Cv.Font.Height := -11;
-    if Sel then begin
-      Cv.Font.Color := clHighlightText;
-    end
-    else begin
-      Cv.Font.Color := clGrayText;
-    end;
+    Cv.Font.Color := clGrayText;
     W := Cv.TextWidth(S);
-    Cv.TextOut(TitleRight - W, ARect.Top + TIME_TOP, S);
+    Cv.TextOut(TitleRight - W, Header.Top + (CHATROW_HEADER_BAR_H - Cv.TextHeight(S)) div 2, S);
     Dec(TitleRight, W + GAP);
 
     { Отметка о прочтении — слева от времени, только для исходящих. }
-    Rec := ReceiptBitmap(ChatReceipt(R), Sel);
+    Rec := ReceiptBitmap(ChatReceipt(R), False);
     if Rec <> nil then begin
-      Rec.Draw(Cv, TitleRight - Rec.Width, ARect.Top + RECEIPT_TOP, False);
+      Rec.Draw(Cv, TitleRight - Rec.Width, Header.Top + (CHATROW_HEADER_BAR_H - Rec.Height) div 2, False);
       Dec(TitleRight, Rec.Width + 3);
     end;
   end;
 
-  { --- нижний ярус справа: счётчик непрочитанных --- }
-  PrevRight := ARect.Right - PAD;
+  { --- имя --- }
+  Cv.Font.Style  := [fsBold];
+  Cv.Font.Height := -13;
+  Cv.Font.Color := clWindowText;
+  S := String(R.Title);
+  Cv.TextRect(Rect(IconR.Right + MSG_ICON_GAP, Header.Top, TitleRight, Header.Bottom),
+    IconR.Right + MSG_ICON_GAP, Header.Top + (CHATROW_HEADER_BAR_H - Cv.TextHeight(S)) div 2, S);
+
+  { --- превью последнего сообщения + счётчик непрочитанных --- }
+  Cv.Brush.Style := bsClear;
+  PrevRight := Content.Right - MSG_PAD_H;
   if (R.UnreadCount > 0) or R.IsMarkedAsUnread then begin
     if R.UnreadCount > 0 then begin
       S := IntToStr(R.UnreadCount);
@@ -749,47 +973,31 @@ begin
     else begin
       S := '';
     end;
-    Badge := BadgeBitmap(S, Sel);
+    Badge := BadgeBitmap(S, False);
     if Badge <> nil then begin
-      Y := ARect.Top + PREVIEW_TOP;
+      Y := Content.Top + (CHATROW_CONTENT_H - Badge.Height) div 2;
       Badge.Draw(Cv, PrevRight - Badge.Width, Y, False);
       Dec(PrevRight, Badge.Width + GAP);
     end;
   end;
 
-  { --- заголовок --- }
-  Cv.Font.Style  := [fsBold];
-  Cv.Font.Height := -13;
-  if Sel then begin
-    Cv.Font.Color := clHighlightText;
-  end
-  else begin
-    Cv.Font.Color := clWindowText;
-  end;
-  S := String(R.Title);
-  if R.IsPinned then begin
-    S := '📌 ' + S;
-  end;
-  Cv.TextRect(Rect(ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP,
-    TitleRight, ARect.Top + TITLE_TOP + 18),
-    ARect.Left + TEXT_LEFT, ARect.Top + TITLE_TOP, S);
-
-  { --- превью последнего сообщения --- }
   Cv.Font.Style  := [];
   Cv.Font.Height := -12;
-  if Sel then begin
-    Cv.Font.Color := clHighlightText;
-  end
-  else begin
-    Cv.Font.Color := clGrayText;
-  end;
+  Cv.Font.Color := clGrayText;
   S := String(R.LastText);
   if R.LastIsOutgoing and (S <> '') then begin
     S := 'You: ' + S;
   end;
-  Cv.TextRect(Rect(ARect.Left + TEXT_LEFT, ARect.Top + PREVIEW_TOP,
-    PrevRight, ARect.Top + PREVIEW_TOP + 19),
-    ARect.Left + TEXT_LEFT, ARect.Top + PREVIEW_TOP, S);
+  { Начинается после аватара (та переехала сюда, см. AvatarR/
+    ChatRowRects), по вертикали — по центру той же строки, что и
+    аватар, не просто "сверху с отступом MSG_PAD_V", как было до
+    переезда аватара. }
+  Cv.TextRect(Rect(AvatarR.Right + MSG_ICON_GAP, Content.Top,
+    PrevRight, Content.Bottom),
+    AvatarR.Right + MSG_ICON_GAP, Content.Top + (CHATROW_CONTENT_H - Cv.TextHeight(S)) div 2, S);
+
+  { --- контур карточки — последним, поверх содержимого --- }
+  PaintCardRoundRect(Cv, Card, CHATROW_CORNER_RADIUS, [], clNone, BorderCol);
 end;
 
 { ---------------- выбор и меню ---------------- }
@@ -837,7 +1045,8 @@ function TFrameChats.HitArea(X, Y: Integer; out ARow: TChatRow): TChatHitArea;
 var
   C, Row: Integer;
   Cell:   TRect;
-  AvTop, LocX, LocY, DX, DY, CX, CY: Integer;
+  Card, Header, Content, IconR, AvatarR, MuteR, PinR: TRect;
+  P: TPoint;
 begin
   Result := chaNone;
   ARow   := nil;
@@ -856,25 +1065,25 @@ begin
     Exit;
   end;
 
-  { Координаты внутри строки. }
-  Cell  := Grid.CellRect(C, Row);
-  LocX  := X - Cell.Left;
-  LocY  := Y - Cell.Top;
-  AvTop := (ROW_HEIGHT - AVATAR_SIZE) div 2;
+  { Координаты внутри строки — локальные, поэтому геометрия карточки
+    считается для (0,0,Width,Height) той же ячейки, тем же ChatRowRects,
+    что и отрисовка (только там ARect — настоящий, абсолютный). }
+  Cell := Grid.CellRect(C, Row);
+  P    := Point(X - Cell.Left, Y - Cell.Top);
+  Card := ChatRowRects(Rect(0, 0, Cell.Right - Cell.Left, Cell.Bottom - Cell.Top),
+    FMode <> clmArchive, Header, Content, IconR, AvatarR, MuteR, PinR);
 
-  { Колокольчик ловим по кругу, а не по квадрату. }
-  CX := ICON_COL_L + ICON_COL_R;
-  CY := AvTop + ICON_COL_R;
-  DX := LocX - CX;
-  DY := LocY - CY;
-  if (DX * DX + DY * DY) <= (ICON_COL_R * ICON_COL_R) then begin
+  if PtInRect(MuteR, P) then begin
     Result := chaBell;
     Exit;
   end;
-
-  if (LocX >= AV_LEFT) and (LocX < AV_LEFT + AVATAR_SIZE) and
-    (LocY >= AvTop) and (LocY < AvTop + AVATAR_SIZE) then begin
+  if PtInRect(PinR, P) then begin
+    Result := chaPin;
+    Exit;
+  end;
+  if PtInRect(AvatarR, P) then begin
     Result := chaAvatar;
+    Exit;
   end;
 end;
 
@@ -913,15 +1122,16 @@ begin
     наш обработчик успевает отработать до смены выделения. }
   case HitArea(X, Y, R) of
     chaHeader: begin
-      { FSwitchingMode (в отличие от FSuppressSelect у chaBell/chaAvatar
-        ниже) НЕ мешает выделению двигаться — оно ДОЛЖНО переехать на
-        заголовок нового списка, см. FSwitchingMode/GridSelectCell.
-        Держится True вплоть до начала СЛЕДУЮЩЕГО реального MouseDown,
-        не потребляется по одному разу за вызов — и Grid.Row:=0, и
-        Grid.RowCount:=... внутри SetMode/ModelChanged МОГУТ, независимо
-        друг от друга, синхронно перевызвать GridSelectCell ещё раз
-        (CheckPosition в LCL перепроверяет текущую ячейку на каждое
-        такое присваивание) — заранее неизвестно, сколько именно раз. }
+      { FSwitchingMode (в отличие от FSuppressSelect у chaBell/chaPin/
+        chaAvatar ниже) НЕ мешает выделению двигаться — оно ДОЛЖНО
+        переехать на заголовок нового списка, см. FSwitchingMode/
+        GridSelectCell. Держится True вплоть до начала СЛЕДУЮЩЕГО
+        реального MouseDown, не потребляется по одному разу за вызов —
+        и Grid.Row:=0, и Grid.RowCount:=... внутри SetMode/ModelChanged
+        МОГУТ, независимо друг от друга, синхронно перевызвать
+        GridSelectCell ещё раз (CheckPosition в LCL перепроверяет
+        текущую ячейку на каждое такое присваивание) — заранее
+        неизвестно, сколько именно раз. }
       FSwitchingMode := True;
       if FMode = clmArchive then begin
         SetMode(clmMain);
@@ -933,6 +1143,10 @@ begin
     chaBell: begin
       FSuppressSelect := True;
       FModel.SetMuted(R, not R.IsMuted);
+    end;
+    chaPin: begin
+      FSuppressSelect := True;
+      FModel.SetPinned(R, not R.IsPinned);
     end;
     chaAvatar: begin
       FSuppressSelect := True;
@@ -994,11 +1208,17 @@ begin
     Add('Mark as unread', MI_UNREAD);
   end;
 
-  if ARow.IsPinned then begin
-    Add('Unpin', MI_UNPIN);
-  end
-  else begin
-    Add('Pin', MI_PIN);
+  { В архиве пинить нельзя (по прямому запросу пользователя) — тот же
+    запрет, что и на значок пина в строке (GridDrawCell/ChatRowRects),
+    просто со стороны контекстного меню: оставлять пункт меню было бы
+    несогласованным с уже убранным значком. }
+  if FMode <> clmArchive then begin
+    if ARow.IsPinned then begin
+      Add('Unpin', MI_UNPIN);
+    end
+    else begin
+      Add('Pin', MI_PIN);
+    end;
   end;
 
   if ARow.InArchive then begin
