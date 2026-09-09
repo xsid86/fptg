@@ -329,7 +329,12 @@ begin
   if F.Model = nil then begin
     Exit;
   end;
-  F.Model.SendText(utf8string(MsgText));
+  { Always through the formatting/parse path now, not the old plain
+    SendText — a message with none of the toolbar's markup in it is
+    just formattedText with an empty entities array, parseTextEntities
+    handles that the same as any other, no separate "was anything
+    actually formatted" branch needed. }
+  F.Model.SendFormattedText(utf8string(MsgText), FMessageInput.IsHtmlMode);
   FMessageInput.ClearText;
 end;
 

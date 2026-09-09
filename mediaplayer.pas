@@ -215,34 +215,6 @@ const
     live heaptrc-caught heap corruption there. }
   SWS_SCALE_TAIL_PAD = 64;
 
-{ TEMPORARY diagnostics — kept for one more round of verification after
-  the structural fix (separate audio and video threads) — remove once
-  speed, smoothness, and the end-of-playback crash are all confirmed
-  fixed for good. }
-procedure LogVideoDebug(const ALine: utf8string);
-var
-  F: TextFile;
-  Path: string;
-begin
-  try
-    Path := ExtractFilePath(ParamStr(0)) + 'video_debug.log';
-    AssignFile(F, Path);
-    if FileExists(Path) then begin
-      {$I-}
-      Append(F);
-      {$I+}
-      if IOResult <> 0 then begin
-        Rewrite(F);
-      end;
-    end else begin
-      Rewrite(F);
-    end;
-    WriteLn(F, ALine);
-    CloseFile(F);
-  except
-  end;
-end;
-
 { ---------------- TVideoDecodeThread ---------------- }
 
 constructor TVideoDecodeThread.Create(AOwner: TMediaPlayer; AStartPositionSec: double);
@@ -281,8 +253,6 @@ var
   NowPtsSec, Delay, AClock: double;
   HaveOwnPts: boolean;
   LastOwnPtsSec: double;
-  FrameCounter: integer;    { TEMPORARY, see LogVideoDebug }
-  StartTick: QWord;         { TEMPORARY }
 begin
   FmtCtx := nil;
   VCodecCtx := nil;
@@ -291,7 +261,6 @@ begin
   VideoStreamIdx := -1;
   HaveOwnPts := False;
   LastOwnPtsSec := 0;
-  FrameCounter := 0;
 
   if avformat_open_input(FmtCtx, PAnsiChar(FOwner.FFilePath), nil, nil) < 0 then begin
     Exit;
@@ -349,7 +318,6 @@ begin
 
   Pkt := av_packet_alloc;
   Frame := av_frame_alloc;
-  StartTick := GetTickCount64;
 
   while (not Terminated) and (not FOwner.FStopRequested) and
         (av_read_frame(FmtCtx, Pkt) >= 0) do begin
@@ -360,7 +328,6 @@ begin
           if Ret < 0 then begin
             Break;
           end;
-          Inc(FrameCounter);
 
           if Sws = nil then begin
             Sws := sws_getContext(Frame^.width, Frame^.height, Frame^.format,
@@ -392,12 +359,6 @@ begin
               end;
               if Delay > 1 then begin
                 Delay := 1;   { safety cap against an implausible PTS/desynced clock }
-              end;
-              if (FrameCounter <= 5) or (FrameCounter mod 30 = 0) then begin
-                LogVideoDebug(Format(
-                  'frame=%d wall=%.3f nowpts=%.3f clock=%.3f delay=%.3f hasaudio=%d',
-                  [FrameCounter, (GetTickCount64 - StartTick) / 1000.0,
-                   NowPtsSec, AClock, Delay, Ord(FOwner.FHasAudio)]));
               end;
               if Delay > 0 then begin
                 Sleep(Round(Delay * 1000));
@@ -846,10 +807,6 @@ begin
     avformat_close_input(FmtCtx);
     Exit;
   end;
-
-  LogVideoDebug(Format(
-    '--- start file=%s duration=%.3f hasaudio=%d hasvideo=%d target=%dx%d rate=%d ---',
-    [FFilePath, FDurationSec, Ord(FHasAudio), Ord(FHasVideo), FTargetW, FTargetH, MEDIA_OUT_RATE]));
 
   { Video now runs entirely in its own thread, with its OWN file
     context — this (audio) thread only needs to wait for it at the

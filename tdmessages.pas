@@ -449,6 +449,9 @@ type
     procedure HistoryDone(Sender: TObject; const AResp: TTdResponse);
     procedure RetryTick(Sender: TObject);
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
+    { Callback for SendFormattedText's own parseTextEntities request —
+      see that method's comment for the two-step reason it's needed. }
+    procedure ParseEntitiesDone(Sender: TObject; const AResp: TTdResponse);
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
     procedure JumpDone(Sender: TObject; const AResp: TTdResponse);
     function IsReplyPending(AId: Int64): boolean;
@@ -483,7 +486,17 @@ type
       for holding the scroll anchor during LoadOlder. }
     function IndexOfId(AId: Int64): integer;
 
-    procedure SendText(const AText: utf8string);
+    { A two-step send: parseTextEntities first turns AMarkupText — plain
+      text carrying Telegram's own MarkdownV2 or HTML formatting syntax,
+      inserted by the message input toolbar's buttons around the user's
+      selection (msginput.pas) — into a real formattedText object (text
+      plus a parsed entities array), then that result is sent as
+      inputMessageText.text (see ParseEntitiesDone). Text with none of
+      that markup in it is simply formattedText with an empty entities
+      array — the same path, no separate plain-text send left in this
+      unit. AIsHtml selects which of the two syntaxes AMarkupText is
+      written in. }
+    procedure SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean);
     procedure MarkRead(const AMessageIds: array of Int64);
     { Loads (if not already loaded) and prepares for display a batch of
       messages AROUND AMessageId in the CURRENTLY open chat — not to be
@@ -1891,38 +1904,6 @@ begin
   Touch;
 end;
 
-procedure TTdMessages.SendText(const AText: utf8string);
-var
-  TextObj, Content: TJSONObject;
-  Body: utf8string;
-begin
-  if (FReq = nil) or (FChatId = 0) or (Trim(string(AText)) = '') then begin
-    Exit;
-  end;
-
-  { The user's text can contain quotes/backslashes/line breaks — the
-    body is built via TJSONObject.AsJSON, not string concatenation, the
-    same way TTdChats.SetMuted already does for
-    notification_settings. }
-  TextObj := TJSONObject.Create;
-  TextObj.Strings['@type'] := 'formattedText';
-  TextObj.Strings['text'] := string(AText);
-
-  Content := TJSONObject.Create;
-  try
-    Content.Strings['@type'] := 'inputMessageText';
-    Content.Add('text', TextObj);   { Content takes ownership of TextObj }
-    Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
-            ',"input_message_content":' + utf8string(Content.AsJSON);
-  finally
-    Content.Free;
-  end;
-
-  { The sendMessage response is the new message object itself — no
-    need for a separate temporary negative id, see SendTextDone. }
-  FReq.SendRequest('sendMessage', Body, @SendTextDone);
-end;
-
 procedure TTdMessages.SendTextDone(Sender: TObject; const AResp: TTdResponse);
 begin
   if AResp.Success then begin
@@ -1930,6 +1911,334 @@ begin
   end else if Assigned(FOnActionError) then begin
     FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'send');
   end;
+end;
+
+{ Escapes reserved MarkdownV2 punctuation in a string. All reserved
+  characters are single ASCII bytes (never a continuation byte of a
+  multi-byte UTF-8 sequence), so operating on utf8string as a plain
+  byte array is safe. Used both directly — on the WHOLE message, in
+  SendFormattedText, because a bare '.', '!' or '>' the user simply
+  typed (not one of the toolbar's own formatting markers, msginput.pas)
+  makes TDLib reject the ENTIRE send with a parse error, not silently
+  ignore just that character — and recursively, on the CONTENT of a
+  matched formatting span, so a literal reserved character or nested
+  markup INSIDE a bold/quote/etc. span also comes out escaped/parsed
+  correctly. Reserved set and escaping rule are exactly
+  core.telegram.org/bots/api's MarkdownV2 style, not guessed. }
+function EscapeMarkdownV2(const AText: utf8string): utf8string;
+const
+  RESERVED = ['_','*','[',']','(',')','~','`','>','#','+','-','=','|',
+              '{','}','.','!','\'];
+var
+  S, Res: string;
+  L, I: integer;
+
+  function AtLineStart(APos: integer): boolean;
+  begin
+    Result := (APos = 1) or (S[APos - 1] = #10);
+  end;
+
+  { Consumes a symmetric AMarker...AMarker span starting at S[I] (the
+    caller has already confirmed the opening marker is present).
+    ABreakOnNewline=False lets the span cross line breaks — needed only
+    for the ``` code-block marker, since a literal '*'/'_'/etc. run
+    accidentally spanning several unrelated lines is far more likely
+    than an intentional bold/italic/etc. run that does. Appends the two
+    literal markers plus the recursively-escaped content to Res and
+    advances I past the closing marker; returns False (I untouched) if
+    no closing marker turns up, so the caller falls back to treating
+    the opening character as ordinary literal text. }
+  function TryWrapper(const AMarker: string; ABreakOnNewline: boolean): boolean;
+  var
+    MarkLen, ClosePos, K: integer;
+    Inner: string;
+  begin
+    Result := False;
+    MarkLen := Length(AMarker);
+    ClosePos := 0;
+    K := I + MarkLen;
+    while K <= L do begin
+      if ABreakOnNewline and (S[K] = #10) then begin
+        Break;
+      end;
+      if Copy(S, K, MarkLen) = AMarker then begin
+        ClosePos := K;
+        Break;
+      end;
+      Inc(K);
+    end;
+    if (ClosePos = 0) or (ClosePos = I + MarkLen) then begin
+      Exit;   { no closing marker, or an empty span — leave as literal }
+    end;
+    Inner := Copy(S, I + MarkLen, ClosePos - (I + MarkLen));
+    Res := Res + AMarker + string(EscapeMarkdownV2(utf8string(Inner))) + AMarker;
+    I := ClosePos + MarkLen;
+    Result := True;
+  end;
+
+  { [text](url) — the one construct that isn't a symmetric delimiter,
+    so it needs its own matcher. Per the MarkdownV2 spec, only ')' and
+    '\' inside the URL itself need escaping; the link text is escaped
+    the same recursive way as any other span's content. }
+  function TryLink: boolean;
+  var
+    CloseBracket, CloseParen, K: integer;
+    LinkText, Url: string;
+  begin
+    Result := False;
+    CloseBracket := 0;
+    K := I + 1;
+    while K <= L do begin
+      if S[K] = #10 then begin
+        Break;
+      end;
+      if S[K] = ']' then begin
+        CloseBracket := K;
+        Break;
+      end;
+      Inc(K);
+    end;
+    if (CloseBracket = 0) or (CloseBracket + 1 > L) or (S[CloseBracket + 1] <> '(') then begin
+      Exit;
+    end;
+    CloseParen := 0;
+    K := CloseBracket + 2;
+    while K <= L do begin
+      if S[K] = #10 then begin
+        Break;
+      end;
+      if S[K] = ')' then begin
+        CloseParen := K;
+        Break;
+      end;
+      Inc(K);
+    end;
+    if CloseParen = 0 then begin
+      Exit;
+    end;
+    LinkText := Copy(S, I + 1, CloseBracket - (I + 1));
+    Url := Copy(S, CloseBracket + 2, CloseParen - (CloseBracket + 2));
+    Url := StringReplace(Url, '\', '\\', [rfReplaceAll]);
+    Url := StringReplace(Url, ')', '\)', [rfReplaceAll]);
+    Res := Res + '[' + string(EscapeMarkdownV2(utf8string(LinkText))) + '](' + Url + ')';
+    I := CloseParen + 1;
+    Result := True;
+  end;
+
+begin
+  S := string(AText);
+  L := Length(S);
+  I := 1;
+  Res := '';
+  while I <= L do begin
+    { A '>' at the very start of a line is the blockquote marker, kept
+      literal; the same character anywhere else must be escaped. }
+    if (S[I] = '>') and AtLineStart(I) then begin
+      Res := Res + '>';
+      Inc(I);
+      Continue;
+    end;
+    if (Copy(S, I, 3) = '```') and TryWrapper('```', False) then begin
+      Continue;
+    end;
+    if (S[I] = '[') and TryLink then begin
+      Continue;
+    end;
+    if (Copy(S, I, 2) = '__') and TryWrapper('__', True) then begin
+      Continue;
+    end;
+    if (Copy(S, I, 2) = '||') and TryWrapper('||', True) then begin
+      Continue;
+    end;
+    case S[I] of
+      '*': if TryWrapper('*', True) then Continue;
+      '_': if TryWrapper('_', True) then Continue;
+      '~': if TryWrapper('~', True) then Continue;
+      '`': if TryWrapper('`', True) then Continue;
+    end;
+    if S[I] in RESERVED then begin
+      Res := Res + '\' + S[I];
+    end else begin
+      Res := Res + S[I];
+    end;
+    Inc(I);
+  end;
+  Result := utf8string(Res);
+end;
+
+{ Escapes literal '&'/'<'/'>' for HTML parse mode, recognizing — and
+  passing through unescaped — exactly the tags the message input
+  toolbar itself inserts (msginput.pas); anything else starting with
+  '<' is just literal text and gets escaped like any other character.
+  Mirrors EscapeMarkdownV2's role for the other parse mode: without
+  this, a message containing a bare '<'/'>'/'&' that isn't one of our
+  own tags makes TDLib reject the whole send with a parse error, same
+  failure mode as the MarkdownV2 case. }
+function EscapeHtml(const AText: utf8string): utf8string;
+const
+  TAGS: array[0..15] of string = (
+    '<b>', '</b>', '<i>', '</i>', '<u>', '</u>', '<s>', '</s>',
+    '<code>', '</code>', '<pre>', '</pre>',
+    '<tg-spoiler>', '</tg-spoiler>', '<blockquote>', '</blockquote>'
+  );
+var
+  S, Res, Url: string;
+  L, I, K, TagLen: integer;
+  Matched: boolean;
+  CloseQuote: integer;
+begin
+  S := string(AText);
+  L := Length(S);
+  I := 1;
+  Res := '';
+  while I <= L do begin
+    Matched := False;
+    if S[I] = '<' then begin
+      for K := Low(TAGS) to High(TAGS) do begin
+        TagLen := Length(TAGS[K]);
+        if Copy(S, I, TagLen) = TAGS[K] then begin
+          Res := Res + TAGS[K];
+          Inc(I, TagLen);
+          Matched := True;
+          Break;
+        end;
+      end;
+      if (not Matched) and (Copy(S, I, 9) = '<a href="') then begin
+        CloseQuote := 0;
+        K := I + 9;
+        while K <= L do begin
+          if S[K] = '"' then begin
+            CloseQuote := K;
+            Break;
+          end;
+          Inc(K);
+        end;
+        if (CloseQuote > 0) and (CloseQuote + 1 <= L) and (S[CloseQuote + 1] = '>') then begin
+          Url := Copy(S, I + 9, CloseQuote - (I + 9));
+          Url := StringReplace(Url, '&', '&amp;', [rfReplaceAll]);
+          Res := Res + '<a href="' + Url + '">';
+          I := CloseQuote + 2;
+          Matched := True;
+        end;
+      end;
+      if (not Matched) and (Copy(S, I, 4) = '</a>') then begin
+        Res := Res + '</a>';
+        Inc(I, 4);
+        Matched := True;
+      end;
+    end;
+    if Matched then begin
+      Continue;
+    end;
+    case S[I] of
+      '&': Res := Res + '&amp;';
+      '<': Res := Res + '&lt;';
+      '>': Res := Res + '&gt;';
+    else
+      Res := Res + S[I];
+    end;
+    Inc(I);
+  end;
+  Result := utf8string(Res);
+end;
+
+procedure TTdMessages.SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean);
+var
+  ModeObj: TJSONObject;
+  TextVal: TJSONString;
+  Body: utf8string;
+  EscapedText: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (Trim(string(AMarkupText)) = '') then begin
+    Exit;
+  end;
+
+  { The message can freely contain reserved punctuation ('.', '!', '>',
+    '<', '&', ...) that has nothing to do with the toolbar's own
+    formatting syntax — both parse modes REQUIRE such characters to be
+    escaped, or TDLib rejects the ENTIRE message with a parse error
+    (see the two Escape* functions above for exactly which characters/
+    constructs each mode treats as its own, everything else literal). }
+  if AIsHtml then begin
+    EscapedText := EscapeHtml(AMarkupText);
+  end else begin
+    EscapedText := EscapeMarkdownV2(AMarkupText);
+  end;
+
+  ModeObj := TJSONObject.Create;
+  if AIsHtml then begin
+    ModeObj.Strings['@type'] := 'textParseModeHTML';
+  end else begin
+    ModeObj.Strings['@type'] := 'textParseModeMarkdown';
+    { Version 2 = Bot API MarkdownV2 syntax (*bold*, _italic_,
+      __underline__, ~strike~, ||spoiler||, `code`, [text](url), a '>'
+      prefix per line for blockquote) — the exact syntax the message
+      input toolbar's buttons insert (msginput.pas), confirmed against
+      core.telegram.org/bots/api and TDLib's own textParseModeMarkdown
+      docs, not guessed. Version 0/1 is the older, INCOMPATIBLE legacy
+      syntax (single _/* delimiters only, no underline/strikethrough/
+      spoiler at all) — not what gets typed here. }
+    ModeObj.Integers['version'] := 2;
+  end;
+
+  { A JSONString's own .AsJSON is the properly quoted-and-escaped JSON
+    string literal on its own — the same "build via fpjson, not string
+    concatenation" rule SendText already follows above, needed here too
+    since marked-up text can contain quotes/backslashes/newlines. }
+  TextVal := TJSONString.Create(string(EscapedText));
+  try
+    Body := '"text":' + utf8string(TextVal.AsJSON) +
+            ',"parse_mode":' + utf8string(ModeObj.AsJSON);
+  finally
+    TextVal.Free;
+    ModeObj.Free;
+  end;
+
+  FReq.SendRequest('parseTextEntities', Body, @ParseEntitiesDone);
+end;
+
+procedure TTdMessages.ParseEntitiesDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Clean: TJSONObject;
+  EntitiesArr: TJSONArray;
+  Body: utf8string;
+begin
+  if not AResp.Success then begin
+    if Assigned(FOnActionError) then begin
+      FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'parse');
+    end;
+    Exit;
+  end;
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+
+  { AResp.Obj is the raw response object, which — like every request in
+    this project's plumbing (tdreq.pas) — carries the request's own
+    "@extra" tag mixed in alongside the real result fields; that tag has
+    no business riding along inside a message we're about to send, so a
+    clean formattedText is rebuilt here with just @type/text/entities.
+    The entities array is CLONED, not referenced — AResp.Obj is only
+    valid inside this callback (see TTdResponse's own comment), and
+    SendRequest below is asynchronous. }
+  Clean := TJSONObject.Create;
+  try
+    Clean.Strings['@type'] := 'formattedText';
+    Clean.Strings['text'] := string(JGetStr(AResp.Obj, 'text'));
+    EntitiesArr := JGetArr(AResp.Obj, 'entities');
+    if EntitiesArr <> nil then begin
+      Clean.Add('entities', EntitiesArr.Clone as TJSONArray);
+    end;
+    Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
+            ',"input_message_content":{"@type":"inputMessageText","text":' +
+            utf8string(Clean.AsJSON) + '}';
+  finally
+    Clean.Free;
+  end;
+
+  { Same final step as SendText: the sendMessage response is the new
+    message object itself, no separate temporary id needed. }
+  FReq.SendRequest('sendMessage', Body, @SendTextDone);
 end;
 
 procedure TTdMessages.MarkRead(const AMessageIds: array of Int64);

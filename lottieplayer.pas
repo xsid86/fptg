@@ -49,13 +49,6 @@ const
     rasterizer's tail write, the same class of problem, different
     library. }
   NATIVE_RENDER_TAIL_PAD = 256;
-  { Canary byte used to detect (not just guess about) a tail overrun past
-    RenderBuf's nominal end — see CheckRenderCanary/LogCanaryCorruption
-    in the implementation section. Temporary diagnostic, same pattern
-    already used elsewhere in this project (video_debug.log etc.) —
-    remove once the RenderBuf overrun question is settled one way or
-    the other. }
-  RENDER_CANARY_BYTE = $AA;
 
 type
   TLottiePlayer = class(TThread)
@@ -113,63 +106,6 @@ var
 function LottiePlayerActiveCount: integer;
 begin
   Result := GActiveCount;
-end;
-
-var
-  GCanaryLogged: boolean = False;
-
-{ Fires ONCE per process — first proof, either way, of whether RenderBuf's
-  tail padding is actually being overwritten by lottie_animation_render
-  (the previous two fix attempts — 64-byte padding, then waiting for
-  decoder threads before ExitProcess — both failed to stop the crash,
-  so this settles the question with real evidence instead of a third
-  guess). AOffset is relative to the start of the padding region (i.e.
-  RenderBuf's nominal W*H*4 end), so a non-zero ABadCount here is a
-  direct measurement of how much bigger NATIVE_RENDER_TAIL_PAD needs to
-  be — or, if this file is never created despite the crash recurring,
-  proof that RenderBuf's tail is NOT the cause and the corruption is
-  coming from somewhere else in the process entirely. }
-procedure LogCanaryCorruption(AOffset, ABadCount, APadSize: integer);
-var
-  F: TextFile;
-begin
-  if GCanaryLogged then begin
-    Exit;
-  end;
-  GCanaryLogged := True;
-  AssignFile(F, ExtractFilePath(ParamStr(0)) + 'render_canary.log');
-  try
-    Rewrite(F);
-    WriteLn(F, Format(
-      'RenderBuf tail canary corrupted: first bad byte at offset %d ' +
-      'past the nominal W*H*4 end, %d of %d padding bytes affected.',
-      [AOffset, ABadCount, APadSize]));
-  finally
-    CloseFile(F);
-  end;
-end;
-
-{ Scans ABuf (the NATIVE_RENDER_TAIL_PAD bytes immediately after
-  RenderBuf's nominal end) for anything other than RENDER_CANARY_BYTE —
-  called right after lottie_animation_render, before that region is
-  re-armed for the next frame. }
-procedure CheckRenderCanary(ABuf: PByte; ASize: integer);
-var
-  I, FirstBad, BadCount: integer;
-begin
-  FirstBad := -1;
-  BadCount := 0;
-  for I := 0 to ASize - 1 do begin
-    if ABuf[I] <> RENDER_CANARY_BYTE then begin
-      if FirstBad < 0 then begin
-        FirstBad := I;
-      end;
-      Inc(BadCount);
-    end;
-  end;
-  if FirstBad >= 0 then begin
-    LogCanaryCorruption(FirstBad, BadCount, ASize);
-  end;
 end;
 
 constructor TLottiePlayer.Create(const AFilePath: utf8string; ATargetW, ATargetH: integer);
@@ -391,11 +327,6 @@ begin
   GetMem(TmpBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
   GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
 
-  { Arms the canary in RenderBuf's padding region — see
-    CheckRenderCanary/LogCanaryCorruption above. }
-  FillChar((RenderBuf + cardinal(RenderW) * cardinal(RenderH) * 4)^,
-    NATIVE_RENDER_TAIL_PAD, RENDER_CANARY_BYTE);
-
   { Rendering goes into RenderBuf (internal resolution, HIGHER than
     the display size, see the constants above), downscaling into
     TmpBuf, both OUTSIDE the lock (rendering plus downscaling can take
@@ -434,12 +365,6 @@ begin
     AnchorTick := GetTickCount64;
     while not FStopRequested do begin
       lottie_animation_render(Anim, FrameNum, PCardinal(RenderBuf), RenderW, RenderH, RenderW * 4);
-      { Checks whether this frame's render just wrote past RenderBuf's
-        nominal end, then re-arms the canary for the next frame — see
-        CheckRenderCanary's own comment for why this matters right now. }
-      CheckRenderCanary(RenderBuf + cardinal(RenderW) * cardinal(RenderH) * 4, NATIVE_RENDER_TAIL_PAD);
-      FillChar((RenderBuf + cardinal(RenderW) * cardinal(RenderH) * 4)^,
-        NATIVE_RENDER_TAIL_PAD, RENDER_CANARY_BYTE);
       BoxDownscaleArgb(RenderBuf, RenderW, RenderH, TmpBuf, FTargetW, FTargetH);
 
       FLock.Enter;
