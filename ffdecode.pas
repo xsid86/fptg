@@ -73,6 +73,20 @@ const
     to the decoder as-is would misparse it as a corrupt bitstream. }
   AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL = 15;
 
+  { --- libavcodec/packet.h : AV_INPUT_BUFFER_PADDING_SIZE ---
+    Documented FFmpeg requirement, not a project convention invented
+    here: "The input buffer, avpkt->data must be
+    AV_INPUT_BUFFER_PADDING_SIZE bytes larger than the actual read
+    bytes because some optimized bitstream readers read 32 or 64 bits
+    at once and could read out of bounds. The end of the input buffer
+    ... should be set to 0 to avoid problems." Any buffer handed to
+    avcodec_send_packet must carry this margin, zeroed — see
+    videoplayer.pas's AlphaCopyBuf (the WebM-alpha side-data bitstream,
+    which points into someone else's memory otherwise and was never
+    given this margin — a real, found-by-elimination suspect for
+    heap corruption surfacing elsewhere in the process). }
+  AV_INPUT_BUFFER_PADDING_SIZE = 64;
+
   { --- libswscale/swscale.h --- }
   SWS_BILINEAR = 1 shl 1;
 

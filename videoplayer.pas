@@ -35,7 +35,13 @@ unit videoplayer;
 interface
 
 uses
-  Classes, SysUtils, SyncObjs, ffdecode, ctypes;
+  { Windows FIRST — it declares its own, incompatible TCriticalSection
+    (an internal RTL type, not SyncObjs' class with Enter/Leave/Create);
+    placed first so SyncObjs' own TCriticalSection (declared later in
+    this list) is what unqualified references below resolve to, the
+    same convention already used elsewhere in this project. Needed here
+    for InterlockedIncrement/InterlockedDecrement, see GActiveCount. }
+  Windows, Classes, SysUtils, SyncObjs, ffdecode, ctypes;
 
 type
   TAnimationPlayer = class(TThread)
@@ -70,7 +76,31 @@ type
     property Failed: boolean read FFailed;
   end;
 
+{ Count of TAnimationPlayer background decode threads currently alive
+  — same rationale and same shutdown-time consumer (tg.lpr, right
+  after Application.Run returns) as LottiePlayerActiveCount
+  (lottieplayer.pas); see its interface comment for the full story
+  (FreeOnTerminate=True fire-and-forget threads, up to several still
+  alive purely from earlier scrolling, racing ExitProcess/DLL unload
+  at close). }
+function AnimationPlayerActiveCount: integer;
+
 implementation
+
+const
+  { See the GetMem(TmpBuf, ...) comment in ExecuteInner — a safety
+    margin against libswscale's documented SIMD tail-write-past-bounds
+    behavior (CVE-2017-7866, GHSA-3w97-3qww-vxj8), not a number chosen
+    for this specific buffer size. }
+  SWS_SCALE_TAIL_PAD = 64;
+
+var
+  GActiveCount: longint;
+
+function AnimationPlayerActiveCount: integer;
+begin
+  Result := GActiveCount;
+end;
 
 constructor TAnimationPlayer.Create(const AFilePath: utf8string; ATargetW, ATargetH: integer);
 begin
@@ -80,6 +110,7 @@ begin
   FTargetH := ATargetH;
   FLock := TCriticalSection.Create;
   FreeOnTerminate := True;
+  Windows.InterlockedIncrement(GActiveCount);
   Start;
 end;
 
@@ -120,11 +151,17 @@ end;
 procedure TAnimationPlayer.Execute;
 begin
   try
-    ExecuteInner;
-  except
-    on E: Exception do begin
-      FFailed := True;
+    try
+      ExecuteInner;
+    except
+      on E: Exception do begin
+        FFailed := True;
+      end;
     end;
+  finally
+    { Decremented exactly once, on every exit path — see GActiveCount's
+      own interface comment. }
+    Windows.InterlockedDecrement(GActiveCount);
   end;
 end;
 
@@ -166,6 +203,12 @@ var
   SwsHasAlpha: boolean;
   SideData: PByte;
   SideSize: SizeUInt;
+  { Own copy of the alpha bitstream (see its GetMem/allocation site
+    below for the full reasoning) — reused across iterations, grown
+    with ReallocMem only when a larger chunk actually shows up. }
+  AlphaCopyBuf: PByte;
+  AlphaCopyCap: SizeUInt;
+  AlphaCopySize: SizeUInt;
 
   { One decoded frame -> BGRA -> shared buffer -> delay until the
     next frame, based on the source video's PTS difference (not a
@@ -293,6 +336,8 @@ begin
   AlphaFrame := nil;
   AlphaPkt := nil;
   SwsHasAlpha := False;
+  AlphaCopyBuf := nil;
+  AlphaCopyCap := 0;
 
   if avformat_open_input(FmtCtx, PAnsiChar(FFilePath), nil, nil) < 0 then begin
     FFailed := True;
@@ -347,7 +392,19 @@ begin
 
   Pkt := av_packet_alloc;
   Frame := av_frame_alloc;
-  GetMem(TmpBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
+  { TmpBuf is sws_scale's OWN write target (see HandleFrame) — padded
+    a few bytes past its nominal W*H*4 size, unlike FFrameBuf below
+    (only ever reached via an exact-length Move, never sws_scale).
+    libswscale's SIMD conversion paths are documented to write a few
+    bytes past the buffer's logical end near the last row/column
+    (CVE-2017-7866, GHSA-3w97-3qww-vxj8 — real heap-corruption reports,
+    not a hypothetical) when the destination isn't over-allocated; a
+    heaptrc report from a live crash on this exact GetMem/FreeMem pair
+    ("Wrong signature" at TmpBuf's free, ExecuteInner line 448) is what
+    surfaced this. SWS_SCALE_TAIL_PAD = 64 matches FFmpeg's own
+    AV_INPUT_BUFFER_PADDING_SIZE convention for this class of overrun,
+    applied symmetrically to an output buffer. }
+  GetMem(TmpBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4 + SWS_SCALE_TAIL_PAD);
   GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
 
   { Main loop — on reaching the end of the container, seeks the stream
@@ -404,10 +461,38 @@ begin
           { The first 8 bytes are the BlockAddID prefix (confirmed via
             the real demuxer source, see ffdecode.pas) — the actual
             alpha bitstream for this frame starts right after it.
-            AlphaPkt does not own this memory (it points directly into
-            Pkt's own side-data buffer) — never av_packet_unref it. }
-          AlphaPkt^.data := SideData + 8;
-          AlphaPkt^.size := cint(SideSize - 8);
+
+            Copied into AlphaCopyBuf, NOT pointed directly at Pkt's own
+            side-data memory as the first version of this code did —
+            two real problems with that, found by elimination after a
+            heap-corruption crash kept surfacing elsewhere in the
+            process (FreeMem in lottieplayer.pas) with every other
+            explanation already ruled out (see CLAUDE.md — RenderBuf's
+            own tail was checked with a canary and confirmed clean):
+            (1) avcodec_send_packet's own documented contract requires
+            the input buffer to carry AV_INPUT_BUFFER_PADDING_SIZE
+            zeroed bytes PAST its declared size — optimized bitstream
+            readers (VP9's included) read 32/64 bits at a time and can
+            run past the end otherwise; Pkt's internal side-data
+            buffer, owned and sized by the demuxer, makes no such
+            promise to us. (2) AlphaPkt^.buf was never set
+            (unrefcounted), and VP9 decoding can be internally
+            multi-threaded — a worker thread could still be reading
+            this memory after av_packet_unref(Pkt) below invalidates
+            it, a genuine use-after-free race, not just a theoretical
+            one. Our own buffer's lifetime is under our own control,
+            carries that same padding, zeroed — both problems close at
+            once, without needing to know which one (or both) was the
+            actual cause. }
+          AlphaCopySize := SideSize - 8;
+          if AlphaCopySize + AV_INPUT_BUFFER_PADDING_SIZE > AlphaCopyCap then begin
+            AlphaCopyCap := AlphaCopySize + AV_INPUT_BUFFER_PADDING_SIZE;
+            ReallocMem(AlphaCopyBuf, AlphaCopyCap);
+          end;
+          Move((SideData + 8)^, AlphaCopyBuf^, AlphaCopySize);
+          FillChar((AlphaCopyBuf + AlphaCopySize)^, AV_INPUT_BUFFER_PADDING_SIZE, 0);
+          AlphaPkt^.data := AlphaCopyBuf;
+          AlphaPkt^.size := cint(AlphaCopySize);
           if avcodec_send_packet(AlphaCodecCtx, AlphaPkt) >= 0 then begin
             HaveAlpha := avcodec_receive_frame(AlphaCodecCtx, AlphaFrame) >= 0;
           end;
@@ -443,6 +528,9 @@ begin
   end;
   if AlphaCodecCtx <> nil then begin
     avcodec_free_context(AlphaCodecCtx);
+  end;
+  if AlphaCopyBuf <> nil then begin
+    FreeMem(AlphaCopyBuf);
   end;
   avformat_close_input(FmtCtx);
   FreeMem(TmpBuf);

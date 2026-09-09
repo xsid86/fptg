@@ -7,30 +7,9 @@ object FrameChats: TFrameChats
   ClientWidth = 300
   LCLVersion = '4.8.0.0'
   TabOrder = 0
-  object pnlBottom: TPanel
-    Left = 0
-    Height = 24
-    Top = 536
-    Width = 300
-    Align = alBottom
-    BevelOuter = bvNone
-    ClientHeight = 24
-    ClientWidth = 300
-    TabOrder = 0
-    object lblStatus: TLabel
-      Left = 8
-      Height = 15
-      Top = 4
-      Width = 284
-      AutoSize = False
-      Caption = 'чатов: 0'
-      Font.Color = clGrayText
-      ParentFont = False
-    end
-  end
   object Grid: TDrawGrid
     Left = 0
-    Height = 536
+    Height = 560
     Top = 0
     Width = 300
     Align = alClient

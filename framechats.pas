@@ -40,8 +40,6 @@ type
   TFrameChats = class(TFrameBase, ITdActiveListener)
     Grid:      TDrawGrid;
     icons12: TImageList;
-    pnlBottom: TPanel;
-    lblStatus: TLabel;
     mnuChat:   TPopupMenu;
     { Chat-type icons. Placed on the frame in the designer; the name
       must match the one in the .lfm. }
@@ -142,7 +140,6 @@ type
     function ReceiptBitmap(AKind: TChatReceipt; ASelected: Boolean): TBGRABitmap;
     procedure ModelChanged(Sender: TObject);
     procedure ActionError(Sender: TObject; ACode: Integer; const AMessage, AAction: Utf8string);
-    procedure LoadingChanged(Sender: TObject);
     procedure MaybeLoadMore;
     procedure BuildMenu(ARow: TChatRow);
     procedure MenuItemClick(Sender: TObject);
@@ -162,6 +159,15 @@ type
   end;
 
 implementation
+
+{ main is used in the implementation section, not the interface: main
+  itself uses framechats (the permanent left-panel chat list), and
+  using it from the interface would create a cycle — same approach as
+  framehistory.pas/main. Needed only for FormMain.SetChatListStatus
+  (the "N chats (more)" line, now shown in StatusBar1 instead of the
+  removed pnlBottom). }
+uses
+  main;
 
 {$R *.lfm}
 
@@ -485,10 +491,8 @@ begin
     Exit;
   end;
   M.OnChanged     := @ModelChanged;
-  M.OnLoadingChanged := @LoadingChanged;
   M.OnActionError := @ActionError;
   ModelChanged(nil);
-  LoadingChanged(nil);
 end;
 
 procedure TFrameChats.UnbindModel;
@@ -497,9 +501,6 @@ begin
   if FModel <> nil then begin
     if TMethod(FModel.OnChanged).Data = Pointer(Self) then begin
       FModel.OnChanged := nil;
-    end;
-    if TMethod(FModel.OnLoadingChanged).Data = Pointer(Self) then begin
-      FModel.OnLoadingChanged := nil;
     end;
     if TMethod(FModel.OnActionError).Data = Pointer(Self) then begin
       FModel.OnActionError := nil;
@@ -551,40 +552,12 @@ begin
   MaybeLoadMore;
 end;
 
-procedure TFrameChats.LoadingChanged(Sender: TObject);
-var
-  Busy, Done: Boolean;
-begin
-  if (not FReady) or (lblStatus = nil) or (FModel = nil) then begin
-    Exit;
-  end;
-
-  if FMode = clmArchive then begin
-    Busy := FModel.ArchiveLoading;
-    Done := FModel.ArchiveAllLoaded;
-  end
-  else begin
-    Busy := FModel.Loading;
-    Done := FModel.AllLoaded;
-  end;
-
-  if Busy then begin
-    lblStatus.Caption := 'Loading...';
-  end
-  else if Done then begin
-    lblStatus.Caption := Format('%d chats', [RowsCount]);
-  end
-  else begin
-    lblStatus.Caption := Format('%d chats (more)', [RowsCount]);
-  end;
-end;
-
 procedure TFrameChats.ActionError(Sender: TObject; ACode: Integer; const AMessage, AAction: Utf8string);
 begin
   { A TDLib refusal on a menu action must not be silent: without this,
     "Pin" on a full list would just appear to do nothing. }
-  if lblStatus <> nil then begin
-    lblStatus.Caption := Format('Error %d: %s', [ACode, String(AMessage)]);
+  if FormMain <> nil then begin
+    FormMain.SetChatListStatus(Format('Error %d: %s', [ACode, String(AMessage)]));
   end;
 end;
 
@@ -673,7 +646,6 @@ begin
     Grid.Row    := 0;
   end;
   ModelChanged(nil);
-  LoadingChanged(nil);
   if Assigned(FOnListMode) then begin
     FOnListMode(Self, FMode);
   end;

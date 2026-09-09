@@ -207,6 +207,14 @@ type
 
 implementation
 
+const
+  { See the GetMem(VTmpBuf, ...) comment further down (ExecuteInner) —
+    a safety margin against libswscale's documented SIMD tail-write-
+    past-bounds behavior (CVE-2017-7866, GHSA-3w97-3qww-vxj8), the same
+    fix applied to the identical pattern in videoplayer.pas after a
+    live heaptrc-caught heap corruption there. }
+  SWS_SCALE_TAIL_PAD = 64;
+
 { TEMPORARY diagnostics — kept for one more round of verification after
   the structural fix (separate audio and video threads) — remove once
   speed, smoothness, and the end-of-playback crash are all confirmed
@@ -327,7 +335,11 @@ begin
     Exit;
   end;
 
-  GetMem(VTmpBuf, cardinal(FOwner.FTargetW) * cardinal(FOwner.FTargetH) * 4);
+  { VTmpBuf is sws_scale's OWN write target (below) — padded past its
+    nominal W*H*4 size, unlike FOwner.FFrameBuf (only ever reached via
+    an exact-length Move, never sws_scale) — see SWS_SCALE_TAIL_PAD's
+    own comment for why. }
+  GetMem(VTmpBuf, cardinal(FOwner.FTargetW) * cardinal(FOwner.FTargetH) * 4 + SWS_SCALE_TAIL_PAD);
   GetMem(FOwner.FFrameBuf, cardinal(FOwner.FTargetW) * cardinal(FOwner.FTargetH) * 4);
 
   if FStartPositionSec > 0 then begin

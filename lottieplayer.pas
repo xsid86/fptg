@@ -40,6 +40,22 @@ const
     a small target grid directly. }
   RENDER_SCALE = 3;
   RENDER_MAX_DIM = 512;
+  { Safety margin for RenderBuf, the one buffer lottie_animation_render
+    (native code, not this project's Pascal) writes into directly —
+    see its GetMem call in ExecuteInner for the full reasoning. Same
+    value as SWS_SCALE_TAIL_PAD (videoplayer.pas/mediaplayer.pas) for
+    consistency, not because it's been measured exact for THIS
+    library — a conventional, generous-enough margin for a SIMD
+    rasterizer's tail write, the same class of problem, different
+    library. }
+  NATIVE_RENDER_TAIL_PAD = 256;
+  { Canary byte used to detect (not just guess about) a tail overrun past
+    RenderBuf's nominal end — see CheckRenderCanary/LogCanaryCorruption
+    in the implementation section. Temporary diagnostic, same pattern
+    already used elsewhere in this project (video_debug.log etc.) —
+    remove once the RenderBuf overrun question is settled one way or
+    the other. }
+  RENDER_CANARY_BYTE = $AA;
 
 type
   TLottiePlayer = class(TThread)
@@ -75,7 +91,86 @@ type
     property Failed: boolean read FFailed;
   end;
 
+{ Count of TLottiePlayer background decode threads currently alive.
+  FreeOnTerminate=True (see the unit header) means StopPlayback is
+  fire-and-forget — nothing waits for the thread to actually finish.
+  custom emoji decoders (customemoji.pas) are never evicted and can
+  stay alive for the whole session purely from earlier scrolling, so
+  closing the app is exactly when the most such threads are told to
+  stop at once. tg.lpr polls this (alongside AnimationPlayerActiveCount,
+  videoplayer.pas) right after Application.Run returns, to give every
+  one of them a bounded chance to actually finish — including its own
+  FreeMem calls — before unit finalization/ExitProcess starts tearing
+  down process-wide state (DLLs included) out from under a thread that
+  might still be running native code inside one of them. }
+function LottiePlayerActiveCount: integer;
+
 implementation
+
+var
+  GActiveCount: longint;
+
+function LottiePlayerActiveCount: integer;
+begin
+  Result := GActiveCount;
+end;
+
+var
+  GCanaryLogged: boolean = False;
+
+{ Fires ONCE per process — first proof, either way, of whether RenderBuf's
+  tail padding is actually being overwritten by lottie_animation_render
+  (the previous two fix attempts — 64-byte padding, then waiting for
+  decoder threads before ExitProcess — both failed to stop the crash,
+  so this settles the question with real evidence instead of a third
+  guess). AOffset is relative to the start of the padding region (i.e.
+  RenderBuf's nominal W*H*4 end), so a non-zero ABadCount here is a
+  direct measurement of how much bigger NATIVE_RENDER_TAIL_PAD needs to
+  be — or, if this file is never created despite the crash recurring,
+  proof that RenderBuf's tail is NOT the cause and the corruption is
+  coming from somewhere else in the process entirely. }
+procedure LogCanaryCorruption(AOffset, ABadCount, APadSize: integer);
+var
+  F: TextFile;
+begin
+  if GCanaryLogged then begin
+    Exit;
+  end;
+  GCanaryLogged := True;
+  AssignFile(F, ExtractFilePath(ParamStr(0)) + 'render_canary.log');
+  try
+    Rewrite(F);
+    WriteLn(F, Format(
+      'RenderBuf tail canary corrupted: first bad byte at offset %d ' +
+      'past the nominal W*H*4 end, %d of %d padding bytes affected.',
+      [AOffset, ABadCount, APadSize]));
+  finally
+    CloseFile(F);
+  end;
+end;
+
+{ Scans ABuf (the NATIVE_RENDER_TAIL_PAD bytes immediately after
+  RenderBuf's nominal end) for anything other than RENDER_CANARY_BYTE —
+  called right after lottie_animation_render, before that region is
+  re-armed for the next frame. }
+procedure CheckRenderCanary(ABuf: PByte; ASize: integer);
+var
+  I, FirstBad, BadCount: integer;
+begin
+  FirstBad := -1;
+  BadCount := 0;
+  for I := 0 to ASize - 1 do begin
+    if ABuf[I] <> RENDER_CANARY_BYTE then begin
+      if FirstBad < 0 then begin
+        FirstBad := I;
+      end;
+      Inc(BadCount);
+    end;
+  end;
+  if FirstBad >= 0 then begin
+    LogCanaryCorruption(FirstBad, BadCount, ASize);
+  end;
+end;
 
 constructor TLottiePlayer.Create(const AFilePath: utf8string; ATargetW, ATargetH: integer);
 begin
@@ -85,6 +180,7 @@ begin
   FTargetH := ATargetH;
   FLock := SyncObjs.TCriticalSection.Create;
   FreeOnTerminate := True;
+  Windows.InterlockedIncrement(GActiveCount);
   Start;
 end;
 
@@ -159,11 +255,18 @@ end;
 procedure TLottiePlayer.Execute;
 begin
   try
-    ExecuteInner;
-  except
-    on E: Exception do begin
-      FFailed := True;
+    try
+      ExecuteInner;
+    except
+      on E: Exception do begin
+        FFailed := True;
+      end;
     end;
+  finally
+    { Decremented exactly once, on every exit path (normal loop end,
+      an early Exit from ExecuteInner on a load/decode failure, or an
+      uncaught exception) — see GActiveCount's own interface comment. }
+    Windows.InterlockedDecrement(GActiveCount);
   end;
 end;
 
@@ -268,9 +371,30 @@ begin
     RenderH := FTargetH;
   end;
 
-  GetMem(RenderBuf, cardinal(RenderW) * cardinal(RenderH) * 4);
+  { RenderBuf is the ONLY buffer here written by native C/C++ code
+    (lottie_animation_render, the TGX-Android rlottie fork's own
+    rasterizer) rather than this project's own Pascal — padded past
+    its nominal RenderW*RenderH*4 size for the same reason
+    SWS_SCALE_TAIL_PAD exists in videoplayer.pas/mediaplayer.pas: a
+    live heaptrc-caught heap corruption (Wrong signature at TmpBuf's
+    FreeMem, this exact procedure) turned up right after RenderBuf's
+    allocation in this same GetMem sequence, and BoxDownscaleArgb
+    itself (the only thing that WRITES into TmpBuf) was read through
+    and its bounds check out — the write past RenderBuf's declared end
+    is the remaining, structurally analogous suspect: a native
+    SIMD-optimized rasterizer overrunning a tightly-sized destination
+    buffer, exactly the documented sws_scale failure mode, just a
+    different library. TmpBuf/FFrameBuf are NOT padded — nothing but
+    this project's own exact-bounded Pascal code (BoxDownscaleArgb,
+    Move) ever writes into either. }
+  GetMem(RenderBuf, cardinal(RenderW) * cardinal(RenderH) * 4 + NATIVE_RENDER_TAIL_PAD);
   GetMem(TmpBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
   GetMem(FFrameBuf, cardinal(FTargetW) * cardinal(FTargetH) * 4);
+
+  { Arms the canary in RenderBuf's padding region — see
+    CheckRenderCanary/LogCanaryCorruption above. }
+  FillChar((RenderBuf + cardinal(RenderW) * cardinal(RenderH) * 4)^,
+    NATIVE_RENDER_TAIL_PAD, RENDER_CANARY_BYTE);
 
   { Rendering goes into RenderBuf (internal resolution, HIGHER than
     the display size, see the constants above), downscaling into
@@ -310,6 +434,12 @@ begin
     AnchorTick := GetTickCount64;
     while not FStopRequested do begin
       lottie_animation_render(Anim, FrameNum, PCardinal(RenderBuf), RenderW, RenderH, RenderW * 4);
+      { Checks whether this frame's render just wrote past RenderBuf's
+        nominal end, then re-arms the canary for the next frame — see
+        CheckRenderCanary's own comment for why this matters right now. }
+      CheckRenderCanary(RenderBuf + cardinal(RenderW) * cardinal(RenderH) * 4, NATIVE_RENDER_TAIL_PAD);
+      FillChar((RenderBuf + cardinal(RenderW) * cardinal(RenderH) * 4)^,
+        NATIVE_RENDER_TAIL_PAD, RENDER_CANARY_BYTE);
       BoxDownscaleArgb(RenderBuf, RenderW, RenderH, TmpBuf, FTargetW, FTargetH);
 
       FLock.Enter;

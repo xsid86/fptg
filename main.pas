@@ -35,9 +35,6 @@ type
     MenuItem8:  TMenuItem;
     MenuItem9:  TMenuItem;
     MenuItem14: TMenuItem;
-    pnlTop:     TPanel;
-    lblState:   TLabel;
-    btnLogout:  TButton;
     pnlLeft:    TPanel;
     splLeft:    TSplitter;
     pnlWork:    TPanel;
@@ -108,6 +105,15 @@ type
       Nav.Find. Needed by framehistory.pas to reach ImageList1's
       message-status icons without a second copy of the same icons. }
     property Chats: TFrameChats read FChats;
+    { Replaces the old pnlTop label — auth state, shutdown/error
+      messages, the contact-info placeholder. StatusBar1's right panel
+      (index 1, the wide one that absorbs whatever width is left). }
+    procedure SetStatusText(const AText: string);
+    { Replaces the old pnlBottom label under the chat list — the
+      "N chats (more)" line. StatusBar1's left panel (index 0, fixed
+      width) — called from framechats.pas via the same global-FormMain
+      access pattern already used for Chats/Nav/MediaViewer. }
+    procedure SetChatListStatus(const AText: string);
     { Photo/video viewer — needed by framehistory.pas (clicking a
       photo/video in a chat opens it), same global-FormMain access
       pattern already used for Chats/Nav. }
@@ -157,7 +163,7 @@ uses
 procedure TFormMain.FormCreate(Sender: TObject);
 begin
   FTdClosed := False;
-  lblState.Caption := '';
+  SetStatusText('');
 
   { pnlWork is split vertically: the frame area on top, the message
     input at the bottom, see the comment on the FNavHost/
@@ -207,9 +213,8 @@ begin
 
   { Parented to the form itself (Self), not pnlWork — see the field
     comment. Align is not used (alClient would only fill the leftover
-    space after pnlTop/pnlLeft/StatusBar1, but those need to be
-    overlaid too) — explicit bounds are kept in sync in FormResize
-    instead. }
+    space after pnlLeft/StatusBar1, but those need to be overlaid too)
+    — explicit bounds are kept in sync in FormResize instead. }
   FMediaViewer := TMediaViewerPanel.Create(Self);
   FMediaViewer.Parent := Self;
   FMediaViewer.SetBounds(0, 0, ClientWidth, ClientHeight);
@@ -283,7 +288,7 @@ begin
   CanClose  := TdApp.BeginShutdown(@ShutdownDone);
   FTdClosed := CanClose;
   if not CanClose then begin
-    lblState.Caption := 'Closing TDLib, waiting for confirmation...';
+    SetStatusText('Closing TDLib, waiting for confirmation...');
   end;
 end;
 
@@ -305,7 +310,7 @@ begin
     Exit;
   end;
   { Placeholder: the contact-info panel will open here. }
-  lblState.Caption := Format('Info: %s (id %d)', [string(ARow.Title), ARow.Id]);
+  SetStatusText(Format('Info: %s (id %d)', [string(ARow.Title), ARow.Id]));
 end;
 
 procedure TFormMain.MessageInputSend(Sender: TObject);
@@ -343,6 +348,16 @@ begin
   Close;
 end;
 
+procedure TFormMain.SetStatusText(const AText: string);
+begin
+  StatusBar1.Panels[1].Text := AText;
+end;
+
+procedure TFormMain.SetChatListStatus(const AText: string);
+begin
+  StatusBar1.Panels[0].Text := AText;
+end;
+
 procedure TFormMain.btnLogoutClick(Sender: TObject);
 begin
   if MessageDlg('Log out', 'End the session and return to the login screen?', mtConfirmation, [mbYes, mbNo], 0) <> mrYes then begin
@@ -370,7 +385,9 @@ end;
 
 procedure TFormMain.TdStateChanged(AState: TTdAuthState);
 begin
-  lblState.Caption := 'State: ' + AuthStateToStr(AState);
+  { No longer displayed anywhere — the auth state is not useful
+    information for the end user, only the Show/Hide decision below
+    that's actually driven by it. }
 
   if AState = tasReady then begin
     if not Visible then begin
@@ -649,8 +666,8 @@ end;
 
 procedure TFormMain.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  lblState.Caption := Format('ERROR %d [%s]: %s',
-    [ACode, string(AContext), string(AMessage)]);
+  SetStatusText(Format('ERROR %d [%s]: %s',
+    [ACode, string(AContext), string(AMessage)]));
 end;
 
 end.
