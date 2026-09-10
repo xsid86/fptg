@@ -1,12 +1,32 @@
 unit emojiassets;
 
 { Colorful Unicode emoji rendering, offline: a single packed atlas file
-  (emoji_atlas.dat, next to the exe) holds one PNG per emoji sequence,
-  built at dev time from the Twemoji asset pack (CC-BY 4.0,
-  github.com/jdecked/twemoji, assets/72x72) via scripts/pack_emoji.py.
+  (emoji_atlas.dat, next to the exe) holds one PNG per emoji sequence.
+
+  Source, by direct request (the user didn't like Twemoji's flatter
+  style, which this atlas used before): Google's Noto Color Emoji
+  (github.com/googlefonts/noto-emoji), png/72 — Apache 2.0 (the repo's
+  README and the sibling svg/LICENSE both say so; the top-level LICENSE
+  file text is the SIL Open Font License instead, but that one governs
+  "This Font Software", i.e. the compiled fonts/ TTFs specifically, not
+  the raw art under png/svg — checked directly, not assumed). Country
+  flags are a SEPARATE source within the same repo, third_party/
+  region-flags/png (public domain/copyright-exempt, per its own
+  LICENSE) — noto-emoji's png/* doesn't ship pre-composed two-letter
+  flag images at all, only single regional-indicator-letter glyphs, so
+  each flag PNG (a flat 1200x600ish rectangle, not a glyph) is
+  composited onto its own square transparent canvas and keyed by the
+  pair of REGIONAL INDICATOR SYMBOL codepoints for its ISO code (e.g.
+  "DE" -> U+1F1E9 U+1F1EA) — a flatter, non-waved rendering than Noto's
+  own actual (waved+shadowed) flag glyphs, an accepted simplification,
+  not a claim of pixel-fidelity. Packed via a one-off Python script
+  (dev-time tool, not committed — same as the original Twemoji packer
+  never was, see CLAUDE.md).
+
   The atlas format: 'EMJ1', uint32 count, then per entry: uint8
   codepoint count, that many uint32 codepoints (the emoji sequence),
-  uint32 PNG length, PNG bytes.
+  uint32 PNG length, PNG bytes — unchanged from the Twemoji-sourced
+  atlas, so nothing else in this file needed to change for the swap.
 
   EmojiMatchAt finds the longest emoji sequence starting at a given byte
   position in a UTF-8 string — driven entirely by the atlas' own key
@@ -28,7 +48,7 @@ uses
   customemoji;
 
 const
-  EMOJI_MAX_CODEPOINTS = 12;  { longest real Twemoji sequence is 10 }
+  EMOJI_MAX_CODEPOINTS = 12;  { longest real sequence: 10 in Twemoji, 9 in Noto Color Emoji }
 
 type
   { A custom (Premium) emoji entity's span within some plain-text
@@ -57,7 +77,7 @@ function EmojiBitmapFor(const AKey: utf8string; ASize: integer): TBGRABitmap;
   a span in it takes priority over an atlas match at the same position,
   the same rule msglayout.WrapText applies, and for the same reason: the
   entity's ByteLen is authoritative even when its alt text isn't a known
-  Twemoji key. }
+  atlas key. }
 function DrawEmojiLine(ACanvas: TCanvas; const ARect: TRect; X, Y: integer;
   const AText: utf8string; const ACustomGlyphs: TCustomGlyphSpanArray): integer;
 
@@ -359,13 +379,17 @@ begin
       presentation") is very common as a trailing codepoint on
       symbol-class glyphs (arrows, bullets, ...) — real message text
       (and, more importantly here, a custom-emoji entity's own alt
-      text) almost always includes it, but Twemoji's own asset naming
-      drops it for characters whose DEFAULT presentation is already
-      emoji-style (confirmed by inspecting the atlas directly: "▪"/
-      U+25AA and "⬅"/U+2B05 exist as bare, 1-codepoint keys, "▪️"/
-      "⬅️" with VS16 do not) — without this fallback, EVERY such
-      VS16-suffixed glyph silently fails the exact-key lookup here and
-      renders as nothing at all. WrapText/EmojiMatchAt (msglayout.pas)
+      text) almost always includes it, but the atlas' own asset naming
+      never includes it at all: Twemoji (the original source) dropped
+      it only for characters whose DEFAULT presentation is already
+      emoji-style; Noto Color Emoji (the current source, see this
+      unit's header comment) drops it UNCONDITIONALLY, confirmed
+      directly against its png/72 filenames (zero "_fe0f" occurrences
+      anywhere in ~3700 files) — the fallback below covers both cases
+      the same way, without needing to know which source is active.
+      Without it, EVERY VS16-suffixed glyph would silently fail the
+      exact-key lookup here and render as nothing at all.
+      WrapText/EmojiMatchAt (msglayout.pas)
       already have an equivalent effect for PLAIN text, for a different
       reason: their longest-match search naturally lands on the
       3-byte-shorter match when the full sequence isn't in the index —

@@ -131,6 +131,56 @@ const
   REPLY_BOX_H   = 2 * REPLY_LINE_H + 2 * HEADER_PAD_V;
   REPLY_CORNER_RADIUS = 4;
 
+  { Reaction strip (TMsgScroller.PaintReactions/ReactionsRect,
+    framehistory.pas) — the row of reaction chips ("👍 3  ❤ 1  ...")
+    below a message's content, present only when the message actually
+    has reactions. The OUTER strip is visually the same as the message
+    header (background tint, height) by direct request — reuses
+    HEADER_BAR_H/HEADER_PAD_V/SENDER_HEADER_OPACITY as-is, not its own
+    set of numbers. REACTION_GAP is the gap between two separate chips;
+    the gap from a chip's emoji to its own count reuses MSG_ICON_GAP
+    (the same role it already plays for the status icon in the main
+    header).
+
+    Each INDIVIDUAL chip additionally gets its own pill/capsule outline
+    — a second, later request, closer to the native client's look:
+    tinted with the sender's color, own opacity for a plain reaction
+    vs. one this account has added (REACTION_PILL_OPACITY vs.
+    REACTION_PILL_CHOSEN_OPACITY — both by direct, exact request, not
+    reused from SENDER_BG_OPACITY/SENDER_HEADER_OPACITY: a chip needs
+    to read as its own control, distinctly more prominent than the
+    header strip it sits on). REACTION_PILL_H (22, by direct request)
+    is smaller than HEADER_BAR_H — the pill sits inset within the
+    taller outer strip, not flush with it. REACTION_PILL_PAD is the
+    pill's own inner horizontal padding (icon/text to the pill's own
+    edge), a new, third padding value distinct from MSG_PAD_H (the
+    strip's own inset from the block's edge) and REACTION_GAP (the gap
+    between pills). REACTION_PILL_CORNER_RADIUS is its own knob, not
+    inlined as "REACTION_PILL_H div 2" at the call site — split out by
+    direct request, the same reasoning as every other *_CORNER_RADIUS
+    in this file (MSG_CORNER_RADIUS, FORWARD_CORNER_RADIUS, ...): tuned
+    independently later without touching the drawing code. Currently
+    still equal to half the pill's height (a full capsule, semicircular
+    ends) — PaintReactions clamps it further by half the pill's own
+    WIDTH at the call site, so a narrower value here stays a true
+    capsule instead of distorting on a short pill.
+
+    Reactions wrap onto multiple rows when they don't fit the column
+    width (LayoutReactions) — REACTION_ROW_GAP is the vertical gap
+    between two wrapped rows, reusing MSG_ICON_GAP's small value (the
+    same role it already plays elsewhere: a tight gap around a small
+    element, not the much larger MSG_GAP between whole messages). The
+    strip's total height for N rows is HEADER_BAR_H + (N-1)*
+    (REACTION_PILL_H + REACTION_ROW_GAP) — for N=1 (the common case)
+    that's exactly HEADER_BAR_H, unchanged from before wrapping existed. }
+  REACTION_GAP = MSG_PAD_H;
+  REACTION_PILL_H = 22;
+  REACTION_PILL_PAD = 8;
+  REACTION_PILL_CORNER_RADIUS = 11;
+  REACTION_PILL_OPACITY = 0.3;
+  REACTION_PILL_CHOSEN_OPACITY = 0.6;
+  REACTION_ROW_GAP = MSG_ICON_GAP;
+
   { Sender color wheel — the one place in the file that would need
     touching for a dark theme (a full theming layer isn't built yet,
     but colors are kept out of the paint code as scattered literals).

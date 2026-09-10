@@ -57,6 +57,31 @@ type
     not from memory. }
   TMsgForwardKind = (mfoNone, mfoUser, mfoChat, mfoChannel, mfoHiddenUser);
 
+  { One entry of message.interaction_info.reactions.reactions — a single
+    reaction "type" applied to the message, with its aggregate count.
+    Three TDLib reaction-type variants, confirmed from tdlib_raw.log
+    (all three seen live), not guessed: reactionTypeEmoji (a plain
+    Unicode emoji — the same rendering path as an emoji in message
+    text, see emojiassets.EmojiBitmapFor), reactionTypeCustomEmoji (a
+    Premium emoji, the SAME custom_emoji_id space and cache as a
+    mekCustomEmoji text entity — see customemoji.pas), reactionTypePaid
+    (a Telegram Stars reaction — no emoji at all, just a count; drawn
+    with a fixed star glyph, see TMsgScroller.PaintReactions). }
+  { Prefixed "rc" (reaction-content), not the "rk" msglayout.TRunKind
+    uses for its own, unrelated rkEmoji/rkText/rkLink — both units are
+    in framehistory.pas's uses clause, and "rkEmoji" alone would resolve
+    to the wrong enum there (a real, hit-first-try compile error: "case"
+    rejects a constant of the wrong type). }
+  TMsgReactionKind = (rcEmoji, rcCustomEmoji, rcPaid);
+  TMsgReaction = record
+    Kind: TMsgReactionKind;
+    Emoji: utf8string;       { rcEmoji only }
+    CustomEmojiId: Int64;    { rcCustomEmoji only }
+    TotalCount: integer;
+    IsChosen: boolean;       { True if this account is among the reactors }
+  end;
+  TMsgReactionArray = array of TMsgReaction;
+
   { TMsgRow
 
     Plain data, no LCL — same as TChatRow. ContentRaw holds the entire
@@ -250,6 +275,13 @@ type
     StickerFileId:           integer;
     StickerLocalPath:        utf8string;
     StickerDownloadRequested: boolean;
+    { message.interaction_info.reactions.reactions — empty if the
+      message has no reactions (the common case). Set unconditionally
+      in ApplyMessage (independent of Kind/content — any message type
+      can carry reactions) and refreshed live via
+      updateMessageInteractionInfo, see TdUpdate. Display only, for
+      now: no UI to add/remove a reaction of your own yet. }
+    Reactions: TMsgReactionArray;
     { msglayout's layout cache. Kept as an opaque TObject rather than
       TMsgLayout — otherwise tdmessages would need to know about
       msglayout, creating a unit cycle. Freed in the destructor via a
@@ -396,6 +428,11 @@ type
     procedure ApplyContentUpdate(AChatId, AMessageId: Int64; ANewContent: TJSONObject);
     procedure ExtractFormatted(AContent: TJSONObject; const AType: utf8string;
       out APlainText: utf8string; out AEntities: TMsgEntityArray);
+    { AInteractionInfo is the whole message.interaction_info object (may
+      be nil — an older/system message can lack it entirely); reads
+      .reactions.reactions inside it. }
+    procedure ExtractReactions(AInteractionInfo: TJSONObject;
+      out AReactions: TMsgReactionArray);
     procedure ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
       out ADuration: integer; out ATitle, APerformer, AFileName: utf8string;
       out AFileId: integer; out ALocalPath: utf8string);
@@ -1317,6 +1354,59 @@ begin
   SetLength(AEntities, N);
 end;
 
+{ message.interaction_info.reactions.reactions — confirmed straight from
+  tdlib_raw.log, not guessed: a messageReactions object holding an
+  array of messageReaction (type/total_count/is_chosen/...), where
+  type is one of reactionTypeEmoji/reactionTypeCustomEmoji/
+  reactionTypePaid. }
+procedure TTdMessages.ExtractReactions(AInteractionInfo: TJSONObject;
+  out AReactions: TMsgReactionArray);
+var
+  ReactionsObj: TJSONObject;
+  Arr: TJSONArray;
+  I, N: integer;
+  Item, TypeObj: TJSONObject;
+  TypeStr: utf8string;
+begin
+  SetLength(AReactions, 0);
+  if AInteractionInfo = nil then begin
+    Exit;
+  end;
+  ReactionsObj := JGetObj(AInteractionInfo, 'reactions');
+  if ReactionsObj = nil then begin
+    Exit;
+  end;
+  Arr := JGetArr(ReactionsObj, 'reactions');
+  if Arr = nil then begin
+    Exit;
+  end;
+  SetLength(AReactions, Arr.Count);
+  N := 0;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Items[I].JSONType <> jtObject then begin
+      Continue;
+    end;
+    Item := TJSONObject(Arr.Items[I]);
+    TypeObj := JGetObj(Item, 'type');
+    TypeStr := JGetStr(TypeObj, '@type');
+    AReactions[N].Emoji := '';
+    AReactions[N].CustomEmojiId := 0;
+    if TypeStr = 'reactionTypeCustomEmoji' then begin
+      AReactions[N].Kind := rcCustomEmoji;
+      AReactions[N].CustomEmojiId := JGetInt64(TypeObj, 'custom_emoji_id');
+    end else if TypeStr = 'reactionTypePaid' then begin
+      AReactions[N].Kind := rcPaid;
+    end else begin
+      AReactions[N].Kind := rcEmoji;
+      AReactions[N].Emoji := JGetStr(TypeObj, 'emoji');
+    end;
+    AReactions[N].TotalCount := JGetInt(Item, 'total_count');
+    AReactions[N].IsChosen := JGetBool(Item, 'is_chosen');
+    Inc(N);
+  end;
+  SetLength(AReactions, N);
+end;
+
 { messageAudio.audio — metadata from the file itself (ID3 etc.), which
   TDLib includes directly in content, with no download/decode needed.
   Confirmed from tdlib_raw.log: "content":{"@type":"messageAudio",
@@ -1820,6 +1910,13 @@ begin
   end else begin
     R.Delivery := mdsDelivered;
   end;
+
+  { Reactions are unrelated to content — parsed unconditionally, ahead
+    of the "same content, early return" check below: a message can be
+    re-delivered byte-for-byte identical in content (overlapping
+    pagination pages, a repeated getChatHistory) while its reaction
+    counts have moved on since the last time it was seen. }
+  ExtractReactions(JGetObj(AMsg, 'interaction_info'), R.Reactions);
 
   ContentObj := JGetObj(AMsg, 'content');
   if ContentObj <> nil then begin
@@ -3204,11 +3301,14 @@ begin
 end;
 
 { Batched metadata fetch for every distinct custom_emoji_id used by
-  ARow.Entities not already known to customemoji.pas — mirrors
-  RequestReply/GetRepliedDone in shape (one-off targeted request, own
-  pending list), but as a batch of up to however many new ids this ONE
-  row introduces (TDLib allows up to 200 per call; a single message
-  realistically never has anywhere near that many). }
+  ARow.Entities OR ARow.Reactions (a reactionTypeCustomEmoji reaction
+  draws through the exact same customemoji.pas cache as a mekCustomEmoji
+  text entity — one combined batch, not two separate requests) not
+  already known to customemoji.pas — mirrors RequestReply/GetRepliedDone
+  in shape (one-off targeted request, own pending list), but as a batch
+  of up to however many new ids this ONE row introduces (TDLib allows up
+  to 200 per call; a single message realistically never has anywhere
+  near that many). }
 procedure TTdMessages.EnsureCustomEmojiForRow(ARow: TMsgRow);
 var
   I, N: integer;
@@ -3219,13 +3319,25 @@ begin
   if (ARow = nil) or (FReq = nil) then begin
     Exit;
   end;
-  SetLength(Ids, Length(ARow.Entities));
+  SetLength(Ids, Length(ARow.Entities) + Length(ARow.Reactions));
   N := 0;
   for I := 0 to High(ARow.Entities) do begin
     if ARow.Entities[I].Kind <> mekCustomEmoji then begin
       Continue;
     end;
     Id := ARow.Entities[I].CustomEmojiId;
+    if (Id = 0) or CustomEmojiKnown(Id) or IsCustomEmojiPending(Id) then begin
+      Continue;
+    end;
+    Ids[N] := Id;
+    Inc(N);
+    MarkCustomEmojiPending(Id);
+  end;
+  for I := 0 to High(ARow.Reactions) do begin
+    if ARow.Reactions[I].Kind <> rcCustomEmoji then begin
+      Continue;
+    end;
+    Id := ARow.Reactions[I].CustomEmojiId;
     if (Id = 0) or CustomEmojiKnown(Id) or IsCustomEmojiPending(Id) then begin
       Continue;
     end;
@@ -3401,6 +3513,17 @@ begin
         R := Lookup(JGetInt64(Obj, 'message_id'));
         if R <> nil then begin
           R.EditDate := JGetInt64(Obj, 'edit_date');
+          Touch;
+        end;
+      end;
+    end else if T = 'updateMessageInteractionInfo' then begin
+      { Reactions (view/forward counts too, not tracked) changing on an
+        already-loaded message — a new/removed reaction from anyone,
+        not just this account. Confirmed from tdlib_raw.log. }
+      if JGetInt64(Obj, 'chat_id') = FChatId then begin
+        R := Lookup(JGetInt64(Obj, 'message_id'));
+        if R <> nil then begin
+          ExtractReactions(JGetObj(Obj, 'interaction_info'), R.Reactions);
           Touch;
         end;
       end;

@@ -190,7 +190,7 @@ var
 
   { Single entry point for "is there a glyph-sized image at APos" — a
     custom-emoji entity wins over a plain Unicode-emoji match (so an
-    entity whose underlying alt text isn't in the Twemoji atlas still
+    entity whose underlying alt text isn't in the emoji atlas still
     reserves its square instead of falling through to plain text), a
     plain Unicode emoji otherwise. }
   function SpecialGlyphAt(APos: integer; out ALen: integer; out ACustomId: Int64): boolean;

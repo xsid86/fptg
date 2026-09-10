@@ -19,7 +19,7 @@ uses
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
   uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer,
-  lottieplayer, customemoji;
+  lottieplayer, customemoji, emojiassets;
 
 type
   { TAudioWidget
@@ -622,6 +622,25 @@ type
     this enum doesn't apply there. }
   TPendingFileAction = (pfaNone, pfaSaveDialog, pfaShowInFolder);
 
+  { One reaction's computed pill position, in the reaction strip's OWN
+    local coordinate space (0,0 = the strip's content origin, i.e.
+    AFTER the MSG_PAD_H inset from the block's edge — the same
+    convention ForwardMetrics' AInnerW already uses). The single source
+    of truth for both RebuildOffsets (how tall the strip needs to be,
+    across however many wrapped rows) and PaintReactions (where to
+    actually draw each pill) — see TMsgScroller.LayoutReactions, the
+    same "compute the geometry once, use it twice" principle as
+    ForwardMetrics/ContentRect elsewhere in this file. CountColor isn't
+    stored: the count is always clWindowText now, chosen or not (only
+    the pill's own fill opacity marks a reaction as mine — see
+    CLAUDE.md, "там где есть мои реакции цвет текста тоже черный должен
+    быть"). }
+  TReactionSlot = record
+    PillRect: TRect;
+    IconW: integer;
+  end;
+  TReactionSlotArray = array of TReactionSlot;
+
   { TMsgScroller
 
     The heart of the chat frame: does its own virtual scrolling
@@ -916,6 +935,19 @@ type
     function LastVisible: integer;
     function BlockRect(AIndex: integer): TRect;
     function ContentRect(AIndex: integer): TRect;
+    { The reaction strip at the very bottom of the block — 0/an empty
+      Rect when ARow has no reactions. See the comment on REACTION_GAP
+      (constants.pas) for the design ("looks like the header"). }
+    function ReactionsH(ARow: TMsgRow): integer;
+    function ReactionsRect(AIndex: integer): TRect;
+    { Wraps reactions onto multiple rows when they don't fit AWidth —
+      the single source of truth for both ReactionsH (how tall the
+      strip needs to be) and PaintReactions (where each pill actually
+      goes), the same "compute once, use twice" principle as
+      ForwardMetrics/ContentRect above. See the comment on TReactionSlot. }
+    function LayoutReactions(ARow: TMsgRow; AWidth: integer;
+      out ATotalH: integer): TReactionSlotArray;
+    procedure PaintReactions(AIndex: integer; ARow: TMsgRow);
     procedure LayoutAudioWidgets(ALo, AHi: integer);
     function ObtainAudioWidget: TAudioWidget;
     procedure LayoutFileWidgets(ALo, AHi: integer);
@@ -1187,7 +1219,7 @@ end;
   extent must stay inside the bitmap). }
 procedure PaintRoundRectAA(ACanvas: TCanvas; const ABox: TRect; ARadius: single;
   AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor;
-  ABorderWidth: single = 1);
+  ABorderWidth: single = 1; AForceSmooth: boolean = False);
 var
   W, H, IRadius: integer;
   Bmp: TBGRABitmap;
@@ -1199,19 +1231,37 @@ begin
     Exit;
   end;
 
-  if not SMOOTH_CORNERS then begin
+  { AForceSmooth (default False, every pre-existing call site unchanged)
+    opts a specific caller INTO the antialiased BGRA path below even
+    while SMOOTH_CORNERS=False globally — used only by PaintReactions:
+    plain GDI RoundRect (the branch this skips into) has no
+    antialiasing at all, and at the reaction pill's small radius
+    (REACTION_PILL_CORNER_RADIUS) that reads as a visibly jagged,
+    not-actually-round curve, reported directly ("не круглые, а
+    вытянутые" / "not round, but elongated" — an aliasing artifact, not
+    a geometry bug: the ellipse itself IS circular, GDI just can't draw
+    it smoothly at this size). Paying the BGRA cost here specifically
+    is cheap in aggregate: PaintReactions is a no-op for the vast
+    majority of rows (most messages have no reactions at all), unlike
+    the message block/header/forward-card corners this same function
+    also draws on EVERY row, which is what SMOOTH_CORNERS=False was
+    introduced to keep cheap in the first place (see its own comment). }
+  if not SMOOTH_CORNERS and not AForceSmooth then begin
     { The older method, from before the switch to BGRA — plain GDI
       Canvas.RoundRect, no TBGRABitmap at all. This branch exists to
       test whether antialiased drawing itself (allocating and filling a
       temporary bitmap on every call, up to 12 per frame in the worst
       case) is actually noticeable in scroll smoothness, not just
       subjectively "looks smoother".
-      GDI RoundRect can't do per-corner rounding — the only AOptions
-      combination actually used in this file is [rrBottomLeftSquare,
-      rrBottomRightSquare] (squaring off the bottom of a mini-header),
-      and both call sites that request it never pass a border
+      GDI RoundRect can't do per-corner rounding — the only two AOptions
+      combinations actually used in this file are [rrBottomLeftSquare,
+      rrBottomRightSquare] (squaring off the bottom of a mini-header)
+      and its mirror, [rrTopLeftSquare, rrTopRightSquare] (squaring off
+      the TOP of the reaction strip — PaintReactions — which sits flush
+      against the block's own rounded bottom edge instead), and every
+      call site that requests either one never passes a border
       (ABorderColor=clNone) — using the same older trick of "draw all 4
-      corners rounded, then square off the bottom with a separate
+      corners rounded, then square off one side with a separate
       FillRect" that predates the switch to BGRA. No other AOptions
       combination occurs in this file — this isn't generalized beyond
       what's actually needed. }
@@ -1229,12 +1279,16 @@ begin
       ACanvas.Brush.Style := bsClear;
     end;
     ACanvas.RoundRect(ABox.Left, ABox.Top, ABox.Right, ABox.Bottom, IRadius * 2, IRadius * 2);
-    if (AFillColor <> clNone) and (rrBottomLeftSquare in AOptions) and
-      (rrBottomRightSquare in AOptions) then begin
+    if AFillColor <> clNone then begin
       ACanvas.Pen.Style := psClear;
       ACanvas.Brush.Style := bsSolid;
       ACanvas.Brush.Color := AFillColor;
-      ACanvas.FillRect(Rect(ABox.Left, ABox.Bottom - IRadius, ABox.Right, ABox.Bottom));
+      if (rrBottomLeftSquare in AOptions) and (rrBottomRightSquare in AOptions) then begin
+        ACanvas.FillRect(Rect(ABox.Left, ABox.Bottom - IRadius, ABox.Right, ABox.Bottom));
+      end;
+      if (rrTopLeftSquare in AOptions) and (rrTopRightSquare in AOptions) then begin
+        ACanvas.FillRect(Rect(ABox.Left, ABox.Top, ABox.Right, ABox.Top + IRadius));
+      end;
     end;
     Exit;
   end;
@@ -2323,8 +2377,6 @@ end;
 procedure TAnimationWidget.Paint;
 var
   IconR: TRect;
-  Rgn: HRGN;
-  RgnRadius: integer;
 begin
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
@@ -2332,24 +2384,11 @@ begin
   Canvas.FillRect(ClientRect);
 
   if (Width > 0) and (Height > 0) then begin
-    RgnRadius := Min(PHOTO_CORNER_RADIUS, Min(Width, Height) div 2);
-    Rgn := Windows.CreateRoundRectRgn(0, 0, Width, Height, RgnRadius * 2, RgnRadius * 2);
-    Windows.SelectClipRgn(Canvas.Handle, Rgn);
-    try
-      if FPlaying and (FFrameBuf <> nil) then begin
-        DrawBgraBuffer(Canvas, FFrameBuf, Width, Height);
-      end else if FBlurBmp <> nil then begin
-        FBlurBmp.Draw(Canvas, 0, 0, False);
-      end;
-    finally
-      Windows.SelectClipRgn(Canvas.Handle, 0);
-      Windows.DeleteObject(Rgn);
+    if FPlaying and (FFrameBuf <> nil) then begin
+      DrawBgraBuffer(Canvas, FFrameBuf, Width, Height);
+    end else if FBlurBmp <> nil then begin
+      FBlurBmp.Draw(Canvas, 0, 0, False);
     end;
-    Canvas.Pen.Style := psSolid;
-    Canvas.Pen.Color := PHOTO_BORDER_COLOR;
-    Canvas.Pen.Width := 1;
-    Canvas.Brush.Style := bsClear;
-    Canvas.RoundRect(0, 0, Width, Height, RgnRadius * 2, RgnRadius * 2);
   end;
 
   if not FDownloaded then begin
@@ -3269,7 +3308,8 @@ begin
       the same message). }
     PreH := PreH + ReplyExtraH(FModel[I]);
     Ctx.AvailWidth := InnerW;
-    H := HEADER_BAR_H + PreH + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + PostH;
+    H := HEADER_BAR_H + PreH + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + PostH
+      + ReactionsH(FModel[I]);
     FOffsets[I + 1] := FOffsets[I] + H + MSG_GAP;
   end;
 
@@ -3620,7 +3660,7 @@ begin
   ForwardMetrics(R, ColR - ColL, PreH, PostH, InnerW);
   PreH := PreH + ReplyExtraH(R);
   BlockH := FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP;
-  ContentH := BlockH - HEADER_BAR_H - PreH - PostH;
+  ContentH := BlockH - HEADER_BAR_H - PreH - PostH - ReactionsH(R);
   TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + PreH;
   if (R <> nil) and (R.ForwardKind <> mfoNone) then begin
     { The quote's content sits inside the ForwardCardRect frame, which
@@ -3634,6 +3674,243 @@ begin
     Exit;
   end;
   Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + ContentH);
+end;
+
+{ Wraps ARow.Reactions onto as many rows as needed to fit AWidth (the
+  same "inner column width" convention as ForwardMetrics' AInnerW —
+  AWidth is ALREADY net of the strip's own MSG_PAD_H inset on both
+  sides, see the call sites). Each slot's PillRect is in the strip's
+  OWN local space (0,0 = top-left of the first row's first pill, before
+  either the MSG_PAD_H horizontal inset or the vertical top margin that
+  centers a single row within HEADER_BAR_H are added back by the
+  caller — see PaintReactions). A pill only wraps to a new row if it's
+  not the first on its current row (X > 0) — a single reaction wider
+  than AWidth still gets drawn (clipped by whatever contains it, same
+  as any other overlong content in this file) rather than looping
+  forever trying to fit it on an empty row.
+
+  Font metrics (bold vs. not, for a chosen reaction) affect a pill's
+  measured width, so Canvas.Font is set here for the duration of the
+  measurement and restored on exit — this same function runs from
+  RebuildOffsets (mid-loop, between other rows' Measure calls that
+  expect their OWN font state already set up by the caller) as well as
+  from PaintReactions, and must not leak its own font settings into
+  either. }
+function TMsgScroller.LayoutReactions(ARow: TMsgRow; AWidth: integer;
+  out ATotalH: integer): TReactionSlotArray;
+var
+  I, X, Y, PillW, IconW, TextW, RowCount: integer;
+  React: TMsgReaction;
+  SavedName: string;
+  SavedHeight: integer;
+  SavedStyle: TFontStyles;
+begin
+  SetLength(Result, Length(ARow.Reactions));
+  ATotalH := 0;
+  if Length(ARow.Reactions) = 0 then begin
+    Exit;
+  end;
+
+  SavedName := Canvas.Font.Name;
+  SavedHeight := Canvas.Font.Height;
+  SavedStyle := Canvas.Font.Style;
+  try
+    Canvas.Font.Name := 'default';
+    Canvas.Font.Height := -11;
+
+    X := 0;
+    Y := 0;
+    RowCount := 1;
+    for I := 0 to High(ARow.Reactions) do begin
+      React := ARow.Reactions[I];
+      if React.IsChosen then begin
+        Canvas.Font.Style := [fsBold];
+      end else begin
+        Canvas.Font.Style := [];
+      end;
+      TextW := Canvas.TextWidth(IntToStr(React.TotalCount));
+
+      { Icon width doesn't depend on whether the bitmap has actually
+        arrived yet (EmojiBitmapFor/CustomEmojiBitmapFor can still
+        return nil here) — both always render at a fixed HEADER_H once
+        ready, so reserving that width now keeps the pill from silently
+        resizing (and every pill after it re-wrapping) the moment a
+        custom emoji finishes downloading mid-scroll. }
+      IconW := 0;
+      case React.Kind of
+        rcEmoji, rcCustomEmoji: begin
+          IconW := HEADER_H;
+        end;
+        rcPaid: begin
+          Canvas.Font.Style := [];
+          IconW := Canvas.TextWidth('★');
+        end;
+      end;
+
+      PillW := 2 * REACTION_PILL_PAD + TextW;
+      if IconW > 0 then begin
+        Inc(PillW, IconW + MSG_ICON_GAP);
+      end;
+
+      if (X > 0) and (X + PillW > AWidth) then begin
+        X := 0;
+        Inc(Y, REACTION_PILL_H + REACTION_ROW_GAP);
+        Inc(RowCount);
+      end;
+
+      Result[I].PillRect := Rect(X, Y, X + PillW, Y + REACTION_PILL_H);
+      Result[I].IconW := IconW;
+
+      Inc(X, PillW + REACTION_GAP);
+    end;
+
+    ATotalH := HEADER_BAR_H + (RowCount - 1) * (REACTION_PILL_H + REACTION_ROW_GAP);
+  finally
+    Canvas.Font.Name := SavedName;
+    Canvas.Font.Height := SavedHeight;
+    Canvas.Font.Style := SavedStyle;
+  end;
+end;
+
+function TMsgScroller.ReactionsH(ARow: TMsgRow): integer;
+var
+  ColL, ColR: integer;
+begin
+  if (ARow = nil) or (Length(ARow.Reactions) = 0) then begin
+    Result := 0;
+    Exit;
+  end;
+  ColumnBounds(ColL, ColR);
+  LayoutReactions(ARow, (ColR - ColL) - 2 * MSG_PAD_H, Result);
+end;
+
+{ The strip at the very bottom of the block, flush with its bottom edge
+  — RebuildOffsets already folded ReactionsH into the block's total
+  height, so BlockRect's own Bottom already accounts for it; this is
+  just that same bottom slice. An empty Rect (Top=Bottom) when the row
+  has no reactions — callers check ReactionsH/Length(Reactions) first,
+  same as everywhere else in this file (see PaintReactions). }
+function TMsgScroller.ReactionsRect(AIndex: integer): TRect;
+var
+  BR: TRect;
+  H: integer;
+begin
+  BR := BlockRect(AIndex);
+  H := ReactionsH(FModel[AIndex]);
+  Result := Rect(BR.Left, BR.Bottom - H, BR.Right, BR.Bottom);
+end;
+
+{ Draws the reaction strip. The OUTER strip is the same visual language
+  as the message header (SENDER_HEADER_OPACITY tint, HEADER_BAR_H tall
+  for one row, taller when LayoutReactions wraps to more): square top
+  (butting against the content above, no gap of its own — ReactionsH is
+  simply added to the block's total height, with no extra padding
+  before it), rounded bottom (flush with the block's own rounded bottom
+  edge, mirroring how the main header squares off ITS bottom against
+  the content below it).
+
+  Each INDIVIDUAL chip additionally gets its own pill/capsule outline,
+  closer to the native client — rounded by REACTION_PILL_CORNER_RADIUS
+  (constants.pas), REACTION_PILL_H tall (not the taller HEADER_BAR_H —
+  inset within the outer strip, not flush with it), tinted with the
+  sender's color at REACTION_PILL_OPACITY, or REACTION_PILL_CHOSEN_
+  OPACITY for a reaction this account has added. PillRadius is clamped
+  to half the pill's own WIDTH too, the same defensive pattern used
+  everywhere else in this file that rounds a short strip (see e.g.
+  ForwardHeaderRect's HeaderRadius) — a pill narrow enough that
+  width < height would otherwise distort into an unintended shape
+  rather than a clean capsule.
+
+  The count is bold for a chosen reaction, but always plain black
+  (clWindowText) either way — the sender-color highlight lives ONLY in
+  the pill's own opacity now, not the text on top of it (direct
+  correction: the count used to also switch to the sender's color,
+  which read as illegible/wrong against the already-stronger pill
+  tint). }
+procedure TMsgScroller.PaintReactions(AIndex: integer; ARow: TMsgRow);
+var
+  Rect0, PillRect: TRect;
+  Radius, PillRadius, I, ColL, ColR, AWidth, TotalH, TopMargin: integer;
+  Slots: TReactionSlotArray;
+  Bmp: TBGRABitmap;
+  CountStr: string;
+  Clr: TColor;
+  React: TMsgReaction;
+  Opacity: double;
+begin
+  Rect0 := ReactionsRect(AIndex);
+  if Rect0.Bottom <= Rect0.Top then begin
+    Exit;
+  end;
+  Clr := SenderColor(ARow);
+  Radius := Min(MSG_CORNER_RADIUS, (Rect0.Bottom - Rect0.Top) div 2);
+  PaintRoundRectAA(Canvas, Rect0, Radius, [rrTopLeftSquare, rrTopRightSquare],
+    BlendWithBackground(Clr, SENDER_HEADER_OPACITY, clWindow), clNone, 1, True);
+
+  ColumnBounds(ColL, ColR);
+  AWidth := (ColR - ColL) - 2 * MSG_PAD_H;
+  Slots := LayoutReactions(ARow, AWidth, TotalH);
+  { Centers a single row within HEADER_BAR_H exactly as before wrapping
+    existed (3px top/bottom at the current constants); LayoutReactions'
+    own coordinates already stack any further wrapped rows below the
+    first at this same margin, see its ATotalH formula. }
+  TopMargin := (HEADER_BAR_H - REACTION_PILL_H) div 2;
+
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := -11;
+
+  for I := 0 to High(ARow.Reactions) do begin
+    React := ARow.Reactions[I];
+    PillRect := Rect(
+      Rect0.Left + MSG_PAD_H + Slots[I].PillRect.Left,
+      Rect0.Top + TopMargin + Slots[I].PillRect.Top,
+      Rect0.Left + MSG_PAD_H + Slots[I].PillRect.Right,
+      Rect0.Top + TopMargin + Slots[I].PillRect.Bottom);
+
+    if React.IsChosen then begin
+      Opacity := REACTION_PILL_CHOSEN_OPACITY;
+    end else begin
+      Opacity := REACTION_PILL_OPACITY;
+    end;
+    PillRadius := Min(REACTION_PILL_CORNER_RADIUS, (PillRect.Right - PillRect.Left) div 2);
+    PaintRoundRectAA(Canvas, PillRect, PillRadius, [],
+      BlendWithBackground(Clr, Opacity, clWindow), clNone, 1, True);
+    Canvas.Brush.Style := bsClear;
+
+    Bmp := nil;
+    case React.Kind of
+      rcEmoji: begin
+        Bmp := EmojiBitmapFor(React.Emoji, HEADER_H);
+      end;
+      rcCustomEmoji: begin
+        if React.CustomEmojiId <> 0 then begin
+          Bmp := CustomEmojiBitmapFor(React.CustomEmojiId, HEADER_H);
+        end;
+      end;
+    end;
+
+    if Bmp <> nil then begin
+      Bmp.Draw(Canvas, PillRect.Left + REACTION_PILL_PAD,
+        PillRect.Top + (REACTION_PILL_H - Bmp.Height) div 2, False);
+    end else if React.Kind = rcPaid then begin
+      { No downloaded glyph for a Stars reaction — a plain text marker
+        instead, cheap enough not to need its own asset. }
+      Canvas.Font.Style := [];
+      Canvas.Font.Color := TColor($00A9F4);   { RGB(244, 169, 0) — gold }
+      Canvas.TextOut(PillRect.Left + REACTION_PILL_PAD,
+        PillRect.Top + (REACTION_PILL_H - Canvas.TextHeight('★')) div 2, '★');
+    end;
+
+    CountStr := IntToStr(React.TotalCount);
+    if React.IsChosen then begin
+      Canvas.Font.Style := [fsBold];
+    end else begin
+      Canvas.Font.Style := [];
+    end;
+    Canvas.Font.Color := clWindowText;
+    Canvas.TextOut(PillRect.Left + REACTION_PILL_PAD + Slots[I].IconW + MSG_ICON_GAP * Ord(Slots[I].IconW > 0),
+      PillRect.Top + (REACTION_PILL_H - Canvas.TextHeight(CountStr)) div 2, CountStr);
+  end;
 end;
 
 { The quote's whole frame (fill/outline) — from the end of the main
@@ -4484,6 +4761,10 @@ begin
         FwdRadius := Min(FORWARD_CORNER_RADIUS, (FwdBR.Bottom - FwdBR.Top) div 2);
         PaintRoundRectAA(Canvas, FwdBR, FwdRadius, [], clNone,
           BlendWithBackground(ForwardSourceColor(R), SENDER_BORDER_OPACITY, clWindow));
+      end;
+
+      if Length(R.Reactions) > 0 then begin
+        PaintReactions(I, R);
       end;
 
       { The block's outline — drawn last, on top of the content: only
