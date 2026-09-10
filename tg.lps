@@ -384,6 +384,26 @@
         <ResourceBaseClass Value="Frame"/>
         <UsageCount Value="57"/>
       </Unit>
+      <Unit>
+        <Filename Value="tdsession.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdaccount.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="emojiassets.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="customemoji.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
     </Units>
     <JumpHistory HistoryIndex="-1"/>
     <RunParams>

@@ -46,7 +46,7 @@ uses
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
   tdusers, tdaccentcolors, tdaccount, tdcore, audiodevices, ffdecode, audioplayer, videoplayer,
   photodecoder, mediaplayer, rlottie, lottieplayer,
-  uiframe, avatarcache, qrrender, msglayout,
+  uiframe, avatarcache, qrrender, msglayout, emojiassets, customemoji,
   main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
   framesettingsautodownload, framelog, framewelcome, framechats, framehistory,
   mediaviewer, msginput

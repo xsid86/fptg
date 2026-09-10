@@ -23,6 +23,30 @@ unit emojiassets;
   (dev-time tool, not committed — same as the original Twemoji packer
   never was, see CLAUDE.md).
 
+  The packer deliberately EXCLUDES a bare, single-codepoint entry for
+  any codepoint in Unicode's own Emoji_Component set (emoji-data.txt,
+  fetched and checked directly, not guessed) — keycap base characters
+  (0-9, #, *), ZWJ, the combining keycap (U+20E3), VS16, the 26
+  regional-indicator letters, skin-tone/hair-color modifiers, and tag
+  characters. These exist ONLY to build larger sequences and are never
+  valid standalone emoji on their own — but Noto's png/72 ships a bare
+  PNG for several of them anyway (Twemoji, the previous source, never
+  did), and a real, reported bug came directly from that: EmojiMatchAt
+  happily matched a lone "2" or "0" in ordinary message text (window
+  sizes, opacity values, plain numbers) and rendered it as an oversized
+  colorful glyph instead of leaving it as plain text. Excluding the
+  bare digit also means a real FULLY-qualified keycap sequence in
+  message text (digit + VS16 + combining-keycap, e.g. an actual
+  "0️⃣") could no longer match at all — Noto's own filenames only cover
+  the MINIMALLY-qualified 2-codepoint form (digit + combining-keycap,
+  no VS16) — so the packer additionally SYNTHESIZES the 3-codepoint
+  fully-qualified key for each of the 12 keycap bases, reusing the same
+  PNG bytes as the 2-codepoint version it's built from. Any other
+  MULTI-codepoint sequence that happens to include a component
+  codepoint (a real flag, a skin-toned "👍🏽", a ZWJ family) is
+  unaffected either way — only bare single-codepoint entries were ever
+  the problem.
+
   The atlas format: 'EMJ1', uint32 count, then per entry: uint8
   codepoint count, that many uint32 codepoints (the emoji sequence),
   uint32 PNG length, PNG bytes — unchanged from the Twemoji-sourced
