@@ -2078,7 +2078,7 @@ object FormSplash: TFormSplash
     Anchors = [akLeft, akBottom]
     BorderSpacing.Left = 5
     BorderSpacing.Bottom = 5
-    Caption = 'Подключение к Telegram...'
+    Caption = 'Connecting to Telegram...'
     Color = clWhite
     Font.CharSet = RUSSIAN_CHARSET
     Font.Color = clWhite
@@ -2100,7 +2100,7 @@ object FormSplash: TFormSplash
     Anchors = [akRight, akBottom]
     BorderSpacing.Right = 5
     BorderSpacing.Bottom = 5
-    Caption = 'Закрыть'
+    Caption = 'Close'
     TabOrder = 0
     OnClick = btnCancelClick
   end

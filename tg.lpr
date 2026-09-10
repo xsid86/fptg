@@ -86,7 +86,7 @@ begin
     к его модели чатов, значит аккаунт к тому моменту должен
     существовать. Клиенты TDLib при этом ещё не запущены. }
   if not TdApp.LoadConfig then begin
-    MessageDlg('Ошибка конфигурации', TdApp.ConfigError, mtError, [mbOK], 0);
+    MessageDlg('Configuration Error', TdApp.ConfigError, mtError, [mbOK], 0);
     Application.Terminate;
     Exit;
   end;

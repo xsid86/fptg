@@ -15,7 +15,7 @@ object FrameWelcome: TFrameWelcome
     Alignment = taCenter
     Anchors = [akTop, akLeft, akRight]
     AutoSize = False
-    Caption = 'Выберите чат'
+    Caption = 'Select a chat'
     Font.Height = -19
     ParentFont = False
   end
@@ -27,6 +27,6 @@ object FrameWelcome: TFrameWelcome
     Alignment = taCenter
     Anchors = [akTop, akLeft, akRight]
     AutoSize = False
-    Caption = 'Список слева'
+    Caption = 'Pick one from the list on the left'
   end
 end

@@ -217,7 +217,8 @@ begin
   FMessageInput := TMessageInputPanel.Create(pnlWork);
   FMessageInput.Parent := pnlWork;
   FMessageInput.Align := alBottom;
-  FMessageInput.Height := 150;
+  { Height comes from msginput.lfm now (set in the Designer) — do not
+    override it here. }
   FMessageInput.OnSend := @MessageInputSend;
 
   FInputSplitter := TSplitter.Create(pnlWork);

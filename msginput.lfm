@@ -1,6 +1,6 @@
 object MessageInputPanel: TMessageInputPanel
   Left = 0
-  Height = 150
+  Height = 100
   Top = 0
   Width = 784
   ChildSizing.LeftRightSpacing = 5
@@ -8,10 +8,10 @@ object MessageInputPanel: TMessageInputPanel
   ChildSizing.VerticalSpacing = 5
   ChildSizing.Layout = cclLeftToRightThenTopToBottom
   ChildSizing.ControlsPerLine = 1
-  ClientHeight = 150
+  ClientHeight = 100
   ClientWidth = 784
   Color = 14869218
-  Constraints.MinHeight = 150
+  Constraints.MinHeight = 100
   LCLVersion = '4.8.0.0'
   ParentBackground = False
   ParentColor = False
@@ -317,7 +317,7 @@ object MessageInputPanel: TMessageInputPanel
   end
   object Memo: TMemo
     Left = 5
-    Height = 111
+    Height = 61
     Top = 34
     Width = 774
     Align = alClient
@@ -328,7 +328,7 @@ object MessageInputPanel: TMessageInputPanel
   end
   object TextEditIcons: TImageList
     Left = 520
-    Top = 72
+    Top = 32
     Bitmap = {
       4C7A0A0000001000000010000000AA1000000000000078DAED59095055579ABE
       5393CC4CF5CC74D5743AD3D12426C4EEB44947B3B4E97446A3822B8B6C229BB2

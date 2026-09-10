@@ -3418,7 +3418,7 @@ object FormLogin: TFormLogin
     Alignment = taCenter
     AutoSize = False
     BorderSpacing.Bottom = 20
-    Caption = 'Состояние:'
+    Caption = 'State:'
     Constraints.MaxWidth = 180
     Constraints.MinWidth = 180
     WordWrap = True
@@ -3483,7 +3483,7 @@ object FormLogin: TFormLogin
     Height = 25
     Top = 386
     Width = 180
-    Caption = 'Продолжить'
+    Caption = 'Continue'
     Constraints.MaxWidth = 180
     Constraints.MinWidth = 180
     Default = True
