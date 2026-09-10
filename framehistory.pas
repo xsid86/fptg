@@ -32,7 +32,11 @@ type
     with the actual decoding/output living in audioplayer.pas.
     Recycled control: lives in TMsgScroller's pool, Visible is toggled,
     the object itself isn't recreated on every scroll — but the TRACK
-    data changes on every reuse for a different message, see SetTrack. }
+    data changes on every reuse for a different message, see SetTrack.
+    The context menu (right click, "Save as..."/"Show in folder") isn't
+    its own either — the same shared TMsgScroller.FilePopupMenu that
+    TFileWidget/TPhotoWidget already use, via the inherited PopupMenu
+    property (see AudioWidgetSaveAsClick/AudioWidgetShowInFolderClick). }
   TAudioSeekEvent = procedure(Sender: TObject; AFraction: double) of object;
 
   TAudioWidget = class(TCustomControl)
@@ -762,6 +766,18 @@ type
       changed their mind / clicked a different track), playback starts
       automatically. }
     FPendingPlayMsgId:  Int64;
+    { A click on "Save as..."/"Show in folder" in the shared context
+      menu (see FFilePopupMenu above — the same one, TAudioWidget gets a
+      reference too) on a not-yet-downloaded track — the same approach
+      as FPendingSaveMsgId/FPendingPhotoMsgId, its own pair of fields:
+      different Kind (mckAudio/mckVoiceNote), different local-path field
+      (PlayableLocalPath, not DocLocalPath/PhotoBestLocalPath), and NOT
+      to be confused with FPendingPlayMsgId just above — that one is for
+      a click on PLAY starting playback once downloaded, this pair is
+      for the context menu instead; both can be pending on different
+      tracks at once. }
+    FPendingAudioMsgId: Int64;
+    FPendingAudioAction: TPendingFileAction;
     FPlaybackTimer:     TTimer;
 
     { Video messages (messageVideo) — a recycled pool, the same
@@ -950,6 +966,7 @@ type
     procedure PaintReactions(AIndex: integer; ARow: TMsgRow);
     procedure LayoutAudioWidgets(ALo, AHi: integer);
     function ObtainAudioWidget: TAudioWidget;
+    procedure SaveAudioFile(ARow: TMsgRow);
     procedure LayoutFileWidgets(ALo, AHi: integer);
     function ObtainFileWidget: TFileWidget;
     procedure FileWidgetClick(Sender: TObject);
@@ -1018,6 +1035,10 @@ type
     { The same two, for TPhotoWidget, the same shared FilePopupMenu. }
     procedure PhotoWidgetSaveAsClick(Sender: TObject);
     procedure PhotoWidgetShowInFolderClick(Sender: TObject);
+    { The same two, for TAudioWidget (both regular audio and voice
+      notes — the same shared widget, see PlayableLocalPath). }
+    procedure AudioWidgetSaveAsClick(Sender: TObject);
+    procedure AudioWidgetShowInFolderClick(Sender: TObject);
   end;
 
   { TFrameHistory
@@ -4163,6 +4184,22 @@ begin
     end;
   end;
 
+  { Same for the audio/voice-note context menu, see
+    AudioWidgetSaveAsClick/AudioWidgetShowInFolderClick. Not to be
+    confused with FPendingPlayMsgId above (a PLAY click, not the
+    context menu) — both can be pending on different tracks at once. }
+  if FPendingAudioMsgId <> 0 then begin
+    PendingIdx := FModel.IndexOfId(FPendingAudioMsgId);
+    if (PendingIdx >= 0) and (PlayableLocalPath(FModel[PendingIdx]) <> '') then begin
+      case FPendingAudioAction of
+        pfaSaveDialog:   SaveAudioFile(FModel[PendingIdx]);
+        pfaShowInFolder: ShowDocInFolder(PlayableLocalPath(FModel[PendingIdx]));
+      end;
+      FPendingAudioMsgId := 0;
+      FPendingAudioAction := pfaNone;
+    end;
+  end;
+
   { Opening a chat and new messages pass through HERE, not
     ClampScrollTop — that one only prefetches its message window on a
     real scroll position change, and the chat's very first page (plus
@@ -4873,6 +4910,7 @@ begin
       before this — track data is refreshed on every pass, not just
       the first time. }
     W.Images := FAudioImages;
+    W.PopupMenu := FFilePopupMenu;
     R := FModel[MIdx];
     W.BackgroundColor := WidgetBackdropColor(R);
     { Voice notes have no title/performer/file_name (TDLib doesn't
@@ -4919,6 +4957,109 @@ begin
   Result.OnPlayClick := @AudioPlayClick;
   Result.OnSeek := @AudioSeek;
   FAudioPool.Add(Result);
+end;
+
+{ The same "Save as..."/"Show in folder" pattern as
+  FileWidgetSaveAsClick/PhotoWidgetSaveAsClick, for the shared
+  audio/voice-note widget — PlayableLocalPath/EnsurePlayableFile
+  instead of Doc*/Photo*, so the same code works for both Kinds without
+  branching on which one this row happens to be. }
+procedure TMsgScroller.AudioWidgetSaveAsClick(Sender: TObject);
+var
+  W: TAudioWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TAudioWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  if PlayableLocalPath(Row) <> '' then begin
+    SaveAudioFile(Row);
+    Exit;
+  end;
+  FPendingAudioMsgId := Row.Id;
+  FPendingAudioAction := pfaSaveDialog;
+  FModel.EnsurePlayableFile(Row);
+end;
+
+procedure TMsgScroller.AudioWidgetShowInFolderClick(Sender: TObject);
+var
+  W: TAudioWidget;
+  Row: TMsgRow;
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  W := TAudioWidget(Sender);
+  Idx := FModel.IndexOfId(W.RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Row := FModel[Idx];
+
+  if PlayableLocalPath(Row) <> '' then begin
+    ShowDocInFolder(PlayableLocalPath(Row));
+    Exit;
+  end;
+  FPendingAudioMsgId := Row.Id;
+  FPendingAudioAction := pfaShowInFolder;
+  FModel.EnsurePlayableFile(Row);
+end;
+
+procedure TMsgScroller.SaveAudioFile(ARow: TMsgRow);
+var
+  Dlg: TSaveDialog;
+  Src, Dst: TFileStream;
+  Path, Ext: utf8string;
+begin
+  Path := PlayableLocalPath(ARow);
+  if (ARow = nil) or (Path = '') then begin
+    Exit;
+  end;
+  Dlg := TSaveDialog.Create(nil);
+  try
+    if ARow.Kind = mckVoiceNote then begin
+      { Voice notes carry no filename at all (TDLib doesn't send one,
+        see TMsgRow.VoiceDuration) — the extension is taken from the
+        actual downloaded cache file (TDLib names it correctly, e.g.
+        .oga for a voice note) rather than guessed. }
+      Ext := utf8string(ExtractFileExt(string(Path)));
+      if Ext = '' then begin
+        Ext := '.oga';
+      end;
+      Dlg.FileName := 'voice_' + utf8string(IntToStr(ARow.Id)) + Ext;
+    end else begin
+      Dlg.FileName := string(ARow.AudioFileName);
+    end;
+    Dlg.Filter := 'All files|*.*';
+    Dlg.Options := Dlg.Options + [ofOverwritePrompt];
+    if not Dlg.Execute then begin
+      Exit;
+    end;
+    { The file is already downloaded to TDLib's own cache — this is
+      just a copy to the location the user chose, not a re-download. }
+    Src := TFileStream.Create(string(Path), fmOpenRead or fmShareDenyWrite);
+    try
+      Dst := TFileStream.Create(Dlg.FileName, fmCreate);
+      try
+        Dst.CopyFrom(Src, Src.Size);
+      finally
+        Dst.Free;
+      end;
+    finally
+      Src.Free;
+    end;
+  finally
+    Dlg.Free;
+  end;
 end;
 
 { A copy of LayoutAudioWidgets — the same recycled-pool approach, for
@@ -6206,6 +6347,8 @@ begin
     FScroller.FileWidgetShowInFolderClick(PM.PopupComponent);
   end else if PM.PopupComponent is TPhotoWidget then begin
     FScroller.PhotoWidgetShowInFolderClick(PM.PopupComponent);
+  end else if PM.PopupComponent is TAudioWidget then begin
+    FScroller.AudioWidgetShowInFolderClick(PM.PopupComponent);
   end;
 end;
 
@@ -6221,6 +6364,8 @@ begin
     FScroller.FileWidgetSaveAsClick(PM.PopupComponent);
   end else if PM.PopupComponent is TPhotoWidget then begin
     FScroller.PhotoWidgetSaveAsClick(PM.PopupComponent);
+  end else if PM.PopupComponent is TAudioWidget then begin
+    FScroller.AudioWidgetSaveAsClick(PM.PopupComponent);
   end;
 end;
 
