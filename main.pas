@@ -40,6 +40,12 @@ type
     pnlWork:    TPanel;
     StatusBar1: TStatusBar;
     TrayIcon1: TTrayIcon;
+    { Status-bar presence menu (Panels[0], see StatusBar1DrawPanel) —
+      a real TPopupMenu component, dropped on the form so the user can
+      edit its items/icons in the Designer, not built in code. }
+    PresenceMenu: TPopupMenu;
+    MenuItemPresenceOnline: TMenuItem;
+    MenuItemPresenceInvisible: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
@@ -49,6 +55,20 @@ type
     procedure menuQuitClick(Sender: TObject);
     procedure SettingsMenuClick(Sender: TObject);
     procedure FormResize(Sender: TObject);
+    { Click on the presence panel (Panels[0], now first — see main.lfm)
+      pops up PresenceMenu at
+      the cursor — GetPanelIndexAt is LCL's own hit-test helper
+      (comctrls.pp), no manual width-summing needed. }
+    procedure StatusBar1MouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
+    { Owner-drawn: TStatusPanel has no icon property, only Text — a
+      small filled/hollow circle plus the panel's own Text is painted
+      by hand here, the same "quick, code-drawn glyph" approach already
+      used by AccountGlyph's sign-in-required marker above. }
+    procedure StatusBar1DrawPanel(AStatusBar: TStatusBar; APanel: TStatusPanel;
+      const ARect: TRect);
+    procedure PresenceOnlineClick(Sender: TObject);
+    procedure PresenceInvisibleClick(Sender: TObject);
   private
     FTdClosed:     boolean;
     FNav:          TFrameNavigator;
@@ -71,6 +91,15 @@ type
     FAccMenuCount: integer;   { number of dynamically created menu items }
     FGlyphs: TStringList;   { menu glyph cache: key -> TBitmap }
     FAudioDeviceName: string;   { selected audio output device, from config.ini [audio] }
+    { True = "Invisible": never marks messages as read (already the
+      case — the app never calls viewMessages as a side effect of
+      reading, only from the explicit "Mark as read" chat-list menu
+      item, see tdchats.pas/TTdChats.MarkAsRead) AND suppresses the
+      "online" presence TDLib would otherwise show to contacts
+      automatically whenever the client has an authorized connection —
+      via setOption("online", false), see ApplyPresence. Persisted to
+      config.ini/[ui], same pattern as FAudioDeviceName. }
+    FInvisible: boolean;
     { FAutoDownload[media][chat] — a cache of the grid from
       config.ini/[autodownload] (see framesettingsautodownload.pas),
       same principle as FAudioDeviceName: the single in-memory source
@@ -91,6 +120,10 @@ type
       model of the CURRENTLY OPEN chat (FNav.Current, if it's a
       TFrameHistory), see the comment on TFrameHistory.Model. }
     procedure MessageInputSend(Sender: TObject);
+    procedure ApplyPresence;
+    procedure PresenceSetDone(Sender: TObject; const AResp: TTdResponse);
+    procedure UpdatePresencePanel;
+    procedure SetPresence(AInvisible: boolean);
   public
     { ITdActiveListener }
     procedure TdActiveChanged(ANew: TTdAccount);
@@ -106,14 +139,23 @@ type
       message-status icons without a second copy of the same icons. }
     property Chats: TFrameChats read FChats;
     { Replaces the old pnlTop label — auth state, shutdown/error
-      messages, the contact-info placeholder. StatusBar1's right panel
-      (index 1, the wide one that absorbs whatever width is left). }
+      messages, the contact-info placeholder. StatusBar1's rightmost
+      panel (index 2, the wide one that absorbs whatever width is
+      left — index 0 is the clickable presence indicator (see
+      PresenceMenu), index 1 is the chat-list status). }
     procedure SetStatusText(const AText: string);
     { Replaces the old pnlBottom label under the chat list — the
-      "N chats (more)" line. StatusBar1's left panel (index 0, fixed
+      "N chats (more)" line. StatusBar1's middle panel (index 1, fixed
       width) — called from framechats.pas via the same global-FormMain
       access pattern already used for Chats/Nav/MediaViewer. }
     procedure SetChatListStatus(const AText: string);
+    { True = Invisible: TTdMessages.SendFormattedText and friends don't
+      change behavior on this, but reading it never marks messages as
+      read (see framehistory.pas/TMsgScroller.MarkVisibleAsRead) and
+      the "online" presence is suppressed (see ApplyPresence) — needed
+      by framehistory.pas, same global-FormMain access pattern already
+      used for AutoDownloadEnabled/AudioDeviceName. }
+    property Invisible: boolean read FInvisible;
     { Photo/video viewer — needed by framehistory.pas (clicking a
       photo/video in a chat opens it), same global-FormMain access
       pattern already used for Chats/Nav. }
@@ -232,11 +274,13 @@ begin
   with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
     try
       FAudioDeviceName := ReadString('audio', 'device', '');
+      FInvisible := ReadBool('ui', 'invisible', False);
     finally
       Free;
     end;
   end;
   LoadAutoDownloadSettings;
+  UpdatePresencePanel;
 
   { "New" in the Account menu creates another account. }
   if MenuItem11 <> nil then begin
@@ -355,12 +399,130 @@ end;
 
 procedure TFormMain.SetStatusText(const AText: string);
 begin
-  StatusBar1.Panels[1].Text := AText;
+  StatusBar1.Panels[2].Text := AText;
+end;
+
+{ ---------------- presence (online/invisible) ---------------- }
+
+procedure TFormMain.UpdatePresencePanel;
+begin
+  if FInvisible then begin
+    StatusBar1.Panels[0].Text := 'Invisible';
+  end else begin
+    StatusBar1.Panels[0].Text := 'Online';
+  end;
+  StatusBar1.Invalidate;
+end;
+
+procedure TFormMain.SetPresence(AInvisible: boolean);
+begin
+  if AInvisible = FInvisible then begin
+    Exit;
+  end;
+  FInvisible := AInvisible;
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteBool('ui', 'invisible', FInvisible);
+    finally
+      Free;
+    end;
+  end;
+  UpdatePresencePanel;
+  ApplyPresence;
+end;
+
+procedure TFormMain.ApplyPresence;
+var
+  ValStr: utf8string;
+begin
+  if TdRequests = nil then begin
+    Exit;
+  end;
+  if FInvisible then begin
+    ValStr := 'false';
+  end else begin
+    ValStr := 'true';
+  end;
+  { TDLib has no bare-bool shortcut for setOption — the value must be
+    wrapped in an optionValueBoolean object. }
+  TdRequests.SendRequest('setOption',
+    '"name":"online","value":{"@type":"optionValueBoolean","value":' +
+    ValStr + '}', @PresenceSetDone);
+end;
+
+procedure TFormMain.PresenceSetDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if not AResp.Success then begin
+    SetStatusText(Format('ERROR %d: %s',
+      [AResp.ErrorCode, string(AResp.ErrorMessage)]));
+  end;
+end;
+
+procedure TFormMain.StatusBar1MouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: integer);
+var
+  Pt: TPoint;
+begin
+  if Button <> mbLeft then begin
+    Exit;
+  end;
+  if StatusBar1.GetPanelIndexAt(X, Y) <> 0 then begin
+    Exit;
+  end;
+  Pt.X := X;
+  Pt.Y := Y;
+  Pt := StatusBar1.ClientToScreen(Pt);
+  PresenceMenu.Popup(Pt.X, Pt.Y);
+end;
+
+procedure TFormMain.StatusBar1DrawPanel(AStatusBar: TStatusBar; APanel: TStatusPanel;
+  const ARect: TRect);
+const
+  { Same ImageList1/ImageIndex the user assigned to MenuItemPresence
+    Online/Invisible in the Designer (main.lfm) — kept in sync by hand,
+    not read back from the menu items, so the panel shows the exact
+    same icon as the popup it opens. }
+  PRESENCE_ICON_ONLINE = 8;
+  PRESENCE_ICON_INVISIBLE = 9;
+var
+  IconIdx, IconY, TextX, TextY: integer;
+begin
+  if APanel.Index <> 0 then begin
+    Exit;
+  end;
+
+  if FInvisible then begin
+    IconIdx := PRESENCE_ICON_INVISIBLE;
+  end else begin
+    IconIdx := PRESENCE_ICON_ONLINE;
+  end;
+
+  TextX := ARect.Left + 4;
+  if (ImageList1 <> nil) and (IconIdx < ImageList1.Count) then begin
+    IconY := ARect.Top + (ARect.Bottom - ARect.Top - ImageList1.Height) div 2;
+    ImageList1.Draw(AStatusBar.Canvas, TextX, IconY, IconIdx, True);
+    TextX := TextX + ImageList1.Width + 4;
+  end;
+
+  AStatusBar.Canvas.Brush.Style := bsClear;
+  AStatusBar.Canvas.Font.Color := clWindowText;
+  TextY := ARect.Top + (ARect.Bottom - ARect.Top - AStatusBar.Canvas.TextHeight(APanel.Text)) div 2;
+  AStatusBar.Canvas.TextOut(TextX, TextY, APanel.Text);
+end;
+
+procedure TFormMain.PresenceOnlineClick(Sender: TObject);
+begin
+  SetPresence(False);
+end;
+
+procedure TFormMain.PresenceInvisibleClick(Sender: TObject);
+begin
+  SetPresence(True);
 end;
 
 procedure TFormMain.SetChatListStatus(const AText: string);
 begin
-  StatusBar1.Panels[0].Text := AText;
+  StatusBar1.Panels[1].Text := AText;
 end;
 
 procedure TFormMain.btnLogoutClick(Sender: TObject);
@@ -395,6 +557,13 @@ begin
     that's actually driven by it. }
 
   if AState = tasReady then begin
+    { Re-applied on every transition to Ready, not just the first —
+      this also covers switching the active account (TdActiveChanged
+      re-calls TdStateChanged(ANew.State) below) and reconnects: each
+      TDLib client has its own "online" option, so whichever account
+      just became ready needs to be told again. Idempotent — resending
+      the same value is harmless. }
+    ApplyPresence;
     if not Visible then begin
       Show;
       { The first screen is shown only once the form has actually

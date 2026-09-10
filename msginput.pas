@@ -6,17 +6,24 @@ unit msginput;
   pnlWork), separated from the frame area (TFrameNavigator) by a
   splitter — see TFormMain.FormCreate.
 
-  Three rows top to bottom: Toolbar (text-formatting buttons plus the
+  Three rows top to bottom: Toolbar (text-formatting TextEditPanel plus the
   HTML/Markdown mode switch, see below), Memo (the message text, fills
   the remaining space), ButtonRow (Send button, right-aligned; further
-  buttons can be added to the same row).
+  TextEditPanel can be added to the same row).
 
-  Built entirely in code, not via the designer: not bound to any
-  particular chat/model itself (does not pull tdmessages/framehistory
-  into uses) — it is just a text source plus a "send clicked" event;
-  the owner (main.pas, which already has access to both
-  TFrameNavigator.Current and TTdMessages) decides who and what to
-  send.
+  A real TFrame with a paired .lfm (msginput.lfm) — unlike most of the
+  media-viewer/settings code added earlier in this project, this one is
+  meant to be laid out visually in the Lazarus Designer (drag icons onto
+  the TextEditPanel, reorder them, set ChildSizing on Memo's parent, etc.),
+  not built in code. Toolbar/ButtonRow/Memo/the format TextEditPanel are
+  therefore plain published fields, streamed from the .lfm, not
+  programmatically created in a constructor.
+
+  Not bound to any particular chat/model itself (does not pull
+  tdmessages/framehistory/main into uses) — it is just a text source
+  plus a "send clicked" event; the owner (main.pas, which already has
+  access to both TFrameNavigator.Current and TTdMessages) decides who
+  and what to send.
 
   Formatting toolbar — NOT a WYSIWYG rich-text editor (TMemo is a plain
   Windows edit control, it cannot render bold/italic inline at all, and
@@ -29,14 +36,15 @@ unit msginput;
   (<b>, <i>, <u>, <s>, <tg-spoiler>, <code>, <pre>, <a href>,
   <blockquote>) — confirmed against
   core.telegram.org/bots/api and TDLib's own text-parse-mode docs, not
-  guessed. FHtmlModeBox selects which syntax gets inserted; the SAME
+  guessed. HtmlModeBox selects which syntax gets inserted; the SAME
   choice is read by the owner (TFormMain.MessageInputSend) at send time
   to tell TTdMessages.SendFormattedText which parser to run the whole
   message through (parseTextEntities — see tdmessages.pas). Nothing
   here builds a real TDLib text entity directly; the marked-up string
   is just plain text with visible punctuation/tags in the TMemo, same
   as typing it by hand, until parseTextEntities turns it into one at
-  send time.
+  send time (which also escapes any stray reserved punctuation in the
+  rest of the message — see EscapeMarkdownV2/EscapeHtml there).
 
   A caveat worth keeping in mind: the OFFICIAL menus in the reference
   screenshots also had "Cite" (=Quote/blockquote, included below),
@@ -50,35 +58,33 @@ unit msginput;
 interface
 
 uses
-  Classes, SysUtils, Controls, StdCtrls, ExtCtrls, Buttons, Graphics,
+  Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Buttons,
   Dialogs, LCLType;
 
 type
-  TMessageInputPanel = class(TCustomControl)
-  private
-    FToolbar: TPanel;
-    FButtonRow: TPanel;
-    FMemo: TMemo;
-    FSendBtn: TBitBtn;
-    FBoldBtn, FItalicBtn, FUnderlineBtn, FStrikeBtn, FMonoBtn, FCodeBtn,
-      FSpoilerBtn, FQuoteBtn, FLinkBtn, FClearFmtBtn: TBitBtn;
-    FHtmlModeBox: TCheckBox;
-    FOnSend: TNotifyEvent;
-    function GetText: string;
-    procedure SetText(const AValue: string);
-    function GetIsHtmlMode: boolean;
+
+  { TMessageInputPanel }
+
+  TMessageInputPanel = class(TFrame)
+    BoldBtn: TSpeedButton;
+    ClearFmtBtn: TSpeedButton;
+    CodeBtn: TSpeedButton;
+    ItalicBtn: TSpeedButton;
+    LinkBtn: TSpeedButton;
+    MonoBtn: TSpeedButton;
+    QuoteBtn: TSpeedButton;
+    SpoilerBtn: TSpeedButton;
+    StrikeBtn: TSpeedButton;
+    TextEditIcons: TImageList;
+    Toolbar: TPanel;
+    SendBtn: TBitBtn;
+    HtmlModeBox: TCheckBox;
+    Memo: TMemo;
+    UnderlineBtn: TSpeedButton;
     procedure SendBtnClick(Sender: TObject);
     { Enter sends (same path as clicking Send); Ctrl+Enter inserts a
       newline, TMemo's default behavior, left untouched. }
     procedure MemoKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
-    { Wraps the current TMemo selection in the delimiter/tag pair
-      matching the current mode (plain args for Markdown, html args for
-      HTML — see FHtmlModeBox). With nothing selected, both markers are
-      inserted anyway and the cursor is left BETWEEN them, ready to type
-      the formatted text directly; with a real selection, the whole
-      wrapped result is left selected afterward so another button can
-      be applied right on top of it (e.g. bold+italic together). }
-    procedure WrapSelection(const APlainOpen, APlainClose, AHtmlOpen, AHtmlClose: string);
     procedure BoldBtnClick(Sender: TObject);
     procedure ItalicBtnClick(Sender: TObject);
     procedure UnderlineBtnClick(Sender: TObject);
@@ -105,15 +111,21 @@ type
       plain-marked-up-text model, gets stripped too — same trade-off
       the toolbar's insertion side already accepts. }
     procedure ClearFmtBtnClick(Sender: TObject);
+  private
+    FOnSend: TNotifyEvent;
+    function GetText: string;
+    procedure SetText(const AValue: string);
+    function GetIsHtmlMode: boolean;
+    { Wraps the current Memo selection in the delimiter/tag pair
+      matching the current mode (plain args for Markdown, html args for
+      HTML — see HtmlModeBox). With nothing selected, both markers are
+      inserted anyway and the cursor is left BETWEEN them, ready to type
+      the formatted text directly; with a real selection, the whole
+      wrapped result is left selected afterward so another button can
+      be applied right on top of it (e.g. bold+italic together). }
+    procedure WrapSelection(const APlainOpen, APlainClose, AHtmlOpen, AHtmlClose: string);
   public
-    constructor Create(AOwner: TComponent); override;
     procedure ClearText;
-    { Formatting toolbar at the top — see the unit header comment. }
-    property Toolbar: TPanel read FToolbar;
-    { Button row below the input field — currently only Send,
-      right-aligned; further buttons go into the same row with
-      Align=alRight (each new one lands to the left of the previous). }
-    property ButtonRow: TPanel read FButtonRow;
     property Text: string read GetText write SetText;
     { True = the toolbar buttons insert HTML tags and
       TFormMain.MessageInputSend should ask TDLib to parse the message
@@ -124,118 +136,26 @@ type
 
 implementation
 
-const
-  MSGINPUT_TOOLBAR_H = 36;
-  MSGINPUT_BUTTONROW_H = 40;
-  MSGINPUT_PAD = 8;
-  MSGINPUT_SEND_W = 90;
-  { Formatting-button widths — short captions for now (BitButtons,
-    text only), by direct request: icons replace the captions later,
-    the exact widths will stop mattering once that happens. }
-  MSGINPUT_FMTBTN_W = 44;
-  MSGINPUT_FMTBTN_WIDE = 64;
-  MSGINPUT_MODEBOX_W = 60;
-
-constructor TMessageInputPanel.Create(AOwner: TComponent);
-
-  { Local helper — the nine formatting buttons only differ by parent,
-    caption, width and click handler; spelling all of that out nine
-    times separately would just be the same six lines copy-pasted. }
-  function AddFmtBtn(const ACaption: string; AWidth: integer;
-    AOnClick: TNotifyEvent): TBitBtn;
-  begin
-    Result := TBitBtn.Create(Self);
-    Result.Parent := FToolbar;
-    Result.Caption := ACaption;
-    Result.Align := alLeft;
-    Result.Width := AWidth;
-    Result.BorderSpacing.Around := MSGINPUT_PAD div 4;
-    Result.OnClick := AOnClick;
-  end;
-
-begin
-  inherited Create(AOwner);
-  Constraints.MinHeight := 80;
-
-  { Creation order matters for Align: the button row and toolbar go
-    first (alTop/alBottom), Memo last (alClient fills what remains
-    between them). }
-  FButtonRow := TPanel.Create(Self);
-  FButtonRow.Parent := Self;
-  FButtonRow.Align := alBottom;
-  FButtonRow.Height := MSGINPUT_BUTTONROW_H;
-  FButtonRow.BevelOuter := bvNone;
-
-  FSendBtn := TBitBtn.Create(Self);
-  FSendBtn.Parent := FButtonRow;
-  FSendBtn.Caption := 'Send';
-  FSendBtn.Align := alRight;
-  FSendBtn.Width := MSGINPUT_SEND_W;
-  FSendBtn.BorderSpacing.Around := MSGINPUT_PAD div 2;
-  FSendBtn.OnClick := @SendBtnClick;
-
-  FToolbar := TPanel.Create(Self);
-  FToolbar.Parent := Self;
-  FToolbar.Align := alTop;
-  FToolbar.Height := MSGINPUT_TOOLBAR_H;
-  { Raised bevel visually sets the toolbar apart from the flat
-    background of the rest of the input panel. }
-  FToolbar.BevelOuter := bvRaised;
-
-  { Left to right, in creation order (LCL places same-Align siblings in
-    the order they were added to Controls) — matches the order in the
-    reference screenshots as closely as the trimmed-down button set
-    allows (Translate/Date left out, see the unit header comment). }
-  FBoldBtn      := AddFmtBtn('B', MSGINPUT_FMTBTN_W, @BoldBtnClick);
-  FItalicBtn    := AddFmtBtn('I', MSGINPUT_FMTBTN_W, @ItalicBtnClick);
-  FUnderlineBtn := AddFmtBtn('U', MSGINPUT_FMTBTN_W, @UnderlineBtnClick);
-  FStrikeBtn    := AddFmtBtn('S', MSGINPUT_FMTBTN_W, @StrikeBtnClick);
-  FMonoBtn      := AddFmtBtn('Mono', MSGINPUT_FMTBTN_WIDE, @MonoBtnClick);
-  FCodeBtn      := AddFmtBtn('Code', MSGINPUT_FMTBTN_WIDE, @CodeBtnClick);
-  FSpoilerBtn   := AddFmtBtn('Spoiler', MSGINPUT_FMTBTN_WIDE, @SpoilerBtnClick);
-  FQuoteBtn     := AddFmtBtn('Quote', MSGINPUT_FMTBTN_WIDE, @QuoteBtnClick);
-  FLinkBtn      := AddFmtBtn('Link', MSGINPUT_FMTBTN_WIDE, @LinkBtnClick);
-  FClearFmtBtn  := AddFmtBtn('Clear', MSGINPUT_FMTBTN_WIDE, @ClearFmtBtnClick);
-
-  { Mode switch — read by both the buttons above (which syntax to
-    insert) and the owner, at send time (which TDLib parser to run the
-    result through, see TMessageInputPanel.IsHtmlMode's own comment).
-    Unchecked = Markdown, the default: shorter, easier to type by hand
-    than HTML tags. }
-  FHtmlModeBox := TCheckBox.Create(Self);
-  FHtmlModeBox.Parent := FToolbar;
-  FHtmlModeBox.Caption := 'HTML';
-  FHtmlModeBox.Align := alRight;
-  FHtmlModeBox.Width := MSGINPUT_MODEBOX_W;
-  FHtmlModeBox.BorderSpacing.Around := MSGINPUT_PAD div 4;
-
-  FMemo := TMemo.Create(Self);
-  FMemo.Parent := Self;
-  FMemo.Align := alClient;
-  FMemo.ScrollBars := ssVertical;
-  FMemo.WordWrap := True;
-  FMemo.BorderStyle := bsNone;
-  FMemo.OnKeyDown := @MemoKeyDown;
-end;
+{$R *.lfm}
 
 function TMessageInputPanel.GetText: string;
 begin
-  Result := FMemo.Text;
+  Result := Memo.Text;
 end;
 
 procedure TMessageInputPanel.SetText(const AValue: string);
 begin
-  FMemo.Text := AValue;
+  Memo.Text := AValue;
 end;
 
 function TMessageInputPanel.GetIsHtmlMode: boolean;
 begin
-  Result := FHtmlModeBox.Checked;
+  Result := HtmlModeBox.Checked;
 end;
 
 procedure TMessageInputPanel.ClearText;
 begin
-  FMemo.Clear;
+  Memo.Clear;
 end;
 
 procedure TMessageInputPanel.SendBtnClick(Sender: TObject);
@@ -271,19 +191,19 @@ begin
     Close := APlainClose;
   end;
 
-  StartPos := FMemo.SelStart;
-  Len := FMemo.SelLength;
-  Sel := FMemo.SelText;
-  FMemo.SelText := Open + Sel + Close;
+  StartPos := Memo.SelStart;
+  Len := Memo.SelLength;
+  Sel := Memo.SelText;
+  Memo.SelText := Open + Sel + Close;
 
   if Len = 0 then begin
-    FMemo.SelStart := StartPos + Length(Open);
-    FMemo.SelLength := 0;
+    Memo.SelStart := StartPos + Length(Open);
+    Memo.SelLength := 0;
   end else begin
-    FMemo.SelStart := StartPos;
-    FMemo.SelLength := Length(Open) + Len + Length(Close);
+    Memo.SelStart := StartPos;
+    Memo.SelLength := Length(Open) + Len + Length(Close);
   end;
-  FMemo.SetFocus;
+  Memo.SetFocus;
 end;
 
 procedure TMessageInputPanel.BoldBtnClick(Sender: TObject);
@@ -326,30 +246,30 @@ var
   StartPos: integer;
   Sel, Quoted: string;
 begin
-  StartPos := FMemo.SelStart;
-  Sel := FMemo.SelText;
+  StartPos := Memo.SelStart;
+  Sel := Memo.SelText;
 
   if IsHtmlMode then begin
     Quoted := '<blockquote>' + Sel + '</blockquote>';
-    FMemo.SelText := Quoted;
+    Memo.SelText := Quoted;
     if Sel = '' then begin
-      FMemo.SelStart := StartPos + Length('<blockquote>');
-      FMemo.SelLength := 0;
+      Memo.SelStart := StartPos + Length('<blockquote>');
+      Memo.SelLength := 0;
     end else begin
-      FMemo.SelStart := StartPos;
-      FMemo.SelLength := Length(Quoted);
+      Memo.SelStart := StartPos;
+      Memo.SelLength := Length(Quoted);
     end;
   end else begin
     { '>' at the start, and again right after every line break in the
-      selection — LineEnding matches what TMemo.SelText itself uses on
+      selection — LineEnding matches what Memo.SelText itself uses on
       this platform, so this only ever inserts breaks that were already
       there. }
     Quoted := '>' + StringReplace(Sel, LineEnding, LineEnding + '>', [rfReplaceAll]);
-    FMemo.SelText := Quoted;
-    FMemo.SelStart := StartPos;
-    FMemo.SelLength := Length(Quoted);
+    Memo.SelText := Quoted;
+    Memo.SelStart := StartPos;
+    Memo.SelLength := Length(Quoted);
   end;
-  FMemo.SetFocus;
+  Memo.SetFocus;
 end;
 
 procedure TMessageInputPanel.LinkBtnClick(Sender: TObject);
@@ -357,8 +277,8 @@ var
   StartPos: integer;
   LinkText, Url, Inserted: string;
 begin
-  StartPos := FMemo.SelStart;
-  LinkText := FMemo.SelText;
+  StartPos := Memo.SelStart;
+  LinkText := Memo.SelText;
 
   if LinkText = '' then begin
     if not InputQuery('Add link', 'Link text:', LinkText) then begin
@@ -383,10 +303,10 @@ begin
     Inserted := '[' + LinkText + '](' + Url + ')';
   end;
 
-  FMemo.SelText := Inserted;
-  FMemo.SelStart := StartPos;
-  FMemo.SelLength := Length(Inserted);
-  FMemo.SetFocus;
+  Memo.SelText := Inserted;
+  Memo.SelStart := StartPos;
+  Memo.SelLength := Length(Inserted);
+  Memo.SetFocus;
 end;
 
 { [text](url) -> text, for ClearFmtBtnClick's Markdown branch — the one
@@ -425,8 +345,8 @@ var
   StartPos, I: integer;
   Sel, Plain: string;
 begin
-  StartPos := FMemo.SelStart;
-  Sel := FMemo.SelText;
+  StartPos := Memo.SelStart;
+  Sel := Memo.SelText;
   if Sel = '' then begin
     Exit;
   end;
@@ -462,10 +382,10 @@ begin
     end;
   end;
 
-  FMemo.SelText := Plain;
-  FMemo.SelStart := StartPos;
-  FMemo.SelLength := Length(Plain);
-  FMemo.SetFocus;
+  Memo.SelText := Plain;
+  Memo.SelStart := StartPos;
+  Memo.SelLength := Length(Plain);
+  Memo.SetFocus;
 end;
 
 end.

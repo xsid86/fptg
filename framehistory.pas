@@ -786,6 +786,10 @@ type
       whatever frame customemoji.pas currently has on every repaint. }
     FCustomEmojiTimer: TTimer;
 
+    { Debounce timer for MarkVisibleAsRead — see its own comment and
+      the constructor. }
+    FMarkReadTimer: TTimer;
+
     FOnScrollRangeChanged: TNotifyEvent;
     FOnNearTop: TNotifyEvent;
 
@@ -824,6 +828,21 @@ type
       on screen, adds its own delay too, and a wider window removes
       that as well. }
     procedure PrefetchAutoDownload(ADirection: integer);
+    { Sends viewMessages (via TTdMessages.MarkRead) for the incoming
+      (not IsOutgoing) messages currently in [FirstVisible..LastVisible]
+      — "reading" a chat, the same thing every real Telegram client
+      does. Only when Online: a no-op whenever FormMain.Invisible is
+      set (see main.pas/TFormMain.Invisible) — that's the whole point
+      of Invisible, this is the one place that would otherwise leak a
+      read receipt. Stateless on purpose: no local "already sent"
+      tracking, re-sending the same ids is cheap and TDLib itself is
+      idempotent about it — matches what official clients do on every
+      scroll settle, not just once. }
+    procedure MarkVisibleAsRead;
+    { FMarkReadTimer's OnTimer — debounces MarkVisibleAsRead so a fast
+      wheel fling sends one viewMessages once scrolling actually stops
+      instead of one per ClampScrollTop call. }
+    procedure MarkReadTick(Sender: TObject);
 
     procedure AudioPlayClick(Sender: TObject);
     procedure AudioSeek(Sender: TObject; AFraction: double);
@@ -3157,6 +3176,15 @@ begin
   FCustomEmojiTimer.Interval := 33;
   FCustomEmojiTimer.OnTimer := @CustomEmojiAnimTick;
   FCustomEmojiTimer.Enabled := True;
+
+  { Debounce for MarkVisibleAsRead — armed (disabled then re-enabled,
+    restarting the countdown) on every real scroll-position change in
+    ClampScrollTop, so a fast wheel fling sends one viewMessages once
+    scrolling actually stops, not one per tick. }
+  FMarkReadTimer := TTimer.Create(Self);
+  FMarkReadTimer.Interval := 500;
+  FMarkReadTimer.OnTimer := @MarkReadTick;
+  FMarkReadTimer.Enabled := False;
 end;
 
 destructor TMsgScroller.Destroy;
@@ -3500,6 +3528,42 @@ begin
   end;
 end;
 
+procedure TMsgScroller.MarkVisibleAsRead;
+var
+  I, Lo, Hi, N: integer;
+  Ids: array of Int64;
+  R: TMsgRow;
+begin
+  if (FModel = nil) or (FormMain = nil) or FormMain.Invisible then begin
+    Exit;
+  end;
+  Lo := FirstVisible;
+  Hi := LastVisible;
+  if (Lo < 0) or (Hi < 0) then begin
+    Exit;
+  end;
+  SetLength(Ids, Hi - Lo + 1);
+  N := 0;
+  for I := Lo to Hi do begin
+    R := FModel[I];
+    if (R <> nil) and (not R.IsOutgoing) then begin
+      Ids[N] := R.Id;
+      Inc(N);
+    end;
+  end;
+  if N = 0 then begin
+    Exit;
+  end;
+  SetLength(Ids, N);
+  FModel.MarkRead(Ids);
+end;
+
+procedure TMsgScroller.MarkReadTick(Sender: TObject);
+begin
+  FMarkReadTimer.Enabled := False;
+  MarkVisibleAsRead;
+end;
+
 procedure TMsgScroller.PrefetchAutoDownload(ADirection: integer);
 var
   Idx, EndIdx: integer;
@@ -3683,6 +3747,12 @@ begin
   end else if AValue < OldTop then begin
     PrefetchAutoDownload(-1);
   end;
+  { Debounced mark-as-read — see MarkVisibleAsRead/FMarkReadTimer's own
+    comments. Disable-then-enable restarts the countdown, so the tick
+    only actually fires once scrolling has stopped for a moment, not on
+    every one of these calls. }
+  FMarkReadTimer.Enabled := False;
+  FMarkReadTimer.Enabled := True;
   if Assigned(FOnScrollRangeChanged) then begin
     FOnScrollRangeChanged(Self);
   end;
@@ -3823,6 +3893,11 @@ begin
     without scrolling) would otherwise never trigger auto-download at
     all. }
   AutoDownloadVisible;
+  { Same reasoning as AutoDownloadVisible above — called directly, not
+    through FMarkReadTimer: ModelChanged already fires at a throttled
+    cadence (MESSAGES_COALESCE_MS upstream), no extra debounce needed
+    here. }
+  MarkVisibleAsRead;
 
   Invalidate;
   if Assigned(FOnScrollRangeChanged) then begin

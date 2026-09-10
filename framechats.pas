@@ -93,6 +93,29 @@ type
       Grid.Row:=0, synchronously re-invoke GridSelectCell again via
       CheckPosition in LCL). }
     FSwitchingMode: Boolean;
+    { The chat actually open in the work area (main.pas/TFrameHistory),
+      not just "whatever row Grid.Row happens to point at" — Grid.Row
+      is a plain index with no memory of WHICH chat it was pointing to,
+      so when the list reorders (a chat moving to the top on a new
+      message), the OLD index now belongs to a DIFFERENT chat and the
+      highlight silently "follows the index" instead of the actually-
+      open chat. Set only on a genuine user selection (GridSelectCell,
+      the FOnSelect call), read back in ModelChanged to re-sync
+      Grid.Row to wherever that same chat ended up after a reorder. 0
+      = no chat open (or it isn't in the currently shown list). }
+    FActiveChatId: Int64;
+    { One-shot, self-contained (set True, do the one Grid.Row
+      assignment, set False right after — unlike FSuppressSelect/
+      FSwitchingMode, this doesn't need to survive until "the next
+      user gesture": the synchronous re-invocations of GridSelectCell
+      that LCL may trigger from a single Grid.Row:=/RowCount:=
+      assignment (CheckPosition) all happen WITHIN that one assignment
+      statement, so clearing it on the very next line is safe). Makes
+      the re-sync move succeed (CanSelect stays True) without being
+      treated as a new selection (FOnSelect not called) and without
+      being blocked by a still-pending FSuppressSelect/FSwitchingMode
+      left over from an unrelated earlier click. }
+    FResyncingSelection: Boolean;
     { Same idea as TMsgScroller.FCustomEmojiTimer (framehistory.pas),
       but for a different reason: this frame has no direct notification
       path at all from a custom emoji resolving in TTdMessages (a
@@ -110,6 +133,13 @@ type
       context menu and chat-opening logic, which it must not be part
       of. }
     function ChatAt(AGridRow: Integer): TChatRow;
+    { Linear scan of the currently shown list (Main or Archive,
+      whichever FMode is) for the grid row whose chat has this id —
+      -1 if AChatId is 0 or not present in the current list (e.g. the
+      open chat is in Main while Archive is being shown). Called once
+      per ModelChanged, not per frame — a chat list is small enough
+      that this isn't worth a reverse id->index map. }
+    function FindRowIndex(AChatId: Int64): Integer;
     function TypeIconIndex(ARow: TChatRow): Integer;
     procedure DrawIcon12(const ARect: TRect; AIndex: Integer);
     { The single source of truth for a row card's geometry — both
@@ -518,6 +548,11 @@ begin
   { Avatars and icons belong to the previous account — cleared here,
     otherwise stale images from it would flash in the new list. }
   FCache.Clear;
+  { Chat ids are a different account's namespace — stale, it could
+    coincidentally collide with one in the new account's list and have
+    ModelChanged (called from BindModel below) move the highlight onto
+    the wrong row of a list it was never actually set on. }
+  FActiveChatId := 0;
   Grid.Row    := 0;
   Grid.TopRow := 0;
   BindModel;
@@ -541,11 +576,30 @@ end;
 { ---------------- model wiring ---------------- }
 
 procedure TFrameChats.ModelChanged(Sender: TObject);
+var
+  NewRow: Integer;
 begin
   if (not FReady) or (Grid = nil) or (FModel = nil) then begin
     Exit;
   end;
   Grid.RowCount := RowsCount + ARCHIVE_ROWS;
+
+  { Re-sync the highlight to the chat that's actually open, wherever a
+    reorder just moved it — see FActiveChatId's own comment. Skipped
+    during an explicit list-mode switch (FSwitchingMode, set by
+    GridMouseDown's chaHeader case around its own call to SetMode,
+    which is what gets here via ModelChanged(nil)): landing on the new
+    list's header row is the deliberately correct behavior there (see
+    FSwitchingMode's comment), not something this should override. }
+  if (not FSwitchingMode) and (FActiveChatId <> 0) then begin
+    NewRow := FindRowIndex(FActiveChatId);
+    if (NewRow >= 0) and (NewRow <> Grid.Row) then begin
+      FResyncingSelection := True;
+      Grid.Row := NewRow;
+      FResyncingSelection := False;
+    end;
+  end;
+
   Grid.Invalidate;
   { If there are fewer chats than fit in the window, load more right
     away: the scrolling that would normally trigger this won't happen. }
@@ -632,6 +686,25 @@ begin
   end
   else begin
     Result := FModel[AGridRow - ARCHIVE_ROWS];
+  end;
+end;
+
+function TFrameChats.FindRowIndex(AChatId: Int64): Integer;
+var
+  GridRow, Last: Integer;
+  R: TChatRow;
+begin
+  Result := -1;
+  if (FModel = nil) or (AChatId = 0) then begin
+    Exit;
+  end;
+  Last := RowsCount + ARCHIVE_ROWS - 1;
+  for GridRow := ARCHIVE_ROWS to Last do begin
+    R := ChatAt(GridRow);
+    if (R <> nil) and (R.Id = AChatId) then begin
+      Result := GridRow;
+      Exit;
+    end;
   end;
 end;
 
@@ -1046,8 +1119,21 @@ begin
 end;
 
 procedure TFrameChats.GridSelectCell(Sender: TObject; ACol, ARow: Integer; var CanSelect: Boolean);
+var
+  R: TChatRow;
 begin
   CanSelect := True;
+  { A programmatic re-sync of Grid.Row to the actually-open chat after
+    a list reorder (see ModelChanged/FActiveChatId) — checked FIRST,
+    ahead of FSuppressSelect/FSwitchingMode: the move must succeed
+    (CanSelect stays True) and must not be treated as a new user
+    selection (FOnSelect not called), regardless of whatever state
+    those other two flags are still in from an unrelated earlier
+    click — this isn't a user gesture, it owns its own start/end (see
+    FResyncingSelection's own comment), it doesn't defer to them. }
+  if FResyncingSelection then begin
+    Exit;
+  end;
   { The click landed on an icon/avatar — selection doesn't move at all,
     the chat isn't opened. The flag is NOT reset here — see its own
     declaration for why a self-resetting, one-shot version didn't work
@@ -1074,8 +1160,14 @@ begin
       from the previous list — but the chat is not opened. }
     Exit;
   end;
+  R := ChatAt(ARow);
+  { A genuine user selection — remembered by id, not by index, so
+    ModelChanged can find it again after the list reorders. }
+  if R <> nil then begin
+    FActiveChatId := R.Id;
+  end;
   if Assigned(FOnSelect) then begin
-    FOnSelect(Self, ChatAt(ARow));
+    FOnSelect(Self, R);
   end;
 end;
 

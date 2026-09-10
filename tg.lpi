@@ -17,7 +17,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="251"/>
+      <BuildNr Value="260"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -228,6 +228,9 @@
       <Unit>
         <Filename Value="msginput.pas"/>
         <IsPartOfProject Value="True"/>
+        <ComponentName Value="MessageInputPanel"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
       </Unit>
       <Unit>
         <Filename Value="settings.pas"/>
