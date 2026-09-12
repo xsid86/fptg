@@ -5,6 +5,14 @@ unit tdaccount;
 interface
 
 uses
+  { Windows first — same reasoning as everywhere else in this project
+    that touches raw Win32 API (framehistory.pas's own uses-clause
+    comment covers it in full): GetFileVersionInfoSize/GetFileVersionInfo/
+    VerQueryValue (AppVersionString, implementation section) are the
+    real Win32 version API, and later units here don't redeclare any
+    of those names, but keeping the convention avoids having to
+    remember which units are safe to reorder later. }
+  Windows,
   Classes, SysUtils, ExtCtrls, fpjson, jsonparser, base64,
   tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages, tdusers, tdaccentcolors,
   tdsupergroups;
@@ -30,6 +38,10 @@ type
     FTitle:    string;
     FApiId:    integer;
     FApiHash:  utf8string;
+    { The app name Telegram shows in Active Sessions — TdApp.
+      DeviceModel (tdcore.pas), passed down at construction time the
+      same way FApiId/FApiHash already are. }
+    FDeviceModel: utf8string;
     FUserId:   Int64;
     FPhone:    utf8string;
     FUsername: utf8string;
@@ -89,7 +101,7 @@ type
   public
     constructor Create(AOwner: TComponent; ASlot: integer;
       const ABaseDir, ATitle: string; AApiId: integer;
-      const AApiHash: utf8string); reintroduce;
+      const AApiHash: utf8string; const ADeviceModel: utf8string); reintroduce;
     destructor Destroy; override;
 
     procedure Start;
@@ -155,16 +167,57 @@ type
 
 implementation
 
+{ The running exe's own embedded VERSIONINFO — the same numbers tg.lpi's
+  UseVersionInfo/BuildNr produce and Explorer's file Properties > Details
+  tab already shows, read directly via the real Win32 version API rather
+  than hand-tracked separately in Pascal, so the string sent to
+  setTdlibParameters (CreateEngine below) can never drift from what's
+  actually compiled into THIS binary. Major/Minor/Release aren't set in
+  tg.lpi (all 0 as of this writing, see the project's own VersionInfo),
+  only BuildNr auto-increments — formatted as all four parts regardless,
+  so a future version bump just starts showing up here automatically.
+  Returns '0.0.0.0' if the query fails for any reason (should not happen
+  for our own already-running exe, but this only ever reaches Telegram's
+  servers, not shown to the user directly — not worth raising an error
+  over). }
+function AppVersionString: utf8string;
+var
+  Size, Handle: DWORD;
+  Buf: array of byte;
+  FixedInfo: PVSFixedFileInfo;
+  Len: UINT;
+  ExeName: string;
+begin
+  Result := '0.0.0.0';
+  ExeName := ParamStr(0);
+  Size := Windows.GetFileVersionInfoSize(PChar(ExeName), Handle);
+  if Size = 0 then begin
+    Exit;
+  end;
+  SetLength(Buf, Size);
+  if not Windows.GetFileVersionInfo(PChar(ExeName), Handle, Size, @Buf[0]) then begin
+    Exit;
+  end;
+  if not Windows.VerQueryValue(@Buf[0], '\', Pointer(FixedInfo), Len) then begin
+    Exit;
+  end;
+  Result := utf8string(Format('%d.%d.%d.%d', [
+    HiWord(FixedInfo^.dwFileVersionMS), LoWord(FixedInfo^.dwFileVersionMS),
+    HiWord(FixedInfo^.dwFileVersionLS), LoWord(FixedInfo^.dwFileVersionLS)]));
+end;
+
 { ---------------- lifecycle ---------------- }
 
 constructor TTdAccount.Create(AOwner: TComponent; ASlot: integer;
-  const ABaseDir, ATitle: string; AApiId: integer; const AApiHash: utf8string);
+  const ABaseDir, ATitle: string; AApiId: integer; const AApiHash: utf8string;
+  const ADeviceModel: utf8string);
 begin
   inherited Create(AOwner);
   FSlot := ASlot;
   FTitle := ATitle;
   FApiId := AApiId;
   FApiHash := AApiHash;
+  FDeviceModel := ADeviceModel;
   FState := tasNone;
 
   { Each account has its own directory. Sharing one would make the
@@ -206,8 +259,8 @@ begin
   FAuth.ApiHash            := FApiHash;
   FAuth.DatabaseDir        := utf8string(FDataDir);
   FAuth.FilesDir           := utf8string(FFilesDir);
-  FAuth.DeviceModel        := 'FPC Desktop';
-  FAuth.ApplicationVersion := '1.0';
+  FAuth.DeviceModel        := FDeviceModel;
+  FAuth.ApplicationVersion := AppVersionString;
   FAuth.SystemLanguageCode := 'ru';
 
   FAuth.OnStateChanged     := @HandleStateChanged;

@@ -15,4 +15,19 @@ object FrameSettingsGeneral: TFrameSettingsGeneral
     TabOrder = 0
     OnChange = chkCloseToTrayChange
   end
+  object lblDeviceModel: TLabel
+    Left = 16
+    Height = 15
+    Top = 56
+    Width = 200
+    Caption = 'Device name (Telegram > Active Sessions)'
+  end
+  object edtDeviceModel: TEdit
+    Left = 16
+    Height = 23
+    Top = 76
+    Width = 200
+    TabOrder = 1
+    OnExit = edtDeviceModelExit
+  end
 end

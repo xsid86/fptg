@@ -43,6 +43,17 @@ type
     FBaseDir: string;
     FApiId: integer;
     FApiHash: utf8string;
+    { device_model sent to setTdlibParameters — the name Telegram shows
+      for this app in Active Sessions on other devices (see
+      TTdAccount.CreateEngine, tdaccount.pas). Config-persisted like
+      FApiId/FApiHash above, but user-editable at any time (Settings >
+      General, framesettingsgeneral.pas) rather than fixed at first
+      run — SetDeviceModel below writes it straight through, the same
+      "select it, it's saved" pattern already used elsewhere in
+      Settings. Only affects accounts authenticated AFTER the change:
+      Telegram fixes a session's device name at login time, TDLib has
+      no way to rename an already-established one. }
+    FDeviceModel: utf8string;
     FConfigError: string;
     FStarted: boolean;
 
@@ -121,6 +132,18 @@ type
     property ShuttingDown: boolean read FShuttingDown;
     property ConfigError: string read FConfigError;
     property BaseDir: string read FBaseDir;
+    { The name Telegram shows for this app in Active Sessions — needed
+      by framesettingsgeneral.pas (the General section's text field),
+      same global-TdApp access pattern as FormMain.CloseToTray/
+      SetCloseToTray. }
+    property DeviceModel: utf8string read FDeviceModel;
+    { Changes the setting and immediately persists it to
+      config.ini/[telegram] — called from TFrameSettingsGeneral, same
+      pattern as TFormMain.SetCloseToTray. Only reaches TDLib the next
+      time an account authenticates (TTdAccount.CreateEngine reads
+      this at account-creation time) — see FDeviceModel's own comment
+      for why an already-logged-in session can't be renamed. }
+    procedure SetDeviceModel(const AValue: utf8string);
 
     property OnActiveChanged: TTdCoreEvent read FOnActiveChanged write FOnActiveChanged;
   end;
@@ -321,6 +344,10 @@ begin
   try
     FApiId   := Ini.ReadInteger('telegram', 'api_id', 0);
     FApiHash := utf8string(Ini.ReadString('telegram', 'api_hash', ''));
+    { 'FPC Desktop' default — what this always hardcoded to before it
+      became a Settings > General field, so an existing config.ini
+      with no [telegram]/device_model key yet sees no change. }
+    FDeviceModel := utf8string(Ini.ReadString('telegram', 'device_model', 'FPC Desktop'));
   finally
     Ini.Free;
   end;
@@ -332,6 +359,21 @@ begin
   end;
 
   Result := FConfigError = '';
+end;
+
+procedure TTdCore.SetDeviceModel(const AValue: utf8string);
+begin
+  if AValue = FDeviceModel then begin
+    Exit;
+  end;
+  FDeviceModel := AValue;
+  with TIniFile.Create(FBaseDir + 'config.ini') do begin
+    try
+      WriteString('telegram', 'device_model', string(FDeviceModel));
+    finally
+      Free;
+    end;
+  end;
 end;
 
 procedure TTdCore.LoadAccounts;
@@ -350,7 +392,7 @@ begin
       Sect := 'acc' + IntToStr(I);
       Slot := Ini.ReadInteger(Sect, 'slot', I);
       Title := Ini.ReadString(Sect, 'title', 'Account ' + IntToStr(I + 1));
-      A := TTdAccount.Create(nil, Slot, FBaseDir, Title, FApiId, FApiHash);
+      A := TTdAccount.Create(nil, Slot, FBaseDir, Title, FApiId, FApiHash, FDeviceModel);
       A.OnInfoChanged := @AccountInfoChanged;
       A.OnStateNotify := @AccountStateNotify;
       FAccounts.Add(A);
@@ -422,7 +464,7 @@ begin
     end;
   until not Used;
 
-  Result := TTdAccount.Create(nil, Slot, FBaseDir, ATitle, FApiId, FApiHash);
+  Result := TTdAccount.Create(nil, Slot, FBaseDir, ATitle, FApiId, FApiHash, FDeviceModel);
   Result.OnInfoChanged := @AccountInfoChanged;
   Result.OnStateNotify := @AccountStateNotify;
   FAccounts.Add(Result);
