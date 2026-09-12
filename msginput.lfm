@@ -321,6 +321,7 @@ object MessageInputPanel: TMessageInputPanel
     Top = 34
     Width = 774
     Align = alClient
+    BorderSpacing.Right = 4
     BorderStyle = bsNone
     ScrollBars = ssVertical
     TabOrder = 1

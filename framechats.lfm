@@ -2,11 +2,11 @@ object FrameChats: TFrameChats
   Left = 0
   Height = 560
   Top = 0
-  Width = 294
+  Width = 284
   ClientHeight = 560
-  ClientWidth = 294
+  ClientWidth = 284
   Color = clDefault
-  Constraints.MinWidth = 294
+  Constraints.MinWidth = 284
   LCLVersion = '4.8.0.0'
   ParentBackground = False
   ParentColor = False
@@ -15,13 +15,13 @@ object FrameChats: TFrameChats
     Left = 0
     Height = 560
     Top = 0
-    Width = 294
+    Width = 284
     Align = alClient
     AutoFillColumns = True
     BorderStyle = bsNone
     Color = clDefault
     ColCount = 1
-    Constraints.MinWidth = 294
+    Constraints.MinWidth = 284
     DefaultRowHeight = 56
     FixedCols = 0
     FixedRows = 0
@@ -37,7 +37,7 @@ object FrameChats: TFrameChats
     OnSelectCell = GridSelectCell
     OnTopleftChanged = GridTopLeftChanged
     ColWidths = (
-      294
+      284
     )
   end
   object mnuChat: TPopupMenu

@@ -375,6 +375,11 @@ begin
   FVScroll := TThinScrollBar.Create(Self);
   FVScroll.Parent := Self;
   FVScroll.Align := alRight;
+  { By direct request — same small "floating" margin msginput.pas's
+    own scrollbar already has (see THIN_SCROLLBAR_MARGIN's own
+    comment), applied directly here since this frame has no
+    ChildSizing of its own to produce it as a side effect. }
+  FVScroll.BorderSpacing.Around := THIN_SCROLLBAR_MARGIN;
   FVScroll.OnScroll := @VScrollScroll;
 
   FCustomEmojiTimer := TTimer.Create(Self);

@@ -681,6 +681,19 @@ const
     parent (a plain frame/panel in all three cases) genuinely IS just
     its own flat Color, nothing to compute. }
   THIN_SCROLLBAR_TRACK_RADIUS = THIN_SCROLLBAR_WIDTH div 2;
+  { Gap kept between the scrollbar and the surrounding frame's own
+    edges (BorderSpacing.Around on the control, framechats.pas/
+    framehistory.pas) — by direct request, matching the "floating,
+    rounded" look msginput.pas's own scrollbar already had, there by a
+    side effect of that frame's ChildSizing (LeftRightSpacing/
+    TopBottomSpacing = 5, msginput.lfm — a margin applied to ALL its
+    docked children as a group, not something to reuse here without
+    doing the same to Toolbar/Memo too). Chat list/history have no such
+    ChildSizing at all, so their own scrollbar sat flush against the
+    window's true edge — this constant gives them the same 5px margin
+    directly, on just this one control, without touching either
+    frame's overall layout. }
+  THIN_SCROLLBAR_MARGIN = 5;
 
 implementation
 

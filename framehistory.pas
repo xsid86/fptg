@@ -6294,6 +6294,11 @@ begin
     constructor) — not a DPI system metric like the old native
     TScrollBar used, since this one is a plain custom-painted control
     with no OS theming to stay in sync with. }
+  { By direct request — same small "floating" margin msginput.pas's
+    own scrollbar already has (see THIN_SCROLLBAR_MARGIN's own
+    comment), applied directly here since this frame has no
+    ChildSizing of its own to produce it as a side effect. }
+  FScrollbar.BorderSpacing.Around := THIN_SCROLLBAR_MARGIN;
   FScrollbar.OnScroll := @ScrollbarScroll;
 
   FScroller := TMsgScroller.Create(Self);
