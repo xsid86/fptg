@@ -10,7 +10,7 @@ object MessageInputPanel: TMessageInputPanel
   ChildSizing.ControlsPerLine = 1
   ClientHeight = 100
   ClientWidth = 784
-  Color = 14869218
+  Color = clDefault
   Constraints.MinHeight = 100
   LCLVersion = '4.8.0.0'
   ParentBackground = False

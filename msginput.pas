@@ -58,8 +58,17 @@ unit msginput;
 interface
 
 uses
+  { Windows comes first, same reasoning as framehistory.pas's own uses
+    clause: EM_GETFIRSTVISIBLELINE/EM_GETLINECOUNT/EM_LINESCROLL/
+    SendMessage are needed for Memo's custom scrollbar (see FVScroll's
+    own comment) — Memo's native multiline Edit control has no LCL-
+    level scroll message handler at all (unlike TCustomGrid's
+    LM_VSCROLL, see framechats.pas's own VScrollScroll) — the OS's own
+    Edit window class handles line-scrolling internally, driven here
+    with the real Win32 API, not LCL's message Dispatch. }
+  Windows,
   Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Buttons,
-  Dialogs, LCLType;
+  constants, Dialogs, LCLType, thinscrollbar, Types;
 
 type
 
@@ -111,8 +120,65 @@ type
       plain-marked-up-text model, gets stripped too — same trade-off
       the toolbar's insertion side already accepts. }
     procedure ClearFmtBtnClick(Sender: TObject);
+  protected
+    { Backstop for MemoResize, alongside Memo's own OnResize (Create
+      below) — Align recalculation should always fire Memo's OWN
+      resize too whenever this frame's does, but this covers it either
+      way, cheaply (MemoResize itself is idempotent). }
+    procedure Resize; override;
   private
     FOnSend: TNotifyEvent;
+    { thinscrollbar.pas, replacing Memo's own native one (Memo.
+      ScrollBars set to ssNone in Create) — same reasoning as
+      framehistory.pas's message history and framechats.pas's chat
+      list: a native Windows scrollbar is OS-drawn and can't be
+      custom-painted at all. Created in code in Create below, not
+      placed via the Designer like the rest of this frame —
+      TThinScrollBar isn't a registered design-time component. }
+    FVScroll: TThinScrollBar;
+    { Polls Memo's scroll state and mouse wheel/keyboard navigation —
+      not row-count-changed like framechats.pas's grid; a plain Edit
+      control fires no notification at all for either (EM_LINESCROLL
+      doesn't raise OnChange, that's for text-content edits only), so
+      there is nothing else to hook into here. Cheap: SyncVScroll's
+      own SetParams already no-ops when nothing actually changed. }
+    FSyncTimer: TTimer;
+    procedure SyncTick(Sender: TObject);
+    { Feeds Memo's line-based scroll state (EM_GETFIRSTVISIBLELINE/
+      EM_GETLINECOUNT — both counted in WRAPPED/visual lines, not
+      logical Memo.Lines.Count, confirmed against Microsoft's own
+      EM_GETFIRSTVISIBLELINE docs, not guessed) into FVScroll. }
+    procedure SyncVScroll;
+    { FVScroll's OnScroll — EM_LINESCROLL is RELATIVE (a delta of
+      lines to scroll by), unlike TCustomGrid's absolute LM_VSCROLL
+      (framechats.pas): a plain Win32 Edit control has no absolute-
+      position scroll message at all (confirmed against Microsoft's
+      own EM_LINESCROLL docs). The current first-visible-line is
+      re-read right before computing the delta, rather than tracked
+      separately, so no rounding ever accumulates across calls. }
+    procedure VScrollScroll(Sender: TObject; ScrollCode: TScrollCode; var ScrollPos: integer);
+    { Mouse wheel over Memo stopped scrolling once its native scrollbar
+      was hidden (Memo.ScrollBars := ssNone, Create below) — TControl.
+      WMMouseWheel (control.inc) only falls through to the underlying
+      native Edit control's own default wheel handling when nothing
+      else claims the event first (DoMouseWheelDown/Up, both no-ops
+      TCustomMemo doesn't override), so LCL itself isn't what's
+      swallowing it; Windows' own multiline Edit control apparently
+      doesn't bother wheel-scrolling itself once it has no vertical
+      scrollbar to move. Same fix as VScrollScroll below, just fired
+      from the wheel instead of a drag: drive EM_LINESCROLL directly,
+      not relying on the native control's own (apparently
+      scrollbar-gated) default behavior. }
+    procedure MemoMouseWheel(Sender: TObject; Shift: TShiftState;
+      WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+    { Rounds Memo's corners (SetWindowRgn — the standard way to shape
+      ANY native window, custom-painted or not) and insets its text by
+      MEMO_PAD on every side (EM_SETRECT) — both re-applied here
+      because both are sized/positioned in absolute pixels tied to
+      Memo's current Width/Height, which changes whenever this frame
+      or FVScroll's own visibility does (see Resize above and Memo.
+      OnResize, wired in Create). }
+    procedure MemoResize(Sender: TObject);
     function GetText: string;
     procedure SetText(const AValue: string);
     function GetIsHtmlMode: boolean;
@@ -125,6 +191,7 @@ type
       be applied right on top of it (e.g. bold+italic together). }
     procedure WrapSelection(const APlainOpen, APlainClose, AHtmlOpen, AHtmlClose: string);
   public
+    constructor Create(TheOwner: TComponent); override;
     procedure ClearText;
     property Text: string read GetText write SetText;
     { True = the toolbar buttons insert HTML tags and
@@ -137,6 +204,188 @@ type
 implementation
 
 {$R *.lfm}
+
+constructor TMessageInputPanel.Create(TheOwner: TComponent);
+begin
+  inherited Create(TheOwner);
+
+  Memo.ScrollBars := ssNone;
+  Memo.OnResize := @MemoResize;
+  Memo.OnMouseWheel := @MemoMouseWheel;
+  FVScroll := TThinScrollBar.Create(Self);
+  FVScroll.Parent := Self;
+  FVScroll.Align := alRight;
+  FVScroll.OnScroll := @VScrollScroll;
+
+  FSyncTimer := TTimer.Create(Self);
+  FSyncTimer.Interval := MEMO_SYNC_TIMER_MS;
+  FSyncTimer.OnTimer := @SyncTick;
+  FSyncTimer.Enabled := True;
+end;
+
+procedure TMessageInputPanel.Resize;
+begin
+  inherited Resize;
+  MemoResize(Self);
+end;
+
+procedure TMessageInputPanel.MemoResize(Sender: TObject);
+var
+  Rgn: HRGN;
+  R: TRect;
+begin
+  { Memo can still be nil here: TMessageInputPanel.Resize (above) can
+    fire as a side effect of the .lfm's OWN streaming — reading each
+    child's bounds off the stream can trigger an intermediate resize
+    of the frame itself before every child (Memo included) has been
+    created yet, well before "inherited Create" in this unit's own
+    constructor even returns. Crashed with an access violation inside
+    TWinControl.HandleAllocated (a nil Self) before this guard was
+    added. }
+  if (Memo = nil) or not Memo.HandleAllocated then begin
+    Exit;
+  end;
+
+  { Rounded corners, same radius as message blocks in history
+    (MSG_CORNER_RADIUS). TMemo is a native Win32 Edit control window —
+    SetWindowRgn is the standard way to give ANY window a
+    non-rectangular shape, not just a custom-painted one: pixels
+    outside the region simply aren't painted, showing this frame's own
+    background through instead (same principle as the GDI clip-region
+    trick already used elsewhere in this project for a custom-painted
+    control, e.g. framehistory.pas's TPhotoWidget.DrawBmpRounded — just
+    applied at the window level here instead of within one Paint
+    call). Ownership of the region handle passes to the OS once
+    SetWindowRgn succeeds — it must NOT be deleted afterward (confirmed
+    against Microsoft's own SetWindowRgn documentation), unlike the GDI
+    clip regions used elsewhere in this project, which the caller keeps
+    and must free itself. A later SetWindowRgn call (the next resize)
+    replaces it and the OS frees the old one on its own. }
+  Rgn := Windows.CreateRoundRectRgn(0, 0, Memo.Width, Memo.Height,
+    MSG_CORNER_RADIUS * 2, MSG_CORNER_RADIUS * 2);
+  Windows.SetWindowRgn(Memo.Handle, Rgn, True);
+
+  { Inner padding to the text, MEMO_PAD on every side — EM_SETRECT,
+    confirmed (Microsoft's own docs) to work on a plain multiline Edit
+    control, not just Rich Edit: "This message is processed only by
+    multiline edit controls. You can send this message to either an
+    edit control or a rich edit control." No border to subtract for it
+    (Memo.BorderStyle = bsNone, msginput.lfm) — the inset is straight
+    off Memo's own client size. }
+  R := Rect(MEMO_PAD, MEMO_PAD, Memo.Width - MEMO_PAD, Memo.Height - MEMO_PAD);
+  Windows.SendMessage(Memo.Handle, EM_SETRECT, 0, LPARAM(@R));
+end;
+
+procedure TMessageInputPanel.SyncTick(Sender: TObject);
+begin
+  SyncVScroll;
+  { Confirmed with a small standalone test harness (a bare TMemo,
+    EM_GETRECT logged before/after a resize and on every subsequent
+    poll), not guessed: reapplying EM_SETRECT right when a resize
+    happens (Memo.OnResize/this frame's own Resize, both already
+    calling MemoResize) is NOT enough on its own — the native Edit
+    control silently reverts its own format rectangle back to its own
+    auto-computed default ONE MORE TIME, shortly after, WITHOUT any
+    further Width/Height change at all (so a poll that only reapplies
+    when the size on record differs from Memo's current one — an
+    earlier version of this comment/fix — never catches it, since the
+    size never changes again). The test also confirmed this drift
+    happens exactly ONCE per resize and never again afterward — no
+    ongoing fight with Windows to keep reasserting it, reapplying
+    unconditionally here on every tick is enough: cheap (a single
+    SetWindowRgn + SendMessage, no visible effect when already
+    correct) and self-corrects within one tick (MEMO_SYNC_TIMER_MS,
+    constants.pas) of the one genuine drift a resize causes. }
+  MemoResize(Self);
+end;
+
+procedure TMessageInputPanel.SyncVScroll;
+var
+  FirstLine, LineCount, LineH, PageLines: integer;
+  DC: HDC;
+  { Windows.-qualified: LCLType (later in this unit's uses) declares
+    its own, distinct TEXTMETRICA — the same shadowing pitfall already
+    documented in framehistory.pas's own uses-clause comment, just
+    hitting a type instead of a function this time. Windows.
+    GetTextMetrics below must be called with a var of THIS SAME
+    Windows.TEXTMETRICA, not LCLType's. }
+  TM: Windows.TEXTMETRICA;
+begin
+  if (Memo = nil) or (FVScroll = nil) or not Memo.HandleAllocated then begin
+    Exit;
+  end;
+  FirstLine := Windows.SendMessage(Memo.Handle, EM_GETFIRSTVISIBLELINE, 0, 0);
+  LineCount := Windows.SendMessage(Memo.Handle, EM_GETLINECOUNT, 0, 0);
+
+  { TMemo has no Canvas of its own to measure with (a native windowed
+    control, not a TCustomControl), and TScreen has no Canvas either
+    in this LCL version — the real Win32 line height for Memo's own
+    font, queried directly from its own device context, same idea as
+    the SendMessage calls above. }
+  LineH := 0;
+  DC := Windows.GetDC(Memo.Handle);
+  if DC <> 0 then begin
+    Windows.SelectObject(DC, Memo.Font.Handle);
+    if Windows.GetTextMetrics(DC, TM) then begin
+      LineH := TM.tmHeight + TM.tmExternalLeading;
+    end;
+    Windows.ReleaseDC(Memo.Handle, DC);
+  end;
+  if LineH <= 0 then begin
+    LineH := 1;
+  end;
+
+  PageLines := Memo.ClientHeight div LineH;
+  if PageLines < 1 then begin
+    PageLines := 1;
+  end;
+  FVScroll.SetParams(FirstLine, 0, LineCount, PageLines);
+end;
+
+procedure TMessageInputPanel.VScrollScroll(Sender: TObject; ScrollCode: TScrollCode; var ScrollPos: integer);
+var
+  CurLine, Delta: integer;
+begin
+  if (Memo = nil) or not Memo.HandleAllocated then begin
+    Exit;
+  end;
+  case ScrollCode of
+    scTrack, scPosition: begin
+      CurLine := Windows.SendMessage(Memo.Handle, EM_GETFIRSTVISIBLELINE, 0, 0);
+      Delta := ScrollPos - CurLine;
+      if Delta <> 0 then begin
+        Windows.SendMessage(Memo.Handle, EM_LINESCROLL, 0, Delta);
+      end;
+      { Fed back into the thumb directly — EM_LINESCROLL raises no
+        notification of its own (it isn't a text-content edit, so
+        OnChange doesn't fire either), so nothing else would refresh
+        it during a drag. }
+      SyncVScroll;
+    end;
+  end;
+end;
+
+procedure TMessageInputPanel.MemoMouseWheel(Sender: TObject; Shift: TShiftState;
+  WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+var
+  LinesPerNotch, Lines: integer;
+begin
+  if (Memo = nil) or not Memo.HandleAllocated then begin
+    Exit;
+  end;
+  { Lines-per-notch is the user's own configured mouse setting
+    (Control Panel > Mouse > Wheel — SPI_GETWHEELSCROLLLINES), not a
+    hardcoded guess; 3 is only the fallback if the query itself somehow
+    fails, matching Windows' own documented default for that setting. }
+  LinesPerNotch := 3;
+  Windows.SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, @LinesPerNotch, 0);
+  Lines := -(WheelDelta div WHEEL_DELTA) * LinesPerNotch;
+  if Lines <> 0 then begin
+    Windows.SendMessage(Memo.Handle, EM_LINESCROLL, 0, Lines);
+    SyncVScroll;
+  end;
+  Handled := True;
+end;
 
 function TMessageInputPanel.GetText: string;
 begin
