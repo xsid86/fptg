@@ -19,7 +19,7 @@ uses
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
   uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer,
-  lottieplayer, customemoji, emojiassets;
+  lottieplayer, customemoji, emojiassets, thinscrollbar;
 
 type
   { TAudioWidget
@@ -1076,7 +1076,10 @@ type
       binding, no offsets. }
     FAccentColors: TTdAccentColors;
     FScroller:  TMsgScroller;
-    FScrollbar: TScrollBar;
+    { thinscrollbar.pas, not the native TScrollBar — see that unit's
+      own header comment for why a subclass of the native control
+      can't be custom-painted at all. }
+    FScrollbar: TThinScrollBar;
     pnlStatus:  TPanel;
     lblStatus:  TLabel;
     procedure BindModel;
@@ -6284,16 +6287,13 @@ begin
   lblStatus.Font.Color := clGrayText;
   lblStatus.Caption := '';
 
-  FScrollbar := TScrollBar.Create(Self);
+  FScrollbar := TThinScrollBar.Create(Self);
   FScrollbar.Parent := Self;
-  FScrollbar.Kind := sbVertical;
   FScrollbar.Align := alRight;
-  { Not a constant: the chat list (framechats, TDrawGrid) draws its own
-    scrollbar natively, sized to the system metric — the same
-    GetSystemMetrics(SM_CXVSCROLL) Windows uses to scale it for DPI. A
-    fixed number here would simply drift out of sync with it at any
-    display scale other than 100%. }
-  FScrollbar.Width := GetSystemMetrics(SM_CXVSCROLL);
+  { Width is fixed (THIN_SCROLLBAR_WIDTH, set by the control's own
+    constructor) — not a DPI system metric like the old native
+    TScrollBar used, since this one is a plain custom-painted control
+    with no OS theming to stay in sync with. }
   FScrollbar.OnScroll := @ScrollbarScroll;
 
   FScroller := TMsgScroller.Create(Self);
@@ -6450,6 +6450,14 @@ begin
       end;
     end;
   end;
+  { FModel.OpenChat sets ChatId synchronously (before it even sends the
+    openChat request), so this reflects the actual state, not a stale
+    one — covers both call paths into here (TFormMain.ChatSelected and
+    OpenForwardSource's jump to another chat's TFrameHistory instance
+    above), not just one of them. }
+  if FormMain <> nil then begin
+    FormMain.UpdateMessageInputVisibility;
+  end;
 end;
 
 procedure TFrameHistory.TdActiveChanged(ANew: TTdAccount);
@@ -6459,6 +6467,12 @@ begin
   end;
   UnbindModel;
   BindModel;
+  { The newly-bound account's own TTdMessages singleton may have a
+    different ChatId than whatever was open a moment ago (typically 0,
+    a freshly-switched-to account with no chat opened in it yet). }
+  if FormMain <> nil then begin
+    FormMain.UpdateMessageInputVisibility;
+  end;
 end;
 
 procedure TFrameHistory.TdAccountsChanged;

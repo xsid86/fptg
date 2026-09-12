@@ -8,7 +8,8 @@ uses
   avatarcache, BGRABitmap, BGRABitmapTypes,
   Classes, Clipbrd, customemoji,
   Controls, constants, DateUtils, Dialogs, emojiassets, ExtCtrls, Forms, Graphics, Grids,
-  Menus, StdCtrls, SysUtils, tdaccentcolors, tdauth, tdchats, tdcore, Types, uiframe;
+  LCLType, LMessages, Menus, StdCtrls, SysUtils, tdaccentcolors, tdauth, tdchats, tdcore,
+  thinscrollbar, Types, uiframe;
 
 type
   { Clickable areas within a row. }
@@ -125,7 +126,35 @@ type
       consistency once something resolves) that calls
       customemoji.AnyPendingWork and invalidates the grid if true. }
     FCustomEmojiTimer: TTimer;
+    { thinscrollbar.pas, replacing Grid's own native one (Grid.
+      ScrollBars set to ssNone in Create) — same custom look as
+      framehistory.pas's message history, see that unit's own header
+      comment for why a plain TScrollBar can't be custom-painted at
+      all; TDrawGrid's native scrollbar is the same kind of OS-drawn,
+      non-hookable control (its Handle is created with WS_VSCROLL,
+      confirmed by reading grids.pas — TCustomGrid.CreateParams — not
+      guessed), just attached to the grid's own window instead of
+      being a separate control. }
+    FVScroll: TThinScrollBar;
     procedure CustomEmojiAnimTick(Sender: TObject);
+    { Feeds Grid.RowCount/TopRow/ClientHeight into FVScroll — called
+      whenever any of those could have changed (ModelChanged, Resize,
+      GridTopLeftChanged). Row-index space, not sub-pixel: FixedRows/
+      FixedCols are both 0 and every row shares the same ROW_HEIGHT
+      (Grid.DefaultRowHeight), so TopRow*ROW_HEIGHT is EXACTLY the
+      pixel offset the grid's own native scrollbar would have reported
+      — TCustomGrid's actual precise equivalent (GetPxTopLeft) is
+      PROTECTED, not reachable from here, and isn't needed anyway given
+      the uniform row height. }
+    procedure SyncVScroll;
+    { FVScroll's OnScroll — drives Grid by DISPATCHING the exact same
+      LM_VSCROLL message its own (now hidden) native scrollbar used to
+      send it (TCustomGrid.WMVScroll, grids.pas), not a hand-rolled
+      reimplementation of its smooth-scroll pixel math. Dispatch
+      (TObject's, always public) is what makes this possible without
+      access to any of TCustomGrid's protected scroll internals
+      (TrySmoothScrollBy/GetPxTopLeft/ScrollBy). }
+    procedure VScrollScroll(Sender: TObject; ScrollCode: TScrollCode; var ScrollPos: integer);
     procedure BindModel;
     procedure UnbindModel;
     { The archive is not a chat: row index 0 is reserved for it, chats
@@ -337,6 +366,16 @@ begin
   Grid.DefaultRowHeight := ROW_HEIGHT;
   Grid.MouseWheelOption := mwGrid;
   Grid.FocusRectVisible := False;
+  { The grid's own native scrollbar is hidden — FVScroll below replaces
+    it. Mouse wheel scrolling (MouseWheelOption above) and keyboard
+    navigation are untouched: those don't go through the scrollbar at
+    all, native or custom. }
+  Grid.ScrollBars := ssNone;
+
+  FVScroll := TThinScrollBar.Create(Self);
+  FVScroll.Parent := Self;
+  FVScroll.Align := alRight;
+  FVScroll.OnScroll := @VScrollScroll;
 
   FCustomEmojiTimer := TTimer.Create(Self);
   FCustomEmojiTimer.Interval := 300;
@@ -604,6 +643,10 @@ begin
   { If there are fewer chats than fit in the window, load more right
     away: the scrolling that would normally trigger this won't happen. }
   MaybeLoadMore;
+  { RowCount just changed above — the thumb's own size/range depends on
+    it even when TopRow itself didn't move (e.g. more chats loaded at
+    the bottom), which GridTopLeftChanged's own sync wouldn't catch. }
+  SyncVScroll;
 end;
 
 procedure TFrameChats.ActionError(Sender: TObject; ACode: Integer; const AMessage, AAction: Utf8string);
@@ -648,9 +691,53 @@ begin
   end;
 end;
 
+procedure TFrameChats.SyncVScroll;
+begin
+  if (not FReady) or (Grid = nil) or (FVScroll = nil) then begin
+    Exit;
+  end;
+  FVScroll.SetParams(Grid.TopRow * ROW_HEIGHT, 0, Grid.RowCount * ROW_HEIGHT, Grid.ClientHeight);
+end;
+
+procedure TFrameChats.VScrollScroll(Sender: TObject; ScrollCode: TScrollCode; var ScrollPos: integer);
+var
+  Msg: TLMVScroll;
+  WinCode: SmallInt;
+begin
+  if Grid = nil then begin
+    Exit;
+  end;
+  case ScrollCode of
+    scTrack:    WinCode := SB_THUMBTRACK;
+    scPosition: WinCode := SB_THUMBPOSITION;
+  else
+    { scEndScroll (the only other code FVScroll ever sends) — the
+      preceding scTrack/scPosition already applied the real position;
+      a native scrollbar's own SB_ENDSCROLL carries no position update
+      of its own either. }
+    Exit;
+  end;
+  FillChar(Msg, SizeOf(Msg), 0);
+  Msg.Msg := LM_VSCROLL;
+  Msg.ScrollCode := WinCode;
+  Msg.Pos := ScrollPos;
+  Grid.Dispatch(Msg);
+  { Fed back into the thumb directly here, not only through Grid's own
+    OnTopLeftChanged (GridTopLeftChanged/SyncVScroll below): that event
+    only fires when a WHOLE-ROW boundary is crossed
+    (TCustomGrid.TrySmoothScrollBy, grids.pas — checked, not guessed),
+    so relying on it alone while dragging would make the thumb feel
+    stepped/row-snapped instead of tracking the cursor smoothly. Any
+    rounding difference between this and the grid's own settled state
+    is corrected on the very next real sync (wheel, resize, a new
+    ModelChanged) — never visible for more than one frame. }
+  FVScroll.SetParams(ScrollPos, 0, Grid.RowCount * ROW_HEIGHT, Grid.ClientHeight);
+end;
+
 procedure TFrameChats.GridTopLeftChanged(Sender: TObject);
 begin
   MaybeLoadMore;
+  SyncVScroll;
 end;
 
 procedure TFrameChats.Resize;
@@ -659,6 +746,7 @@ begin
   { Column width is handled by the grid's AutoFillColumns. All that's
     left here is loading more: a bigger window means more rows visible. }
   MaybeLoadMore;
+  SyncVScroll;
 end;
 
 function TFrameChats.RowsCount: Integer;
@@ -916,10 +1004,12 @@ procedure TFrameChats.GridDrawCell(Sender: TObject; ACol, ARow: Integer; ARect: 
 var
   R:   TChatRow;
   Cv:  TCanvas;
-  Bmp, Badge, Rec: TBGRABitmap;
+  Bmp, Badge, Rec, StatusBmp: TBGRABitmap;
   Card, Header, Content, IconR, AvatarR, MuteR, PinR: TRect;
   BaseBg, Accent, BodyFill, HeaderFill, BorderCol: TColor;
   TitleRight, PrevRight, Y, W, MuteIdx, PinIdx: Integer;
+  NameLeft, NameEndX, CrownY, StatusSize, StatusX: Integer;
+  CrownIcons: TImageList;
   Sel: Boolean;
   S:   String;
   PrevGlyphs: TCustomGlyphSpanArray;
@@ -1005,6 +1095,22 @@ begin
 
   DrawIcon12(IconR, TypeIconIndex(R));
 
+  { Premium crown — right after the chat-type icon, before the name.
+    FormMain.ImageList1, not icons12: see PREMIUM_CROWN_ICON's own
+    comment (constants.pas) for why it lives there. }
+  NameLeft := IconR.Right + MSG_ICON_GAP;
+  if FModel.IsPremiumUser(R) then begin
+    CrownIcons := nil;
+    if FormMain <> nil then begin
+      CrownIcons := FormMain.ImageList1;
+    end;
+    if (CrownIcons <> nil) and (PREMIUM_CROWN_ICON < CrownIcons.Count) then begin
+      CrownY := Header.Top + (CHATROW_HEADER_BAR_H - CrownIcons.Height) div 2;
+      CrownIcons.Draw(Cv, NameLeft, CrownY, PREMIUM_CROWN_ICON, True);
+      NameLeft := NameLeft + CrownIcons.Width + MSG_ICON_GAP;
+    end;
+  end;
+
   if R.IsMuted then begin
     MuteIdx := CHATROW_ICON_NOTIFY_OFF;
   end
@@ -1055,9 +1161,43 @@ begin
   Cv.Font.Color := Accent;
   S := String(R.Title);
   { No entity data is captured for chat titles (see the comment on
-    A.Preview's own DrawEmojiLine call below) — nil. }
-  DrawEmojiLine(Cv, Rect(IconR.Right + MSG_ICON_GAP, Header.Top, TitleRight, Header.Bottom),
-    IconR.Right + MSG_ICON_GAP, Header.Top + (CHATROW_HEADER_BAR_H - Cv.TextHeight(S)) div 2, S, nil);
+    A.Preview's own DrawEmojiLine call below) — nil. NameLeft, not
+    IconR.Right + MSG_ICON_GAP directly: the crown above may have
+    pushed it further right. }
+  NameEndX := DrawEmojiLine(Cv, Rect(NameLeft, Header.Top, TitleRight, Header.Bottom),
+    NameLeft, Header.Top + (CHATROW_HEADER_BAR_H - Cv.TextHeight(S)) div 2, S, nil);
+
+  { Premium "emoji status" — normally right after the name (NameEndX,
+    DrawEmojiLine's own return value). When the list is too narrow for
+    that to fit before TitleRight (the receipt/time boundary), it
+    "sticks" there instead of disappearing: clamped to TitleRight minus
+    its own width, drawn on top of whatever tail of the (already
+    clipped) name ends up underneath it — glued to the edge and
+    overlapping if it must, rather than a fit-or-hide check that could
+    make it vanish. }
+  if R.EmojiStatusCustomEmojiId <> 0 then begin
+    StatusSize := Cv.TextHeight(S);
+    StatusBmp := CustomEmojiStaticBitmapFor(R.EmojiStatusCustomEmojiId, StatusSize);
+    if StatusBmp <> nil then begin
+      if NameEndX + MSG_ICON_GAP + StatusBmp.Width <= TitleRight then begin
+        StatusX := NameEndX + MSG_ICON_GAP;
+      end else begin
+        StatusX := TitleRight - StatusBmp.Width;
+      end;
+      { Backed with the header's own fill (HeaderFill, same color as the
+        strip behind it) BEFORE drawing the glyph — in the clamped case
+        above it sits on top of the name's own (still-visible) tail, and
+        without this the glyph's transparent edges would let that text
+        show through right behind it, reading as smeared into it rather
+        than a separate badge. }
+      Cv.Brush.Style := bsSolid;
+      Cv.Brush.Color := HeaderFill;
+      Cv.FillRect(Rect(StatusX, Header.Top + (CHATROW_HEADER_BAR_H - StatusBmp.Height) div 2,
+        StatusX + StatusBmp.Width, Header.Top + (CHATROW_HEADER_BAR_H - StatusBmp.Height) div 2 + StatusBmp.Height));
+      Cv.Brush.Style := bsClear;
+      StatusBmp.Draw(Cv, StatusX, Header.Top + (CHATROW_HEADER_BAR_H - StatusBmp.Height) div 2, False);
+    end;
+  end;
 
   { --- last-message preview + unread counter --- }
   Cv.Brush.Style := bsClear;

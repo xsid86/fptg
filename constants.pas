@@ -40,7 +40,7 @@ const
     24->32 by direct request — CHATROW_CONTENT_H (below) is derived
     from this, so the row grows taller automatically, not a separate
     number to keep in sync by hand. }
-  AVATAR_SIZE = 32;
+  AVATAR_SIZE = 44;
   { Cache key is the chat id. The cap bounds memory: bitmaps, not list
     entries, and scrolling a long list has a real cost. }
   DEFAULT_CAPACITY = 200;
@@ -308,6 +308,22 @@ const
   { Native frame size for icons12 — matches the component's own
     Height/Width in the designer. }
   CHATROW_ICON_SIZE = 12;
+  { Premium crown badge, shown right after the chat-type icon
+    (TypeIconIndex) for a private chat whose peer is a Telegram Premium
+    user (TTdChats.IsPremiumUser, tdchats.pas) — NOT a frame in icons12:
+    it lives in FormMain.ImageList1 (16x16, the main FORM's own icon
+    list, already reused across units the same way framehistory.pas
+    reuses FormMain.Chats.ImageList1 for message-status icons — see that
+    group's own comment below). Index confirmed by unpacking the
+    Bitmap blob from main.lfm and visually inspecting all 11 frames
+    (same method as CHATROW_ICON_*/PLAYBACK_ICON_* above), not guessed:
+    frame 10 is a gold crown, added alongside the two presence icons
+    (PRESENCE_ICON_ONLINE/INVISIBLE = 8/9 in main.pas's
+    StatusBar1DrawPanel). Drawn at its native 16x16 size — larger than
+    CHATROW_ICON_SIZE (12), same as the deliberate "crown reads as a
+    slightly bigger badge" look in the official client, not an
+    oversight. }
+  PREMIUM_CROWN_ICON = 10;
 
   { 6..10 — message status/direction icons in framehistory.pas, the
     same ImageList1 object (via FormMain.Chats.ImageList1) that
@@ -437,6 +453,26 @@ const
     so rescanning this window on every scroll tick is safe — real work
     only starts for rows newly entering the window. }
   AUTODL_PREFETCH_MESSAGES = 30;
+
+  { ================= msginput.pas ================= }
+
+  { Inner padding from Memo's own edges to its text, on all four
+    sides — by direct request, alongside rounding Memo's corners to
+    match the message blocks in history (MSG_CORNER_RADIUS,
+    framehistory.pas group above, reused as-is rather than a separate
+    number — "same as messages"). Applied via EM_SETRECT, not a
+    property TMemo exposes itself — see TMessageInputPanel.MemoResize
+    (msginput.pas). }
+  MEMO_PAD = 8;
+  { FSyncTimer's interval (TMessageInputPanel) — drives both the
+    custom scrollbar's poll (SyncVScroll, needed since a plain Edit
+    control raises no scroll-position notification of its own at all)
+    and the MemoResize self-heal poll (needed since the native Edit
+    control silently reverts its own format rect once, shortly after
+    every resize — see SyncTick's own comment). Pulled out as its own
+    number by direct request — noticeably laggy at 150ms, to be
+    retuned by hand. }
+  MEMO_SYNC_TIMER_MS = 2;
 
   { ================= msglayout.pas ================= }
 
@@ -600,6 +636,51 @@ const
   TD_ERR_TIMEOUT = -1;
   { Synthetic code for requests canceled by client shutdown. }
   TD_ERR_CLOSED  = -2;
+
+  { ================= thinscrollbar.pas ================= }
+
+  { Custom-painted stand-in for the native TScrollBar, sizes by direct
+    request — see the unit's own header comment for why this can't
+    just be a TScrollBar subclass (Windows' own SCROLLBAR window class
+    isn't Paint-hookable at all). }
+  THIN_SCROLLBAR_WIDTH   = 6;
+  THIN_SCROLLBAR_THUMB_W = 4;
+  { Fully rounded pill ends — half the thumb's own width. }
+  THIN_SCROLLBAR_RADIUS  = THIN_SCROLLBAR_THUMB_W / 2;
+  { The thumb never shrinks below this, however small the visible page
+    is relative to the whole scroll range — otherwise a very long chat
+    history would give an unusably tiny, hard-to-grab sliver. Not
+    requested explicitly, the same kind of sane floor every native
+    scrollbar already enforces. }
+  THIN_SCROLLBAR_MIN_THUMB_H = 24;
+  { Muted gray, slightly darker while hovered/dragged — the same kind
+    of cheap, two-state hover feedback used elsewhere in this project
+    (e.g. crHandPoint cursors), not a fully themed control. }
+  THIN_SCROLLBAR_THUMB_COLOR        = $C8C8C8;
+  THIN_SCROLLBAR_THUMB_ACTIVE_COLOR = $969696;
+  { 1px gap kept between the thumb and the very top/bottom edge of the
+    track, by direct request — with the track's own corners now rounded
+    too (THIN_SCROLLBAR_TRACK_RADIUS below), a thumb sitting flush
+    against them would look like it pokes out past the curve. }
+  THIN_SCROLLBAR_THUMB_INSET = 1;
+  { Corner radius for the TRACK itself (the whole control's own
+    background strip), not the thumb (THIN_SCROLLBAR_RADIUS, sized off
+    the narrower thumb width, above) — half the track's own width, the
+    same "fully rounded pill" convention used everywhere else in this
+    project for a narrow element (radius = half the shorter dimension).
+    Painted the same antialiased way as the thumb (TThinScrollBar.Paint,
+    one composite for both) — an earlier version used a window-region
+    clip (SetWindowRgn) instead, which looked visibly stair-stepped by
+    direct report: a native region is an all-or-nothing per-pixel mask,
+    it can't antialias at all. Reading the real parent background color
+    live (Parent.Color) at paint time — rather than needing that color
+    plumbed in from each of this control's three call sites, the way
+    the message-block widgets elsewhere in this project need a computed
+    BackgroundColor — is what makes a plain composite work here: unlike
+    those widgets' per-message TINTED backgrounds, this control's
+    parent (a plain frame/panel in all three cases) genuinely IS just
+    its own flat Color, nothing to compute. }
+  THIN_SCROLLBAR_TRACK_RADIUS = THIN_SCROLLBAR_WIDTH div 2;
 
 implementation
 

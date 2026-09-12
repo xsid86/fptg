@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, IniFiles, ExtCtrls,
   constants, tdauth, tdrecv, tdsession, tdreq, tdchats, tdmessages, tdusers,
-  tdaccentcolors, tdaccount;
+  tdaccentcolors, tdaccount, tdsupergroups;
 
 type
   { Aliases so forms don't need to add tdsession to their uses clause.
@@ -138,6 +138,8 @@ function TdMsgList: TTdMessages;
   TdUsers would resolve to the unit, not the function. }
 function TdUserList: TTdUsers;
 function TdAccentColorList: TTdAccentColors;
+{ Same unit-name pitfall (tdsupergroups) as TdMsgList/TdUserList above. }
+function TdSupergroupList: TTdSupergroups;
 function TdRequests: TTdRequests;
 
 { Unsubscribes from all accounts at once. A form may have subscribed to
@@ -207,6 +209,18 @@ begin
   A := TdApp.Active;
   if A <> nil then begin
     Result := A.AccentColors;
+  end else begin
+    Result := nil;
+  end;
+end;
+
+function TdSupergroupList: TTdSupergroups;
+var
+  A: TTdAccount;
+begin
+  A := TdApp.Active;
+  if A <> nil then begin
+    Result := A.Supergroups;
   end else begin
     Result := nil;
   end;

@@ -17,7 +17,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="277"/>
+      <BuildNr Value="306"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -132,11 +132,19 @@
         <ResourceBaseClass Value="Frame"/>
       </Unit>
       <Unit>
+        <Filename Value="framelog.lfm"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="framewelcome.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="FrameWelcome"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="framewelcome.lfm"/>
+        <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdchats.pas"/>
@@ -233,11 +241,19 @@
         <ResourceBaseClass Value="Frame"/>
       </Unit>
       <Unit>
+        <Filename Value="msginput.lfm"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="settings.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="FormSettings"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="settings.lfm"/>
+        <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsgeneral.pas"/>
@@ -247,6 +263,10 @@
         <ResourceBaseClass Value="Frame"/>
       </Unit>
       <Unit>
+        <Filename Value="framesettingsgeneral.lfm"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="framesettingsaudio.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="FrameSettingsAudio"/>
@@ -254,11 +274,19 @@
         <ResourceBaseClass Value="Frame"/>
       </Unit>
       <Unit>
+        <Filename Value="framesettingsaudio.lfm"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="framesettingsautodownload.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="FrameSettingsAutoDownload"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="framesettingsautodownload.lfm"/>
+        <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdsession.pas"/>
@@ -274,6 +302,14 @@
       </Unit>
       <Unit>
         <Filename Value="customemoji.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdsupergroups.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="thinscrollbar.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
     </Units>

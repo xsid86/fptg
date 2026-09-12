@@ -6,7 +6,8 @@ interface
 
 uses
   Classes, SysUtils, ExtCtrls, fpjson, jsonparser, base64,
-  tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages, tdusers, tdaccentcolors;
+  tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages, tdusers, tdaccentcolors,
+  tdsupergroups;
 
 type
 
@@ -47,6 +48,7 @@ type
     FMessages: TTdMessages;
     FUsers:    TTdUsers;
     FAccentColors: TTdAccentColors;
+    FSupergroups: TTdSupergroups;
 
     FUpdateL: array of ITdUpdateListener;
     FStateL:  array of ITdStateListener;
@@ -142,6 +144,7 @@ type
     property Messages: TTdMessages read FMessages;
     property Users: TTdUsers read FUsers;
     property AccentColors: TTdAccentColors read FAccentColors;
+    property Supergroups: TTdSupergroups read FSupergroups;
     property Requests: TTdRequests read FReq;
     property Auth: TTdAuth read FAuth;
     property State: TTdAuthState read FState;
@@ -225,10 +228,12 @@ begin
   FMessages := TTdMessages.Create(Self, Self, FReq);
   FUsers := TTdUsers.Create(Self, Self, FReq);
   FAccentColors := TTdAccentColors.Create(Self, Self);
+  FSupergroups := TTdSupergroups.Create(Self, Self, FReq);
 end;
 
 procedure TTdAccount.DestroyEngine;
 begin
+  FreeAndNil(FSupergroups);
   FreeAndNil(FAccentColors);
   FreeAndNil(FUsers);
   FreeAndNil(FMessages);

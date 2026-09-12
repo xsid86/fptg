@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, IniFiles, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
   Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
-  tdauth, tdcore, tdreq, tdchats, uiframe, framelog, framewelcome,
+  tdauth, tdcore, tdreq, tdchats, tdsupergroups, uiframe, framelog, framewelcome,
   framechats, framehistory, mediaviewer, msginput, constants;
 
 type
@@ -46,9 +46,19 @@ type
     PresenceMenu: TPopupMenu;
     MenuItemPresenceOnline: TMenuItem;
     MenuItemPresenceInvisible: TMenuItem;
+    { Tray icon's own popup menu (right-click) — separate component from
+      MainMenu1/PresenceMenu so it can be edited in the Designer too.
+      Its "Exit" item reuses menuQuitClick directly (same method, two
+      menu owners — LCL doesn't care which menu a TMenuItem's OnClick
+      came from). }
+    TrayPopupMenu: TPopupMenu;
+    MenuItemTrayShow: TMenuItem;
+    MenuItemTrayExit: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
+    procedure TrayIconDblClick(Sender: TObject);
+    procedure MenuItemTrayShowClick(Sender: TObject);
     procedure btnLogoutClick(Sender: TObject);
     procedure logScreen(Sender: TObject);
     procedure welcomeScreen(Sender: TObject);
@@ -100,6 +110,22 @@ type
       via setOption("online", false), see ApplyPresence. Persisted to
       config.ini/[ui], same pattern as FAudioDeviceName. }
     FInvisible: boolean;
+    { True = pressing the window's close button hides it to the tray
+      instead of quitting — the tray icon (always visible, see main.lfm)
+      stays behind, a double-click or its own "Show" menu item restores
+      the window. Does NOT affect an explicit quit (File > Quit, the
+      tray icon's own "Exit", or closing the pre-login window) — those
+      always go through the real shutdown, see FQuitRequested.
+      Persisted to config.ini/[ui], same pattern as FInvisible. Defaults
+      to True: this is the newly-requested behavior, not a preserved
+      old default. }
+    FCloseToTray: boolean;
+    { Set by the few paths that mean an actual quit, not just closing
+      the window: File > Quit (menuQuitClick), the tray icon's own
+      "Exit" (same handler), and RequestAppClose (closing the pre-login
+      window, where there's nothing useful to keep alive in the tray
+      for). FormCloseQuery checks this before honoring FCloseToTray. }
+    FQuitRequested: boolean;
     { FAutoDownload[media][chat] — a cache of the grid from
       config.ini/[autodownload] (see framesettingsautodownload.pas),
       same principle as FAudioDeviceName: the single in-memory source
@@ -129,6 +155,21 @@ type
     procedure TdActiveChanged(ANew: TTdAccount);
     procedure TdAccountsChanged;
     procedure RequestAppClose;
+    { Shows/hides the message input panel (and its splitter) based on
+      whether a chat is actually open right now — FNav.Current is
+      TFrameHistory AND that frame's Model has a nonzero ChatId. Model
+      alone isn't enough: it's a per-ACCOUNT singleton (TTdMessages),
+      already non-nil as soon as the account is ready, regardless of
+      whether any chat has ever been opened in it — so on the Welcome/
+      Log/Settings screens, or on a freshly-created TFrameHistory
+      before its first OpenChat, Model.ChatId is still 0. Called from
+      here (logScreen/welcomeScreen/TdStateChanged) whenever the shown
+      screen changes to something other than a chat, and from
+      framehistory.pas's own OpenChat/TdActiveChanged whenever a chat
+      is opened or the active account switches — the two ends of the
+      transition, not a generic navigator-wide event, since those are
+      the only places either side of it actually happens. }
+    procedure UpdateMessageInputVisibility;
     { ITdStateListener }
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
@@ -156,6 +197,15 @@ type
       by framehistory.pas, same global-FormMain access pattern already
       used for AutoDownloadEnabled/AudioDeviceName. }
     property Invisible: boolean read FInvisible;
+    { Whether closing the window hides it to the tray instead of
+      quitting — needed by framesettingsgeneral.pas (the General
+      section's checkbox), same global-FormMain access pattern already
+      used for AudioDeviceName/Invisible. }
+    property CloseToTray: boolean read FCloseToTray;
+    { Changes the setting and immediately persists it to
+      config.ini/[ui] — called from TFrameSettingsGeneral, same
+      pattern as SetAudioDeviceName. }
+    procedure SetCloseToTray(AValue: boolean);
     { Photo/video viewer — needed by framehistory.pas (clicking a
       photo/video in a chat opens it), same global-FormMain access
       pattern already used for Chats/Nav. }
@@ -224,6 +274,16 @@ begin
   FInputSplitter := TSplitter.Create(pnlWork);
   FInputSplitter.Parent := pnlWork;
   FInputSplitter.Align := alBottom;
+  { rsUpdate (the default) relayouts and repaints everything anchored
+    to this splitter on every single mouse-move during a drag — with
+    the chat list (a TDrawGrid painting each row through BGRABitmap)
+    and the message history (TMsgScroller, same kind of per-row BGRA
+    painting) both anchored above it, repaint can't keep up with a fast
+    drag, and the intermediate, partially-repainted frames are what
+    showed up as streaking/ghosting. rsLine defers the actual
+    resize+repaint to mouse-up, drawing just a plain line while
+    dragging — the same fix applied to splLeft (main.lfm). }
+  FInputSplitter.ResizeStyle := rsLine;
 
   FNavHost := TPanel.Create(pnlWork);
   FNavHost.Parent := pnlWork;
@@ -276,12 +336,20 @@ begin
     try
       FAudioDeviceName := ReadString('audio', 'device', '');
       FInvisible := ReadBool('ui', 'invisible', False);
+      FCloseToTray := ReadBool('ui', 'closetotray', True);
     finally
       Free;
     end;
   end;
   LoadAutoDownloadSettings;
   UpdatePresencePanel;
+  { No chat is open yet — hidden until the Welcome screen (or a real
+    chat selection) says otherwise, see the property's own comment.
+    Not strictly needed before the window is even shown, but keeps
+    FMessageInput/FInputSplitter's actual Visible state honest from
+    the start rather than whatever msginput.lfm's default happens to
+    be. }
+  UpdateMessageInputVisibility;
 
   { "New" in the Account menu creates another account. }
   if MenuItem11 <> nil then begin
@@ -321,20 +389,58 @@ end;
 
 procedure TFormMain.RequestAppClose;
 begin
+  { Closing the pre-login window: nothing useful to keep alive in the
+    tray for, always a real quit. }
+  FQuitRequested := True;
   Close;
 end;
 
 procedure TFormMain.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
+  { The window's own close button, with "close to tray" on: hide
+    instead of quitting. An explicit quit (File > Quit, the tray
+    icon's "Exit", RequestAppClose) always sets FQuitRequested first
+    and skips this branch. }
+  if FCloseToTray and not FQuitRequested then begin
+    CanClose := False;
+    Hide;
+    Exit;
+  end;
+
   if FTdClosed then begin
     CanClose := True;
     Exit;
   end;
+  { Hidden right away, before TDLib has even confirmed the close:
+    RequestClose on every account fires a burst of updates as chats
+    and messages get torn down on the way out, and with the window
+    still visible and repainting that showed up as a visible "freeze"
+    — the chat list emptying out, a stray message left behind in the
+    history frame from whatever chat was open. None of that is
+    anything the user needs to see; hiding first means the whole
+    teardown happens off-screen, same as an ordinary tray-hide. }
+  Hide;
   CanClose  := TdApp.BeginShutdown(@ShutdownDone);
   FTdClosed := CanClose;
   if not CanClose then begin
     SetStatusText('Closing TDLib, waiting for confirmation...');
   end;
+end;
+
+procedure TFormMain.TrayIconDblClick(Sender: TObject);
+begin
+  if not Visible then begin
+    Show;
+  end;
+  if WindowState = wsMinimized then begin
+    WindowState := wsNormal;
+  end;
+  Application.BringToFront;
+end;
+
+procedure TFormMain.MenuItemTrayShowClick(Sender: TObject);
+begin
+  TrayIconDblClick(Sender);
 end;
 
 procedure TFormMain.ChatSelected(Sender: TObject; ARow: TChatRow);
@@ -381,6 +487,63 @@ begin
     actually formatted" branch needed. }
   F.Model.SendFormattedText(utf8string(MsgText), FMessageInput.IsHtmlMode);
   FMessageInput.ClearText;
+end;
+
+procedure TFormMain.UpdateMessageInputVisibility;
+var
+  ShowInput, HasOverride, OverrideCanSend: boolean;
+  F: TFrameHistory;
+  ChatsModel: TTdChats;
+  Groups: TTdSupergroups;
+  Row: TChatRow;
+begin
+  if (FMessageInput = nil) or (FInputSplitter = nil) or (FNav = nil) then begin
+    Exit;
+  end;
+  ShowInput := False;
+  if FNav.Current is TFrameHistory then begin
+    F := TFrameHistory(FNav.Current);
+    if (F.Model <> nil) and (F.Model.ChatId <> 0) then begin
+      ShowInput := True;
+      { A chat being open only means somewhere to type INTO — not that
+        sending is actually possible there. Two independent signals,
+        checked in priority order:
+          1) The viewer's OWN status in the chat's supergroup/channel
+             (TTdSupergroups.OverridesPermissions) — a channel admin
+             with posting rights, or the creator, CAN post there even
+             though chat.permissions (below) says ordinary members
+             can't; conversely a Restricted/Left/Banned status means
+             they definitely CAN'T, whatever chat.permissions says.
+             Wins outright when it gives a definite answer.
+          2) chat.permissions.can_send_basic_messages (TChatRow.
+             CanSendBasicMessages) — what an ORDINARY member may do,
+             used only when (1) had no personal override to report
+             (a plain Member, or the status hasn't loaded yet).
+        Both looked up by chat id/supergroup id from the chat-list
+        model, not anything TFrameHistory tracks itself — that frame
+        has no per-chat permission state of its own. }
+      ChatsModel := TdChatList;
+      if ChatsModel <> nil then begin
+        Row := ChatsModel.Lookup(F.Model.ChatId);
+        if Row <> nil then begin
+          HasOverride := False;
+          if Row.SupergroupId <> 0 then begin
+            Groups := TdSupergroupList;
+            if Groups <> nil then begin
+              HasOverride := Groups.OverridesPermissions(Row.SupergroupId, OverrideCanSend);
+            end;
+          end;
+          if HasOverride then begin
+            ShowInput := OverrideCanSend;
+          end else if not Row.CanSendBasicMessages then begin
+            ShowInput := False;
+          end;
+        end;
+      end;
+    end;
+  end;
+  FMessageInput.Visible := ShowInput;
+  FInputSplitter.Visible := ShowInput;
 end;
 
 procedure TFormMain.ListModeChanged(Sender: TObject; AMode: TChatListMode);
@@ -537,15 +700,28 @@ end;
 procedure TFormMain.logScreen(Sender: TObject);
 begin
   FNav.ShowFrame(TFrameLog);
+  UpdateMessageInputVisibility;
 end;
 
 procedure TFormMain.welcomeScreen(Sender: TObject);
 begin
   FNav.ShowFrame(TFrameWelcome);
+  UpdateMessageInputVisibility;
 end;
 
 procedure TFormMain.menuQuitClick(Sender: TObject);
 begin
+  { File > Quit and the tray icon's own "Exit" item (same handler) —
+    both are one deliberate click away from actually closing TDLib and
+    ending the process (unlike the window's own close button, which
+    just hides to the tray by default), so confirm first, same pattern
+    as btnLogoutClick. }
+  if MessageDlg('Quit', 'Quit Telegram?', mtConfirmation, [mbYes, mbNo], 0) <> mrYes then begin
+    Exit;
+  end;
+  { An explicit quit always goes through the real shutdown, regardless
+    of FCloseToTray (see FormCloseQuery). }
+  FQuitRequested := True;
   Close;
 end;
 
@@ -572,6 +748,7 @@ begin
         wasted work. }
       if FNav.Current = nil then begin
         FNav.ShowFrame(TFrameWelcome);
+        UpdateMessageInputVisibility;
       end;
     end;
   end else begin
@@ -718,6 +895,21 @@ begin
     Dlg.ShowModal;
   finally
     Dlg.Free;
+  end;
+end;
+
+procedure TFormMain.SetCloseToTray(AValue: boolean);
+begin
+  if AValue = FCloseToTray then begin
+    Exit;
+  end;
+  FCloseToTray := AValue;
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteBool('ui', 'closetotray', FCloseToTray);
+    finally
+      Free;
+    end;
   end;
 end;
 

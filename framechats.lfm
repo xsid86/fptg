@@ -2,20 +2,26 @@ object FrameChats: TFrameChats
   Left = 0
   Height = 560
   Top = 0
-  Width = 300
+  Width = 294
   ClientHeight = 560
-  ClientWidth = 300
+  ClientWidth = 294
+  Color = clDefault
+  Constraints.MinWidth = 294
   LCLVersion = '4.8.0.0'
+  ParentBackground = False
+  ParentColor = False
   TabOrder = 0
   object Grid: TDrawGrid
     Left = 0
     Height = 560
     Top = 0
-    Width = 300
+    Width = 294
     Align = alClient
     AutoFillColumns = True
     BorderStyle = bsNone
+    Color = clDefault
     ColCount = 1
+    Constraints.MinWidth = 294
     DefaultRowHeight = 56
     FixedCols = 0
     FixedRows = 0
@@ -23,7 +29,7 @@ object FrameChats: TFrameChats
     PopupMenu = mnuChat
     RowCount = 0
     ScrollBars = ssAutoVertical
-    TabOrder = 1
+    TabOrder = 0
     OnContextPopup = GridContextPopup
     OnDrawCell = GridDrawCell
     OnMouseDown = GridMouseDown
@@ -31,7 +37,7 @@ object FrameChats: TFrameChats
     OnSelectCell = GridSelectCell
     OnTopleftChanged = GridTopLeftChanged
     ColWidths = (
-      300
+      294
     )
   end
   object mnuChat: TPopupMenu

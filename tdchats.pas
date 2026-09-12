@@ -67,6 +67,15 @@ type
       everything else. }
     NotifyRaw:          utf8string;
     UserId:             Int64;        { the peer, private chats only }
+    { chatTypeSupergroup.supergroup_id — set for BOTH ordinary
+      supergroups and broadcast channels (Kind=ckSupergroup/ckChannel;
+      TDLib backs both by the same supergroup entity, is_channel is
+      what tells them apart). 0 for anything else. Needed to look up
+      the viewer's own admin/creator override
+      (TTdSupergroups.OverridesPermissions, tdsupergroups.pas) — see
+      CanSendBasicMessages below for why chat.permissions alone isn't
+      enough. }
+    SupergroupId:       Int64;
     PhotoFileId:        integer;      { small.id, 0 = no photo }
     PhotoPath:          utf8string;   { local path, if already downloaded }
     Minithumb:          RawByteString;{ raw JPEG from minithumbnail }
@@ -77,6 +86,33 @@ type
       Needed by framehistory.pas for anonymous posts made on behalf of
       a chat/channel. }
     AccentColorId:      integer;
+    { The Premium "emoji status" shown after a user's name (a custom
+      emoji id, same id-space as LastGlyphs/text custom emoji), 0 if
+      none. Read straight off chat.emoji_status — TDLib mirrors the
+      peer's own user.emoji_status onto the chat object itself for
+      private chats, so no separate user lookup is needed here (unlike
+      is_premium below, which genuinely only exists on the user).
+      emojiStatusTypeUpgradedGift (collectible statuses, no emoji id)
+      is left at 0, same as "no status" — see ApplyEmojiStatus. }
+    EmojiStatusCustomEmojiId: Int64;
+    { chat.permissions.can_send_basic_messages — what it actually
+      describes, per TDLib's own doc on chatPermissions, is what a
+      NON-ADMINISTRATOR member of the chat may do; it's what makes a
+      broadcast channel come back False for everyone but its posting
+      admins/creator (ordinary members/viewers can never send there at
+      all), while an ordinary group or a private chat comes back True.
+      Says NOTHING about the viewer's OWN admin/creator status in a
+      channel they'd otherwise be refused in — that lives in a
+      separate per-member status TDLib doesn't attach to the chat
+      object at all (supergroup.status, tracked by TTdSupergroups,
+      tdsupergroups.pas, keyed by SupergroupId below — the caller
+      checks TTdSupergroups.OverridesPermissions FIRST and only falls
+      back to this field when that returns no personal override).
+      Kept live via updateChatPermissions, in addition to the initial
+      value from ApplyChat. Defaults True (a freshly Obtain'd row,
+      before its first ApplyChat) so nothing hides on a not-yet-
+      populated row. }
+    CanSendBasicMessages: boolean;
   end;
 
   { Archive summary for the pseudo-row at the top of the list. }
@@ -111,6 +147,11 @@ type
     { Bots are identified by user, not chat: a chat's type is always
       chatTypePrivate. updateUser updates arrive on their own. }
     FBots:   TBotMap;
+    { Same idea as FBots, one boolean per user id, but for
+      user.is_premium — a separate map, not a second field alongside
+      IsBot on some shared record: the two flags are independent and
+      updateUser can change either one on its own (see ApplyUser). }
+    FPremiumUsers: TBotMap;
     FRows:  TFPList;      { displayed, sorted }
     FTimer: TTimer;
     FDirty: boolean;
@@ -143,6 +184,8 @@ type
     procedure ApplyPosition(ARow: TChatRow; APos: TJSONObject);
     procedure ApplyPhoto(ARow: TChatRow; APhoto: TJSONObject);
     procedure ApplyLastMessage(ARow: TChatRow; AMsg: TJSONObject);
+    procedure ApplyEmojiStatus(ARow: TChatRow; AStatus: TJSONObject);
+    procedure ApplyPermissions(ARow: TChatRow; APermissions: TJSONObject);
 
     procedure Touch;
     procedure Rebuild(Sender: TObject);
@@ -193,19 +236,29 @@ type
 
     { Whether the peer is a bot. Always False for non-private chats. }
     function IsBotChat(ARow: TChatRow): boolean;
+    { Whether the peer is a Telegram Premium user (user.is_premium).
+      Always False for non-private chats, same restriction as
+      IsBotChat — group/channel/secret chats have no single peer to
+      ask (secret chats never get UserId populated either, see
+      ChatUserId). }
+    function IsPremiumUser(ARow: TChatRow): boolean;
 
     { Requests the real avatar. Called by the frame only for visible
       rows — downloading everything at once would be pointless. Repeat
       calls are harmless. }
     procedure EnsureAvatar(ARow: TChatRow);
-    { Custom (Premium) emoji in ARow.LastGlyphs — same idea as
-      TTdMessages.EnsureCustomEmojiForRow (tdmessages.pas): a message's
-      history being open is what fetches these for the message view, but
-      the chat LIST shows a preview of chats that may never have been
-      opened this session at all, so it needs its own fetch path, not
-      just its own render path (already wired, framechats.pas). Called
-      by the frame only for visible rows, same as EnsureAvatar above —
-      repeat calls are harmless. }
+    { Custom (Premium) emoji in ARow.LastGlyphs, plus the peer's own
+      Premium "emoji status" (ARow.EmojiStatusCustomEmojiId) if it has
+      one — same idea as TTdMessages.EnsureCustomEmojiForRow
+      (tdmessages.pas), which likewise batches a message's text
+      entities together with its reactions in one request rather than
+      firing a separate one per source: a message's history being open
+      is what fetches these for the message view, but the chat LIST
+      shows a preview of chats that may never have been opened this
+      session at all, so it needs its own fetch path, not just its own
+      render path (already wired, framechats.pas). Called by the frame
+      only for visible rows, same as EnsureAvatar above — repeat calls
+      are harmless. }
     procedure EnsureCustomEmojiForRow(ARow: TChatRow);
 
     { Asks TDLib to load the next batch. The chats themselves arrive via
@@ -292,6 +345,16 @@ begin
   Result := 0;
   if (AType <> nil) and (JGetStr(AType, '@type') = 'chatTypePrivate') then begin
     Result := JGetInt64(AType, 'user_id');
+  end;
+end;
+
+{ chatTypeSupergroup.supergroup_id — present for both ordinary
+  supergroups and channels (see SupergroupId's own comment). }
+function ChatSupergroupId(AType: TJSONObject): Int64;
+begin
+  Result := 0;
+  if (AType <> nil) and (JGetStr(AType, '@type') = 'chatTypeSupergroup') then begin
+    Result := JGetInt64(AType, 'supergroup_id');
   end;
 end;
 
@@ -546,6 +609,8 @@ begin
   FByFile.Sorted := True;
   FBots := TBotMap.Create;
   FBots.Sorted := True;
+  FPremiumUsers := TBotMap.Create;
+  FPremiumUsers.Sorted := True;
   FRows := TFPList.Create;
   FArchiveRows := TFPList.Create;
   FLoadLimit := 30;
@@ -569,6 +634,7 @@ begin
   FRows.Free;
   FArchiveRows.Free;
   FBots.Free;
+  FPremiumUsers.Free;
   FByFile.Free;
   FAll.Free;
   inherited Destroy;
@@ -586,6 +652,7 @@ begin
   FAll.Clear;
   FByFile.Clear;
   FBots.Clear;
+  FPremiumUsers.Clear;
   FAllLoaded := False;
   FArchiveLoading := False;
   FArchiveAllLoaded := False;
@@ -642,6 +709,11 @@ begin
   if Result = nil then begin
     Result := TChatRow.Create;
     Result.Id := AId;
+    { A boolean field defaults to False on a fresh object — explicit
+      here so a row is never mistaken for "can't send" before its
+      first ApplyChat has actually said so, see the field's own
+      comment. }
+    Result.CanSendBasicMessages := True;
     FAll.Add(AId, Result);
   end;
 end;
@@ -833,13 +905,24 @@ begin
   if (ARow = nil) or (FReq = nil) then begin
     Exit;
   end;
-  SetLength(Ids, Length(ARow.LastGlyphs));
+  SetLength(Ids, Length(ARow.LastGlyphs) + 1);
   N := 0;
   for I := 0 to High(ARow.LastGlyphs) do begin
     Id := ARow.LastGlyphs[I].CustomEmojiId;
     if (Id = 0) or CustomEmojiKnown(Id) or IsCustomEmojiPending(Id) then begin
       Continue;
     end;
+    Ids[N] := Id;
+    Inc(N);
+    MarkCustomEmojiPending(Id);
+  end;
+  { The peer's Premium "emoji status" rides in the same batch — same
+    dedup rules as the preview glyphs above, just one extra candidate
+    id, not its own array/request (the same approach
+    TTdMessages.EnsureCustomEmojiForRow, tdmessages.pas, already takes
+    to combine text entities with reactions). }
+  Id := ARow.EmojiStatusCustomEmojiId;
+  if (Id <> 0) and not CustomEmojiKnown(Id) and not IsCustomEmojiPending(Id) then begin
     Ids[N] := Id;
     Inc(N);
     MarkCustomEmojiPending(Id);
@@ -1075,8 +1158,9 @@ end;
 procedure TTdChats.ApplyUser(AUser: TJSONObject);
 var
   Id: Int64;
-  IsBot, Was: boolean;
+  IsBot, IsPrem: boolean;
   Idx: integer;
+  Changed: boolean;
 begin
   if AUser = nil then begin
     Exit;
@@ -1086,23 +1170,38 @@ begin
     Exit;
   end;
   IsBot := JGetStr(JGetObj(AUser, 'type'), '@type') = 'userTypeBot';
+  IsPrem := JGetBool(AUser, 'is_premium');
+  { updateUser arrives for EVERY known user, and there are thousands of
+    them. A repaint is only requested when one of the two flags this
+    model tracks actually changed — checking bot status alone (the
+    original shape of this method) and bailing out early on "unchanged"
+    would silently skip a genuine is_premium change riding along on the
+    same update, so both are checked before deciding whether to Touch. }
+  Changed := False;
 
   Idx := FBots.IndexOf(Id);
   if Idx >= 0 then begin
-    if FBots.Data[Idx] = IsBot then begin
-      Exit;
+    if FBots.Data[Idx] <> IsBot then begin
+      FBots.Data[Idx] := IsBot;
+      Changed := True;
     end;
-    Was := FBots.Data[Idx];
-    FBots.Data[Idx] := IsBot;
   end else begin
-    Was := False;
     FBots.Add(Id, IsBot);
+    Changed := Changed or IsBot;
   end;
 
-  { updateUser arrives for EVERY known user, and there are thousands of
-    them. A repaint is only requested when the icon could have changed,
-    i.e. when a bot is involved. }
-  if IsBot or Was then begin
+  Idx := FPremiumUsers.IndexOf(Id);
+  if Idx >= 0 then begin
+    if FPremiumUsers.Data[Idx] <> IsPrem then begin
+      FPremiumUsers.Data[Idx] := IsPrem;
+      Changed := True;
+    end;
+  end else begin
+    FPremiumUsers.Add(Id, IsPrem);
+    Changed := Changed or IsPrem;
+  end;
+
+  if Changed then begin
     Touch;
   end;
 end;
@@ -1118,6 +1217,20 @@ begin
   Idx := FBots.IndexOf(ARow.UserId);
   if Idx >= 0 then begin
     Result := FBots.Data[Idx];
+  end;
+end;
+
+function TTdChats.IsPremiumUser(ARow: TChatRow): boolean;
+var
+  Idx: integer;
+begin
+  Result := False;
+  if (ARow = nil) or (ARow.Kind <> ckPrivate) or (ARow.UserId = 0) then begin
+    Exit;
+  end;
+  Idx := FPremiumUsers.IndexOf(ARow.UserId);
+  if Idx >= 0 then begin
+    Result := FPremiumUsers.Data[Idx];
   end;
 end;
 
@@ -1415,6 +1528,40 @@ begin
   end;
 end;
 
+{ chat.emoji_status: an emojiStatus object (type + expiration_date) or
+  null. Only emojiStatusTypeCustomEmoji carries an id to render — the
+  newer emojiStatusTypeUpgradedGift (a collectible status, no custom
+  emoji underneath) is left as "no status" (0), same as null, rather
+  than guessing at some other rendering for it. }
+procedure TTdChats.ApplyEmojiStatus(ARow: TChatRow; AStatus: TJSONObject);
+var
+  TypeObj: TJSONObject;
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  ARow.EmojiStatusCustomEmojiId := 0;
+  if AStatus = nil then begin
+    Exit;
+  end;
+  TypeObj := JGetObj(AStatus, 'type');
+  if JGetStr(TypeObj, '@type') = 'emojiStatusTypeCustomEmoji' then begin
+    ARow.EmojiStatusCustomEmojiId := JGetInt64(TypeObj, 'custom_emoji_id');
+  end;
+end;
+
+{ chat.permissions: a chatPermissions object, always present (never
+  null) per the schema — no "missing" case to fall back on, unlike
+  ApplyEmojiStatus above. See CanSendBasicMessages' own comment
+  (its field declaration) for what this flag does and doesn't cover. }
+procedure TTdChats.ApplyPermissions(ARow: TChatRow; APermissions: TJSONObject);
+begin
+  if (ARow = nil) or (APermissions = nil) then begin
+    Exit;
+  end;
+  ARow.CanSendBasicMessages := JGetBool(APermissions, 'can_send_basic_messages');
+end;
+
 procedure TTdChats.ApplyChat(AChat: TJSONObject);
 var
   R: TChatRow;
@@ -1426,14 +1573,17 @@ begin
   R.Title := JGetStr(AChat, 'title');
   R.Kind := KindFromType(JGetObj(AChat, 'type'));
   R.UserId := ChatUserId(JGetObj(AChat, 'type'));
+  R.SupergroupId := ChatSupergroupId(JGetObj(AChat, 'type'));
   R.UnreadCount := JGetInt(AChat, 'unread_count');
   R.UnreadMentionCount := JGetInt(AChat, 'unread_mention_count');
   R.IsMarkedAsUnread := JGetBool(AChat, 'is_marked_as_unread');
   R.LastReadOutbox := JGetInt64(AChat, 'last_read_outbox_message_id');
   R.AccentColorId := JGetInt(AChat, 'accent_color_id');
+  ApplyPermissions(R, JGetObj(AChat, 'permissions'));
   ApplyNotifySettings(R, JGetObj(AChat, 'notification_settings'));
   ApplyPhoto(R, JGetObj(AChat, 'photo'));
   ApplyLastMessage(R, JGetObj(AChat, 'last_message'));
+  ApplyEmojiStatus(R, JGetObj(AChat, 'emoji_status'));
   ApplyPositions(R, JGetArr(AChat, 'positions'));
 end;
 
@@ -1516,6 +1666,18 @@ begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));
       if R <> nil then begin
         R.AccentColorId := JGetInt(Obj, 'accent_color_id');
+        Touch;
+      end;
+    end else if T = 'updateChatEmojiStatus' then begin
+      R := Lookup(JGetInt64(Obj, 'chat_id'));
+      if R <> nil then begin
+        ApplyEmojiStatus(R, JGetObj(Obj, 'emoji_status'));
+        Touch;
+      end;
+    end else if T = 'updateChatPermissions' then begin
+      R := Lookup(JGetInt64(Obj, 'chat_id'));
+      if R <> nil then begin
+        ApplyPermissions(R, JGetObj(Obj, 'permissions'));
         Touch;
       end;
     end;
