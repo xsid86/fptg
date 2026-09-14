@@ -34,7 +34,6 @@ type
     MenuItem7:  TMenuItem;
     MenuItem8:  TMenuItem;
     MenuItem9:  TMenuItem;
-    MenuItem14: TMenuItem;
     pnlLeft:    TPanel;
     splLeft:    TSplitter;
     pnlWork:    TPanel;
@@ -120,6 +119,15 @@ type
       to True: this is the newly-requested behavior, not a preserved
       old default. }
     FCloseToTray: boolean;
+    { The app's brand accent color (see APP_ACCENT_COLOR, constants.pas,
+      for the default and why it's a SEPARATE constant from
+      CHATROW_PSEUDO_COLOR) — currently used only for the fill of the
+      photo/video download progress bar (framehistory.pas), but kept
+      general (a plain color, not e.g. "download bar color" specifically)
+      since Settings > General presents it as one app-wide choice, not a
+      per-feature one. Persisted to config.ini/[ui], same pattern as
+      FInvisible/FCloseToTray above. }
+    FAccentColor: TColor;
     { Set by the few paths that mean an actual quit, not just closing
       the window: File > Quit (menuQuitClick), the tray icon's own
       "Exit" (same handler), and RequestAppClose (closing the pre-login
@@ -206,6 +214,16 @@ type
       config.ini/[ui] — called from TFrameSettingsGeneral, same
       pattern as SetAudioDeviceName. }
     procedure SetCloseToTray(AValue: boolean);
+    { The live, user-configurable value of the accent color — needed by
+      framehistory.pas (the download progress bar), same global-FormMain
+      access pattern already used for AudioDeviceName/CloseToTray.
+      APP_ACCENT_COLOR (constants.pas) is only the fallback used when
+      nothing has been saved to config.ini yet, see FormCreate. }
+    property AccentColor: TColor read FAccentColor;
+    { Changes the setting and immediately persists it to
+      config.ini/[ui] — called from TFrameSettingsGeneral, same pattern
+      as SetCloseToTray. }
+    procedure SetAccentColor(AValue: TColor);
     { Photo/video viewer — needed by framehistory.pas (clicking a
       photo/video in a chat opens it), same global-FormMain access
       pattern already used for Chats/Nav. }
@@ -337,6 +355,7 @@ begin
       FAudioDeviceName := ReadString('audio', 'device', '');
       FInvisible := ReadBool('ui', 'invisible', False);
       FCloseToTray := ReadBool('ui', 'closetotray', True);
+      FAccentColor := TColor(ReadInteger('ui', 'accentcolor', Integer(APP_ACCENT_COLOR)));
     finally
       Free;
     end;
@@ -907,6 +926,21 @@ begin
   with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
     try
       WriteBool('ui', 'closetotray', FCloseToTray);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TFormMain.SetAccentColor(AValue: TColor);
+begin
+  if AValue = FAccentColor then begin
+    Exit;
+  end;
+  FAccentColor := AValue;
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteInteger('ui', 'accentcolor', Integer(FAccentColor));
     finally
       Free;
     end;

@@ -41,7 +41,7 @@ uses
   athreads,
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
-  Forms, Dialogs, SysUtils,
+  Forms, Controls, Dialogs, SysUtils,
   constants,
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
   tdusers, tdaccentcolors, tdaccount, tdcore, audiodevices, ffdecode, audioplayer, videoplayer,
@@ -49,7 +49,7 @@ uses
   uiframe, avatarcache, qrrender, msglayout, emojiassets, customemoji,
   main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
   framesettingsautodownload, framelog, framewelcome, framechats, framehistory,
-  mediaviewer, msginput
+  mediaviewer, msginput, apisetup
   { you can add units after this };
 
 {$R *.res}
@@ -86,9 +86,24 @@ begin
     к его модели чатов, значит аккаунт к тому моменту должен
     существовать. Клиенты TDLib при этом ещё не запущены. }
   if not TdApp.LoadConfig then begin
-    MessageDlg('Configuration Error', TdApp.ConfigError, mtError, [mbOK], 0);
-    Application.Terminate;
-    Exit;
+    { First run, or a config.ini missing/without api_id/api_hash yet —
+      offer the first-run dialog instead of just failing. Application.
+      CreateForm is safe to call here even though ShowMainForm=False
+      further down hasn't run yet: this form is Free'd explicitly
+      right after and never becomes Application.MainForm. }
+    Application.CreateForm(TFormApiConfig, FormApiConfig);
+    try
+      if FormApiConfig.ShowModal <> mrOk then begin
+        { Cancelled, or closed via the title bar/Esc without ever
+          saving a valid pair — TFormApiConfig only returns mrOk once
+          TdApp.LoadConfig has actually succeeded (see its
+          btnOkClick), so there's nothing left to load here. }
+        Application.Terminate;
+        Exit;
+      end;
+    finally
+      FormApiConfig.Free;
+    end;
   end;
 
   TdApp.LoadAccounts;

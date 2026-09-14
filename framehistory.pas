@@ -181,6 +181,12 @@ type
     FTargetW, FTargetH: integer;
     FLocalPath: utf8string;
     FDownloaded: boolean;
+    { Download progress for the pending download — see SetPhoto and
+      the DOWNLOAD_PROGRESS_* constants (constants.pas) for how Paint
+      uses them. FTotalSize=0 means "no total known yet", not "0%" —
+      Paint simply doesn't draw a bar in that case (see its own
+      comment), rather than showing a misleading full-width empty one. }
+    FDownloadedSize, FTotalSize: Int64;
     FBlurBmp: TBGRABitmap;   { blurred placeholder from minithumbnail, before download }
     FRealBmp: TBGRABitmap;   { the real photo, after download }
     FDownloadImages: TImageList; { ImageList1 — the "download" icon }
@@ -221,10 +227,16 @@ type
       ADownloaded/ALocalPath say whether the real file already exists
       on disk. AMaxW is the actual available column width at this
       point (see ComputePhotoPreviewSize) — without it, the preview
-      could overflow the message card on narrow windows. }
+      could overflow the message card on narrow windows.
+      ADownloadedSize/ATotalSize — TMsgRow.PhotoDownloadedSize/
+      PhotoTotalSize, refreshed on every call (the same "called on every
+      layout pass, self-healing" pattern as SetPlayback elsewhere in
+      this file), used by Paint to draw the progress bar while
+      ADownloaded is False; both 0 before a download is actually in
+      flight, which Paint reads as "no bar", not "0%". }
     procedure SetPhoto(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
-      AMaxW: integer);
+      AMaxW: integer; ADownloadedSize: Int64 = 0; ATotalSize: Int64 = 0);
     property TargetWidth: integer read FTargetW;
     property TargetHeight: integer read FTargetH;
     property DownloadImages: TImageList read FDownloadImages write FDownloadImages;
@@ -381,6 +393,10 @@ type
     FTargetW, FTargetH: integer;
     FLocalPath: utf8string;
     FDownloaded: boolean;
+    { Download progress for the full video — see the identical comment
+      on TPhotoWidget.FDownloadedSize/FTotalSize above; the same
+      PaintDownloadProgress helper draws both. }
+    FDownloadedSize, FTotalSize: Int64;
     FDuration: integer;
     FThumbBmp: TBGRABitmap;     { the sharp frame from content.video.thumbnail, shown until the first live frame arrives — see SetVideoCore }
     FFrameBuf: PByte;           { the latest live frame, BGRA, FTargetW*FTargetH*4 — also what's shown while paused }
@@ -444,7 +460,7 @@ type
     procedure ClearBitmap;
     procedure SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-      ATargetW, ATargetH, ADuration: integer);
+      ATargetW, ATargetH, ADuration: integer; ADownloadedSize, ATotalSize: Int64);
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
@@ -461,10 +477,13 @@ type
       active. AThumbLocalPath is the path to the already-downloaded
       content.video.thumbnail (a 320x180 JPEG), '' while not yet
       downloaded (see TMsgRow.VideoThumbFileId and the class comment
-      above about dropping the blur). }
+      above about dropping the blur). ADownloadedSize/ATotalSize —
+      TMsgRow.VideoDownloadedSize/VideoTotalSize, refreshed on every
+      call the same way TPhotoWidget.SetPhoto's do, used by Paint for
+      the progress bar while ADownloaded is False. }
     procedure SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-      AMaxW: integer; ADuration: integer);
+      AMaxW: integer; ADuration: integer; ADownloadedSize: Int64 = 0; ATotalSize: Int64 = 0);
     { The same as SetVideo, but with an EXPLICIT target size, not via
       ComputePhotoPreviewSize/AMaxW (which always clamps to
       PHOTO_MAX_WIDTH/HEIGHT, the small cap for an inline chat
@@ -612,6 +631,45 @@ type
 
   TStickerWidgetMap = specialize TFPGMap<Int64, TStickerWidget>;
 
+  { TQuoteWidget
+
+    A textEntityTypeBlockQuote span, extracted out of the message's
+    normal text flow and rendered as a REAL separate pooled child
+    widget with its own QUOTE_WIDGET_MARGIN outer margin — direct
+    request ("a real separate widget, big rework"), replacing the
+    earlier decorative band painted behind inline text (msglayout.
+    PaintQuoteBands, now removed). Stateless and, unlike every other
+    widget in this file, NOT one-per-row: a single message can contain
+    more than one separate blockquote, so there is no RowId to key a
+    map on the way FAudioActive/FStickerActive etc. do — recycled
+    through a plain list instead, identified by (RowId, SlotIndex), see
+    TMsgScroller.LayoutQuoteWidgets/FQuoteActive/FQuotePool.
+
+    Paints msglayout.TQuoteSlot.Runs as-is via msglayout.PaintRuns —
+    those Runs are already fully wrapped and positioned in the widget's
+    OWN local coordinates (0,0 = this widget's own top-left) by
+    WrapText's recursive, range-scoped call (see TQuoteSlot's own
+    comment for why they're computed once there, not re-derived here).
+    A known, deliberate scope cut for this pass: text selection/copy
+    does not reach into a quote's content — those Runs are no longer
+    part of the message's own selectable array at all — so Paint always
+    calls PaintRuns with no selection (-1, -1). }
+  TQuoteWidget = class(TCustomControl)
+  private
+    FRowId:       Int64;
+    FSlotIndex:   integer;
+    FRuns:        TTextRunArray;
+    FAccentColor: TColor;
+    FBgColor:     TColor;
+  protected
+    procedure Paint; override;
+  public
+    procedure SetQuote(ARowId: Int64; ASlotIndex: integer; const ARuns: TTextRunArray;
+      AAccentColor, ABgColor: TColor);
+    property RowId: Int64 read FRowId;
+    property SlotIndex: integer read FSlotIndex;
+  end;
+
   { Key — the id of the user or source chat of a forward (see the field
     on TMsgScroller where two separate instances of this type are set
     up). }
@@ -742,6 +800,14 @@ type
       both unconditional, see MaybeAutoDownload/LayoutStickerWidgets. }
     FStickerPool:   TFPList;       { of TStickerWidget }
     FStickerActive: TStickerWidgetMap;
+
+    { Quote widgets (textEntityTypeBlockQuote) — NOT a RowId-keyed map
+      like the pools above: a single row can contain more than one
+      separate blockquote, so both lists are plain, identifying each
+      active widget by (RowId, SlotIndex) instead — see
+      TMsgScroller.LayoutQuoteWidgets/TQuoteWidget's own comment. }
+    FQuotePool:   TFPList;   { of TQuoteWidget, every one ever created }
+    FQuoteActive: TFPList;   { of TQuoteWidget, currently positioned }
 
     { Audio playback — one active player for the whole scroller (same
       as Telegram itself, at most one track plays at a time). The
@@ -980,6 +1046,9 @@ type
     procedure AnimationWidgetClick(Sender: TObject);
     procedure LayoutStickerWidgets(ALo, AHi: integer);
     function ObtainStickerWidget: TStickerWidget;
+    procedure LayoutQuoteWidgets(ALo, AHi: integer);
+    function ObtainQuoteWidget: TQuoteWidget;
+    function FindActiveQuote(ARowId: Int64; ASlotIndex: integer): integer;
     function HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;
     function ResolveSelection(out ALowIdx, AHighIdx, ALowChar, AHighChar: integer): boolean;
     procedure RangeForRow(AIndex, ALowIdx, AHighIdx, ALowChar, AHighChar,
@@ -1128,8 +1197,10 @@ implementation
 { main is used in the implementation section, not the interface: main
   itself uses framehistory (the work-area navigator), and using it from
   the interface would create a cycle — the same approach as main/login
-  (see main.pas). Needed only for FormMain.Chats.ImageList1 (message
-  status icons). }
+  (see main.pas). Needed for FormMain.Chats.ImageList1 (message status
+  icons), FormMain.Invisible/AudioDeviceName/AutoDownloadEnabled/
+  MediaViewer, and now FormMain.AccentColor (see PaintDownloadProgress
+  below). }
 uses
   main;
 
@@ -1214,6 +1285,49 @@ begin
     Round(((Bg shr 8) and $FF) + AOpacity * (((Fg shr 8) and $FF) - ((Bg shr 8) and $FF))),
     Round(((Bg shr 16) and $FF) + AOpacity * (((Fg shr 16) and $FF) - ((Bg shr 16) and $FF)))
   );
+end;
+
+{ Photo/video download progress bar (TPhotoWidget/TVideoWidget) — one
+  shared implementation rather than one copy per widget: identical
+  size/colors/centering rule either way. Centered horizontally across
+  AClientWidth, positioned DOWNLOAD_PROGRESS_GAP below AIconBottom (the
+  download icon's own bottom edge, already known at the call site —
+  drawn immediately after that icon). ATotalSize<=0 means "no total
+  known yet" (see the comment on TMsgRow.PhotoTotalSize) — nothing is
+  drawn at all rather than a bar frozen at 0%, which would read as the
+  download having stalled, not as "no number reported yet". The fill
+  color is FormMain's live, user-configurable accent color (Settings >
+  General), not the APP_ACCENT_COLOR constant directly — see the
+  comment on "uses main" above for why that's reachable here. }
+procedure PaintDownloadProgress(ACanvas: TCanvas; AClientWidth, AIconBottom: integer;
+  ADownloadedSize, ATotalSize: Int64);
+var
+  R: TRect;
+  Frac: double;
+  FillW: integer;
+begin
+  if ATotalSize <= 0 then begin
+    Exit;
+  end;
+
+  R := Rect((AClientWidth - DOWNLOAD_PROGRESS_W) div 2, AIconBottom + DOWNLOAD_PROGRESS_GAP,
+    (AClientWidth + DOWNLOAD_PROGRESS_W) div 2, AIconBottom + DOWNLOAD_PROGRESS_GAP + DOWNLOAD_PROGRESS_H);
+  ACanvas.Brush.Style := bsSolid;
+  ACanvas.Pen.Style := psClear;
+  ACanvas.Brush.Color := DOWNLOAD_PROGRESS_BG;
+  ACanvas.FillRect(R);
+
+  Frac := ADownloadedSize / ATotalSize;
+  if Frac < 0 then begin
+    Frac := 0;
+  end else if Frac > 1 then begin
+    Frac := 1;
+  end;
+  FillW := Round(Frac * DOWNLOAD_PROGRESS_W);
+  if FillW > 0 then begin
+    ACanvas.Brush.Color := FormMain.AccentColor;
+    ACanvas.FillRect(Rect(R.Left, R.Top, R.Left + FillW, R.Bottom));
+  end;
 end;
 
 { A single antialiased replacement for GDI Canvas.RoundRect, used for
@@ -2058,12 +2172,14 @@ end;
 
 procedure TPhotoWidget.SetPhoto(ARowId: Int64; ANaturalW, ANaturalH: integer;
   const AMinithumb: RawByteString; ADownloaded: boolean; const ALocalPath: utf8string;
-  AMaxW: integer);
+  AMaxW: integer; ADownloadedSize: Int64; ATotalSize: Int64);
 var
   Ms: TMemoryStream;
   Src, Resized, Stretched: TBGRABitmap;
   OldTargetW, OldTargetH: integer;
 begin
+  FDownloadedSize := ADownloadedSize;
+  FTotalSize := ATotalSize;
   if ARowId <> FRowId then begin
     { The pooled widget was reused for a DIFFERENT message — the old
       decoded bitmaps belong to a different photo, cleared. If ARowId
@@ -2210,6 +2326,7 @@ begin
       IconR := Rect((ClientWidth - AUDIO_BUTTON_SIZE) div 2, (ClientHeight - AUDIO_BUTTON_SIZE) div 2,
         (ClientWidth + AUDIO_BUTTON_SIZE) div 2, (ClientHeight + AUDIO_BUTTON_SIZE) div 2);
       FDownloadImages.Draw(Canvas, IconR.Left, IconR.Top, AUDIO_ICON_DOWNLOAD, True);
+      PaintDownloadProgress(Canvas, ClientWidth, IconR.Bottom, FDownloadedSize, FTotalSize);
     end;
   end;
 end;
@@ -2461,28 +2578,35 @@ end;
 
 procedure TVideoWidget.SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
   const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-  AMaxW: integer; ADuration: integer);
+  AMaxW: integer; ADuration: integer; ADownloadedSize: Int64; ATotalSize: Int64);
 var
   TgtW, TgtH: integer;
 begin
   ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, TgtW, TgtH);
-  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, TgtW, TgtH, ADuration);
+  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, TgtW, TgtH, ADuration,
+    ADownloadedSize, ATotalSize);
 end;
 
 procedure TVideoWidget.SetVideoSized(ARowId: Int64; ANaturalW, ANaturalH: integer;
   const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
   ATargetW, ATargetH, ADuration: integer);
 begin
-  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, ATargetW, ATargetH, ADuration);
+  { The viewer (mediaviewer.pas, the only caller) has no progress
+    tracking of its own — see the comment on SetVideoCore's new
+    parameters. }
+  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, ATargetW, ATargetH, ADuration,
+    0, 0);
 end;
 
 procedure TVideoWidget.SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
   const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-  ATargetW, ATargetH, ADuration: integer);
+  ATargetW, ATargetH, ADuration: integer; ADownloadedSize, ATotalSize: Int64);
 var
   Src: TBGRABitmap;
   OldTargetW, OldTargetH: integer;
 begin
+  FDownloadedSize := ADownloadedSize;
+  FTotalSize := ATotalSize;
   if ARowId <> FRowId then begin
     { The pooled widget was reused for a DIFFERENT message — the same
       approach as TAnimationWidget.SetAnim: any old playback state/
@@ -2827,6 +2951,7 @@ begin
     if (FDownloadImages <> nil) and (AUDIO_ICON_DOWNLOAD < FDownloadImages.Count) then begin
       PlayRect := PlayButtonRect;
       FDownloadImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, AUDIO_ICON_DOWNLOAD, True);
+      PaintDownloadProgress(Canvas, ClientWidth, PlayRect.Bottom, FDownloadedSize, FTotalSize);
     end;
     Exit;
   end;
@@ -3197,6 +3322,63 @@ begin
   end;
 end;
 
+{ ---------------- TQuoteWidget ---------------- }
+
+procedure TQuoteWidget.SetQuote(ARowId: Int64; ASlotIndex: integer;
+  const ARuns: TTextRunArray; AAccentColor, ABgColor: TColor);
+begin
+  FRowId := ARowId;
+  FSlotIndex := ASlotIndex;
+  FRuns := ARuns;
+  FAccentColor := AAccentColor;
+  FBgColor := ABgColor;
+  Invalidate;
+end;
+
+{ A light tint plus a stronger left bar, matching the indent WrapText
+  already reserved for the quote's own text (BLOCKQUOTE_INDENT — the
+  bar sits inside that clearance, never overlapping a glyph) — the same
+  "faint tint + stronger accent" language already used everywhere else
+  in this app for this exact visual role (SENDER_BG_OPACITY/
+  SENDER_BORDER_OPACITY). FBgColor is the message BLOCK's own backdrop
+  (WidgetBackdropColor, same as TPhotoWidget/TAudioWidget/TFileWidget —
+  this is a real child control, the parent's canvas doesn't show
+  through it), not bare clWindow — otherwise the corners/edges outside
+  the tint would show a visibly different color than the card behind
+  it. No BGRA/rounding — a quote widget has square corners, by the same
+  "sharp corners, by direct request" decision the old inline band
+  already made (see msglayout.pas's git history for that back-and-forth,
+  not repeated here). }
+procedure TQuoteWidget.Paint;
+var
+  BarR: TRect;
+begin
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := BlendWithBackground(FAccentColor, BLOCKQUOTE_BG_OPACITY, FBgColor);
+  Canvas.FillRect(ClientRect);
+
+  { The bar sits QUOTE_PAD in from the left edge (the widget's own
+    inner padding, same as the text — see msglayout.HandleQuoteSlot/
+    StartLine) and spans exactly the text's own vertical extent
+    (QUOTE_PAD from the top to QUOTE_PAD from the bottom), not the full
+    widget height — Slot.Height already has 2*QUOTE_PAD baked in on top
+    of the wrapped text's own height, so Height-2*QUOTE_PAD here is
+    exactly that text height. }
+  BarR := Rect(QUOTE_PAD, QUOTE_PAD, QUOTE_PAD + BLOCKQUOTE_BAR_W, Height - QUOTE_PAD);
+  Canvas.Brush.Color := BlendWithBackground(FAccentColor, BLOCKQUOTE_BAR_OPACITY, FBgColor);
+  Canvas.FillRect(BarR);
+  Canvas.Brush.Style := bsClear;
+
+  { FRuns' own X coordinates already have the left padding baked in
+    (StartLine starts CurX at QUOTE_PAD+BLOCKQUOTE_INDENT) — only Y
+    needs the top half of the padding added here, at paint time; Runs
+    themselves were wrapped at local Y=0 regardless (see HandleQuoteSlot).
+    No selection reaches into a quote's content in this pass — see the
+    class comment. }
+  PaintRuns(Canvas, Point(0, QUOTE_PAD), FRuns, -1, -1);
+end;
+
 { ---------------- TMsgScroller ---------------- }
 
 constructor TMsgScroller.Create(AOwner: TComponent);
@@ -3223,6 +3405,8 @@ begin
   FStickerPool := TFPList.Create;
   FStickerActive := TStickerWidgetMap.Create;
   FStickerActive.Sorted := True;
+  FQuotePool := TFPList.Create;
+  FQuoteActive := TFPList.Create;
   FForwardChatAvatars := TForwardAvatarMap.Create;
   FForwardChatAvatars.Sorted := True;
   FForwardUserAvatars := TForwardAvatarMap.Create;
@@ -3268,6 +3452,8 @@ begin
   FVideoPool.Free;
   FStickerActive.Free;
   FStickerPool.Free;
+  FQuoteActive.Free;
+  FQuotePool.Free;
   ClearForwardAvatars;
   FForwardChatAvatars.Free;
   FForwardUserAvatars.Free;
@@ -4223,6 +4409,8 @@ begin
 end;
 
 procedure TMsgScroller.Resize;
+var
+  Rgn: HRGN;
 begin
   inherited Resize;
   { Also outside TFrameHistory.ModelChanged's try/except wrapper:
@@ -4234,6 +4422,25 @@ begin
     ClampScrollTop(FScrollTop);
   except
   end;
+
+  { Rounded outer corners, same radius/technique as the message input
+    memo (msginput.pas, MemoResize) — direct request, "match the memo".
+    TMsgScroller, like TMemo there, is a real windowed control (a
+    TCustomControl always gets its own HWND under the Win32 widgetset),
+    so SetWindowRgn shapes it exactly the same way: pixels outside the
+    rounded rect simply aren't painted, showing TFrameHistory's own
+    background through at the corners — see MemoResize's own comment
+    for why the region handle is never freed here (ownership passes to
+    the OS on a successful SetWindowRgn) and why a later call (the next
+    resize) safely replaces it. HandleAllocated guards the same
+    construction-order hazard MemoResize documents (Resize firing
+    before the control has a real window yet). }
+  if HandleAllocated then begin
+    Rgn := Windows.CreateRoundRectRgn(0, 0, Width, Height,
+      MSG_CORNER_RADIUS * 2, MSG_CORNER_RADIUS * 2);
+    Windows.SetWindowRgn(Handle, Rgn, True);
+  end;
+
   Invalidate;
   if Assigned(FOnScrollRangeChanged) then begin
     FOnScrollRangeChanged(Self);
@@ -4851,6 +5058,10 @@ begin
     LayoutStickerWidgets(Lo, Hi);
   except
   end;
+  try
+    LayoutQuoteWidgets(Lo, Hi);
+  except
+  end;
 end;
 
 procedure TMsgScroller.LayoutAudioWidgets(ALo, AHi: integer);
@@ -5335,7 +5546,8 @@ begin
       same class of fix as audio/file — see WidgetBackdropColor. }
     W.BackgroundColor := WidgetBackdropColor(R);
     W.SetPhoto(R.Id, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
-      R.PhotoLocalPath <> '', R.PhotoLocalPath, CR.Right - CR.Left);
+      R.PhotoLocalPath <> '', R.PhotoLocalPath, CR.Right - CR.Left,
+      R.PhotoDownloadedSize, R.PhotoTotalSize);
     W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
     W.Visible := True;
   end;
@@ -5620,7 +5832,8 @@ begin
       NatH := R.VideoHeight;
     end;
     W.SetVideo(R.Id, NatW, NatH, R.VideoThumbLocalPath,
-      R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left, R.VideoDuration);
+      R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left, R.VideoDuration,
+      R.VideoDownloadedSize, R.VideoTotalSize);
     { There's no inline playback (see the comment on FVideoPool) — the
       chat widget is always "inactive" (a play icon, no scrub bar on
       hover); real playback happens only in the viewer, see
@@ -5739,6 +5952,107 @@ begin
   Result := TStickerWidget.Create(Self);
   Result.Parent := Self;
   FStickerPool.Add(Result);
+end;
+
+{ Not the same shape as the other Layout*Widgets procedures in this
+  file — those all key their active/pool maps by RowId because each row
+  has AT MOST ONE widget of that kind; a quote is different, a single
+  row can contain more than one separate blockquote entity, so
+  FQuoteActive is a plain list, each entry identified by (RowId,
+  SlotIndex), and matching one is a linear scan (FindActiveQuote) —
+  cheap in practice, real messages realistically have a handful of
+  quotes at most, and FQuoteActive only ever holds currently-visible
+  ones. Reads each row's quote geometry straight from its own
+  TMsgLayout.QuoteSlots (ARow.LayoutCache) — already populated by
+  RendererFor(R.Kind).Paint, which runs earlier in the same
+  TMsgScroller.Paint, before any Layout*Widgets call (see the main
+  Paint loop) — not recomputed here. }
+function TMsgScroller.FindActiveQuote(ARowId: Int64; ASlotIndex: integer): integer;
+var
+  K: integer;
+  W: TQuoteWidget;
+begin
+  Result := -1;
+  for K := 0 to FQuoteActive.Count - 1 do begin
+    W := TQuoteWidget(FQuoteActive[K]);
+    if (W.RowId = ARowId) and (W.SlotIndex = ASlotIndex) then begin
+      Result := K;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TMsgScroller.LayoutQuoteWidgets(ALo, AHi: integer);
+var
+  I, J, AIdx, MIdx: integer;
+  R: TMsgRow;
+  L: TMsgLayout;
+  CR: TRect;
+  W: TQuoteWidget;
+  Accent, BgColor: TColor;
+  StillWanted: boolean;
+begin
+  { Drop widgets whose row scrolled out of [ALo,AHi], or whose row no
+    longer has that many quote slots (a rare edit-in-place case — the
+    message was re-parsed with fewer/no blockquotes). }
+  for AIdx := FQuoteActive.Count - 1 downto 0 do begin
+    W := TQuoteWidget(FQuoteActive[AIdx]);
+    StillWanted := False;
+    if FModel <> nil then begin
+      MIdx := FModel.IndexOfId(W.RowId);
+      if (MIdx >= ALo) and (MIdx <= AHi) then begin
+        L := TMsgLayout(FModel[MIdx].LayoutCache);
+        StillWanted := (L <> nil) and (W.SlotIndex < Length(L.QuoteSlots));
+      end;
+    end;
+    if not StillWanted then begin
+      W.Visible := False;
+      FQuoteActive.Delete(AIdx);
+    end;
+  end;
+
+  if FModel = nil then begin
+    Exit;
+  end;
+
+  for I := ALo to AHi do begin
+    R := FModel[I];
+    L := TMsgLayout(R.LayoutCache);
+    if (L = nil) or (Length(L.QuoteSlots) = 0) then begin
+      Continue;
+    end;
+    CR := ContentRect(I);
+    Accent := SenderColor(R);
+    BgColor := WidgetBackdropColor(R);
+    for J := 0 to High(L.QuoteSlots) do begin
+      AIdx := FindActiveQuote(R.Id, J);
+      if AIdx >= 0 then begin
+        W := TQuoteWidget(FQuoteActive[AIdx]);
+      end else begin
+        W := ObtainQuoteWidget;
+        FQuoteActive.Add(W);
+      end;
+      W.SetQuote(R.Id, J, L.QuoteSlots[J].Runs, Accent, BgColor);
+      W.SetBounds(CR.Left + QUOTE_WIDGET_MARGIN, CR.Top + L.QuoteSlots[J].Top,
+        (CR.Right - CR.Left) - 2 * QUOTE_WIDGET_MARGIN, L.QuoteSlots[J].Height);
+      W.Visible := True;
+    end;
+  end;
+end;
+
+function TMsgScroller.ObtainQuoteWidget: TQuoteWidget;
+var
+  I: integer;
+begin
+  for I := 0 to FQuotePool.Count - 1 do begin
+    Result := TQuoteWidget(FQuotePool[I]);
+    if not Result.Visible then begin
+      Exit;
+    end;
+  end;
+  Result := TQuoteWidget.Create(Self);
+  Result.Parent := Self;
+  FQuotePool.Add(Result);
 end;
 
 procedure TMsgScroller.PhotoWidgetSaveAsClick(Sender: TObject);

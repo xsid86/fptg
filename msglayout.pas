@@ -34,15 +34,31 @@ type
   end;
   TTextRunArray = array of TTextRun;
 
-  { One decorative band per textEntityTypeBlockQuote span — the Y range
-    (in the same local coordinates as TTextRun.Rect) covering every run
-    that entity's byte range touches, X spanning the full column width.
-    Computed post-hoc from already-wrapped Runs (ComputeQuoteBands), not
-    tracked live during wrapping — PaintQuoteBands draws these BEHIND
-    the text (background tint + left bar), and WrapText separately
-    reserves BLOCKQUOTE_INDENT of left margin on any line a blockquote
-    entity covers so the bar never overlaps a glyph. }
-  TQuoteBandArray = array of TRect;
+  { One textEntityTypeBlockQuote span, extracted out of the message's
+    normal text flow entirely and rendered by its own real widget
+    (framehistory.TQuoteWidget) instead of a decorative band painted
+    behind inline text — a direct request, replacing the earlier
+    band-behind-text approach. ByteStart/ByteLen are the SAME byte
+    range as the covering TMsgEntity (into TMsgRow.PlainText) — needed
+    by the widget only to identify itself across layout passes (see
+    TQuoteWidget.SetQuote), NOT to re-derive Runs: Runs below is
+    already fully computed (WrapText, with QUOTE_WIDGET_MARGIN-inset
+    width and BLOCKQUOTE_INDENT baked into each Rect.Left for the
+    left accent bar's clearance) and is what the widget paints as-is —
+    computing it twice, once here and again inside the widget with a
+    possibly different Canvas, is exactly the "two places compute the
+    same geometry, they drift apart" class of bug this project has hit
+    more than once; one computation, cached, avoids it structurally.
+    Top/Height are in the SAME local coordinates as TTextRun.Rect (0,0
+    = the text block's own top-left) — the caller offsets both by
+    ATopOffset (EnsureTextLayout) the same way OffsetRuns does for
+    ordinary Runs. }
+  TQuoteSlot = record
+    ByteStart, ByteLen: integer;
+    Top, Height:        integer;
+    Runs:                TTextRunArray;
+  end;
+  TQuoteSlotArray = array of TQuoteSlot;
 
   { Layout cache for a single message. Stored in TMsgRow.LayoutCache as
     an opaque TObject — tdmessages knows nothing about TMsgLayout. }
@@ -51,7 +67,7 @@ type
     CachedWidth: integer;
     Height:      integer;
     Runs:        TTextRunArray;
-    QuoteBands:  TQuoteBandArray;
+    QuoteSlots:  TQuoteSlotArray;
   end;
 
   TMsgLayoutCtx = record
@@ -122,6 +138,15 @@ procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW: integer; out AOut
   fits them the same way). }
 procedure ComputeStickerSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
 
+{ Paints an already-computed run array (bold/italic/links/emoji, text
+  selection highlight) at AOrigin — the same routine every content
+  renderer in this unit uses for its own text, exported here so
+  framehistory.TQuoteWidget can paint a TQuoteSlot.Runs array too (see
+  the type's own comment: those Runs are computed once, during
+  WrapText/EnsureTextLayout, not re-derived by the widget). }
+procedure PaintRuns(ACanvas: TCanvas; const AOrigin: TPoint; const ARuns: TTextRunArray;
+  ASelStart, ASelEnd: integer);
+
 implementation
 
 { ---------------- text run splitting ---------------- }
@@ -153,17 +178,21 @@ end;
   exact, not an approximation; for edge cases (a span ending mid-word)
   it's a simplification, acceptable for v1. }
 function WrapText(const AText: utf8string; const AEntities: TMsgEntityArray;
-  ACanvas: TCanvas; AAvailWidth: integer; out AHeight: integer): TTextRunArray;
+  ACanvas: TCanvas; AAvailWidth: integer; out AHeight: integer;
+  out AQuoteSlots: TQuoteSlotArray; AHandleQuoteWidgets: boolean = True;
+  ARangeStart: integer = 1; ARangeEnd: integer = 0): TTextRunArray;
 var
-  N, I, WordStart, WordLen, LineTop, CurX, LineH, Cap, Cnt: integer;
+  N, NEnd, I, WordStart, WordLen, LineTop, CurX, LineH, Cap, Cnt, QuoteIdx: integer;
   SpaceW, EmojiLen: integer;
   EmojiCustomId: Int64;
   AtLineStart: boolean;
-  { -1 until the first line has been started at all (so a message that
-    happens to OPEN inside a blockquote never gets a spurious leading
-    blank line); afterwards, the indent value (0 or BLOCKQUOTE_INDENT)
-    the PREVIOUS line started at — see StartLine below. }
-  PrevQuoteIndent: integer;
+  { False initially and after any real content (EmitChunk/EmitEmojiChunk)
+    — True right after HandleQuoteSlot. Decides how AHeight is derived
+    at the very end: a message ending in ordinary text needs +LineH for
+    that still-open last line, one ending in a quote widget does not —
+    HandleQuoteSlot already advanced LineTop past the widget's own
+    bottom margin, nothing left "open" to close. }
+  LastWasQuote: boolean;
 
   { A mekCustomEmoji entity covering APos, if any — its ByteLen is
     authoritative (unlike a plain Unicode emoji, there's no atlas match
@@ -253,28 +282,104 @@ var
     end;
   end;
 
-  { Called at every point a new line begins (in place of a bare
-    "CurX := 0"/"CurX := QuoteIndentAt(...)") — sets CurX for the new
-    line AND, if this line crosses the boundary into or out of a
-    blockquote (indent changes between 0 and BLOCKQUOTE_INDENT relative
-    to the PREVIOUS line), inserts one extra blank line first, matching
-    the official client's visual paragraph break around a quote
-    (reported directly — text was butting straight up against the
-    quote's tinted band with no breathing room). Comparing against the
-    previous LINE's indent, not just "am I in a quote right now", is
-    what keeps this from firing between every wrapped line INSIDE a
-    multi-line quote (those all share the same nonzero indent, so no
-    transition, no extra gap) — only the true entry/exit lines get it. }
-  procedure StartLine(APos: integer);
+  { The mekBlockQuote entity covering APos, if any — index into
+    AEntities, -1 if none. Only ever matches when AHandleQuoteWidgets
+    is True AND APos hasn't already been consumed by a previous
+    HandleQuoteSlot call (that jumps I straight past the whole entity,
+    see the main loop below) — so despite scanning the same entities
+    array as QuoteIndentAt, the two never fight over the same position
+    in practice: this one is checked in the OUTER (message-level) call,
+    QuoteIndentAt is what a quote's OWN widget-internal call
+    (AHandleQuoteWidgets=False) uses to indent its text for the left
+    accent bar. }
+  function BlockQuoteEntityAt(APos: integer): integer;
   var
-    NewIndent: integer;
+    J: integer;
   begin
-    NewIndent := QuoteIndentAt(APos);
-    if (PrevQuoteIndent >= 0) and ((NewIndent > 0) <> (PrevQuoteIndent > 0)) then begin
-      Inc(LineTop, LineH);
+    Result := -1;
+    for J := 0 to High(AEntities) do begin
+      if (AEntities[J].Kind = mekBlockQuote) and (APos >= AEntities[J].ByteStart)
+          and (APos < AEntities[J].ByteStart + AEntities[J].ByteLen) then begin
+        Result := J;
+        Exit;
+      end;
     end;
-    CurX := NewIndent;
-    PrevQuoteIndent := NewIndent;
+  end;
+
+  { Called at every point a new line begins — sets CurX for BLOCKQUOTE_
+    INDENT if the line falls inside a blockquote, 0 otherwise. Only
+    ever indents anything in a widget-internal call (AHandleQuoteWidgets
+    =False, called from HandleQuoteSlot below with ARangeStart/AREnd
+    scoped to exactly one quote's own byte range) — in the OUTER call, a
+    position inside a blockquote is intercepted and skipped by
+    BlockQuoteEntityAt further down BEFORE this is ever reached for it,
+    so QuoteIndentAt there only ever sees plain-text positions and
+    always returns 0, and the QUOTE_PAD add-on below never applies to
+    ordinary message text either. In a widget-internal call, QUOTE_PAD
+    is the left half of the widget's own inner padding — CurX ends up
+    at QUOTE_PAD (widget edge to bar) + BLOCKQUOTE_INDENT (bar to text),
+    same as HandleQuoteSlot's AAvailWidth below caps the right edge at
+    InnerWidth-QUOTE_PAD for the matching right padding; the top/bottom
+    half of the padding isn't tracked here at all — see HandleQuoteSlot's
+    Slot.Height and framehistory.TQuoteWidget.Paint's PaintRuns origin. }
+  procedure StartLine(APos: integer);
+  begin
+    CurX := QuoteIndentAt(APos);
+    if not AHandleQuoteWidgets then begin
+      Inc(CurX, QUOTE_PAD);
+    end;
+  end;
+
+  { Extracts one blockquote's content out of the normal flow entirely —
+    called (only from the OUTER, AHandleQuoteWidgets=True call) the
+    moment the main loop below reaches E's own ByteStart. Reserves
+    QUOTE_WIDGET_MARGIN above/below/(implicitly, via the narrower
+    InnerWidth) on the sides — the widget's own outer margin, direct
+    request — measures the quote's content via a RANGE-scoped recursive
+    WrapText call (AHandleQuoteWidgets=False this time: nothing left to
+    extract further, blockquote entities don't nest in practice; note
+    it's told to wrap to InnerWidth-QUOTE_PAD, not InnerWidth itself —
+    the widget's own right inner padding, matching QUOTE_PAD already
+    baked into where StartLine starts CurX on the left), and records
+    both the resulting geometry AND the already-computed Runs in one
+    TQuoteSlot — see the type's own comment for why the widget paints
+    those Runs as-is rather than recomputing them itself. Slot.Height
+    is QH (the wrapped text's own height) PLUS 2*QUOTE_PAD (top+bottom
+    inner padding) — the recursive call's own Runs are left starting at
+    local Y=0 either way; the top half of the padding is applied only
+    once, at paint time (framehistory.TQuoteWidget.Paint's PaintRuns
+    origin), not duplicated here — LineTop is advanced by this SAME
+    padded height afterward, so the next sibling (another quote, or
+    ordinary text) sees the widget's true total height, padding
+    included. }
+  procedure HandleQuoteSlot(const E: TMsgEntity);
+  var
+    QRuns: TTextRunArray;
+    QSlots: TQuoteSlotArray;
+    QH, InnerWidth, WrapWidth: integer;
+    Slot: TQuoteSlot;
+  begin
+    Inc(LineTop, QUOTE_WIDGET_MARGIN);
+    InnerWidth := AAvailWidth - 2 * QUOTE_WIDGET_MARGIN;
+    if InnerWidth < 1 then begin
+      InnerWidth := 1;
+    end;
+    WrapWidth := InnerWidth - QUOTE_PAD;
+    if WrapWidth < 1 then begin
+      WrapWidth := 1;
+    end;
+    QRuns := WrapText(AText, AEntities, ACanvas, WrapWidth, QH, QSlots, False,
+      E.ByteStart, E.ByteStart + E.ByteLen);
+    Slot.ByteStart := E.ByteStart;
+    Slot.ByteLen := E.ByteLen;
+    Slot.Top := LineTop;
+    Slot.Height := QH + 2 * QUOTE_PAD;
+    Slot.Runs := QRuns;
+    SetLength(AQuoteSlots, Length(AQuoteSlots) + 1);
+    AQuoteSlots[High(AQuoteSlots)] := Slot;
+    Inc(LineTop, Slot.Height + QUOTE_WIDGET_MARGIN);
+    AtLineStart := True;
+    LastWasQuote := True;
   end;
 
   procedure EnsureCap(ANeed: integer);
@@ -304,6 +409,7 @@ var
     Inc(Cnt);
     CurX := CurX + AW;
     AtLineStart := False;
+    LastWasQuote := False;
   end;
 
   { The word doesn't fit on a line no matter what — break it by
@@ -374,6 +480,7 @@ var
     Inc(Cnt);
     CurX := CurX + Size;
     AtLineStart := False;
+    LastWasQuote := False;
   end;
 
   procedure EmitWord(AStart, ALen: integer);
@@ -417,18 +524,48 @@ begin
   Cnt := 0;
   Cap := 0;
   SetLength(Result, 0);
+  SetLength(AQuoteSlots, 0);
   LineTop := 0;
   AtLineStart := True;
-  PrevQuoteIndent := -1;
+  LastWasQuote := False;
 
   ACanvas.Font.Style := [];
-  LineH := ACanvas.TextHeight('Щ') + LINE_LEADING;
+  { A quote's own recursive call (AHandleQuoteWidgets=False) uses its
+    own, separately tunable QUOTE_LINE_LEADING (constants.pas) instead
+    of the app-wide LINE_LEADING every other text block uses — direct
+    request, "slightly reduce quote line spacing", kept independent so
+    it doesn't touch ordinary message text. }
+  if AHandleQuoteWidgets then begin
+    LineH := ACanvas.TextHeight('Щ') + LINE_LEADING;
+  end else begin
+    LineH := ACanvas.TextHeight('Щ') + QUOTE_LINE_LEADING;
+  end;
   SpaceW := ACanvas.TextWidth(' ');
 
   N := Length(AText);
-  I := 1;
+  if ARangeStart > 1 then begin
+    I := ARangeStart;
+  end else begin
+    I := 1;
+  end;
+  if (ARangeEnd > 0) and (ARangeEnd - 1 < N) then begin
+    NEnd := ARangeEnd - 1;
+  end else begin
+    NEnd := N;
+  end;
+
   StartLine(I);
-  while I <= N do begin
+  while I <= NEnd do begin
+    if AHandleQuoteWidgets then begin
+      QuoteIdx := BlockQuoteEntityAt(I);
+      if (QuoteIdx >= 0) and (AEntities[QuoteIdx].ByteStart = I) then begin
+        HandleQuoteSlot(AEntities[QuoteIdx]);
+        I := AEntities[QuoteIdx].ByteStart + AEntities[QuoteIdx].ByteLen;
+        StartLine(I);
+        Continue;
+      end;
+    end;
+
     if AText[I] = #10 then begin
       Inc(LineTop, LineH);
       AtLineStart := True;
@@ -451,7 +588,7 @@ begin
     end;
 
     WordStart := I;
-    while (I <= N) and not (AText[I] in [' ', #9, #10, #13])
+    while (I <= NEnd) and not (AText[I] in [' ', #9, #10, #13])
         and not SpecialGlyphAt(I, EmojiLen, EmojiCustomId) do begin
       Inc(I);
     end;
@@ -461,7 +598,13 @@ begin
     end;
   end;
 
-  if Cnt = 0 then begin
+  { A message ending in ordinary text needs +LineH for that still-open
+    last line; one ending in a quote widget does not — HandleQuoteSlot
+    already advanced LineTop past the widget's own bottom margin,
+    nothing left "open" to close (see LastWasQuote's own comment). }
+  if LastWasQuote then begin
+    AHeight := LineTop;
+  end else if Cnt = 0 then begin
     AHeight := 0;
   end else begin
     AHeight := LineTop + LineH;
@@ -482,72 +625,22 @@ begin
   end;
 end;
 
-{ One band per textEntityTypeBlockQuote entity — the Y range (already
-  in the same offset local coordinates as ARuns, so call AFTER
-  OffsetRuns) covering every run whose CharStart falls in that entity's
-  byte range, X spanning the full column width. Post-hoc over already-
-  wrapped runs, not tracked live during WrapText — the actual left
-  margin for quoted lines is reserved separately, via QuoteIndentAt
-  inside WrapText itself; this only computes where to paint the
-  decorative background/bar behind them. }
-function ComputeQuoteBands(const AEntities: TMsgEntityArray; const ARuns: TTextRunArray;
-  AAvailWidth: integer): TQuoteBandArray;
-var
-  I, J, Cnt, LinePad: integer;
-  E: TMsgEntity;
-  MinTop, MaxBottom: integer;
-  Found: boolean;
-begin
-  SetLength(Result, 0);
-  Cnt := 0;
-  for I := 0 to High(AEntities) do begin
-    E := AEntities[I];
-    if E.Kind <> mekBlockQuote then begin
-      Continue;
-    end;
-    Found := False;
-    MinTop := 0;
-    MaxBottom := 0;
-    LinePad := 0;
-    for J := 0 to High(ARuns) do begin
-      if (ARuns[J].CharStart >= E.ByteStart) and (ARuns[J].CharStart < E.ByteStart + E.ByteLen) then begin
-        if not Found then begin
-          MinTop := ARuns[J].Rect.Top;
-          MaxBottom := ARuns[J].Rect.Bottom;
-          { One line's worth of vertical breathing room above/below the
-            band, per direct request — derived from an actual run's own
-            height rather than a fixed pixel constant, so it tracks
-            whatever font size is in effect instead of drifting out of
-            proportion if that ever changes. }
-          LinePad := ARuns[J].Rect.Bottom - ARuns[J].Rect.Top;
-          Found := True;
-        end else begin
-          if ARuns[J].Rect.Top < MinTop then begin
-            MinTop := ARuns[J].Rect.Top;
-          end;
-          if ARuns[J].Rect.Bottom > MaxBottom then begin
-            MaxBottom := ARuns[J].Rect.Bottom;
-          end;
-        end;
-      end;
-    end;
-    if Found then begin
-      SetLength(Result, Cnt + 1);
-      Result[Cnt] := Rect(0, MinTop - LinePad, AAvailWidth, MaxBottom + LinePad);
-      Inc(Cnt);
-    end;
-  end;
-end;
-
 { Shared cache builder for renderers that have a text block (either the
   message text itself, or a caption under a placeholder). ATopOffset is
   the Y coordinate the text starts at: 0 for plain text, the preview
-  block's height plus a gap for a caption. }
+  block's height plus a gap for a caption. Quote slots come back from
+  WrapText already measured/positioned in the text block's OWN local
+  coordinates (0,0 = its own top-left) — offset by ATopOffset the same
+  way OffsetRuns shifts ordinary Runs, but NOT the slots' own cached
+  Runs array (those stay in the quote WIDGET's local coordinates —
+  framehistory.TQuoteWidget paints them relative to its own top-left,
+  not the message's). }
 function EnsureTextLayout(ARow: TMsgRow; const ACtx: TMsgLayoutCtx;
   ATopOffset: integer): TMsgLayout;
 var
   L: TMsgLayout;
-  H: integer;
+  H, I: integer;
+  QSlots: TQuoteSlotArray;
 begin
   L := TMsgLayout(ARow.LayoutCache);
   if (L = nil) or (L.CachedWidth <> ACtx.AvailWidth) then begin
@@ -556,83 +649,17 @@ begin
       ARow.LayoutCache := L;
     end;
     L.CachedWidth := ACtx.AvailWidth;
-    L.Runs := WrapText(ARow.PlainText, ARow.Entities, ACtx.Canvas, ACtx.AvailWidth, H);
+    L.Runs := WrapText(ARow.PlainText, ARow.Entities, ACtx.Canvas, ACtx.AvailWidth, H, QSlots);
     OffsetRuns(L.Runs, ATopOffset);
-    L.QuoteBands := ComputeQuoteBands(ARow.Entities, L.Runs, ACtx.AvailWidth);
+    if ATopOffset <> 0 then begin
+      for I := 0 to High(QSlots) do begin
+        Inc(QSlots[I].Top, ATopOffset);
+      end;
+    end;
+    L.QuoteSlots := QSlots;
     L.Height := ATopOffset + H;
   end;
   Result := L;
-end;
-
-{ Cheap RGB blend, no BGRA dependency — msglayout.pas doesn't otherwise
-  need alpha compositing for this, and quote bands repaint on every
-  scroll frame same as everything else in this file (see SMOOTH_CORNERS
-  in framehistory.pas for why that cost matters in this project).
-  ColorToRGB is mandatory on BOTH inputs, not optional — a TColor like
-  clWindow is a system-color PSEUDO-value (high bit set, a COLOR_xxx
-  index packed into the low bits), not a literal RGB triple; extracting
-  channels from it directly with Red/Green/Blue reads that index's raw
-  bits as if they were color bytes, producing a near-arbitrary dark
-  color instead of "blend toward white" (confirmed: this is exactly why
-  the first version of PaintQuoteBands rendered as a solid dark navy
-  box instead of a light tint). framehistory.BlendWithBackground already
-  gets this right, with the same explanation in its own comment — this
-  is the same fix, independently applied here since msglayout.pas can't
-  import framehistory.pas (reverse dependency). }
-function BlendColor(AFg, ABg: TColor; AOpacity: single): TColor;
-var
-  Fg, Bg: longint;
-begin
-  Fg := ColorToRGB(AFg);
-  Bg := ColorToRGB(ABg);
-  Result := RGBToColor(
-    Round((Bg and $FF) + AOpacity * ((Fg and $FF) - (Bg and $FF))),
-    Round(((Bg shr 8) and $FF) + AOpacity * (((Fg shr 8) and $FF) - ((Bg shr 8) and $FF))),
-    Round(((Bg shr 16) and $FF) + AOpacity * (((Fg shr 16) and $FF) - ((Bg shr 16) and $FF))));
-end;
-
-{ Drawn BEHIND the text (call before PaintRuns) — a light tint plus a
-  left bar per band, matching the indent WrapText already reserved for
-  quoted lines (BLOCKQUOTE_INDENT) so the bar never overlaps a glyph.
-  AAccentColor is the message's own resolved accent color (the same one
-  its header/sender name is painted in — framehistory.SenderColor,
-  threaded down through Paint, see TMsgContentRenderer.Paint's own
-  comment) — a quote is visually "part of" its message, not a fixed,
-  message-independent color (reported directly: the fixed blue read as
-  simply wrong once a message's own color was clearly something else).
-  Blended against clWindow, the same fixed background approximation
-  this content-rendering layer already uses elsewhere (e.g. clBtnFace/
-  clWindow placeholders in TAudioContentRenderer/TPhotoContentRenderer,
-  above) rather than the real per-message tinted block background —
-  that color lives one layer up, in framehistory.pas, not reachable
-  from here. Tint and bar use different opacities (BLOCKQUOTE_BG_OPACITY/
-  BLOCKQUOTE_BAR_OPACITY) — the bar is a stronger accent, not a solid
-  fill, matching the SENDER_BG_OPACITY/SENDER_BORDER_OPACITY "faint tint
-  + stronger accent" language already used everywhere else in this app
-  for this exact visual role. }
-procedure PaintQuoteBands(ACanvas: TCanvas; const AOrigin: TPoint; const ABands: TQuoteBandArray;
-  AAccentColor: TColor);
-var
-  I: integer;
-  R, BarR: TRect;
-begin
-  if Length(ABands) = 0 then begin
-    Exit;
-  end;
-  ACanvas.Pen.Style := psClear;
-  ACanvas.Brush.Style := bsSolid;
-  for I := 0 to High(ABands) do begin
-    R := ABands[I];
-    OffsetRect(R, AOrigin.X, AOrigin.Y);
-
-    ACanvas.Brush.Color := BlendColor(AAccentColor, clWindow, BLOCKQUOTE_BG_OPACITY);
-    ACanvas.FillRect(R);
-
-    BarR := Rect(R.Left, R.Top, R.Left + BLOCKQUOTE_BAR_W, R.Bottom);
-    ACanvas.Brush.Color := BlendColor(AAccentColor, clWindow, BLOCKQUOTE_BAR_OPACITY);
-    ACanvas.FillRect(BarR);
-  end;
-  ACanvas.Brush.Style := bsClear;
 end;
 
 procedure PaintRuns(ACanvas: TCanvas; const AOrigin: TPoint; const ARuns: TTextRunArray;
@@ -759,7 +786,6 @@ begin
   Ctx.Canvas := ACanvas;
   Ctx.AvailWidth := ARect.Right - ARect.Left;
   L := EnsureTextLayout(ARow, Ctx, 0);
-  PaintQuoteBands(ACanvas, Point(ARect.Left, ARect.Top), L.QuoteBands, AAccentColor);
   PaintRuns(ACanvas, Point(ARect.Left, ARect.Top), L.Runs, ASelStart, ASelEnd);
 end;
 
@@ -958,7 +984,6 @@ begin
   Ctx.Canvas := ACanvas;
   Ctx.AvailWidth := ARect.Right - ARect.Left;
   L := EnsureTextLayout(ARow, Ctx, ImgH + CAPTION_GAP);
-  PaintQuoteBands(ACanvas, Point(ARect.Left, ARect.Top), L.QuoteBands, AAccentColor);
   PaintRuns(ACanvas, Point(ARect.Left, ARect.Top), L.Runs, ASelStart, ASelEnd);
 end;
 
@@ -1121,7 +1146,6 @@ begin
   Ctx.Canvas := ACanvas;
   Ctx.AvailWidth := ARect.Right - ARect.Left;
   L := EnsureTextLayout(ARow, Ctx, PLACEHOLDER_BOX_H + CAPTION_GAP);
-  PaintQuoteBands(ACanvas, Point(ARect.Left, ARect.Top), L.QuoteBands, AAccentColor);
   PaintRuns(ACanvas, Point(ARect.Left, ARect.Top), L.Runs, ASelStart, ASelEnd);
 end;
 

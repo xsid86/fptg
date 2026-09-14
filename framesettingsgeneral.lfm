@@ -30,4 +30,21 @@ object FrameSettingsGeneral: TFrameSettingsGeneral
     TabOrder = 1
     OnExit = edtDeviceModelExit
   end
+  object lblAccentColor: TLabel
+    Left = 16
+    Height = 15
+    Top = 116
+    Width = 200
+    Caption = 'App accent color'
+  end
+  object cbAccentColor: TColorBox
+    Left = 16
+    Height = 23
+    Top = 136
+    Width = 200
+    Style = [cbStandardColors, cbExtendedColors, cbCustomColor, cbPrettyNames]
+    ItemHeight = 16
+    TabOrder = 2
+    OnChange = cbAccentColorChange
+  end
 end

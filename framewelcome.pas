@@ -5,7 +5,7 @@ unit framewelcome;
 interface
 
 uses
-  Classes, SysUtils, Controls, Forms, StdCtrls, uiframe;
+  Classes, SysUtils, Controls, Forms, StdCtrls, ExtCtrls, uiframe;
 
 type
 
@@ -16,6 +16,7 @@ type
   TFrameWelcome = class(TFrameBase)
     lblTitle: TLabel;
     lblHint:  TLabel;
+    Panel1: TPanel;
   end;
 
 implementation

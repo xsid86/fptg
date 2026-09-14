@@ -169,6 +169,16 @@ type
     PhotoFileId:             integer;
     PhotoLocalPath:          utf8string;
     PhotoDownloadRequested:  boolean;
+    { Download progress for the preview file above, from the SAME
+      updateFile/downloadFile responses ApplyPhotoFile already handles —
+      it used to bail out before even looking at these numbers whenever
+      is_downloading_completed was still False, discarding them. Both
+      stay 0 until the first real progress update arrives; PhotoTotalSize
+      may briefly be 0 too (TDLib's own "size not known yet" state,
+      file.size and file.expected_size can both be 0 for an instant) —
+      TPhotoWidget.Paint treats that as "don't draw a bar", not "0%". }
+    PhotoDownloadedSize:     Int64;
+    PhotoTotalSize:          Int64;
     { The largest available layer of photo.sizes (by width*height, not
       by array order — TDLib's ordering from smallest to largest isn't
       relied upon) — for "Save as"/"Show in folder": saving needs the
@@ -251,6 +261,12 @@ type
     VideoFileId:                 integer;
     VideoLocalPath:              utf8string;
     VideoDownloadRequested:      boolean;
+    { Download progress for the video file above — see the comment on
+      PhotoDownloadedSize/PhotoTotalSize above, the same idea, same
+      source (ApplyVideoFile now reads these before its own early-exit
+      instead of discarding them). }
+    VideoDownloadedSize:         Int64;
+    VideoTotalSize:              Int64;
     { messageSticker.sticker — Kind=mckSticker only. The same
       double-"sticker" JSON naming (content.sticker.sticker is the
       downloadable TDLib file object, content.sticker is the metadata)
@@ -2861,12 +2877,36 @@ begin
   end;
 end;
 
+{ Bucket 0..DOWNLOAD_PROGRESS_W-1 (the progress bar's own pixel width,
+  constants.pas) that ADownloaded/ATotal would currently fill — the
+  natural throttle for how often a progress change is even worth a
+  Touch (and everything downstream of it: the 50ms coalesce timer,
+  RebuildOffsets over the WHOLE loaded history, a full TMsgScroller
+  repaint — see ApplyPhotoFile/ApplyVideoFile below). Real downloads
+  deliver updateFile roughly every 64KB (confirmed from tdlib_raw.log,
+  not assumed) — for the auto-download prefetch window's ordinary case
+  of several multi-megabyte files downloading AT ONCE
+  (AUTODL_PREFETCH_MESSAGES, framehistory.pas), that adds up to
+  hundreds of Touch calls a second without this throttle — no single
+  byte-level delta moves a 100px bar by even one visible pixel anyway.
+  -1 (never equal to a real bucket) when the total isn't known yet. }
+function ProgressBarPixel(ADownloaded, ATotal: Int64): integer;
+begin
+  if ATotal <= 0 then begin
+    Result := -1;
+  end else begin
+    Result := (ADownloaded * DOWNLOAD_PROGRESS_W) div ATotal;
+  end;
+end;
+
 procedure TTdMessages.ApplyPhotoFile(AFile: TJSONObject);
 var
   Idx, FileId: integer;
   Local: TJSONObject;
   R: TMsgRow;
   Path: utf8string;
+  Downloaded, Total: Int64;
+  OldPixel: integer;
 begin
   if AFile = nil then begin
     Exit;
@@ -2876,8 +2916,28 @@ begin
   if Idx < 0 then begin
     Exit;
   end;
+  R := FPhotoByFile.Data[Idx];
 
   Local := JGetObj(AFile, 'local');
+
+  { Progress — read on EVERY update, not just the final one, unlike the
+    completion check below. size is TDLib's confirmed final size (0 if
+    it isn't known yet, which can briefly be true right after a
+    download starts); expected_size is its own best estimate for that
+    same window — falling back to it keeps the bar moving instead of
+    sitting at "no total" for the first update or two. }
+  Downloaded := JGetInt64(Local, 'downloaded_size');
+  Total := JGetInt64(AFile, 'size');
+  if Total = 0 then begin
+    Total := JGetInt64(AFile, 'expected_size');
+  end;
+  OldPixel := ProgressBarPixel(R.PhotoDownloadedSize, R.PhotoTotalSize);
+  R.PhotoDownloadedSize := Downloaded;
+  R.PhotoTotalSize := Total;
+  if ProgressBarPixel(Downloaded, Total) <> OldPixel then begin
+    Touch;
+  end;
+
   if not JGetBool(Local, 'is_downloading_completed') then begin
     Exit;
   end;
@@ -2886,7 +2946,6 @@ begin
     Exit;
   end;
 
-  R := FPhotoByFile.Data[Idx];
   if R.PhotoLocalPath = Path then begin
     Exit;
   end;
@@ -3086,6 +3145,8 @@ var
   Local: TJSONObject;
   R: TMsgRow;
   Path: utf8string;
+  Downloaded, Total: Int64;
+  OldPixel: integer;
 begin
   if AFile = nil then begin
     Exit;
@@ -3095,8 +3156,24 @@ begin
   if Idx < 0 then begin
     Exit;
   end;
+  R := FVideoByFile.Data[Idx];
 
   Local := JGetObj(AFile, 'local');
+
+  { Progress — see the identical comment in ApplyPhotoFile, including
+    the pixel-bucket throttle on Touch (ProgressBarPixel). }
+  Downloaded := JGetInt64(Local, 'downloaded_size');
+  Total := JGetInt64(AFile, 'size');
+  if Total = 0 then begin
+    Total := JGetInt64(AFile, 'expected_size');
+  end;
+  OldPixel := ProgressBarPixel(R.VideoDownloadedSize, R.VideoTotalSize);
+  R.VideoDownloadedSize := Downloaded;
+  R.VideoTotalSize := Total;
+  if ProgressBarPixel(Downloaded, Total) <> OldPixel then begin
+    Touch;
+  end;
+
   if not JGetBool(Local, 'is_downloading_completed') then begin
     Exit;
   end;
@@ -3105,7 +3182,6 @@ begin
     Exit;
   end;
 
-  R := FVideoByFile.Data[Idx];
   if R.VideoLocalPath = Path then begin
     Exit;
   end;

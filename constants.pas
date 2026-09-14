@@ -481,30 +481,55 @@ const
   PLACEHOLDER_BOX   = 160;
   PLACEHOLDER_BOX_H = 120;
   CAPTION_GAP       = 6;
-  { textEntityTypeBlockQuote (msglayout.pas WrapText/PaintQuoteBands) —
-    colored from the MESSAGE's own resolved accent color (framehistory.
-    SenderColor, threaded down through Paint), not a fixed constant —
-    a quote is visually "part of" its message (per direct request; a
-    fixed color read as simply wrong once tested against a message
-    whose accent clearly wasn't blue). BLOCKQUOTE_INDENT is how far
-    quoted lines start from the left edge (bar width + a visual gap),
-    not tied to MSG_PAD_H — a quote needs more breathing room than an
-    ordinary icon-to-text gap. BG/BAR opacity per direct request (0.2/
-    0.5 of the accent, matching the SENDER_BG_OPACITY/SENDER_BORDER_OPACITY
-    "faint tint + stronger accent border" language already used
-    everywhere else in this app) — first version (0.12, solid bar)
-    looked wrong for an UNRELATED reason too: PaintQuoteBands originally
-    skipped ColorToRGB before blending, so clWindow's raw pseudo-color
-    bits got read as if they were an actual RGB triple, rendering as a
-    near-arbitrary dark color instead of a light tint — fixed in
-    BlendColor itself, this isn't a tuning knob for that part.
-    BLOCKQUOTE_BAND_PAD is no longer a fixed number — vertical padding
-    is now one full line's height, computed from an actual TTextRun in
-    ComputeQuoteBands (msglayout.pas), also by direct request. }
+  { textEntityTypeBlockQuote (msglayout.pas WrapText/framehistory.
+    TQuoteWidget) — a quote is now a REAL separate pooled child widget
+    (direct request — "a real separate widget, big rework"), not a
+    decorative band painted behind inline text flow (the earlier
+    approach, whose own back-and-forth history is preserved in git, not
+    repeated here). WrapText extracts a blockquote entity's byte range
+    out of the normal flow entirely (see HandleQuoteSlot) and measures
+    it via its own recursive, range-scoped call — BLOCKQUOTE_INDENT is
+    still how far the quote's OWN text starts from the widget's left
+    edge (bar width + a visual gap, not tied to MSG_PAD_H — a quote
+    needs more breathing room than an ordinary icon-to-text gap), but
+    the surrounding whitespace that used to be BLOCKQUOTE_BAND_PAD is
+    now QUOTE_WIDGET_MARGIN below — a real OUTER margin around the
+    whole widget (direct request: "4 pixels"), reserved on all four
+    sides via WrapText's own layout math, not a decorative fill. Colored
+    from the MESSAGE's own resolved accent color (framehistory.
+    SenderColor, threaded down through Paint) — a quote is visually
+    "part of" its message, not a fixed constant (a fixed color read as
+    simply wrong once tested against a message whose accent clearly
+    wasn't blue). BG/BAR opacity per direct request (0.2/0.5 of the
+    accent, matching the SENDER_BG_OPACITY/SENDER_BORDER_OPACITY "faint
+    tint + stronger accent border" language already used everywhere
+    else in this app). }
   BLOCKQUOTE_BG_OPACITY  = 0.2;
   BLOCKQUOTE_BAR_OPACITY = 0.5;
   BLOCKQUOTE_BAR_W       = 2;
   BLOCKQUOTE_INDENT      = 12;
+  { The quote widget's own outer margin — reserved above/below it (and,
+    via a narrower available width passed into its own recursive
+    WrapText call, on the sides) by WrapText itself (see HandleQuoteSlot,
+    msglayout.pas) — direct request, "4 pixels". }
+  QUOTE_WIDGET_MARGIN    = 4;
+  { The quote widget's own INNER padding — direct request, "8 pixels on
+    all sides", separate from QUOTE_WIDGET_MARGIN above (that one is the
+    gap OUTSIDE the widget, between it and the surrounding message
+    text/edges; this one is the gap INSIDE it, between its background
+    box and the bar+text sitting on top of it). Applied by HandleQuoteSlot
+    (via StartLine's CurX and the recursive call's available width, for
+    left/right) and framehistory.TQuoteWidget.Paint (for top/bottom, and
+    for where the left bar itself sits — it matches the text's own
+    padded vertical extent, not the full widget height). }
+  QUOTE_PAD              = 8;
+  { The quote widget's own line spacing — separate from the app-wide
+    LINE_LEADING (used for every OTHER text block, ordinary message text
+    included) so it can be tuned for quotes alone, direct request
+    ("slightly reduce it, as its own adjustable constant"). Only the
+    widget-internal recursive WrapText call (AHandleQuoteWidgets=False)
+    uses this; the outer, message-level call still uses LINE_LEADING. }
+  QUOTE_LINE_LEADING     = 0;
   { Computed for TAudioWidget (framehistory.pas): 2*MSG_PAD_H (top/
     bottom inner padding) + max(32 [play/pause button],
     REPLY_LINE_H + HEADER_PAD_V + AUDIO_THUMB_H + HEADER_PAD_V +
@@ -541,6 +566,40 @@ const
     rounding/outline. }
   PHOTO_CORNER_RADIUS = 4;
   PHOTO_BORDER_COLOR = $cccccc;
+
+  { The app's single "brand" accent color — used wherever the UI needs
+    ONE consistent color that isn't tied to a particular sender/chat
+    (the first use: the fill of the photo/video download progress bar
+    below). This is only the DEFAULT/fallback: the live value is
+    user-configurable at Settings > General
+    (framesettingsgeneral.pas/.lfm) and lives on FormMain.AccentColor
+    (main.pas), persisted to config.ini/[ui] the same way
+    CloseToTray/Invisible already are — read this constant only when
+    nothing has been saved yet (FormMain.FormCreate). Deliberately NOT
+    reused for CHATROW_PSEUDO_COLOR (framechats.pas group below), even
+    though the two constants happen to share this exact value today —
+    that one colors a specific, fixed UI element (the Archive/All
+    chats pseudo-rows) and was never asked to track a user preference;
+    unifying them would make changing one silently change the other. }
+  APP_ACCENT_COLOR = $F39621;  { RGB(33, 150, 243) — Material Blue 500 }
+
+  { Download progress bar (TPhotoWidget/TVideoWidget, framehistory.pas)
+    — drawn under the "download" icon while EnsurePhotoFile/
+    EnsureVideoFile's downloadFile request is in flight (see
+    ApplyPhotoFile/ApplyVideoFile, tdmessages.pas, which now track
+    PhotoDownloadedSize/PhotoTotalSize and VideoDownloadedSize/
+    VideoTotalSize instead of discarding every updateFile before
+    completion). Width/height/track-background by direct request — the
+    fill color is APP_ACCENT_COLOR (or its live override) above, not a
+    constant here, since it's meant to change without touching this
+    geometry. DOWNLOAD_PROGRESS_GAP is the vertical gap from the
+    download icon's own bottom edge to the bar — not reusing MSG_PAD_V
+    (that one means "distance from the block's edge", a different
+    relationship). }
+  DOWNLOAD_PROGRESS_W = 100;
+  DOWNLOAD_PROGRESS_H = 4;
+  DOWNLOAD_PROGRESS_BG = clWhite;
+  DOWNLOAD_PROGRESS_GAP = 8;
 
   { Maximum sticker size (TStickerWidget, framehistory.pas) — the
     official client fits stickers into a roughly 150-190px square box

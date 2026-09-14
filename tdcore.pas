@@ -88,6 +88,14 @@ type
     { config.ini — api_id/api_hash, shared by all accounts: they belong
       to the application, not the user. }
     function LoadConfig: boolean;
+    { Persists api_id/api_hash to config.ini/[telegram] — used by the
+      first-run TFormApiConfig dialog (apisetup.pas, shown from tg.lpr
+      when LoadConfig above fails) so the user doesn't have to hand-
+      edit the ini file. Does not update FApiId/FApiHash itself: the
+      caller calls LoadConfig again right after, which reads them back
+      the normal way — one code path for "config was just edited", not
+      two. }
+    procedure SaveApiCredentials(AApiId: integer; const AApiHash: utf8string);
 
     { accounts.ini — the account list and which one was active. }
     procedure LoadAccounts;
@@ -132,6 +140,13 @@ type
     property ShuttingDown: boolean read FShuttingDown;
     property ConfigError: string read FConfigError;
     property BaseDir: string read FBaseDir;
+    { Whatever LoadConfig last read from config.ini — 0/'' if it's
+      never been set. Lets TFormApiConfig (apisetup.pas) pre-fill its
+      fields instead of making the user retype a half-saved pair (e.g.
+      api_id already written, api_hash not — see SaveApiCredentials'
+      comment for how that can happen). }
+    property ApiId: integer read FApiId;
+    property ApiHash: utf8string read FApiHash;
     { The name Telegram shows for this app in Active Sessions — needed
       by framesettingsgeneral.pas (the General section's text field),
       same global-TdApp access pattern as FormMain.CloseToTray/
@@ -361,6 +376,31 @@ begin
   Result := FConfigError = '';
 end;
 
+procedure TTdCore.SaveApiCredentials(AApiId: integer; const AApiHash: utf8string);
+begin
+  { CacheUpdates=True + one explicit UpdateFile — WITHOUT it, TIniFile
+    (inifiles.pp: MaybeUpdateFile) does a full disk rewrite on EVERY
+    Write* call, not just once at the end — two Write* calls below mean
+    two separate file opens in quick succession, and a transient lock
+    on the second one (antivirus/indexer grabbing the file right after
+    the first rewrite — the same class of one-off lock this project has
+    hit before on other files, see CLAUDE.md) surfaced as a scary
+    "file is in use, Abort will kill the program" dialog the very first
+    time this method ran, api_hash never making it to disk even though
+    api_id already had. Same pattern SaveAccounts already uses, just
+    not followed here originally. }
+  with TIniFile.Create(FBaseDir + 'config.ini') do begin
+    try
+      CacheUpdates := True;
+      WriteInteger('telegram', 'api_id', AApiId);
+      WriteString('telegram', 'api_hash', string(AApiHash));
+      UpdateFile;
+    finally
+      Free;
+    end;
+  end;
+end;
+
 procedure TTdCore.SetDeviceModel(const AValue: utf8string);
 begin
   if AValue = FDeviceModel then begin
@@ -421,6 +461,13 @@ var
 begin
   Ini := TIniFile.Create(ManifestPath);
   try
+    { CacheUpdates=True defers every Write* below to the single
+      UpdateFile call at the end — without it, TIniFile rewrites the
+      whole file to disk on EACH Write* call (inifiles.pp:
+      MaybeUpdateFile), N+1 separate disk writes for N accounts instead
+      of one; see SaveApiCredentials's comment above for the concrete
+      failure this caused (a transient lock between two such writes). }
+    Ini.CacheUpdates := True;
     Ini.WriteInteger('general', 'count', FAccounts.Count);
     Ini.WriteInteger('general', 'active', FActive);
     for I := 0 to FAccounts.Count - 1 do begin

@@ -68,15 +68,6 @@ object FormMain: TFormMain
     Top = 56
     object MenuItem1: TMenuItem
       Caption = 'File'
-      object MenuItem5: TMenuItem
-        Caption = 'Settings'
-        ImageIndex = 7
-        ShortCut = 49235
-        OnClick = SettingsMenuClick
-      end
-      object MenuItem14: TMenuItem
-        Caption = '-'
-      end
       object MenuItem9: TMenuItem
         Caption = 'Quit'
         ImageIndex = 2
@@ -105,6 +96,12 @@ object FormMain: TFormMain
     end
     object MenuItem4: TMenuItem
       Caption = 'Tools'
+      object MenuItem5: TMenuItem
+        Caption = 'Settings'
+        ImageIndex = 7
+        ShortCut = 49235
+        OnClick = SettingsMenuClick
+      end
     end
     object MenuItem10: TMenuItem
       Caption = 'Account'
