@@ -8,8 +8,8 @@ uses
   avatarcache, BGRABitmap, BGRABitmapTypes,
   Classes, Clipbrd, customemoji,
   Controls, constants, DateUtils, Dialogs, emojiassets, ExtCtrls, Forms, Graphics, Grids,
-  LCLType, LMessages, Menus, StdCtrls, SysUtils, tdaccentcolors, tdauth, tdchats, tdcore,
-  thinscrollbar, Types, uiframe;
+  LCLType, LMessages, Math, Menus, StdCtrls, SysUtils, tdaccentcolors, tdauth, tdchats,
+  tdcore, thinscrollbar, Types, uiframe;
 
 type
   { Clickable areas within a row. }

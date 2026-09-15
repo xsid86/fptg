@@ -314,8 +314,14 @@ const
     (THIN_SCROLLBAR_MARGIN, same value — declared further down this
     file, so it can't be referenced from here). There is deliberately NO
     left margin: that edge is flush with the message history area
-    underneath. All by direct request. }
-  CHAT_HEADER_CARD_MARGIN_TOP    = 3;
+    underneath. All by direct request.
+
+    The top was briefly 3 rather than 5 — asked for back when the
+    background behind the card was white and the gap was invisible
+    anyway; once the background became a real (and configurable) color
+    the odd one out was obvious, and it went back to matching the other
+    two. }
+  CHAT_HEADER_CARD_MARGIN_TOP    = 5;
   CHAT_HEADER_CARD_MARGIN_RIGHT  = 5;
   CHAT_HEADER_CARD_MARGIN_BOTTOM = 5;
   { Frame indices in FilterButtons (TImageList, 32x32, framehistory.lfm)
@@ -477,6 +483,16 @@ const
     all four sides — and ROW_HEIGHT below accounts for its vertical
     half, so the card keeps its height instead of being squeezed. }
   CHATROW_CARD_INSET = 1;
+  { The gap above the FIRST card and below the LAST one — the list's
+    own outer margin, not the spacing between cards. Those two are
+    different numbers on purpose: the gap between neighbours is the sum
+    of two rows' insets and reads as one gap, while the outer edge only
+    ever gets one row's worth and so came out visibly tighter than
+    everything else around it once the background stopped being white.
+    Applied as BorderSpacing on the grid (framechats.pas) rather than
+    by growing the row inset, which would have moved the gap between
+    cards along with it. }
+  CHATLIST_EDGE_MARGIN = 5;
   { Card header height — the avatar moved into the content area (see
     CHATROW_CONTENT_H below), leaving only the type icon + name +
     badges in the header — the same "content height + own vertical
@@ -692,6 +708,17 @@ const
     a sheet of paper with text on it, while this is the desk under
     it. }
   APP_SURFACE_COLOR = clBtnFace;
+
+  { The work area's margin against the window's bottom edge, applied
+    (TFormMain.UpdateMessageInputVisibility) only when the message
+    input box is hidden — with the box up, its own 5px ChildSizing
+    margin plus the splitter already provide the separation, and adding
+    this on top would double it. Same value as everything else that
+    floats off an edge around here (THIN_SCROLLBAR_MARGIN,
+    CHAT_HEADER_CARD_MARGIN_*), kept as its own name because it is a
+    different relationship — the work area against the window, not a
+    control against its frame. }
+  WORKAREA_EDGE_MARGIN = 5;
 
   { Download progress bar (TPhotoWidget/TVideoWidget, framehistory.pas)
     — drawn under the "download" icon while EnsurePhotoFile/

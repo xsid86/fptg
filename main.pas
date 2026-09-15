@@ -594,6 +594,19 @@ begin
   end;
   FMessageInput.Visible := ShowInput;
   FInputSplitter.Visible := ShowInput;
+  { With the input box showing, the splitter and the box's own 5px
+    ChildSizing margin already separate the message area from the
+    window's bottom edge. With it hidden (a channel one can't post in,
+    or no chat open at all) the frame ran flush into the status bar
+    instead — so the margin is put back here, by direct request, on the
+    only side that loses it. Set on the host rather than inside
+    TFrameHistory: it is a property of the work area's layout, decided
+    here, and it applies to whatever frame the navigator has up. }
+  if ShowInput then begin
+    FNavHost.BorderSpacing.Bottom := 0;
+  end else begin
+    FNavHost.BorderSpacing.Bottom := WORKAREA_EDGE_MARGIN;
+  end;
 end;
 
 procedure TFormMain.ListModeChanged(Sender: TObject; AMode: TChatListMode);
