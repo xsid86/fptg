@@ -139,6 +139,10 @@ type
       placed via the Designer like the rest of this frame —
       TThinScrollBar isn't a registered design-time component. }
     FVScroll: TThinScrollBar;
+    { The Memo's bounds as of the last time its window region was cut,
+      so MemoResize can tell a real geometry change from the ~500 calls
+      a second FSyncTimer makes (MEMO_SYNC_TIMER_MS = 2). See there. }
+    FMemoShapeBounds: TRect;
     { Polls Memo's scroll state and mouse wheel/keyboard navigation —
       not row-count-changed like framechats.pas's grid; a plain Edit
       control fires no notification at all for either (EM_LINESCROLL
@@ -324,24 +328,41 @@ begin
     clip regions used elsewhere in this project, which the caller keeps
     and must free itself. A later SetWindowRgn call (the next resize)
     replaces it and the OS frees the old one on its own. }
-  { The radius the REGION is cut with is deliberately larger than the
-    visible one when the smooth path is on — see this frame's Paint.
-    A bigger corner radius removes MORE material at the corner, so the
-    region's jagged edge ends up strictly INSIDE the smooth curve
-    painted underneath it, and no stair-step can poke out past that
-    curve. Along the straight sides the two coincide, as before. }
-  if SMOOTH_CHROME_CORNERS then begin
-    RgnRadius := MSG_CORNER_RADIUS + MEMO_REGION_SLACK;
-  end else begin
-    RgnRadius := MSG_CORNER_RADIUS;
+  { Everything from here to the EM_SETRECT below runs ONLY when the
+    Memo's geometry actually changed. This procedure is also called
+    from FSyncTimer, whose interval is 2ms — around 500 times a second
+    — and neither of the two things guarded here is idempotent in
+    practice: cutting a fresh GDI region and handing it to the OS half
+    a thousand times a second is pure churn, and the Invalidate that
+    the painted corners need (see this frame's Paint) repainted the
+    whole frame at that rate, which is what made the Send button
+    visibly flicker. The EM_SETRECT below is deliberately left outside
+    this guard — reapplying it on every tick is what it is there for
+    (see the comment at SyncTick). }
+  if (Memo.Left <> FMemoShapeBounds.Left) or (Memo.Top <> FMemoShapeBounds.Top)
+     or (Memo.Width <> FMemoShapeBounds.Right - FMemoShapeBounds.Left)
+     or (Memo.Height <> FMemoShapeBounds.Bottom - FMemoShapeBounds.Top) then begin
+    FMemoShapeBounds := Rect(Memo.Left, Memo.Top,
+      Memo.Left + Memo.Width, Memo.Top + Memo.Height);
+
+    { The radius the REGION is cut with is deliberately larger than the
+      visible one when the smooth path is on — see this frame's Paint.
+      A bigger corner radius removes MORE material at the corner, so
+      the region's jagged edge ends up strictly INSIDE the smooth curve
+      painted underneath it, and no stair-step can poke out past that
+      curve. Along the straight sides the two coincide, as before. }
+    if SMOOTH_CHROME_CORNERS then begin
+      RgnRadius := MSG_CORNER_RADIUS + MEMO_REGION_SLACK;
+    end else begin
+      RgnRadius := MSG_CORNER_RADIUS;
+    end;
+    Rgn := Windows.CreateRoundRectRgn(0, 0, Memo.Width, Memo.Height,
+      RgnRadius * 2, RgnRadius * 2);
+    Windows.SetWindowRgn(Memo.Handle, Rgn, True);
+    { The frame paints the smooth curve into the sliver the region
+      leaves uncovered, so it has to repaint when the Memo moves. }
+    Invalidate;
   end;
-  Rgn := Windows.CreateRoundRectRgn(0, 0, Memo.Width, Memo.Height,
-    RgnRadius * 2, RgnRadius * 2);
-  Windows.SetWindowRgn(Memo.Handle, Rgn, True);
-  { The frame paints the smooth curve into the sliver the region now
-    leaves uncovered, so it has to repaint whenever the Memo moves or
-    resizes. }
-  Invalidate;
 
   { Inner padding to the text, MEMO_PAD on every side — EM_SETRECT,
     confirmed (Microsoft's own docs) to work on a plain multiline Edit
