@@ -8,6 +8,7 @@
       <Unit>
         <Filename Value="tg.lpr"/>
         <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
         <TopLine Value="64"/>
         <CursorPos Y="41"/>
         <UsageCount Value="142"/>
@@ -105,7 +106,6 @@
       <Unit>
         <Filename Value="constants.pas"/>
         <IsPartOfProject Value="True"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="7"/>
         <TopLine Value="505"/>
         <CursorPos X="29" Y="532"/>

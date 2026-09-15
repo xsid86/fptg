@@ -4369,20 +4369,25 @@ begin
     antialiased. A window region is a binary per-pixel mask owned by the
     OS: a pixel is either part of the window or it isn't, there is no
     partial coverage to blend with, so its arc is always stair-stepped.
-    That is fine while everything else is stair-stepped too; it stopped
-    being fine when SMOOTH_CHROME_CORNERS turned the cards around this
-    control smooth and left its own corners as the odd ones out.
+    That stopped being acceptable once SMOOTH_CHROME_CORNERS made the
+    cards around this control smooth and left its own corners the only
+    faceted ones. With that switch on the region is dropped entirely
+    (nil un-shapes the window) and PaintOuterCorners covers the four
+    corners from inside Paint instead, where real alpha blending is
+    available; with it off the old region is still the cheaper way.
 
-    So with that switch on, the region is dropped entirely (nil un-
-    shapes the window) and PaintOuterCorners covers the four corners
-    from inside Paint instead, where real alpha blending is available.
-    With it off, the old region is still the cheaper way and stays.
-
-    The region handle is never freed here: ownership passes to the OS
-    on a successful SetWindowRgn (confirmed against Microsoft's own
-    documentation), and a later call replaces it, freeing the old one.
-    HandleAllocated guards the construction-order hazard MemoResize
-    documents (Resize firing before the control has a real window). }
+    Originally: same radius/technique as the message input
+    memo (msginput.pas, MemoResize) — direct request, "match the memo".
+    TMsgScroller, like TMemo there, is a real windowed control (a
+    TCustomControl always gets its own HWND under the Win32 widgetset),
+    so SetWindowRgn shapes it exactly the same way: pixels outside the
+    rounded rect simply aren't painted, showing TFrameHistory's own
+    background through at the corners — see MemoResize's own comment
+    for why the region handle is never freed here (ownership passes to
+    the OS on a successful SetWindowRgn) and why a later call (the next
+    resize) safely replaces it. HandleAllocated guards the same
+    construction-order hazard MemoResize documents (Resize firing
+    before the control has a real window yet). }
   if HandleAllocated then begin
     if SMOOTH_CHROME_CORNERS then begin
       Windows.SetWindowRgn(Handle, 0, True);
@@ -5030,13 +5035,13 @@ end;
   against.
 
   Covers each corner with the PARENT's background color, erasing the
-  part that falls inside the rounded shape, so what remains painted is
+  part that falls inside the rounded shape, so what stays painted is
   exactly the sliver outside the arc — the same thing the window region
   used to hide, just with partial coverage along the curve. Four
   bitmaps of MSG_CORNER_RADIUS squared (49 pixels each at the current
-  radius), not one the size of the control: the cost that made
-  SMOOTH_CORNERS unaffordable for message blocks is a per-message, per-
-  frame cost, and this is deliberately nothing like it.
+  radius), not one the size of the control: the cost that makes
+  SMOOTH_CORNERS unaffordable for message blocks is a per-message,
+  per-frame cost, and this is deliberately nothing like it.
 
   The background is read live from the parent rather than plumbed in,
   the same way TThinScrollBar does it and for the same reason —
