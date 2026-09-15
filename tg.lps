@@ -113,6 +113,11 @@
         <Loaded Value="True"/>
       </Unit>
       <Unit>
+        <Filename Value="cardpaint.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="tdjson.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="10"/>

@@ -76,11 +76,33 @@ const
   NEAR_TOP_PX    = 400;
   WHEEL_LINE_PX  = 60;
   LINE_SCROLL_PX = 24;
-  { Switches corner rendering between antialiased (BGRA, composited via
-    a temporary TBGRABitmap) and plain GDI Canvas.RoundRect. False is
-    cheaper and was chosen for scroll smoothness. Radii below are
-    unaffected — only the drawing method changes, not the numbers. }
+  { Corner rendering: antialiased (BGRA, composited via a temporary
+    TBGRABitmap) or plain GDI Canvas.RoundRect. Radii elsewhere in this
+    file are unaffected by either — only the drawing method changes,
+    never the numbers.
+
+    TWO independent switches, deliberately, because the two groups they
+    cover have completely different cost profiles:
+
+    SMOOTH_CORNERS — everything INSIDE the message history: the message
+    block, its header strip, forward cards, reply quotes, audio/file
+    widgets. Up to a dozen rounded rectangles per message, redrawn on
+    every scroll frame. This is what tearing/stutter while scrolling
+    was traced to, confirmed by the user on a real run ("отрисовка
+    рвалась именно из-за bgrabitmap"), and it stays OFF.
+
+    SMOOTH_CHROME_CORNERS — the frame AROUND the history: chat list row
+    cards, the chat info bar's card, the message history's own outer
+    corners. A handful of rectangles, on elements that don't
+    re-composite per message, so the cost that made the other one
+    unaffordable simply isn't there — and these are the corners the eye
+    actually rests on. ON.
+
+    They used to be one switch; splitting them was a direct request
+    once the background stopped being white and GDI's jagged arcs
+    became obvious on the outer cards. }
   SMOOTH_CORNERS = False;
+  SMOOTH_CHROME_CORNERS = True;
   { Switches message/quote/forward-card rendering between two body
     styles. True: no background fill or outline on the message body /
     forward card / reply quote — only the header row (icon+name+time

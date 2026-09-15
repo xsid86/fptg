@@ -42,7 +42,7 @@ uses
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
   Forms, Controls, Dialogs, SysUtils,
-  constants,
+  constants, cardpaint,
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
   tdusers, tdaccentcolors, tdaccount, tdcore, audiodevices, ffdecode, audioplayer, videoplayer,
   photodecoder, mediaplayer, rlottie, lottieplayer,

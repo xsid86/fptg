@@ -5,7 +5,7 @@ unit framechats;
 interface
 
 uses
-  avatarcache, BGRABitmap, BGRABitmapTypes,
+  avatarcache, BGRABitmap, BGRABitmapTypes, cardpaint,
   Classes, Clipbrd, customemoji,
   Controls, constants, DateUtils, Dialogs, emojiassets, ExtCtrls, Forms, Graphics, Grids,
   LCLType, LMessages, Math, Menus, StdCtrls, SysUtils, tdaccentcolors, tdauth, tdchats,
@@ -317,46 +317,28 @@ begin
   );
 end;
 
-{ Rounded fill/outline for a row card — its own, trimmed-down copy of
-  PaintRoundRectAA (framehistory.pas, the SMOOTH_CORNERS=False branch):
-  same reason for an independent copy as ChatAccentColor above, and the
-  same choice of drawing method — the chat list scrolls exactly as
-  often as the message history, and the same lesson about the cost of
-  BGRA antialiasing on every frame applies here identically — plain GDI
-  Canvas.RoundRect, no TBGRABitmap at all.
+{ Rounded fill/outline for a row card. The drawing lives in
+  cardpaint.PaintRounded, shared with the message history and the chat
+  info bar; this wrapper exists only to supply this part of the UI's
+  own answer to "antialiased or not".
+
+  That answer is SMOOTH_CHROME_CORNERS (on), NOT the message history's
+  SMOOTH_CORNERS (off) — and the two really are different questions,
+  even though the chat list scrolls just as often. A message draws up
+  to a dozen rounded rectangles that are re-composited per message; a
+  row here draws three, for a card the eye rests on directly, which is
+  where GDI's jagged arcs showed up once the background behind the
+  cards stopped being white.
+
   AOptions/[rrBottomLeftSquare, rrBottomRightSquare] is the same
   "square off the bottom" trick used for the card header as with
   messages. }
 procedure PaintCardRoundRect(ACanvas: TCanvas; const ABox: TRect; ARadius: single;
   AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor;
   ABorderWidth: single = 1);
-var
-  IRadius: Integer;
 begin
-  if (ABox.Right - ABox.Left <= 0) or (ABox.Bottom - ABox.Top <= 0) then begin
-    Exit;
-  end;
-  IRadius := Round(ARadius);
-  ACanvas.Pen.Style := psClear;
-  if ABorderColor <> clNone then begin
-    ACanvas.Pen.Style := psSolid;
-    ACanvas.Pen.Color := ABorderColor;
-    ACanvas.Pen.Width := Round(ABorderWidth);
-  end;
-  if AFillColor <> clNone then begin
-    ACanvas.Brush.Style := bsSolid;
-    ACanvas.Brush.Color := AFillColor;
-  end else begin
-    ACanvas.Brush.Style := bsClear;
-  end;
-  ACanvas.RoundRect(ABox.Left, ABox.Top, ABox.Right, ABox.Bottom, IRadius * 2, IRadius * 2);
-  if (AFillColor <> clNone) and (rrBottomLeftSquare in AOptions) and
-    (rrBottomRightSquare in AOptions) then begin
-    ACanvas.Pen.Style := psClear;
-    ACanvas.Brush.Style := bsSolid;
-    ACanvas.Brush.Color := AFillColor;
-    ACanvas.FillRect(Rect(ABox.Left, ABox.Bottom - IRadius, ABox.Right, ABox.Bottom));
-  end;
+  PaintRounded(ACanvas, ABox, ARadius, AOptions, AFillColor, ABorderColor,
+    SMOOTH_CHROME_CORNERS, ABorderWidth);
 end;
 
 { ---------------- lifecycle ---------------- }

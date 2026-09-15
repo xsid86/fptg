@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Types, Math, Forms, Controls, Graphics, StdCtrls, ExtCtrls,
-  Buttons, ImgList, Clipbrd, constants, tdchats, tdcore, tdaccentcolors,
+  Buttons, ImgList, Clipbrd, cardpaint, constants, tdchats, tdcore, tdaccentcolors,
   avatarcache, BGRABitmap, BGRABitmapTypes;
 
 type
@@ -178,11 +178,12 @@ type
     { Same ColorToRGB-safe blend as framehistory.BlendWithBackground —
       another independent copy, same reason. }
     function BlendColor(AFg, ABg: TColor; AOpacity: double): TColor;
-    { A line-for-line copy of framechats.PaintCardRoundRect (a
-      unit-level routine there, not reachable from here), including its
-      rrBottom*Square trick: GDI's RoundRect can't round corners
-      individually, so a header strip whose bottom must stay square is
-      drawn fully rounded and then has its bottom band re-filled flat. }
+    { Thin wrapper over cardpaint.PaintRounded — this bar is part of
+      the frame AROUND the message history, so it answers "antialiased
+      or not" with SMOOTH_CHROME_CORNERS (on), not the history's own
+      SMOOTH_CORNERS (off). Used to be a line-for-line copy of
+      framechats.PaintCardRoundRect, which was itself a copy of
+      framehistory's; all three now share one implementation. }
     procedure PaintCard(const ABox: TRect; ARadius: integer;
       AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor);
     procedure DoLayout;
@@ -299,29 +300,8 @@ end;
 procedure TChatHeaderPanel.PaintCard(const ABox: TRect; ARadius: integer;
   AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor);
 begin
-  if (ABox.Right - ABox.Left <= 0) or (ABox.Bottom - ABox.Top <= 0) then begin
-    Exit;
-  end;
-  Canvas.Pen.Style := psClear;
-  if ABorderColor <> clNone then begin
-    Canvas.Pen.Style := psSolid;
-    Canvas.Pen.Color := ABorderColor;
-    Canvas.Pen.Width := 1;
-  end;
-  if AFillColor <> clNone then begin
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Brush.Color := AFillColor;
-  end else begin
-    Canvas.Brush.Style := bsClear;
-  end;
-  Canvas.RoundRect(ABox.Left, ABox.Top, ABox.Right, ABox.Bottom, ARadius * 2, ARadius * 2);
-  if (AFillColor <> clNone) and (rrBottomLeftSquare in AOptions) and
-     (rrBottomRightSquare in AOptions) then begin
-    Canvas.Pen.Style := psClear;
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Brush.Color := AFillColor;
-    Canvas.FillRect(Rect(ABox.Left, ABox.Bottom - ARadius, ABox.Right, ABox.Bottom));
-  end;
+  PaintRounded(Canvas, ABox, ARadius, AOptions, AFillColor, ABorderColor,
+    SMOOTH_CHROME_CORNERS);
 end;
 
 constructor TChatHeaderPanel.Create(AOwner: TComponent);

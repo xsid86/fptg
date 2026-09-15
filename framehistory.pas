@@ -15,7 +15,7 @@ uses
     but the uses order still matters for overload resolution. }
   Windows,
   Classes, SysUtils, Types, Math, DateUtils, LCLType, LCLIntf,
-  Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
+  cardpaint, Controls, constants, Forms, Graphics, Clipbrd, fgl, StdCtrls, ExtCtrls,
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
   uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer,
@@ -1070,6 +1070,10 @@ type
     procedure CopySelection;
   protected
     procedure Paint; override;
+    { The control's own outer corners, antialiased — see its own
+      comment for why this and Resize's window region are mutually
+      exclusive rather than complementary. }
+    procedure PaintOuterCorners;
     procedure Resize; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
@@ -1359,122 +1363,30 @@ begin
   end;
 end;
 
-{ A single antialiased replacement for GDI Canvas.RoundRect, used for
-  EVERY rounded fill/outline in this file (message block, forward
-  card, reply quote box, audio/file widget). Draws into a temporary
-  transparent BGRA bitmap sized exactly to ABox and composites it onto
-  ACanvas with alpha blending (Draw ... False) — whatever is outside
-  the rounded shape stays whatever was already on the canvas, nothing
-  extra is overwritten.
+{ Every rounded fill/outline in this file (message block, forward card,
+  reply quote box, audio/file widget, reaction pill) goes through here.
+  The drawing itself now lives in cardpaint.PaintRounded, shared with
+  the chat list and the chat info bar — see that unit for the pixel-
+  centered-coordinate correction its antialiased path carries, and for
+  why it takes "smooth or not" as a parameter instead of deciding.
 
-  AFillColor/ABorderColor = clNone skips the corresponding pass (fill
-  only, outline only, or both if both are given). The radius (ARadius)
-  is used AS GIVEN — no caller changed a single number when switching
-  to this function, only the drawing method changed.
+  What stays here is only this file's ANSWER to that question:
+  SMOOTH_CORNERS, which is off — these are the corners drawn a dozen
+  times per message on every scroll frame, the ones BGRA antialiasing
+  was measured to make scrolling tear.
 
-  Three rounds of fixes on TPhotoWidget.DrawBmpRounded (a white gap in
-  the corner -> a clipped outline -> a blurry outline) all boiled down
-  to one fact: FillRoundRectAntialias/RoundRectAntialias, by default
-  (APixelCenteredCoordinates=True, confirmed by reading the BGRABitmap
-  source, not guessed), treat an integer coordinate N as the CENTER of
-  pixel N, not the boundary between pixels N-1 and N as GDI does. Hence
-  the two corrections below, correct from the start, without repeating
-  that same trial-and-error path: -0.5 for the fill (its edge must fall
-  exactly between "pixel still exists" and "pixel no longer exists")
-  and AWidth-ABorderWidth/2-0.5 for the outline's far edge (the line
-  itself is centered on its path, ABorderWidth thick — its entire
-  extent must stay inside the bitmap). }
+  AForceSmooth (default False, every pre-existing call site unchanged)
+  opts one specific caller in anyway — only PaintReactions: at the
+  reaction pill's small radius GDI's arc reads as visibly not-round
+  (reported directly: "не круглые, а вытянутые" — an aliasing artifact,
+  not a geometry bug), and PaintReactions is a no-op for the vast
+  majority of rows, so paying there costs nothing in aggregate. }
 procedure PaintRoundRectAA(ACanvas: TCanvas; const ABox: TRect; ARadius: single;
   AOptions: TRoundRectangleOptions; AFillColor, ABorderColor: TColor;
   ABorderWidth: single = 1; AForceSmooth: boolean = False);
-var
-  W, H, IRadius: integer;
-  Bmp: TBGRABitmap;
-  Half: single;
 begin
-  W := ABox.Right - ABox.Left;
-  H := ABox.Bottom - ABox.Top;
-  if (W <= 0) or (H <= 0) then begin
-    Exit;
-  end;
-
-  { AForceSmooth (default False, every pre-existing call site unchanged)
-    opts a specific caller INTO the antialiased BGRA path below even
-    while SMOOTH_CORNERS=False globally — used only by PaintReactions:
-    plain GDI RoundRect (the branch this skips into) has no
-    antialiasing at all, and at the reaction pill's small radius
-    (REACTION_PILL_CORNER_RADIUS) that reads as a visibly jagged,
-    not-actually-round curve, reported directly ("не круглые, а
-    вытянутые" / "not round, but elongated" — an aliasing artifact, not
-    a geometry bug: the ellipse itself IS circular, GDI just can't draw
-    it smoothly at this size). Paying the BGRA cost here specifically
-    is cheap in aggregate: PaintReactions is a no-op for the vast
-    majority of rows (most messages have no reactions at all), unlike
-    the message block/header/forward-card corners this same function
-    also draws on EVERY row, which is what SMOOTH_CORNERS=False was
-    introduced to keep cheap in the first place (see its own comment). }
-  if not SMOOTH_CORNERS and not AForceSmooth then begin
-    { The older method, from before the switch to BGRA — plain GDI
-      Canvas.RoundRect, no TBGRABitmap at all. This branch exists to
-      test whether antialiased drawing itself (allocating and filling a
-      temporary bitmap on every call, up to 12 per frame in the worst
-      case) is actually noticeable in scroll smoothness, not just
-      subjectively "looks smoother".
-      GDI RoundRect can't do per-corner rounding — the only two AOptions
-      combinations actually used in this file are [rrBottomLeftSquare,
-      rrBottomRightSquare] (squaring off the bottom of a mini-header)
-      and its mirror, [rrTopLeftSquare, rrTopRightSquare] (squaring off
-      the TOP of the reaction strip — PaintReactions — which sits flush
-      against the block's own rounded bottom edge instead), and every
-      call site that requests either one never passes a border
-      (ABorderColor=clNone) — using the same older trick of "draw all 4
-      corners rounded, then square off one side with a separate
-      FillRect" that predates the switch to BGRA. No other AOptions
-      combination occurs in this file — this isn't generalized beyond
-      what's actually needed. }
-    IRadius := Round(ARadius);
-    ACanvas.Pen.Style := psClear;
-    if ABorderColor <> clNone then begin
-      ACanvas.Pen.Style := psSolid;
-      ACanvas.Pen.Color := ABorderColor;
-      ACanvas.Pen.Width := Round(ABorderWidth);
-    end;
-    if AFillColor <> clNone then begin
-      ACanvas.Brush.Style := bsSolid;
-      ACanvas.Brush.Color := AFillColor;
-    end else begin
-      ACanvas.Brush.Style := bsClear;
-    end;
-    ACanvas.RoundRect(ABox.Left, ABox.Top, ABox.Right, ABox.Bottom, IRadius * 2, IRadius * 2);
-    if AFillColor <> clNone then begin
-      ACanvas.Pen.Style := psClear;
-      ACanvas.Brush.Style := bsSolid;
-      ACanvas.Brush.Color := AFillColor;
-      if (rrBottomLeftSquare in AOptions) and (rrBottomRightSquare in AOptions) then begin
-        ACanvas.FillRect(Rect(ABox.Left, ABox.Bottom - IRadius, ABox.Right, ABox.Bottom));
-      end;
-      if (rrTopLeftSquare in AOptions) and (rrTopRightSquare in AOptions) then begin
-        ACanvas.FillRect(Rect(ABox.Left, ABox.Top, ABox.Right, ABox.Top + IRadius));
-      end;
-    end;
-    Exit;
-  end;
-
-  Bmp := TBGRABitmap.Create(W, H, BGRAPixelTransparent);
-  try
-    if AFillColor <> clNone then begin
-      Bmp.FillRoundRectAntialias(-0.5, -0.5, W - 0.5, H - 0.5, ARadius, ARadius,
-        ColorToBGRA(AFillColor), AOptions);
-    end;
-    if ABorderColor <> clNone then begin
-      Half := ABorderWidth / 2;
-      Bmp.RoundRectAntialias(Half - 0.5, Half - 0.5, W - Half - 0.5, H - Half - 0.5,
-        ARadius, ARadius, ColorToBGRA(ABorderColor), ABorderWidth, AOptions);
-    end;
-    Bmp.Draw(ACanvas, ABox.Left, ABox.Top, False);
-  finally
-    Bmp.Free;
-  end;
+  PaintRounded(ACanvas, ABox, ARadius, AOptions, AFillColor, ABorderColor,
+    SMOOTH_CORNERS or AForceSmooth, ABorderWidth);
 end;
 
 { Truncates S to AMaxW pixels wide (using the font already set on
@@ -4452,22 +4364,33 @@ begin
   except
   end;
 
-  { Rounded outer corners, same radius/technique as the message input
-    memo (msginput.pas, MemoResize) — direct request, "match the memo".
-    TMsgScroller, like TMemo there, is a real windowed control (a
-    TCustomControl always gets its own HWND under the Win32 widgetset),
-    so SetWindowRgn shapes it exactly the same way: pixels outside the
-    rounded rect simply aren't painted, showing TFrameHistory's own
-    background through at the corners — see MemoResize's own comment
-    for why the region handle is never freed here (ownership passes to
-    the OS on a successful SetWindowRgn) and why a later call (the next
-    resize) safely replaces it. HandleAllocated guards the same
-    construction-order hazard MemoResize documents (Resize firing
-    before the control has a real window yet). }
+  { Rounded outer corners. Two mutually exclusive ways of getting them,
+    and the difference is not a preference — SetWindowRgn CANNOT be
+    antialiased. A window region is a binary per-pixel mask owned by the
+    OS: a pixel is either part of the window or it isn't, there is no
+    partial coverage to blend with, so its arc is always stair-stepped.
+    That is fine while everything else is stair-stepped too; it stopped
+    being fine when SMOOTH_CHROME_CORNERS turned the cards around this
+    control smooth and left its own corners as the odd ones out.
+
+    So with that switch on, the region is dropped entirely (nil un-
+    shapes the window) and PaintOuterCorners covers the four corners
+    from inside Paint instead, where real alpha blending is available.
+    With it off, the old region is still the cheaper way and stays.
+
+    The region handle is never freed here: ownership passes to the OS
+    on a successful SetWindowRgn (confirmed against Microsoft's own
+    documentation), and a later call replaces it, freeing the old one.
+    HandleAllocated guards the construction-order hazard MemoResize
+    documents (Resize firing before the control has a real window). }
   if HandleAllocated then begin
-    Rgn := Windows.CreateRoundRectRgn(0, 0, Width, Height,
-      MSG_CORNER_RADIUS * 2, MSG_CORNER_RADIUS * 2);
-    Windows.SetWindowRgn(Handle, Rgn, True);
+    if SMOOTH_CHROME_CORNERS then begin
+      Windows.SetWindowRgn(Handle, 0, True);
+    end else begin
+      Rgn := Windows.CreateRoundRectRgn(0, 0, Width, Height,
+        MSG_CORNER_RADIUS * 2, MSG_CORNER_RADIUS * 2);
+      Windows.SetWindowRgn(Handle, Rgn, True);
+    end;
   end;
 
   Invalidate;
@@ -5090,6 +5013,83 @@ begin
   try
     LayoutQuoteWidgets(Lo, Hi);
   except
+  end;
+
+  { Last, over everything this Paint drew — see PaintOuterCorners. }
+  PaintOuterCorners;
+end;
+
+{ The control's own four outer corners, rounded WITH antialiasing.
+
+  Only used when SMOOTH_CHROME_CORNERS is on; with it off, Resize
+  shapes the window with SetWindowRgn instead and this does nothing.
+  The two cannot be combined and are not interchangeable: a window
+  region is a binary per-pixel mask owned by the OS — a pixel is either
+  part of the window or it is not — so its arc can never be anything
+  but stair-stepped, whereas here there is a real canvas to alpha-blend
+  against.
+
+  Covers each corner with the PARENT's background color, erasing the
+  part that falls inside the rounded shape, so what remains painted is
+  exactly the sliver outside the arc — the same thing the window region
+  used to hide, just with partial coverage along the curve. Four
+  bitmaps of MSG_CORNER_RADIUS squared (49 pixels each at the current
+  radius), not one the size of the control: the cost that made
+  SMOOTH_CORNERS unaffordable for message blocks is a per-message, per-
+  frame cost, and this is deliberately nothing like it.
+
+  The background is read live from the parent rather than plumbed in,
+  the same way TThinScrollBar does it and for the same reason —
+  GetRGBColorResolvingParent resolves clDefault and symbolic system
+  colors, which a raw Color property does not (that once produced solid
+  black corners). It matters more than usual here: this color is now a
+  user setting and can change at runtime. }
+procedure TMsgScroller.PaintOuterCorners;
+const
+  CornerCount = 4;
+var
+  R, I, OX, OY: integer;
+  Bg: TColor;
+  Bmp: TBGRABitmap;
+  CX, CY: array[0..CornerCount - 1] of integer;
+begin
+  if not SMOOTH_CHROME_CORNERS then begin
+    Exit;
+  end;
+  R := MSG_CORNER_RADIUS;
+  { Below twice the radius the two arcs on a side would overlap and the
+    per-corner patches would start erasing each other's coverage. }
+  if (R <= 0) or (Width < 2 * R) or (Height < 2 * R) then begin
+    Exit;
+  end;
+
+  if Parent <> nil then begin
+    Bg := Parent.GetRGBColorResolvingParent;
+  end else begin
+    Bg := Color;
+  end;
+
+  CX[0] := 0;         CY[0] := 0;
+  CX[1] := Width - R; CY[1] := 0;
+  CX[2] := 0;         CY[2] := Height - R;
+  CX[3] := Width - R; CY[3] := Height - R;
+
+  for I := 0 to CornerCount - 1 do begin
+    OX := CX[I];
+    OY := CY[I];
+    Bmp := TBGRABitmap.Create(R, R, ColorToBGRA(Bg));
+    try
+      { The rounded rect is the WHOLE control, expressed in this small
+        bitmap's own coordinates (hence the offset) — everything of it
+        outside the patch is simply clipped away. -0.5 for the same
+        pixel-centered-coordinate reason cardpaint.PaintRounded
+        documents at length. }
+      Bmp.EraseRoundRectAntialias(-0.5 - OX, -0.5 - OY,
+        Width - 0.5 - OX, Height - 0.5 - OY, R, R, 255);
+      Bmp.Draw(Canvas, OX, OY, False);
+    finally
+      Bmp.Free;
+    end;
   end;
 end;
 
