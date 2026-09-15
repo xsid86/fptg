@@ -377,6 +377,17 @@ begin
   FMeasure.FontStyle := [fsBold];
   FMeasure.FontQuality := fqFineAntialiasing;
 
+  { So the field the chat cards float on is the window grey around the
+    frame rather than a grid's default white — see GridDrawCell's
+    BaseBg for the full reasoning. In code, not in the .lfm, for the
+    same reason the filter buttons' GroupIndex is (chatheader.pas):
+    a Designer round-trip silently drops .lfm properties whose value
+    happens to match a class default, and ParentColor=True is exactly
+    such a value. Parent is still nil at this point — LCL propagates
+    the colour itself once the navigator parents this frame. }
+  ParentColor := True;
+  Grid.ParentColor := True;
+
   Grid.ColCount  := 1;
   Grid.FixedCols := 0;
   Grid.FixedRows := 0;
@@ -1067,7 +1078,18 @@ begin
     BaseBg := clHighlight;
   end
   else begin
-    BaseBg := clWindow;
+    { The surface the cards FLOAT ON, not the cards themselves — the
+      window grey the chat header bar and the rest of the work area
+      already use, by direct request. It used to be a hard-coded
+      clWindow, which put a second, brighter surface in the
+      CHATROW_GAP gaps between and around the cards.
+
+      Resolved through the parent chain (Create turns ParentColor on
+      for both this grid and the frame) rather than named outright, so
+      it keeps following whatever the form around it uses; the CARDS
+      stay blended against clWindow below, which is what keeps them
+      reading as light panels lying on top of this. }
+    BaseBg := Grid.GetRGBColorResolvingParent;
   end;
   Cv.Brush.Color := BaseBg;
   Cv.Brush.Style := bsSolid;
