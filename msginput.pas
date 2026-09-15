@@ -218,6 +218,16 @@ begin
   FVScroll := TThinScrollBar.Create(Self);
   FVScroll.Parent := Self;
   FVScroll.Align := alRight;
+  { Horizontal margin explicitly, because this frame's ChildSizing no
+    longer supplies one: LeftRightSpacing is 0 so the Toolbar and Memo
+    line up flush with the message history above them (which has no
+    ChildSizing at all and whose scroller sits flush against its own
+    frame). Vertical is still ChildSizing's TopBottomSpacing — that one
+    stays at 5, it is the input box's margin against the window's
+    bottom edge. Same number the history's and the chat list's own thin
+    scrollbars use. }
+  FVScroll.BorderSpacing.Left := THIN_SCROLLBAR_MARGIN;
+  FVScroll.BorderSpacing.Right := THIN_SCROLLBAR_MARGIN;
   FVScroll.OnScroll := @VScrollScroll;
 
   FSyncTimer := TTimer.Create(Self);
@@ -269,7 +279,16 @@ begin
     Exit;
   end;
   B := Rect(Memo.Left, Memo.Top, Memo.Left + Memo.Width, Memo.Top + Memo.Height);
-  PaintRounded(Canvas, B, MSG_CORNER_RADIUS, [], Memo.Color, clNone, True);
+  { GetRGBColorResolvingParent, NOT the raw Color property. Memo.Color
+    is clDefault (msginput.lfm never sets one) — not a color at all but
+    a sentinel meaning "whatever this control class normally uses", and
+    feeding it straight to a BGRA fill yields black. Which is exactly
+    what happened on the first attempt at this: the corners WERE being
+    painted, in black, invisibly against a dark background, so it read
+    as "the smoothing still doesn't work". The same trap is already
+    documented in thinscrollbar.pas, for the same reason. }
+  PaintRounded(Canvas, B, MSG_CORNER_RADIUS, [],
+    Memo.GetRGBColorResolvingParent, clNone, True);
 end;
 
 procedure TMessageInputPanel.MemoResize(Sender: TObject);

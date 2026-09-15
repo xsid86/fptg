@@ -411,11 +411,21 @@ begin
   FVScroll := TThinScrollBar.Create(Self);
   FVScroll.Parent := Self;
   FVScroll.Align := alRight;
-  { By direct request — same small "floating" margin msginput.pas's
-    own scrollbar already has (see THIN_SCROLLBAR_MARGIN's own
-    comment), applied directly here since this frame has no
-    ChildSizing of its own to produce it as a side effect. }
-  FVScroll.BorderSpacing.Around := THIN_SCROLLBAR_MARGIN;
+  { Vertically only — the same small "floating" margin msginput.pas's
+    own scrollbar has (see THIN_SCROLLBAR_MARGIN's own comment),
+    applied directly here since this frame has no ChildSizing of its
+    own to produce it as a side effect.
+
+    HORIZONTALLY it is deliberately zero, which is not the same thing
+    as "forgotten". Both sides of this scrollbar already have a 5px lane
+    of background without it: on the left, the row card's own inset
+    (CHATROW_GAP + CHATROW_CARD_INSET); on the right, the splitter,
+    which is 5px wide and painted in the background color. Adding the
+    margin on top doubled both to 10 — visibly wider than every other
+    gap in the window, which is what was reported. Zero here puts the
+    scrollbar INTO those existing lanes instead of beside them. }
+  FVScroll.BorderSpacing.Top := THIN_SCROLLBAR_MARGIN;
+  FVScroll.BorderSpacing.Bottom := THIN_SCROLLBAR_MARGIN;
   FVScroll.OnScroll := @VScrollScroll;
 
   FCustomEmojiTimer := TTimer.Create(Self);

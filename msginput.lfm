@@ -3,7 +3,7 @@ object MessageInputPanel: TMessageInputPanel
   Height = 100
   Top = 0
   Width = 784
-  ChildSizing.LeftRightSpacing = 5
+  ChildSizing.LeftRightSpacing = 0
   ChildSizing.TopBottomSpacing = 5
   ChildSizing.VerticalSpacing = 5
   ChildSizing.Layout = cclLeftToRightThenTopToBottom
