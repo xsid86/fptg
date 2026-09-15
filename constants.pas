@@ -469,6 +469,14 @@ const
     inset from the list's left/right edge — one number, both roles, see
     ChatRowRects (framechats.pas). }
   CHATROW_GAP = 4;
+  { Extra breathing room around EVERY side of the card, on top of
+    CHATROW_GAP, by direct request. Kept separate rather than folded
+    into CHATROW_GAP because that one is two roles at once: growing it
+    would widen the gap BETWEEN cards by twice as much as the inset
+    from the list's edge. This one is symmetrical — the same number on
+    all four sides — and ROW_HEIGHT below accounts for its vertical
+    half, so the card keeps its height instead of being squeezed. }
+  CHATROW_CARD_INSET = 1;
   { Card header height — the avatar moved into the content area (see
     CHATROW_CONTENT_H below), leaving only the type icon + name +
     badges in the header — the same "content height + own vertical
@@ -484,7 +492,7 @@ const
     it. }
   CHATROW_CONTENT_H = AVATAR_SIZE + 2 * MSG_PAD_V;
   CHATROW_CARD_H = CHATROW_HEADER_BAR_H + CHATROW_CONTENT_H;
-  ROW_HEIGHT = CHATROW_CARD_H + CHATROW_GAP;
+  ROW_HEIGHT = CHATROW_CARD_H + CHATROW_GAP + 2 * CHATROW_CARD_INSET;
   { Card corner radius — its own knob, not MSG_CORNER_RADIUS directly
     (same principle as FORWARD/REPLY/AUDIO/FILE_CORNER_RADIUS above —
     each card type tunable independently), initial value matches

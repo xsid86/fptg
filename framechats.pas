@@ -895,9 +895,16 @@ begin
     the card visually start right at the top edge of the list row; the
     card's total height is unchanged, the 4px still goes entirely to
     the gap, just split evenly between both sides instead of only the
-    bottom. }
-  Result := Rect(ARect.Left + CHATROW_GAP, ARect.Top + CHATROW_GAP div 2,
-    ARect.Right - CHATROW_GAP, ARect.Bottom - CHATROW_GAP div 2);
+    bottom.
+
+    CHATROW_CARD_INSET is then added to all four sides alike (by direct
+    request) — the card does NOT get shorter for it: ROW_HEIGHT already
+    includes its vertical share. }
+  Result := Rect(
+    ARect.Left + CHATROW_GAP + CHATROW_CARD_INSET,
+    ARect.Top + CHATROW_GAP div 2 + CHATROW_CARD_INSET,
+    ARect.Right - CHATROW_GAP - CHATROW_CARD_INSET,
+    ARect.Bottom - CHATROW_GAP div 2 - CHATROW_CARD_INSET);
 
   AHeader := Rect(Result.Left, Result.Top, Result.Right, Result.Top + CHATROW_HEADER_BAR_H);
   AContent := Rect(Result.Left, AHeader.Bottom, Result.Right, Result.Bottom);
