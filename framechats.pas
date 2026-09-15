@@ -74,6 +74,7 @@ type
     FReceipts: array[TChatReceipt, Boolean] of TBGRABitmap;
     FMenuRow:  TChatRow;
     FOnSelect: TChatSelectEvent;
+    FOnRowsChanged: TNotifyEvent;
     FOnListMode: TListModeEvent;
     FMode:     TChatListMode;
     FOnAvatar: TAvatarClickEvent;
@@ -181,12 +182,19 @@ type
       local). Result is the card itself (ARect minus CHATROW_GAP at the
       bottom).
       AHasPin=False (the archive list — pinning isn't allowed there)
-      collapses APinR to zero width at MuteR's left edge, rather than
-      simply not drawing it: TitleRight (the time text's right boundary
-      in GridDrawCell) is computed from PinR.Left, and without actually
-      shrinking this rectangle the time would overlap the empty space
-      where the pin icon used to be. }
-    function ChatRowRects(const ARect: TRect; AHasPin: Boolean; out AHeader, AContent,
+      collapses APinR to zero width at MuteR's left edge (or, if
+      AHasMute is ALSO False, at the header's own right-padding edge —
+      see AHasMute below), rather than simply not drawing it: TitleRight
+      (the time text's right boundary in GridDrawCell) is computed from
+      PinR.Left, and without actually shrinking this rectangle the time
+      would overlap the empty space where the pin icon used to be.
+      AHasMute=False (the Saved Messages row — muting yourself has no
+      effect, see TTdChats.IsSelfChat) collapses AMuteR to zero width at
+      the header's right-padding edge the SAME way, and — since PinR is
+      anchored off AMuteR.Left, not a fixed offset from the header edge
+      — the pin (if AHasPin) slides right into the slot the mute icon
+      would have occupied, flush against the edge, no leftover gap. }
+    function ChatRowRects(const ARect: TRect; AHasPin, AHasMute: Boolean; out AHeader, AContent,
       AIconR, AAvatarR, AMuteR, APinR: TRect): TRect;
     { One hit test shared by everything: clicks and cursor updates
       alike. Duplicating the geometry in two places is a reliable way
@@ -212,6 +220,16 @@ type
     procedure TdAccountsChanged;
     property Selected: TChatRow read CurrentRow;
     property OnSelect: TChatSelectEvent read FOnSelect write FOnSelect;
+    { Fired whenever the chat list itself was refreshed from the model
+      (ModelChanged) — i.e. pin/mute/unread/order changed, whoever
+      caused it. TTdChats.OnChanged is a single-listener event and this
+      frame already owns it, so anything ELSE that shows the same
+      per-chat state has to be told from here instead: right now that's
+      the chat info header above the history (chatheader.pas), which
+      would otherwise keep showing a stale pin/bell until the next
+      message arrived — SetPinned/SetMuted only SEND the request, the
+      row's own flags don't change until TDLib's update comes back. }
+    property OnRowsChanged: TNotifyEvent read FOnRowsChanged write FOnRowsChanged;
     property Mode: TChatListMode read FMode write SetMode;
     property OnListMode: TListModeEvent read FOnListMode write FOnListMode;
     property OnAvatar: TAvatarClickEvent read FOnAvatar write FOnAvatar;
@@ -652,6 +670,9 @@ begin
     it even when TopRow itself didn't move (e.g. more chats loaded at
     the bottom), which GridTopLeftChanged's own sync wouldn't catch. }
   SyncVScroll;
+  if Assigned(FOnRowsChanged) then begin
+    FOnRowsChanged(Self);
+  end;
 end;
 
 procedure TFrameChats.ActionError(Sender: TObject; ACode: Integer; const AMessage, AAction: Utf8string);
@@ -851,10 +872,10 @@ begin
   icons12.Draw(Grid.Canvas, ARect.Left, ARect.Top, AIndex, True);
 end;
 
-function TFrameChats.ChatRowRects(const ARect: TRect; AHasPin: Boolean; out AHeader, AContent,
+function TFrameChats.ChatRowRects(const ARect: TRect; AHasPin, AHasMute: Boolean; out AHeader, AContent,
   AIconR, AAvatarR, AMuteR, APinR: TRect): TRect;
 var
-  IconY: Integer;
+  IconY, RightEdge: Integer;
 begin
   { The card is ARect inset by CHATROW_GAP left/right (from the list's
     edge) and, vertically, by HALF of CHATROW_GAP on both top AND
@@ -888,20 +909,32 @@ begin
   { Right to left: the notification bell (at the very edge), then the
     pin to its left. Further left (checkmark/time) is variable width,
     computed at the point of drawing, and not part of the hit test
-    (not clickable). }
-  AMuteR := Rect(AHeader.Right - MSG_PAD_H - CHATROW_ICON_SIZE, IconY,
-    AHeader.Right - MSG_PAD_H, IconY + CHATROW_ICON_SIZE);
-  if AHasPin then begin
-    APinR := Rect(AMuteR.Left - GAP - CHATROW_ICON_SIZE, IconY,
-      AMuteR.Left - GAP, IconY + CHATROW_ICON_SIZE);
+    (not clickable). RightEdge is the "next icon goes here" cursor —
+    starts at the header's own right padding edge, and only moves left
+    (by one icon's width plus a GAP) when an icon actually occupies that
+    slot; a disabled icon collapses to a zero-width point at the CURRENT
+    RightEdge and leaves it untouched, so the next real icon (if any)
+    slides flush into the freed slot instead of leaving an empty gap
+    behind a bell/pin that was never drawn — see the comment on the
+    declaration. }
+  RightEdge := AHeader.Right - MSG_PAD_H;
+  if AHasMute then begin
+    AMuteR := Rect(RightEdge - CHATROW_ICON_SIZE, IconY, RightEdge, IconY + CHATROW_ICON_SIZE);
+    RightEdge := AMuteR.Left - GAP;
   end
   else begin
-    { Pinning isn't allowed in the archive — collapsed to zero width at
-      MuteR's left edge, not simply "not drawn": TitleRight in
-      GridDrawCell is computed from PinR.Left, and the time needs to
-      butt right up against MuteR, as if the pin slot had never
+    AMuteR := Rect(RightEdge, IconY, RightEdge, IconY + CHATROW_ICON_SIZE);
+  end;
+  if AHasPin then begin
+    APinR := Rect(RightEdge - CHATROW_ICON_SIZE, IconY, RightEdge, IconY + CHATROW_ICON_SIZE);
+  end
+  else begin
+    { Pinning isn't allowed in the archive — collapsed to zero width,
+      not simply "not drawn": TitleRight in GridDrawCell is computed
+      from PinR.Left, and the time needs to butt right up against
+      whatever real icon precedes it, as if the pin slot had never
       existed. }
-    APinR := Rect(AMuteR.Left, IconY, AMuteR.Left, IconY + CHATROW_ICON_SIZE);
+    APinR := Rect(RightEdge, IconY, RightEdge, IconY + CHATROW_ICON_SIZE);
   end;
 end;
 
@@ -935,10 +968,10 @@ begin
   end;
 
   { AvatarR/MuteR/PinR use the same geometry as real chats but simply
-    go unused here (this card has none of them). AHasPin doesn't matter
-    (False for consistency — there's no icon from that pair here
-    either way). }
-  Card := ChatRowRects(ARect, False, Header, Content, IconR, AvatarR, MuteR, PinR);
+    go unused here (this card has none of them). AHasPin/AHasMute don't
+    matter (both False for consistency — there's no icon from either
+    pair here either way). }
+  Card := ChatRowRects(ARect, False, False, Header, Content, IconR, AvatarR, MuteR, PinR);
 
   if ASelected then begin
     Cv.Brush.Color := BlendWithBackground(CHATROW_PSEUDO_COLOR, CHATROW_SELECTED_OPACITY, clWindow);
@@ -1016,6 +1049,7 @@ var
   NameLeft, NameEndX, CrownY, StatusSize, StatusX: Integer;
   CrownIcons: TImageList;
   Sel: Boolean;
+  HasMute: Boolean;
   S:   String;
   PrevGlyphs: TCustomGlyphSpanArray;
   GlyphShift, GI: Integer;
@@ -1070,8 +1104,10 @@ begin
   end;
 
   { Pinning isn't allowed in the archive — the pin icon isn't drawn at
-    all, not merely disabled. }
-  Card := ChatRowRects(ARect, FMode <> clmArchive, Header, Content, IconR, AvatarR, MuteR, PinR);
+    all, not merely disabled. Muting has no effect on Saved Messages
+    (you can't mute notifications from yourself) — same treatment. }
+  HasMute := not FModel.IsSelfChat(R);
+  Card := ChatRowRects(ARect, FMode <> clmArchive, HasMute, Header, Content, IconR, AvatarR, MuteR, PinR);
 
   { The card uses the same visual language as a message block: body
     (SENDER_BG_OPACITY), header on top (SENDER_HEADER_OPACITY, more
@@ -1116,13 +1152,15 @@ begin
     end;
   end;
 
-  if R.IsMuted then begin
-    MuteIdx := CHATROW_ICON_NOTIFY_OFF;
-  end
-  else begin
-    MuteIdx := CHATROW_ICON_NOTIFY_ON;
+  if HasMute then begin
+    if R.IsMuted then begin
+      MuteIdx := CHATROW_ICON_NOTIFY_OFF;
+    end
+    else begin
+      MuteIdx := CHATROW_ICON_NOTIFY_ON;
+    end;
+    DrawIcon12(MuteR, MuteIdx);
   end;
-  DrawIcon12(MuteR, MuteIdx);
 
   if FMode <> clmArchive then begin
     if R.IsPinned then begin
@@ -1347,7 +1385,7 @@ begin
   Cell := Grid.CellRect(C, Row);
   P    := Point(X - Cell.Left, Y - Cell.Top);
   Card := ChatRowRects(Rect(0, 0, Cell.Right - Cell.Left, Cell.Bottom - Cell.Top),
-    FMode <> clmArchive, Header, Content, IconR, AvatarR, MuteR, PinR);
+    FMode <> clmArchive, not FModel.IsSelfChat(ARow), Header, Content, IconR, AvatarR, MuteR, PinR);
 
   if PtInRect(MuteR, P) then begin
     Result := chaBell;

@@ -49,7 +49,7 @@ uses
   uiframe, avatarcache, qrrender, msglayout, emojiassets, customemoji,
   main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
   framesettingsautodownload, framelog, framewelcome, framechats, framehistory,
-  mediaviewer, msginput, apisetup
+  mediaviewer, msginput, apisetup, chatheader
   { you can add units after this };
 
 {$R *.res}

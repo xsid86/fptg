@@ -19,7 +19,7 @@ uses
   Dialogs, Menus, ShellApi, BGRABitmap, BGRABitmapTypes, BGRAFilters, avatarcache,
   tdauth, tdcore, tdchats, tdmessages, tdusers, tdaccentcolors, msglayout,
   uiframe, framechats, audioplayer, videoplayer, photodecoder, mediaplayer,
-  lottieplayer, customemoji, emojiassets, thinscrollbar;
+  lottieplayer, customemoji, emojiassets, thinscrollbar, chatheader;
 
 type
   { TAudioWidget
@@ -1121,6 +1121,7 @@ type
     Actions16: TImageList;
     FilePopupMenu: TPopupMenu;
     ImageList2: TImageList;
+    FilterButtons: TImageList;
     playback: TImageList;
     MenuItemFileSaveAs: TMenuItem;
     MenuItemFileShowInFolder: TMenuItem;
@@ -1149,12 +1150,24 @@ type
       own header comment for why a subclass of the native control
       can't be custom-painted at all. }
     FScrollbar: TThinScrollBar;
-    pnlStatus:  TPanel;
-    lblStatus:  TLabel;
+
+    { Chat info header bar above the message history — its own unit
+      (chatheader.pas, TChatHeaderPanel): hand-positions every child
+      itself rather than relying on LCL Align-docking cascades, which
+      turned out to order same-Align siblings in a way that isn't
+      simple creation order (confirmed by a direct screenshot AND by
+      reading the LCL source — see that unit's own class comment for
+      the full story). Refreshed from ModelChanged, the model's own
+      single "the open chat's data changed" choke point (same reasoning
+      as MaybeLoadMore, called from the same spot). }
+    FChatHeader: TChatHeaderPanel;
+    { The chat list refreshed itself — the open chat's pin/mute may have
+      changed with it (see TFrameChats.OnRowsChanged). }
+    procedure ChatRowsChanged(Sender: TObject);
+
     procedure BindModel;
     procedure UnbindModel;
     procedure ModelChanged(Sender: TObject);
-    procedure LoadingChanged(Sender: TObject);
     { The name cache/sender avatar got a getUser response — just
       repaint: the block's height doesn't change when a name resolves,
       so a full offset rebuild isn't needed. }
@@ -6587,19 +6600,32 @@ constructor TFrameHistory.Create(TheOwner: TComponent);
 begin
   inherited Create(TheOwner);
 
-  pnlStatus := TPanel.Create(Self);
-  pnlStatus.Parent := Self;
-  pnlStatus.Align := alTop;
-  pnlStatus.Height := 22;
-  pnlStatus.BevelOuter := bvNone;
-  lblStatus := TLabel.Create(Self);
-  lblStatus.Parent := pnlStatus;
-  lblStatus.Left := 8;
-  lblStatus.Top := 4;
-  lblStatus.AutoSize := False;
-  lblStatus.Width := 600;
-  lblStatus.Font.Color := clGrayText;
-  lblStatus.Caption := '';
+  { The only Align:=alTop child of this frame — nothing to order it
+    against (the message-count/status strip that used to sit under it
+    is gone, by direct request, along with its own counter; errors that
+    used to land there now go to the main window's status bar instead,
+    see ActionError). }
+  FChatHeader := TChatHeaderPanel.Create(Self);
+  FChatHeader.Parent := Self;
+  FChatHeader.Align := alTop;
+  { FormMain.ImageList1 (the main form's own 16x16 list, premium crown
+    at PREMIUM_CROWN_ICON) — NOT this frame's OWN "ImageList1" field
+    (a different, 32x32 component used for audio play/pause icons, see
+    FScroller.AudioImages below) — same name, two unrelated components
+    on two different classes. FormMain.Chats.icons12 is the chat list's
+    own 12x12 type/pin/mute icons — see chatheader.pas's own comment on
+    SetImageLists for why this bar reuses rather than duplicates them. }
+  if FormMain <> nil then begin
+    FChatHeader.SetImageLists(FormMain.Chats.icons12, FormMain.ImageList1, FilterButtons, Actions16, 2);
+    { Keeps the header's own pin/bell in step with the chat list's.
+      Neither SetPinned nor SetMuted changes the row's flags locally —
+      they only send the request, and the real state arrives later as a
+      TDLib update, which reaches the chat list (it owns TTdChats.
+      OnChanged, a single-listener event) and now, through this, the
+      header too. Without it the two disagree until the next message
+      lands in the chat, whichever side the click came from. }
+    FormMain.Chats.OnRowsChanged := @ChatRowsChanged;
+  end;
 
   FScrollbar := TThinScrollBar.Create(Self);
   FScrollbar.Parent := Self;
@@ -6709,11 +6735,9 @@ begin
     Exit;
   end;
   FModel.OnChanged := @ModelChanged;
-  FModel.OnLoadingChanged := @LoadingChanged;
   FModel.OnActionError := @ActionError;
   FModel.OnJumpReady := @JumpReady;
   ModelChanged(nil);
-  LoadingChanged(nil);
 end;
 
 procedure TFrameHistory.UnbindModel;
@@ -6721,9 +6745,6 @@ begin
   if FModel <> nil then begin
     if TMethod(FModel.OnChanged).Data = Pointer(Self) then begin
       FModel.OnChanged := nil;
-    end;
-    if TMethod(FModel.OnLoadingChanged).Data = Pointer(Self) then begin
-      FModel.OnLoadingChanged := nil;
     end;
     if TMethod(FModel.OnActionError).Data = Pointer(Self) then begin
       FModel.OnActionError := nil;
@@ -6764,8 +6785,8 @@ begin
     FModel.OpenChat(AChatId, AJumpToMessageId);
   except
     on E: Exception do begin
-      if lblStatus <> nil then begin
-        lblStatus.Caption := 'OpenChat error: ' + E.Message;
+      if FormMain <> nil then begin
+        FormMain.SetStatusText('OpenChat error: ' + E.Message);
       end;
     end;
   end;
@@ -6799,6 +6820,13 @@ begin
   { The account roster doesn't matter to the chat history frame }
 end;
 
+procedure TFrameHistory.ChatRowsChanged(Sender: TObject);
+begin
+  if FReady and (FChatHeader <> nil) and (FModel <> nil) then begin
+    FChatHeader.Refresh(FModel.ChatId);
+  end;
+end;
+
 procedure TFrameHistory.ModelChanged(Sender: TObject);
 begin
   if (not FReady) or (FModel = nil) then begin
@@ -6815,27 +6843,13 @@ begin
   try
     FScroller.ModelChanged;
     MaybeLoadMore;
-    LoadingChanged(nil);
+    FChatHeader.Refresh(FModel.ChatId);
   except
     on E: Exception do begin
-      if lblStatus <> nil then begin
-        lblStatus.Caption := 'UI error: ' + E.Message;
+      if FormMain <> nil then begin
+        FormMain.SetStatusText('UI error: ' + E.Message);
       end;
     end;
-  end;
-end;
-
-procedure TFrameHistory.LoadingChanged(Sender: TObject);
-begin
-  if (not FReady) or (lblStatus = nil) or (FModel = nil) then begin
-    Exit;
-  end;
-  if FModel.LoadingOlder then begin
-    lblStatus.Caption := 'Loading history...';
-  end else if FModel.OldestLoaded then begin
-    lblStatus.Caption := Format('%d messages (all loaded)', [FModel.Count]);
-  end else begin
-    lblStatus.Caption := Format('%d messages (more)', [FModel.Count]);
   end;
 end;
 
@@ -6844,8 +6858,10 @@ procedure TFrameHistory.ActionError(Sender: TObject; ACode: integer;
 begin
   { A getChatHistory/sendMessage/viewMessages failure — without this,
     an RPC failure would go completely unnoticed: an empty list and
-    silence. }
-  if lblStatus = nil then begin
+    silence. Goes to the main window's status bar: this frame's own
+    status strip (which also showed a message counter) is gone, by
+    direct request. }
+  if FormMain = nil then begin
     Exit;
   end;
   if AAction = 'jump' then begin
@@ -6854,10 +6870,10 @@ begin
       the source chat, not a bug: chat_id/message_id are passed as-is
       from forward_info.origin, with no manual conversion (see
       TMsgForwardKind in tdmessages.pas). }
-    lblStatus.Caption := 'Could not jump to the message — it may have been deleted';
+    FormMain.SetStatusText('Could not jump to the message — it may have been deleted');
     Exit;
   end;
-  lblStatus.Caption := Format('Error %d: %s', [ACode, string(AMessage)]);
+  FormMain.SetStatusText(Format('Error %d: %s', [ACode, string(AMessage)]));
 end;
 
 procedure TFrameHistory.JumpReady(Sender: TObject; AMessageId: Int64);

@@ -242,6 +242,16 @@ type
       ask (secret chats never get UserId populated either, see
       ChatUserId). }
     function IsPremiumUser(ARow: TChatRow): boolean;
+    { Whether ARow IS this account's own Saved Messages chat (a
+      ckPrivate row whose peer is this account's own user id — the
+      standard TDLib representation, no dedicated chat type of its
+      own). Used to hide the notification-mute toggle for that row: it
+      has no effect there (you can't mute notifications from yourself),
+      unlike pinning, which still works normally. False while FSession
+      hasn't resolved its own UserId yet (getMe still in flight, or no
+      session at all) — never a false positive, at worst a brief window
+      where the row looks like any other private chat. }
+    function IsSelfChat(ARow: TChatRow): boolean;
 
     { Requests the real avatar. Called by the frame only for visible
       rows — downloading everything at once would be pointless. Repeat
@@ -1232,6 +1242,12 @@ begin
   if Idx >= 0 then begin
     Result := FPremiumUsers.Data[Idx];
   end;
+end;
+
+function TTdChats.IsSelfChat(ARow: TChatRow): boolean;
+begin
+  Result := (ARow <> nil) and (ARow.Kind = ckPrivate) and (ARow.UserId <> 0)
+    and (FSession <> nil) and (ARow.UserId = FSession.UserId);
 end;
 
 { ---------------- chat actions ---------------- }

@@ -132,6 +132,7 @@ type
     function GetDataDir: string;
     function GetTitle: string;
     function GetAuth: TTdAuth;
+    function GetUserId: Int64;
     procedure Send(const ARequest: utf8string);
     procedure Subscribe(const AListener: IUnknown);
     procedure Unsubscribe(const AListener: IUnknown);
@@ -339,6 +340,11 @@ end;
 function TTdAccount.GetAuth: TTdAuth;
 begin
   Result := FAuth;
+end;
+
+function TTdAccount.GetUserId: Int64;
+begin
+  Result := FUserId;
 end;
 
 procedure TTdAccount.Send(const ARequest: utf8string);

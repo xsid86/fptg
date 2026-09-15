@@ -19,7 +19,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="330"/>
+      <BuildNr Value="358"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -233,6 +233,17 @@
       </Unit>
       <Unit>
         <Filename Value="mediaviewer.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="chatheader.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="ChatHeaderPanel"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="chatheader.lfm"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

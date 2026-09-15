@@ -1,0 +1,143 @@
+object ChatHeaderPanel: TChatHeaderPanel
+  Left = 0
+  Height = 86
+  Top = 0
+  Width = 800
+  ClientHeight = 86
+  ClientWidth = 800
+  Color = clDefault
+  LCLVersion = '4.8.0.0'
+  ParentBackground = False
+  ParentColor = True
+  ShowHint = True
+  TabOrder = 0
+  object btnGifts: TSpeedButton
+    Left = 70
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Gifts'
+    OnClick = FilterClick
+  end
+  object btnSaved: TSpeedButton
+    Left = 107
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Saved messages'
+    OnClick = FilterClick
+  end
+  object btnPhotos: TSpeedButton
+    Left = 144
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Photos'
+    OnClick = FilterClick
+  end
+  object btnVideos: TSpeedButton
+    Left = 181
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Videos'
+    OnClick = FilterClick
+  end
+  object btnFiles: TSpeedButton
+    Left = 218
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Files'
+    OnClick = FilterClick
+  end
+  object btnAudio: TSpeedButton
+    Left = 255
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Music'
+    OnClick = FilterClick
+  end
+  object btnLinks: TSpeedButton
+    Left = 292
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Links'
+    OnClick = FilterClick
+  end
+  object btnPolls: TSpeedButton
+    Left = 329
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Polls'
+    OnClick = FilterClick
+  end
+  object btnVoice: TSpeedButton
+    Left = 366
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Voice messages'
+    OnClick = FilterClick
+  end
+  object btnGif: TSpeedButton
+    Left = 403
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'GIFs'
+    OnClick = FilterClick
+  end
+  object btnSimilar: TSpeedButton
+    Left = 440
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Similar channels'
+    OnClick = FilterClick
+  end
+  object btnPinned: TSpeedButton
+    Left = 477
+    Height = 32
+    Top = 43
+    Width = 32
+    Flat = True
+    Hint = 'Pinned messages'
+    OnClick = FilterClick
+  end
+  object btnSearch: TSpeedButton
+    Left = 759
+    Height = 18
+    Top = 46
+    Width = 22
+    Flat = True
+    Hint = 'Search in this chat'
+    OnClick = SearchGo
+  end
+  object edtSearch: TEdit
+    Left = 590
+    Height = 18
+    Top = 46
+    Width = 155
+    AutoSize = False
+    BorderStyle = bsNone
+    Hint = 'Type a query and press Enter'
+    OnKeyPress = SearchKeyPress
+    TabOrder = 0
+    TextHint = 'Search...'
+  end
+end

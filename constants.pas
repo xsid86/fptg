@@ -278,6 +278,70 @@ const
     knob. }
   FILE_CORNER_RADIUS = 4;
 
+  { Chat info header bar, above the message history (TFrameHistory,
+    framehistory.pas / chatheader.pas) — built to be visually the SAME
+    card as one row of the chat list, by direct request: same outer gap
+    (CHATROW_GAP), same corner radius (CHATROW_CORNER_RADIUS), same
+    header strip on top (CHATROW_HEADER_BAR_H, carrying the chat-type
+    icon/name/id/pin/mute/"more"), same content area below it
+    (CHATROW_CONTENT_H, sized around AVATAR_SIZE), and the same inner
+    paddings throughout (MSG_PAD_H horizontally, MSG_PAD_V vertically,
+    GAP between header icons). None of those are duplicated here —
+    chatheader.pas reads the chat-list constants directly, so the two
+    can't drift apart. Only the two numbers with no chat-list
+    equivalent live here: the filter icons' own frame size, and the gap
+    between them. }
+  { FilterButtons' native frame size (TImageList, 32x32,
+    framehistory.lfm) — the filter buttons are drawn at their natural
+    size, NOT scaled to AVATAR_SIZE: the avatar next to them is a 44px
+    photo, these are 32px glyphs, two different things that happen to
+    share a row. }
+  CHAT_HEADER_FILTER_SIZE = 32;
+  { Gap between two adjacent filter buttons — deliberately its own knob
+    (not GAP/MSG_ICON_GAP) so this one row can be tuned without
+    touching anything else; 5 by direct request. }
+  CHAT_HEADER_FILTER_GAP  = 5;
+  { This bar's avatar is 48, not the chat list's own AVATAR_SIZE (44) —
+    by direct request; the content area is sized around it exactly the
+    way CHATROW_CONTENT_H is sized around AVATAR_SIZE. }
+  CHAT_HEADER_AVATAR_SIZE = 48;
+  CHAT_HEADER_CONTENT_H   = CHAT_HEADER_AVATAR_SIZE + 2 * MSG_PAD_V;
+  { The card's gap from the bar's own edges — one knob per side, NOT one
+    shared number: they were briefly folded into a single constant and
+    tuning the top silently moved the other two, which is not wanted.
+    Right/bottom are matched by eye to the "floating" margin the
+    history's thin scrollbar has right below this bar
+    (THIN_SCROLLBAR_MARGIN, same value — declared further down this
+    file, so it can't be referenced from here). There is deliberately NO
+    left margin: that edge is flush with the message history area
+    underneath. All by direct request. }
+  CHAT_HEADER_CARD_MARGIN_TOP    = 3;
+  CHAT_HEADER_CARD_MARGIN_RIGHT  = 5;
+  CHAT_HEADER_CARD_MARGIN_BOTTOM = 5;
+  { Frame indices in FilterButtons (TImageList, 32x32, framehistory.lfm)
+    — order confirmed by unpacking and visually inspecting the Bitmap
+    blob (the same verification method already established in this
+    project for icons12/playback/FILE_ICONS — not guessed from the
+    designer screenshot alone), one frame per row-2 filter button, in
+    the exact order they were added. Every one of these opens a stub
+    for now (TFrameHistory.ChatHeaderFilterClick) — the real "open a
+    filtered/searched message list" behavior is deliberate, separate
+    follow-up work, not yet started. }
+  CHAT_HEADER_FILTER_GIFTS   = 0;
+  CHAT_HEADER_FILTER_SAVED   = 1;
+  CHAT_HEADER_FILTER_PHOTOS  = 2;
+  CHAT_HEADER_FILTER_VIDEOS  = 3;
+  CHAT_HEADER_FILTER_FILES   = 4;
+  CHAT_HEADER_FILTER_AUDIO   = 5;
+  CHAT_HEADER_FILTER_LINKS   = 6;
+  CHAT_HEADER_FILTER_POLLS   = 7;
+  CHAT_HEADER_FILTER_VOICE   = 8;
+  CHAT_HEADER_FILTER_GIF     = 9;
+  { Only meaningful for channels (ckChannel) — hidden for every other
+    chat kind, not merely disabled, per direct request. }
+  CHAT_HEADER_FILTER_SIMILAR = 10;
+  CHAT_HEADER_FILTER_PINNED  = 11;
+
   { ================= framechats.pas ================= }
 
   { Frame indices in icons12 (TImageList, 12x12, separate from

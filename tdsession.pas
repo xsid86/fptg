@@ -63,6 +63,7 @@ type
     function GetDataDir: string;
     function GetTitle: string;
     function GetAuth: TTdAuth;
+    function GetUserId: Int64;
 
     procedure Send(const ARequest: utf8string);
     procedure Subscribe(const AListener: IUnknown);
@@ -76,6 +77,11 @@ type
     { Human-readable name for the account switcher. }
     property Title: string read GetTitle;
     property Auth: TTdAuth read GetAuth;
+    { This account's own user id (arrives via getMe) — 0 until that
+      response comes back. Needed by tdchats.IsSelfChat, to tell the
+      Saved Messages chat (a ckPrivate row whose peer IS this id) apart
+      from an ordinary private chat. }
+    property UserId: Int64 read GetUserId;
   end;
 
 { True if the state requires input from the user. }
