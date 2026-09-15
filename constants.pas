@@ -323,10 +323,12 @@ const
     blob (the same verification method already established in this
     project for icons12/playback/FILE_ICONS — not guessed from the
     designer screenshot alone), one frame per row-2 filter button, in
-    the exact order they were added. Every one of these opens a stub
-    for now (TFrameHistory.ChatHeaderFilterClick) — the real "open a
-    filtered/searched message list" behavior is deliberate, separate
-    follow-up work, not yet started. }
+    the exact order they were added. Nine of them plus the search box
+    map onto one TDLib request (searchChatMessages with a different
+    SearchMessagesFilter — see TD_MSG_FILTER_* below); gifts, saved and
+    similar-channels are the three that don't (their TDLib answers
+    aren't messages at all: receivedGifts, savedMessagesTopic history
+    and a list of chat ids respectively) and are still stubs. }
   CHAT_HEADER_FILTER_GIFTS   = 0;
   CHAT_HEADER_FILTER_SAVED   = 1;
   CHAT_HEADER_FILTER_PHOTOS  = 2;
@@ -341,6 +343,28 @@ const
     chat kind, not merely disabled, per direct request. }
   CHAT_HEADER_FILTER_SIMILAR = 10;
   CHAT_HEADER_FILTER_PINNED  = 11;
+
+  { TDLib SearchMessagesFilter constructor names, passed straight into
+    searchChatMessages' filter parameter (TTdMessages.SetSearchFilter).
+    Spellings taken from the real td_api.tl (github.com/tdlib/td), not
+    from memory — a wrong one is not a compile error, it is a runtime
+    code-400 with an empty list and no other clue.
+
+    "Empty" is a real filter, not the absence of one: it is what a
+    plain text query with no type restriction uses. There is no "gifts"
+    or "similar channels" member of this family at all — those are
+    different requests entirely, which is why those buttons are still
+    stubs. }
+  TD_MSG_FILTER_EMPTY     = 'searchMessagesFilterEmpty';
+  TD_MSG_FILTER_PHOTO     = 'searchMessagesFilterPhoto';
+  TD_MSG_FILTER_VIDEO     = 'searchMessagesFilterVideo';
+  TD_MSG_FILTER_DOCUMENT  = 'searchMessagesFilterDocument';
+  TD_MSG_FILTER_AUDIO     = 'searchMessagesFilterAudio';
+  TD_MSG_FILTER_URL       = 'searchMessagesFilterUrl';
+  TD_MSG_FILTER_POLL      = 'searchMessagesFilterPoll';
+  TD_MSG_FILTER_VOICE     = 'searchMessagesFilterVoiceNote';
+  TD_MSG_FILTER_ANIMATION = 'searchMessagesFilterAnimation';
+  TD_MSG_FILTER_PINNED    = 'searchMessagesFilterPinned';
 
   { ================= framechats.pas ================= }
 

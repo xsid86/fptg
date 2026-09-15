@@ -62,7 +62,6 @@
         <EditorIndex Value="18"/>
         <UsageCount Value="142"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -252,8 +251,9 @@
       <Unit>
         <Filename Value="tdmessages.pas"/>
         <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="22"/>
-        <TopLine Value="219"/>
+        <TopLine Value="221"/>
         <CursorPos X="5" Y="225"/>
         <UsageCount Value="91"/>
         <Loaded Value="True"/>
@@ -345,7 +345,6 @@
         <TopLine Value="3664"/>
         <UsageCount Value="91"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="mediaviewer.pas"/>
@@ -358,7 +357,6 @@
         <ComponentName Value="ChatHeaderPanel"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="5"/>
         <TopLine Value="370"/>
         <CursorPos Y="384"/>

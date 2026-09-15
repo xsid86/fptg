@@ -10,6 +10,18 @@ uses
   avatarcache, BGRABitmap, BGRABitmapTypes;
 
 type
+  { Raised when the user picks/clears a filter button or runs a text
+    search. AFilterType is a TDLib SearchMessagesFilter constructor
+    name (TD_MSG_FILTER_*, constants.pas) or '' for "no type
+    restriction"; AQuery is the search box's text. BOTH empty means
+    "back to the ordinary history".
+
+    An event rather than a direct call into framehistory for the usual
+    reason: that unit already uses this one, so a call the other way
+    would be a unit cycle. }
+  TChatHeaderFilterEvent = procedure(Sender: TObject;
+    const AFilterType, AQuery: utf8string) of object;
+
   { TChatHeaderPanel
 
     The chat info bar above the message history — visually the SAME card
@@ -34,12 +46,23 @@ type
     12 filter buttons and the magnifier (they want hover feedback and
     native icon drawing) and the search TEdit (text input).
 
-    Every filter button, the magnifier and "more" are stubs for now —
-    clicking them does nothing but isn't unwired either. Opening a
-    filtered/searched message list is separate, not-yet-started work:
-    no searchChatMessages-equivalent TDLib request exists in this
-    project yet (confirmed by reading tdreq.pas/tdmessages.pas), and
-    there's no results view to show it in.
+    Nine of the twelve filter buttons plus the search box drive ONE
+    request — searchChatMessages with a different SearchMessagesFilter
+    (see TD_MSG_FILTER_* and TTdMessages.SetSearchFilter) — and are
+    wired up through OnFilterChanged. They behave as one radio group
+    (GroupIndex/AllowAllUp, set in Create — see there for why not in
+    the .lfm): the pressed one is the active filter, pressing it again
+    releases it and, with an empty search box, returns to the ordinary
+    history. Filter and query COMBINE rather than replace each other,
+    exactly as the TDLib request itself takes both.
+
+    The other three — gifts, saved and similar-channels — are still
+    stubs, and not because they were forgotten: TDLib answers those
+    with receivedGifts / a savedMessagesTopic history / a list of chat
+    ids, none of which are messages, so none of them can go through the
+    message list the other nine reuse. They are also kept out of the
+    radio group, so they can't look "active". "more" is a stub too (no
+    details panel exists yet).
 
     The bar hides itself by collapsing to Height=0 (Refresh(0), or no
     chat found for the id) rather than toggling Visible — the same
@@ -128,6 +151,16 @@ type
       name), so the array is built from the named fields rather than
       the other way round. }
     FFilters: array[0..11] of TSpeedButton;
+    FOnFilterChanged: TChatHeaderFilterEvent;
+
+    { The TDLib SearchMessagesFilter name for one CHAT_HEADER_FILTER_*
+      index, or '' for the three buttons that aren't a message filter
+      at all (gifts/saved/similar — see the class comment). }
+    function FilterTypeFor(AIndex: integer): utf8string;
+    { Gathers the current filter+query from the controls and raises
+      OnFilterChanged. One place, so a click on a filter button and a
+      run of the search box can't end up asking for different things. }
+    procedure ApplyFilter;
 
     { The card's own rectangle inside this control — the single source
       of truth for both Paint and DoLayout, so the two can't drift
@@ -171,8 +204,17 @@ type
     procedure SetImageLists(ATypeIcons, APremiumIcons, AFilterIcons, ASearchIcons: TCustomImageList;
       ASearchIconIndex: integer);
     { AChatId=0, or no such chat in TdChatList, collapses the bar to
-      Height=0 — see the class comment for why Height, not Visible. }
+      Height=0 — see the class comment for why Height, not Visible.
+      Switching to a DIFFERENT chat also clears the filter buttons and
+      the search box, matching TTdMessages.Clear, which drops the
+      filter on every chat switch. }
     procedure Refresh(AChatId: Int64);
+    { Releases every filter button and empties the search box WITHOUT
+      raising OnFilterChanged — for putting the bar back in step with a
+      model whose filter was dropped elsewhere, not for changing it. }
+    procedure ClearFilterUI;
+    property OnFilterChanged: TChatHeaderFilterEvent
+      read FOnFilterChanged write FOnFilterChanged;
   end;
 
 implementation
@@ -308,6 +350,19 @@ begin
     FFilters if the buttons are reshuffled in the Designer. }
   for I := 0 to 11 do begin
     FFilters[I].Tag := I;
+    { GroupIndex/AllowAllUp deliberately here and NOT in the .lfm: this
+      is behavior, not looks, and it has to stay in step with
+      FilterTypeFor — a button that maps to a real SearchMessagesFilter
+      is part of the one-of-N group, the three that don't are left out
+      so they can never appear "active". Setting it from the same loop
+      that indexes FFilters makes that impossible to get out of sync,
+      and a designer round-trip (reordering the buttons, dropping icons
+      on them, editing hints) can't silently drop it — which is exactly
+      what happened to an earlier .lfm version of this. }
+    if FilterTypeFor(I) <> '' then begin
+      FFilters[I].GroupIndex := 1;
+      FFilters[I].AllowAllUp := True;
+    end;
   end;
   FFilters[CHAT_HEADER_FILTER_SIMILAR].Visible := False;
 
@@ -657,6 +712,13 @@ begin
       reset explicitly so the PhotoPath check below can't match a value
       left over from the previous chat. }
     FAvatarPath := '';
+    { The model drops its filter on every chat switch (TTdMessages.
+      Clear), so the buttons have to follow, or a pressed one would
+      claim a filter that isn't applied to what's on screen. Silent by
+      design — ClearFilterUI raises no event, and re-applying an empty
+      filter from here would fight the history load OpenChat has just
+      started. }
+    ClearFilterUI;
   end;
 
   { Pin/mute change without a chat switch too (a click here, a click in
@@ -690,28 +752,98 @@ begin
   Invalidate;
 end;
 
+function TChatHeaderPanel.FilterTypeFor(AIndex: integer): utf8string;
+begin
+  case AIndex of
+    CHAT_HEADER_FILTER_PHOTOS: Result := TD_MSG_FILTER_PHOTO;
+    CHAT_HEADER_FILTER_VIDEOS: Result := TD_MSG_FILTER_VIDEO;
+    CHAT_HEADER_FILTER_FILES:  Result := TD_MSG_FILTER_DOCUMENT;
+    CHAT_HEADER_FILTER_AUDIO:  Result := TD_MSG_FILTER_AUDIO;
+    CHAT_HEADER_FILTER_LINKS:  Result := TD_MSG_FILTER_URL;
+    CHAT_HEADER_FILTER_POLLS:  Result := TD_MSG_FILTER_POLL;
+    CHAT_HEADER_FILTER_VOICE:  Result := TD_MSG_FILTER_VOICE;
+    CHAT_HEADER_FILTER_GIF:    Result := TD_MSG_FILTER_ANIMATION;
+    CHAT_HEADER_FILTER_PINNED: Result := TD_MSG_FILTER_PINNED;
+  else
+    { Gifts, saved and similar-channels — not message filters at all,
+      see the class comment. '' is what marks a button as a stub, and
+      Create reads the same function to decide which buttons join the
+      toggle group, so those three can never end up Down and can never
+      be picked up by ApplyFilter below either. }
+    Result := '';
+  end;
+end;
+
+procedure TChatHeaderPanel.ApplyFilter;
+var
+  I: integer;
+  FilterType: utf8string;
+begin
+  if not Assigned(FOnFilterChanged) then begin
+    Exit;
+  end;
+  { At most one can be Down — they share a GroupIndex — so the first
+    hit is the answer. }
+  FilterType := '';
+  for I := 0 to 11 do begin
+    if FFilters[I].Down then begin
+      FilterType := FilterTypeFor(I);
+      Break;
+    end;
+  end;
+  { Filter and query go out TOGETHER, not one instead of the other:
+    searchChatMessages takes both, so "photos" plus a word narrows to
+    photos whose caption matches. Both empty = ordinary history. }
+  FOnFilterChanged(Self, FilterType, utf8string(Trim(edtSearch.Text)));
+end;
+
+procedure TChatHeaderPanel.ClearFilterUI;
+var
+  I: integer;
+begin
+  for I := 0 to 11 do begin
+    if FFilters[I].GroupIndex <> 0 then begin
+      FFilters[I].Down := False;
+    end;
+  end;
+  edtSearch.Text := '';
+end;
+
 procedure TChatHeaderPanel.FilterClick(Sender: TObject);
 begin
-  { Stub, by direct request — opening the actual filtered/searched
-    message list for TSpeedButton(Sender).Tag (one of the
-    CHAT_HEADER_FILTER_* constants) is separate, not-yet-started work:
-    no searchChatMessages-equivalent TDLib request exists in this
-    project yet (checked tdreq.pas/tdmessages.pas directly), and
-    there's no results view to show it in either. }
+  { The three non-filter buttons (gifts/saved/similar) share this
+    handler but must not clear whatever filter IS active — they have
+    nothing to switch to yet. }
+  if (Sender is TSpeedButton) and (FilterTypeFor(TSpeedButton(Sender).Tag) = '') then begin
+    Exit;
+  end;
+  { The button's own Down state has already been toggled by LCL by the
+    time OnClick fires (GroupIndex/AllowAllUp), so ApplyFilter reads
+    exactly what the user just asked for — including "released it
+    again", which with an empty search box means the full history. }
+  ApplyFilter;
 end;
 
 procedure TChatHeaderPanel.SearchGo(Sender: TObject);
 begin
-  { Stub — same reasoning as FilterClick: no message-search request
-    exists in this project yet. edtSearch.Text is the query, once
-    there's somewhere to send it. }
+  ApplyFilter;
 end;
 
 procedure TChatHeaderPanel.SearchKeyPress(Sender: TObject; var Key: char);
 begin
   if Key = #13 then begin
     Key := #0;
-    SearchGo(edtSearch);
+    ApplyFilter;
+    Exit;
+  end;
+  if Key = #27 then begin
+    { Escape clears the query and re-runs — dropping back to the plain
+      history if no filter button is pressed either. The key is
+      swallowed so it doesn't travel on to anything that treats Escape
+      as "close". }
+    Key := #0;
+    edtSearch.Text := '';
+    ApplyFilter;
   end;
 end;
 

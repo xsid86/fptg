@@ -388,6 +388,27 @@ type
       HistoryDone/RetryTick. }
     FNoProgressRetries: integer;
     FRetryTimer: TTimer;
+
+    { Filter/search mode — see SetSearchFilter. Both empty means the
+      ordinary, unfiltered history; otherwise the SAME FAll/FRows/
+      renderer/widget pool is fed by searchChatMessages instead of
+      getChatHistory. FSearchNextFrom is TDLib's own
+      next_from_message_id cursor, NOT the "anchor minus
+      TD_MESSAGE_ID_STEP" arithmetic getChatHistory needs (search
+      results aren't a contiguous id range, so that trick has no
+      meaning here); 0 on the first request means "start at the newest
+      match", 0 coming BACK means there are no more (see SearchDone).
+      FSearchSeq invalidates in-flight responses whose results are no
+      longer wanted — a chat switch, a different filter, or plain
+      Clear; the getChatHistory path uses the chat id as its Tag for
+      the same purpose, which isn't enough here because the filter can
+      change without the chat changing. }
+    FFilterType:     utf8string;
+    FSearchQuery:    utf8string;
+    FSearchNextFrom: Int64;
+    FSearchTotal:    integer;
+    FSearchSeq:      integer;
+
     FOnChanged: TTdMessagesEvent;
     FOnLoadingChanged: TTdMessagesEvent;
     FOnActionError: TTdMessagesErrorEvent;
@@ -499,6 +520,8 @@ type
     procedure Touch;
     procedure Rebuild(Sender: TObject);
     procedure SetLoadingOlder(AValue: boolean);
+    function GetSearchActive: boolean;
+    procedure SearchDone(Sender: TObject; const AResp: TTdResponse);
     procedure HistoryDone(Sender: TObject; const AResp: TTdResponse);
     procedure RetryTick(Sender: TObject);
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
@@ -532,8 +555,30 @@ type
       list). }
     procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0);
     procedure CloseChat;
-    { Loads an older page of history. }
+    { Loads an older page of history — or, while a filter/search is
+      active, an older page of MATCHES (see SetSearchFilter). }
     procedure LoadOlder;
+
+    { Switches the open chat between its ordinary history and a
+      filtered/searched view of itself. AFilterType is a TDLib
+      SearchMessagesFilter constructor name ('searchMessagesFilterPhoto'
+      and friends — the exact spellings are in constants.pas as
+      TD_MSG_FILTER_*), AQuery a full-text query; either may be empty,
+      and BOTH empty means "back to the ordinary history".
+
+      Deliberately NOT a separate model/list: searchChatMessages returns
+      the very same `message` objects getChatHistory does, so the whole
+      already-debugged pipeline below (ApplyMessage, every Ensure*File,
+      the reply cache, custom emoji) and everything above it in
+      framehistory (the scroller, the widget pools, text selection, the
+      media viewer) work on the results unchanged. What differs is only
+      where the batch comes from and how it is paged — see LoadOlder/
+      SearchDone.
+
+      Note the chat itself stays open in TDLib's eyes: openChat/
+      closeChat are NOT re-sent here (the user is still looking at this
+      chat, just at a subset of it), unlike OpenChat/CloseChat. }
+    procedure SetSearchFilter(const AFilterType, AQuery: utf8string);
     { The message's index in Rows[] by its id, -1 if not loaded. Needed
       by framehistory for selecting text across several messages and
       for holding the scroll anchor during LoadOlder. }
@@ -620,6 +665,15 @@ type
     property LoadingOlder: boolean read FLoadingOlder;
     property OldestLoaded: boolean read FOldestLoaded;
     property LoadLimit: integer read FLoadLimit write FLoadLimit;
+
+    { Filter/search state — see SetSearchFilter. SearchTotalCount is
+      TDLib's own total_count for the current query (how many matches
+      exist in the chat, not how many are loaded so far); it is only
+      meaningful while SearchActive. }
+    property SearchActive: boolean read GetSearchActive;
+    property SearchFilter: utf8string read FFilterType;
+    property SearchQuery: utf8string read FSearchQuery;
+    property SearchTotalCount: integer read FSearchTotal;
 
     property Session: ITdSession read FSession;
     property OnChanged: TTdMessagesEvent read FOnChanged write FOnChanged;
@@ -950,6 +1004,16 @@ begin
   FVideoThumbByFile.Clear;
   FStickerByFile.Clear;
   SetLength(FReplyPending, 0);
+  { Every reset path goes through here (OpenChat, CloseChat,
+    SetSearchFilter), so this is the one place the search generation
+    has to be bumped: any searchChatMessages response still in flight
+    belongs to a view that no longer exists and must not be applied to
+    the rows being built now. }
+  Inc(FSearchSeq);
+  FFilterType := '';
+  FSearchQuery := '';
+  FSearchNextFrom := 0;
+  FSearchTotal := 0;
   FLoadingOlder := False;
   FOldestLoaded := False;
   FNoProgressRetries := 0;
@@ -1091,6 +1155,34 @@ begin
   end;
 end;
 
+function TTdMessages.GetSearchActive: boolean;
+begin
+  Result := (FFilterType <> '') or (FSearchQuery <> '');
+end;
+
+procedure TTdMessages.SetSearchFilter(const AFilterType, AQuery: utf8string);
+begin
+  if (FFilterType = AFilterType) and (FSearchQuery = AQuery) then begin
+    Exit;
+  end;
+  { Clear wipes the loaded rows AND the search state (and bumps the
+    generation), so the new filter is set AFTER it, not before. }
+  Clear;
+  FFilterType := AFilterType;
+  FSearchQuery := AQuery;
+
+  if Assigned(FOnChanged) then begin
+    { Synchronously, before any request goes out — the list is already
+      empty at this point and the view must show that immediately
+      rather than keep the previous filter's results on screen until
+      the response arrives. }
+    FOnChanged(Self);
+  end;
+  if FChatId <> 0 then begin
+    LoadOlder;
+  end;
+end;
+
 procedure TTdMessages.SetLoadingOlder(AValue: boolean);
 begin
   if FLoadingOlder = AValue then begin
@@ -1106,6 +1198,8 @@ procedure TTdMessages.LoadOlder;
 var
   Anchor: Int64;
   Offset: integer;
+  QueryVal: TJSONString;
+  FilterPart, Body: utf8string;
 begin
   if FLoadingOlder or FOldestLoaded or (FReq = nil) or (FChatId = 0) then begin
     Exit;
@@ -1114,6 +1208,39 @@ begin
     Exit;
   end;
   SetLoadingOlder(True);
+
+  { --- filtered/searched view: a different request and a completely
+        different paging rule, but the SAME ApplyMessage on the way back
+        (see SetSearchFilter / SearchDone) --- }
+  if SearchActive then begin
+    { An empty filter has to be spelled out rather than omitted:
+      searchMessagesFilterEmpty is a real constructor in the schema
+      (verified against td_api.tl, not assumed), and "no filter at all"
+      is not something the parameter accepts. topic_id and sender_id
+      are left out entirely — both are nullable and mean "anywhere in
+      the chat, from anyone". }
+    if FFilterType = '' then begin
+      FilterPart := TD_MSG_FILTER_EMPTY;
+    end else begin
+      FilterPart := FFilterType;
+    end;
+    { The query is arbitrary user input — quoted/escaped through fpjson
+      rather than pasted into the body, the same rule SendFormattedText
+      follows for message text. }
+    QueryVal := TJSONString.Create(string(FSearchQuery));
+    try
+      Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
+        ',"query":' + utf8string(QueryVal.AsJSON) +
+        ',"from_message_id":' + utf8string(IntToStr(FSearchNextFrom)) +
+        ',"offset":0' +
+        ',"limit":' + utf8string(IntToStr(FLoadLimit)) +
+        ',"filter":{"@type":"' + FilterPart + '"}';
+    finally
+      QueryVal.Free;
+    end;
+    FReq.SendRequest('searchChatMessages', Body, @SearchDone, PtrInt(FSearchSeq));
+    Exit;
+  end;
 
   { IMPORTANT: the anchor is taken from FAll, not FRows. FRows is a
     derived view, rebuilt on a delay via a 50ms timer (Touch/Rebuild),
@@ -1174,6 +1301,81 @@ begin
     ',"only_local":false', @HistoryDone, PtrInt(FChatId));
 end;
 
+{ searchChatMessages -> foundChatMessages, an object carrying
+  total_count, messages and next_from_message_id. The messages array is
+  named and shaped exactly
+  like getChatHistory's, so ApplyMessage is reused verbatim; what is
+  genuinely different is paging and the end-of-results signal, and
+  neither of getChatHistory's two hard-won workarounds applies:
+
+  - no "anchor minus TD_MESSAGE_ID_STEP" arithmetic — search results
+    are scattered ids, not a contiguous range, and TDLib hands back its
+    own cursor (next_from_message_id) for exactly this;
+  - no no-progress retry/backoff counter — 0 in that cursor is an
+    unambiguous "that was the last page", so there is no ambiguous
+    "fewer than limit, but maybe more later" case to retry around. }
+procedure TTdMessages.SearchDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Arr: TJSONArray;
+  I: integer;
+begin
+  { A response for a filter/chat the user has since moved away from —
+    see FSearchSeq. Note the CURRENT view's FLoadingOlder must NOT be
+    cleared here: it belongs to whatever request is in flight now. }
+  if AResp.Tag <> PtrInt(FSearchSeq) then begin
+    Exit;
+  end;
+
+  SetLoadingOlder(False);
+  if not AResp.Success then begin
+    if Assigned(FOnActionError) then begin
+      FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'search');
+    end;
+    { No retry: unlike getChatHistory's anchor, a failing search would
+      fail identically on every retry (a filter TDLib rejects for this
+      chat kind, no permission to search, ...) — retrying would just be
+      the same tight loop that once fired 108 thousand requests, with
+      nothing that could change the outcome between attempts. }
+    FOldestLoaded := True;
+    Exit;
+  end;
+
+  FSearchTotal := JGetInt(AResp.Obj, 'total_count');
+  FSearchNextFrom := JGetInt64(AResp.Obj, 'next_from_message_id');
+  if FSearchNextFrom = 0 then begin
+    FOldestLoaded := True;
+  end;
+
+  Arr := JGetArr(AResp.Obj, 'messages');
+  if (Arr = nil) or (Arr.Count = 0) then begin
+    FOldestLoaded := True;
+    { Still notify: "nothing found" is a result the view has to show,
+      and without this an empty first page would leave the previous
+      Touch-less state on screen. }
+    Touch;
+    Exit;
+  end;
+
+  { Newest to oldest, same as getChatHistory — applied in reverse so
+    FAll fills oldest-to-newest. Per-message try/except for the same
+    reason as there: one unexpected content shape must not abort the
+    batch or escape into TTdRequests.Resolve. }
+  for I := Arr.Count - 1 downto 0 do begin
+    if Arr.Items[I].JSONType = jtObject then begin
+      try
+        ApplyMessage(TJSONObject(Arr.Items[I]));
+      except
+        on E: Exception do begin
+          if Assigned(FOnActionError) then begin
+            FOnActionError(Self, 0, utf8string(E.Message), 'search-parse');
+          end;
+        end;
+      end;
+    end;
+  end;
+  Touch;
+end;
+
 procedure TTdMessages.HistoryDone(Sender: TObject; const AResp: TTdResponse);
 var
   Arr: TJSONArray;
@@ -1184,6 +1386,15 @@ begin
     while the request was in flight — not this case, the CURRENT
     chat's state is left untouched. }
   if AResp.Tag <> PtrInt(FChatId) then begin
+    Exit;
+  end;
+  { A filter was switched on while this getChatHistory was still in
+    flight. The chat id guard above does NOT catch that — the chat
+    hasn't changed, only the view of it has — and applying an ordinary
+    history page into a result list would quietly fill it with messages
+    that match nothing. (The mirror case, a searchChatMessages response
+    arriving after the filter is gone, is caught by FSearchSeq.) }
+  if SearchActive then begin
     Exit;
   end;
 
@@ -2394,11 +2605,33 @@ begin
   if Lookup(AMessageId) <> nil then begin
     { Already loaded — e.g. a repeat click on the same quote, or the
       message fell within the window of an earlier ordinary history
-      load. No RPC needed, ready is signaled right away. }
+      load. No RPC needed, ready is signaled right away. (Also the
+      common case while a filter is on and the target happens to be a
+      result itself — nothing below applies then.) }
     if Assigned(FOnJumpReady) then begin
       FOnJumpReady(Self, AMessageId);
     end;
     Exit;
+  end;
+  if SearchActive then begin
+    { Following a quote to a message that is NOT one of the results
+      means leaving the filtered view: the batch fetched below is
+      ordinary history around the target, and dropping it into a result
+      list would fill that list with messages matching nothing. So the
+      filter is dropped first — which is also the sensible behavior,
+      the same "jump to the message in its real context" the official
+      client does from a search result.
+
+      Clear, not SetSearchFilter('', ''): the latter would start its
+      own LoadOlder for the newest page, racing the jump request about
+      to go out and scrolling the user somewhere they didn't ask for.
+      The header bar's buttons follow via
+      TFrameHistory.UpdateSearchStatus, which watches for exactly this
+      "the model dropped the filter by itself" edge. }
+    Clear;
+    if Assigned(FOnChanged) then begin
+      FOnChanged(Self);
+    end;
   end;
   { offset:-(N) means "N more messages NEWER than from_message_id"
     (official docs.core.telegram.org/tdlib, getChatHistory.offset), in
@@ -3569,7 +3802,18 @@ begin
     unhandled. }
   try
     if T = 'updateNewMessage' then begin
-      ApplyMessage(JGetObj(Obj, 'message'));
+      { Not while a filter/search is showing: a message arriving in the
+        chat has no reason to match the active filter or query, and
+        dropping it into FAll would silently pollute the result list
+        with something the user never asked to see (and, being the
+        newest id, right at the bottom where it looks like a match).
+        It is not lost either — leaving the filter reloads the ordinary
+        history from TDLib. Updates to messages ALREADY in the list
+        (edits, reactions, delivery state, files) stay live below;
+        those are about rows that really are part of the result. }
+      if not SearchActive then begin
+        ApplyMessage(JGetObj(Obj, 'message'));
+      end;
     end else if T = 'updateMessageContent' then begin
       ApplyContentUpdate(JGetInt64(Obj, 'chat_id'), JGetInt64(Obj, 'message_id'),
         JGetObj(Obj, 'new_content'));
@@ -3615,7 +3859,13 @@ begin
           FAll.Delete(Idx);
         end;
       end;
-      ApplyMessage(JGetObj(Obj, 'message'));
+      { Same reasoning as updateNewMessage above — a message just sent
+        from the input box is not a search result. (Its temporary entry
+        was never added either, for the same reason, so the removal
+        above simply finds nothing.) }
+      if not SearchActive then begin
+        ApplyMessage(JGetObj(Obj, 'message'));
+      end;
     end else if T = 'updateMessageSendFailed' then begin
       R := Lookup(JGetInt64(Obj, 'old_message_id'));
       if R <> nil then begin

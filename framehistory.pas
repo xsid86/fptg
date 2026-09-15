@@ -1161,9 +1161,25 @@ type
       single "the open chat's data changed" choke point (same reasoning
       as MaybeLoadMore, called from the same spot). }
     FChatHeader: TChatHeaderPanel;
+    { What was last pushed into the status bar about the active filter,
+      and whether one was active at all last time the model changed.
+      ModelChanged fires several times a second while messages/files
+      stream in, so both are edge-triggered guards, not state of their
+      own — see UpdateSearchStatus. }
+    FLastSearchStatus: string;
+    FLastSearchActive: boolean;
     { The chat list refreshed itself — the open chat's pin/mute may have
       changed with it (see TFrameChats.OnRowsChanged). }
     procedure ChatRowsChanged(Sender: TObject);
+    { A filter button was pressed/released or a search was run in the
+      header bar. The whole implementation is a single call into the
+      model: searchChatMessages returns the same message objects
+      getChatHistory does, so this frame — scroller, widget pools, text
+      selection, media viewer — needs no filtered-mode branch of its
+      own (see TTdMessages.SetSearchFilter). }
+    procedure ChatHeaderFilterChanged(Sender: TObject;
+      const AFilterType, AQuery: utf8string);
+    procedure UpdateSearchStatus;
 
     procedure BindModel;
     procedure UnbindModel;
@@ -6626,6 +6642,7 @@ begin
       lands in the chat, whichever side the click came from. }
     FormMain.Chats.OnRowsChanged := @ChatRowsChanged;
   end;
+  FChatHeader.OnFilterChanged := @ChatHeaderFilterChanged;
 
   FScrollbar := TThinScrollBar.Create(Self);
   FScrollbar.Parent := Self;
@@ -6827,6 +6844,71 @@ begin
   end;
 end;
 
+procedure TFrameHistory.ChatHeaderFilterChanged(Sender: TObject;
+  const AFilterType, AQuery: utf8string);
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  { Both empty (the active button released, the query cleared) is a
+    perfectly ordinary call, not a "nothing to do" — that is exactly
+    how the bar asks for the plain history back. }
+  FModel.SetSearchFilter(AFilterType, AQuery);
+end;
+
+{ Keeps the two things that outlive a single model update in step with
+  the filter: the status line ("Photos: 128 found") and the header
+  bar's own buttons. Called from ModelChanged, which fires often (every
+  file that finishes downloading touches the model), so both halves are
+  edge-triggered — writing the status bar unconditionally would stomp
+  on every other message dozens of times a second, and clearing the
+  buttons unconditionally would wipe a query as the user types it. }
+procedure TFrameHistory.UpdateSearchStatus;
+var
+  S: string;
+  Active: boolean;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  Active := FModel.SearchActive;
+
+  { The model can drop the filter on its own — following a reply or
+    forward quote out of a result list does exactly that (see
+    TTdMessages.JumpTo) — and a still-pressed button would go on
+    claiming a filter that is no longer applied. Only the True->False
+    edge touches the bar. }
+  if FLastSearchActive and (not Active) and (FChatHeader <> nil) then begin
+    FChatHeader.ClearFilterUI;
+  end;
+  FLastSearchActive := Active;
+
+  if FormMain = nil then begin
+    Exit;
+  end;
+  S := '';
+  if Active then begin
+    if FModel.SearchQuery <> '' then begin
+      S := 'Search "' + string(FModel.SearchQuery) + '"';
+    end else begin
+      S := 'Filter';
+    end;
+    if FModel.SearchTotalCount > 0 then begin
+      S := S + ': ' + IntToStr(FModel.SearchTotalCount) + ' found';
+    end else begin
+      { total_count is also 0 before the first response has come back,
+        not only when there really is nothing — so this deliberately
+        doesn't claim "0 found". }
+      S := S + ': no matches';
+    end;
+  end;
+  if S = FLastSearchStatus then begin
+    Exit;
+  end;
+  FLastSearchStatus := S;
+  FormMain.SetStatusText(utf8string(S));
+end;
+
 procedure TFrameHistory.ModelChanged(Sender: TObject);
 begin
   if (not FReady) or (FModel = nil) then begin
@@ -6844,6 +6926,7 @@ begin
     FScroller.ModelChanged;
     MaybeLoadMore;
     FChatHeader.Refresh(FModel.ChatId);
+    UpdateSearchStatus;
   except
     on E: Exception do begin
       if FormMain <> nil then begin
