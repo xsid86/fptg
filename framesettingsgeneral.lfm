@@ -47,4 +47,21 @@ object FrameSettingsGeneral: TFrameSettingsGeneral
     TabOrder = 2
     OnChange = cbAccentColorChange
   end
+  object lblSurfaceColor: TLabel
+    Left = 16
+    Height = 15
+    Top = 176
+    Width = 200
+    Caption = 'App background color'
+  end
+  object cbSurfaceColor: TColorBox
+    Left = 16
+    Height = 23
+    Top = 196
+    Width = 200
+    Style = [cbStandardColors, cbExtendedColors, cbSystemColors, cbCustomColor, cbPrettyNames]
+    ItemHeight = 16
+    TabOrder = 3
+    OnChange = cbSurfaceColorChange
+  end
 end

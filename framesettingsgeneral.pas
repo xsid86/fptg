@@ -26,7 +26,14 @@ type
     extra package) rather than a hand-rolled swatch+TColorDialog: its
     built-in cbCustomColor style already gives a "Custom..." entry that
     opens a color dialog on its own — no dialog-handling code needed
-    here at all. }
+    here at all.
+    cbSurfaceColor — the app's background surface, what the chat-list
+    cards, the chat info bar and the input box float on (see
+    FormMain.SurfaceColor). Same widget and the same immediate save,
+    with one deliberate difference: its Style also includes
+    cbSystemColors, so clBtnFace — the default, the one value that
+    keeps following the Windows theme instead of freezing a grey — is
+    actually selectable, not just the initial state. }
 
   TFrameSettingsGeneral = class(TFrameBase)
     chkCloseToTray: TCheckBox;
@@ -34,9 +41,12 @@ type
     lblDeviceModel: TLabel;
     lblAccentColor: TLabel;
     cbAccentColor: TColorBox;
+    lblSurfaceColor: TLabel;
+    cbSurfaceColor: TColorBox;
     procedure chkCloseToTrayChange(Sender: TObject);
     procedure edtDeviceModelExit(Sender: TObject);
     procedure cbAccentColorChange(Sender: TObject);
+    procedure cbSurfaceColorChange(Sender: TObject);
   protected
     procedure DoActivate; override;
   private
@@ -65,6 +75,7 @@ begin
     chkCloseToTray.Checked := FormMain.CloseToTray;
     edtDeviceModel.Text := string(TdApp.DeviceModel);
     cbAccentColor.Selected := FormMain.AccentColor;
+    cbSurfaceColor.Selected := FormMain.SurfaceColor;
   finally
     FLoading := False;
   end;
@@ -84,6 +95,17 @@ begin
     Exit;
   end;
   FormMain.SetAccentColor(cbAccentColor.Selected);
+end;
+
+procedure TFrameSettingsGeneral.cbSurfaceColorChange(Sender: TObject);
+begin
+  if FLoading then begin
+    Exit;
+  end;
+  { Takes effect on the open window immediately (SetSurfaceColor
+    repaints), so the choice can be judged against the real UI rather
+    than a swatch. }
+  FormMain.SetSurfaceColor(cbSurfaceColor.Selected);
 end;
 
 procedure TFrameSettingsGeneral.edtDeviceModelExit(Sender: TObject);

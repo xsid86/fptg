@@ -679,6 +679,20 @@ const
     unifying them would make changing one silently change the other. }
   APP_ACCENT_COLOR = $F39621;  { RGB(33, 150, 243) — Material Blue 500 }
 
+  { The app's background surface — what the chat-list cards, the chat
+    info bar's card and the message input box sit on. Also a live,
+    user-configurable setting (Settings > General, FormMain.
+    SurfaceColor); this constant is only the fallback used when nothing
+    has been saved to config.ini/[ui] yet.
+
+    clBtnFace rather than a fixed RGB value, so the untouched default
+    keeps following the Windows theme the way it did before the setting
+    existed — a hard-coded grey would have quietly frozen it. Note it
+    is NOT the message history's own background: that stays clWindow,
+    a sheet of paper with text on it, while this is the desk under
+    it. }
+  APP_SURFACE_COLOR = clBtnFace;
+
   { Download progress bar (TPhotoWidget/TVideoWidget, framehistory.pas)
     — drawn under the "download" icon while EnsurePhotoFile/
     EnsureVideoFile's downloadFile request is in flight (see

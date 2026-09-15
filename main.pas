@@ -128,6 +128,19 @@ type
       per-feature one. Persisted to config.ini/[ui], same pattern as
       FInvisible/FCloseToTray above. }
     FAccentColor: TColor;
+    { The app's background surface — the field the chat-list cards, the
+      chat info bar's card and the message input box all float on (the
+      window grey in the default theme). NOT the message history's own
+      background, which stays clWindow: that one is a sheet of paper
+      with text on it, this is the desk under it.
+
+      Applied by setting it on the few real containers (pnlLeft/
+      pnlWork/FNavHost/FMessageInput — see ApplySurfaceColor); every
+      frame and control inside them has ParentColor on and follows
+      along by itself, which is why there is no list of consumers to
+      keep in step here. Persisted to config.ini/[ui], same pattern as
+      FAccentColor above. }
+    FSurfaceColor: TColor;
     { Set by the few paths that mean an actual quit, not just closing
       the window: File > Quit (menuQuitClick), the tray icon's own
       "Exit" (same handler), and RequestAppClose (closing the pre-login
@@ -158,6 +171,11 @@ type
     procedure PresenceSetDone(Sender: TObject; const AResp: TTdResponse);
     procedure UpdatePresencePanel;
     procedure SetPresence(AInvisible: boolean);
+    { Pushes FSurfaceColor onto the handful of containers that actually
+      own a background — everything inside them has ParentColor on and
+      follows. Called from FormCreate (after the value is read) and
+      from SetSurfaceColor. }
+    procedure ApplySurfaceColor;
   public
     { ITdActiveListener }
     procedure TdActiveChanged(ANew: TTdAccount);
@@ -224,6 +242,15 @@ type
       config.ini/[ui] — called from TFrameSettingsGeneral, same pattern
       as SetCloseToTray. }
     procedure SetAccentColor(AValue: TColor);
+    { The live, user-configurable background surface — see FSurfaceColor.
+      APP_SURFACE_COLOR (constants.pas) is only the fallback used when
+      nothing has been saved to config.ini yet, see FormCreate. }
+    property SurfaceColor: TColor read FSurfaceColor;
+    { Changes the setting, applies it to the open window right away and
+      persists it — same pattern as SetAccentColor, plus the immediate
+      repaint (an accent color only shows up on the next paint of a
+      progress bar; a background is on screen the whole time). }
+    procedure SetSurfaceColor(AValue: TColor);
     { Photo/video viewer — needed by framehistory.pas (clicking a
       photo/video in a chat opens it), same global-FormMain access
       pattern already used for Chats/Nav. }
@@ -356,11 +383,13 @@ begin
       FInvisible := ReadBool('ui', 'invisible', False);
       FCloseToTray := ReadBool('ui', 'closetotray', True);
       FAccentColor := TColor(ReadInteger('ui', 'accentcolor', Integer(APP_ACCENT_COLOR)));
+      FSurfaceColor := TColor(ReadInteger('ui', 'surfacecolor', Integer(APP_SURFACE_COLOR)));
     finally
       Free;
     end;
   end;
   LoadAutoDownloadSettings;
+  ApplySurfaceColor;
   UpdatePresencePanel;
   { No chat is open yet — hidden until the Welcome screen (or a real
     chat selection) says otherwise, see the property's own comment.
@@ -941,6 +970,48 @@ begin
   with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
     try
       WriteInteger('ui', 'accentcolor', Integer(FAccentColor));
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TFormMain.ApplySurfaceColor;
+begin
+  { Only the containers that genuinely own a background are named here.
+    Everything inside them — the chat list frame and its grid, the chat
+    info bar, the history frame, the input box's own panels — has
+    ParentColor on and inherits this, so adding a new frame to the work
+    area needs no change here.
+
+    ParentBackground must be off wherever Color is expected to show at
+    all: with it on, Windows themes the panel's background and ignores
+    Color entirely. pnlLeft/pnlWork already have it off from main.lfm;
+    FNavHost is created in code, where TPanel's default is ON. }
+  pnlLeft.Color := FSurfaceColor;
+  pnlWork.Color := FSurfaceColor;
+  if FNavHost <> nil then begin
+    FNavHost.ParentBackground := False;
+    FNavHost.Color := FSurfaceColor;
+  end;
+  if FMessageInput <> nil then begin
+    { The input panel keeps ParentColor off (msginput.lfm) so the
+      Designer can show it on its own — set directly rather than
+      inherited. }
+    FMessageInput.Color := FSurfaceColor;
+  end;
+end;
+
+procedure TFormMain.SetSurfaceColor(AValue: TColor);
+begin
+  if AValue = FSurfaceColor then begin
+    Exit;
+  end;
+  FSurfaceColor := AValue;
+  ApplySurfaceColor;
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteInteger('ui', 'surfacecolor', Integer(FSurfaceColor));
     finally
       Free;
     end;
