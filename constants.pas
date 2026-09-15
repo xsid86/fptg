@@ -600,6 +600,18 @@ const
     property TMemo exposes itself — see TMessageInputPanel.MemoResize
     (msginput.pas). }
   MEMO_PAD = 8;
+  { How much wider the radius of the Memo's WINDOW REGION is than the
+    radius actually shown (msginput.pas: MemoResize cuts the region,
+    Paint draws the visible curve). A larger corner radius removes more
+    material at the corner, so this pulls the region's unavoidably
+    jagged edge strictly inside the antialiased curve the frame paints
+    underneath, leaving a thin sliver of frame around each corner for
+    that curve to live in. Too small and stair-steps poke out past the
+    curve; much larger only widens an invisible seam between two areas
+    of the same color. Only used while SMOOTH_CHROME_CORNERS is on —
+    without it the region IS the visible edge and gets the plain
+    radius. }
+  MEMO_REGION_SLACK = 2;
   { FSyncTimer's interval (TMessageInputPanel) — drives both the
     custom scrollbar's poll (SyncVScroll, needed since a plain Edit
     control raises no scroll-position notification of its own at all)

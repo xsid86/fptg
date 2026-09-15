@@ -67,7 +67,7 @@ uses
     Edit window class handles line-scrolling internally, driven here
     with the real Win32 API, not LCL's message Dispatch. }
   Windows,
-  Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Buttons,
+  cardpaint, Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls, Buttons,
   constants, Dialogs, LCLType, thinscrollbar, Types;
 
 type
@@ -121,6 +121,9 @@ type
       the toolbar's insertion side already accepts. }
     procedure ClearFmtBtnClick(Sender: TObject);
   protected
+    { The Memo's rounded corners, antialiased — drawn by the FRAME, not
+      by the Memo, because the Memo can't. See the body. }
+    procedure Paint; override;
     { Backstop for MemoResize, alongside Memo's own OnResize (Create
       below) — Align recalculation should always fire Memo's OWN
       resize too whenever this frame's does, but this covers it either
@@ -229,10 +232,51 @@ begin
   MemoResize(Self);
 end;
 
+{ The Memo's own rounded corners — painted HERE, by the frame, because
+  the Memo genuinely cannot paint them itself.
+
+  A TMemo is a native Win32 Edit control: this application does not own
+  its painting at all, so there is nothing to antialias from inside it,
+  and a parent cannot draw on top of a child window either. The only
+  lever available is SetWindowRgn (MemoResize above), and a window
+  region is a binary per-pixel mask owned by the OS — a pixel either
+  belongs to the window or it does not, with no partial coverage — so
+  its arc is always stair-stepped. That was the whole reason this was
+  first reported as "can't be done without replacing the control".
+
+  It can be done, just from the other side. The region is cut with a
+  LARGER radius than the visible one (MEMO_REGION_SLACK), which pulls
+  the child's jagged edge strictly inside the intended curve and leaves
+  a thin sliver of the frame showing around each corner. That sliver
+  belongs to the frame, so the frame can paint it — an antialiased
+  rounded rectangle in the Memo's own color, over the Memo's bounds.
+  The child covers the middle, this covers the corners, and the visible
+  outer edge is entirely the antialiased one. The jagged boundary
+  between them is invisible: it has the same color on both sides.
+
+  Only the corners actually differ, so nothing is drawn under the bulk
+  of the Memo — the fill would be overdrawn by the child immediately
+  anyway. }
+procedure TMessageInputPanel.Paint;
+var
+  B: TRect;
+begin
+  inherited Paint;
+  if not SMOOTH_CHROME_CORNERS then begin
+    Exit;
+  end;
+  if (Memo = nil) or not Memo.Visible then begin
+    Exit;
+  end;
+  B := Rect(Memo.Left, Memo.Top, Memo.Left + Memo.Width, Memo.Top + Memo.Height);
+  PaintRounded(Canvas, B, MSG_CORNER_RADIUS, [], Memo.Color, clNone, True);
+end;
+
 procedure TMessageInputPanel.MemoResize(Sender: TObject);
 var
   Rgn: HRGN;
   R: TRect;
+  RgnRadius: integer;
 begin
   { Memo can still be nil here: TMessageInputPanel.Resize (above) can
     fire as a side effect of the .lfm's OWN streaming — reading each
@@ -261,9 +305,24 @@ begin
     clip regions used elsewhere in this project, which the caller keeps
     and must free itself. A later SetWindowRgn call (the next resize)
     replaces it and the OS frees the old one on its own. }
+  { The radius the REGION is cut with is deliberately larger than the
+    visible one when the smooth path is on — see this frame's Paint.
+    A bigger corner radius removes MORE material at the corner, so the
+    region's jagged edge ends up strictly INSIDE the smooth curve
+    painted underneath it, and no stair-step can poke out past that
+    curve. Along the straight sides the two coincide, as before. }
+  if SMOOTH_CHROME_CORNERS then begin
+    RgnRadius := MSG_CORNER_RADIUS + MEMO_REGION_SLACK;
+  end else begin
+    RgnRadius := MSG_CORNER_RADIUS;
+  end;
   Rgn := Windows.CreateRoundRectRgn(0, 0, Memo.Width, Memo.Height,
-    MSG_CORNER_RADIUS * 2, MSG_CORNER_RADIUS * 2);
+    RgnRadius * 2, RgnRadius * 2);
   Windows.SetWindowRgn(Memo.Handle, Rgn, True);
+  { The frame paints the smooth curve into the sliver the region now
+    leaves uncovered, so it has to repaint whenever the Memo moves or
+    resizes. }
+  Invalidate;
 
   { Inner padding to the text, MEMO_PAD on every side — EM_SETRECT,
     confirmed (Microsoft's own docs) to work on a plain multiline Edit

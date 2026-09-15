@@ -1070,6 +1070,10 @@ type
     procedure CopySelection;
   protected
     procedure Paint; override;
+    { The rows, widgets and everything else — split out of Paint so
+      that its several early exits (no model, nothing visible) can
+      never skip the outer corners. }
+    procedure PaintContent;
     { The control's own outer corners, antialiased — see its own
       comment for why this and Resize's window region are mutually
       exclusive rather than complementary. }
@@ -4768,7 +4772,21 @@ begin
   end;
 end;
 
+{ Deliberately just these two calls. PaintContent bails out early on
+  several paths — no model bound, an empty chat, nothing visible — and
+  while the corner pass lived at the END of that body, every one of
+  those paths skipped it, leaving the control's corners square. Which
+  is exactly what a chat switch looks like from the inside: the model
+  is emptied first and fires OnChanged synchronously with Count=0, so
+  the frame in between really is an empty history, and the corners
+  visibly popped off and back on again on every switch. }
 procedure TMsgScroller.Paint;
+begin
+  PaintContent;
+  PaintOuterCorners;
+end;
+
+procedure TMsgScroller.PaintContent;
 var
   I, Lo, Hi: integer;
   R: TMsgRow;
@@ -5019,9 +5037,6 @@ begin
     LayoutQuoteWidgets(Lo, Hi);
   except
   end;
-
-  { Last, over everything this Paint drew — see PaintOuterCorners. }
-  PaintOuterCorners;
 end;
 
 { The control's own four outer corners, rounded WITH antialiasing.
