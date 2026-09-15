@@ -483,16 +483,17 @@ const
     all four sides — and ROW_HEIGHT below accounts for its vertical
     half, so the card keeps its height instead of being squeezed. }
   CHATROW_CARD_INSET = 1;
-  { The band of background kept at the top and bottom of the chat list
-    — an inset of the grid's VIEWPORT (BorderSpacing in framechats.pas),
-    so it is there at any scroll position, not only when a whole card
-    happens to sit against the edge. That distinction is the whole
-    point: the list scrolls, so the card at either edge is usually cut
-    in half and contributes none of its own inset, unlike the left and
-    right sides where cards are never clipped and their inset IS the
-    margin. Not folded into the row inset either — the gap between two
-    neighbouring cards is the sum of both their insets, so growing it
-    would widen that by twice as much. }
+  { The gap above the FIRST card and below the LAST one — the list's
+    own outer margin, not the spacing between cards, and specifically
+    chosen to line the first card up with the chat header card's own
+    top margin (CHAT_HEADER_CARD_MARGIN_TOP) across the splitter.
+
+    Separate from the inter-card spacing on purpose: the gap between
+    neighbours is the sum of two rows' insets and reads as one gap,
+    while the outer edge only ever gets one row's worth. Applied as
+    BorderSpacing on the grid (framechats.pas), minus what the row
+    already contributes — growing the row inset instead would have
+    moved the gap between cards along with it. }
   CHATLIST_EDGE_MARGIN = 5;
   { Card header height — the avatar moved into the content area (see
     CHATROW_CONTENT_H below), leaving only the type icon + name +

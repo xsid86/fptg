@@ -8,7 +8,7 @@ uses
   avatarcache, BGRABitmap, BGRABitmapTypes,
   Classes, Clipbrd, customemoji,
   Controls, constants, DateUtils, Dialogs, emojiassets, ExtCtrls, Forms, Graphics, Grids,
-  LCLType, LMessages, Menus, StdCtrls, SysUtils, tdaccentcolors, tdauth, tdchats,
+  LCLType, LMessages, Math, Menus, StdCtrls, SysUtils, tdaccentcolors, tdauth, tdchats,
   tdcore, thinscrollbar, Types, uiframe;
 
 type
@@ -388,30 +388,30 @@ begin
   ParentColor := True;
   Grid.ParentColor := True;
 
-  { The list's own top/bottom margin, as an inset of the grid's
-    VIEWPORT — the full value, not "what's left after a row's own
-    inset".
+  { The list's own top/bottom margin. Only the REMAINDER after a row's
+    own inset is added here, so the first card ends up exactly
+    CHATLIST_EDGE_MARGIN from the top — level with the chat header
+    card's own margin on the other side of the splitter, which is the
+    whole point of the number.
 
-    Subtracting the row inset (an earlier attempt) assumed a whole card
-    sits against the edge. It doesn't: the list scrolls, so what is
-    actually at the top and bottom is almost always a card cut in half,
-    contributing no inset at all — which left only the 2px remainder,
-    visibly thinner than the 5px band down the left and right sides
-    (cards never get clipped horizontally, so there their own inset IS
-    the whole margin). Insetting the viewport gives a 5px band at any
-    scroll position.
+    BorderSpacing rather than a bigger row inset: the gap between two
+    neighbouring cards is the sum of BOTH their insets, so growing that
+    would widen it by twice as much.
 
-    Deliberately accepted side effect: scrolled all the way to the top,
-    the first card sits 5+3=8px down rather than 5, because there it
-    does contribute its inset. A rarely-seen 3px at one extreme, traded
-    for a band that is never too thin anywhere else.
+    One version of this passed the FULL value instead, on the theory
+    that a card clipped mid-scroll at the edge contributes no inset of
+    its own and so needs the whole margin from the viewport. It does
+    not: that made the first card sit 5+3=8px down, visibly below the
+    header card, and the theory was chasing a symptom that had a
+    completely different cause — the remainder version had been wiped
+    from this file by the IDE before it ever ran (see CLAUDE.md), so
+    "it didn't work" was never about the arithmetic.
 
-    Still BorderSpacing rather than a bigger row inset, for the
-    original reason: the gap between two neighbouring cards is the sum
-    of BOTH their insets, so growing it would widen that by twice as
-    much. }
-  Grid.BorderSpacing.Top := CHATLIST_EDGE_MARGIN;
-  Grid.BorderSpacing.Bottom := CHATLIST_EDGE_MARGIN;
+    Max() rather than a plain subtraction, in case the row inset is
+    ever tuned past the margin. }
+  Grid.BorderSpacing.Top :=
+    Max(0, CHATLIST_EDGE_MARGIN - (CHATROW_GAP div 2 + CHATROW_CARD_INSET));
+  Grid.BorderSpacing.Bottom := Grid.BorderSpacing.Top;
 
   Grid.ColCount  := 1;
   Grid.FixedCols := 0;
