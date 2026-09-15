@@ -176,6 +176,8 @@ type
       follows. Called from FormCreate (after the value is read) and
       from SetSurfaceColor. }
     procedure ApplySurfaceColor;
+    { Shared OnPaint for both splitters — see its own comment. }
+    procedure SplitterPaint(Sender: TObject);
   public
     { ITdActiveListener }
     procedure TdActiveChanged(ANew: TTdAccount);
@@ -976,6 +978,76 @@ begin
   end;
 end;
 
+{ Both splitters, in place of the themed pattern TCustomSplitter would
+  otherwise draw (see ApplySurfaceColor). Flat background plus a
+  discreet three-dot grip, so the divider still reads as something
+  draggable rather than becoming an invisible seam.
+
+  The grip's color is derived from the background rather than named:
+  the background is a user setting now and can be anything, so a fixed
+  grey would disappear on some choices. Perceived brightness decides
+  the direction (the usual 299/587/114 weighting — the eye is far more
+  sensitive to green than to blue), and the dots go a quarter of the
+  way toward black on a light background, toward white on a dark one. }
+procedure TFormMain.SplitterPaint(Sender: TObject);
+const
+  DotSize = 2;
+  DotGap  = 3;
+  DotCount = 3;
+var
+  Spl: TSplitter;
+  Cv: TCanvas;
+  Bg: TColor;
+  R, G, B, Lum, I, X, Y, Span: integer;
+begin
+  if not (Sender is TSplitter) then begin
+    Exit;
+  end;
+  Spl := TSplitter(Sender);
+  Cv := Spl.Canvas;
+
+  Bg := ColorToRGB(Spl.Color);
+  Cv.Brush.Style := bsSolid;
+  Cv.Brush.Color := Bg;
+  Cv.Pen.Style := psClear;
+  Cv.FillRect(Spl.ClientRect);
+
+  R := Bg and $FF;
+  G := (Bg shr 8) and $FF;
+  B := (Bg shr 16) and $FF;
+  Lum := (R * 299 + G * 587 + B * 114) div 1000;
+  if Lum > 128 then begin
+    R := R - R div 4;
+    G := G - G div 4;
+    B := B - B div 4;
+  end else begin
+    R := R + (255 - R) div 4;
+    G := G + (255 - G) div 4;
+    B := B + (255 - B) div 4;
+  end;
+  Cv.Brush.Color := RGBToColor(R, G, B);
+
+  { The dots run ALONG the divider — vertically for the left/right
+    splitter (a vertical bar), horizontally for the top/bottom one —
+    so the run is laid out on whichever axis is the long one. }
+  Span := DotCount * DotSize + (DotCount - 1) * DotGap;
+  if Spl.Align in [alLeft, alRight] then begin
+    X := (Spl.Width - DotSize) div 2;
+    Y := (Spl.Height - Span) div 2;
+    for I := 0 to DotCount - 1 do begin
+      Cv.FillRect(X, Y, X + DotSize, Y + DotSize);
+      Inc(Y, DotSize + DotGap);
+    end;
+  end else begin
+    X := (Spl.Width - Span) div 2;
+    Y := (Spl.Height - DotSize) div 2;
+    for I := 0 to DotCount - 1 do begin
+      Cv.FillRect(X, Y, X + DotSize, Y + DotSize);
+      Inc(X, DotSize + DotGap);
+    end;
+  end;
+end;
+
 procedure TFormMain.ApplySurfaceColor;
 begin
   { Only the containers that genuinely own a background are named here.
@@ -990,6 +1062,22 @@ begin
     FNavHost is created in code, where TPanel's default is ON. }
   pnlLeft.Color := FSurfaceColor;
   pnlWork.Color := FSurfaceColor;
+  { Both splitters are their own painted controls, not children of the
+    panels they sit between, so nothing propagates a parent color to
+    them — and setting Color alone would not have been enough either:
+    TCustomSplitter.Paint draws a THEMED pattern over the whole
+    ClientRect and never looks at Color at all (read in
+    customsplitter.inc, not guessed), which is why the divider stayed a
+    bright strip through the middle of the window. That same routine
+    offers the way out — it only draws the pattern "if not
+    Assigned(OnPaint)" — so SplitterPaint below takes over, and Color
+    is what it paints with. }
+  splLeft.Color := FSurfaceColor;
+  splLeft.OnPaint := @SplitterPaint;
+  if FInputSplitter <> nil then begin
+    FInputSplitter.Color := FSurfaceColor;
+    FInputSplitter.OnPaint := @SplitterPaint;
+  end;
   if FNavHost <> nil then begin
     FNavHost.ParentBackground := False;
     FNavHost.Color := FSurfaceColor;
