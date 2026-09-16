@@ -286,15 +286,16 @@ object MessageInputPanel: TMessageInputPanel
       ParentShowHint = False
       OnClick = ClearFmtBtnClick
     end
-    object HtmlModeBox: TCheckBox
+    object HtmlModeBox: TToggleBox
       AnchorSideTop.Control = Toolbar
       AnchorSideTop.Side = asrCenter
       AnchorSideRight.Control = SendBtn
-      Left = 633
-      Height = 19
-      Top = 3
-      Width = 51
+      Left = 619
+      Height = 24
+      Top = 0
+      Width = 60
       Anchors = [akTop, akRight]
+      BorderSpacing.Right = 5
       BorderSpacing.CellAlignVertical = ccaCenter
       Caption = 'HTML'
       TabOrder = 0
@@ -321,7 +322,6 @@ object MessageInputPanel: TMessageInputPanel
     Top = 34
     Width = 774
     Align = alClient
-    BorderSpacing.Right = 4
     BorderStyle = bsNone
     ScrollBars = ssVertical
     TabOrder = 1

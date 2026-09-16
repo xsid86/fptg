@@ -6759,7 +6759,8 @@ begin
     own 12x12 type/pin/mute icons — see chatheader.pas's own comment on
     SetImageLists for why this bar reuses rather than duplicates them. }
   if FormMain <> nil then begin
-    FChatHeader.SetImageLists(FormMain.Chats.icons12, FormMain.ImageList1, FilterButtons, Actions16, 2);
+    FChatHeader.SetImageLists(FormMain.Chats.icons12, FormMain.ImageList1,
+      FilterButtons, Actions16, FormMain.Chats.ImageListBig, 2);
     { Keeps the header's own pin/bell in step with the chat list's.
       Neither SetPinned nor SetMuted changes the row's flags locally —
       they only send the request, and the real state arrives later as a

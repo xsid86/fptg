@@ -87,7 +87,7 @@ type
     TextEditIcons: TImageList;
     Toolbar: TPanel;
     SendBtn: TBitBtn;
-    HtmlModeBox: TCheckBox;
+    HtmlModeBox: TToggleBox;
     Memo: TMemo;
     UnderlineBtn: TSpeedButton;
     procedure SendBtnClick(Sender: TObject);
@@ -233,6 +233,18 @@ begin
   FVScroll.BorderSpacing.Left := THIN_SCROLLBAR_MARGIN;
   FVScroll.BorderSpacing.Right := THIN_SCROLLBAR_MARGIN;
   FVScroll.OnScroll := @VScrollScroll;
+
+  { The toolbar is alTop, so it is laid out BEFORE the scrollbar's
+    alRight lane is taken out and would otherwise run the full width of
+    the frame — which is what put the Send button past the right edge
+    of everything else in the work area. Inset by exactly that lane so
+    the buttons anchored to the toolbar's right end on the same
+    vertical line as the Memo below and the message history above (the
+    history's own scroller reserves the same lane, see
+    framehistory.pas). Here rather than in the designer because it is
+    DERIVED from the scrollbar's constants: pinning 16 into the .lfm
+    would silently go stale the moment either one is retuned. }
+  Toolbar.BorderSpacing.Right := THIN_SCROLLBAR_WIDTH + 2 * THIN_SCROLLBAR_MARGIN;
 
   FSyncTimer := TTimer.Create(Self);
   FSyncTimer.Interval := MEMO_SYNC_TIMER_MS;

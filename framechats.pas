@@ -50,14 +50,10 @@ type
       list of the folder chip's popup: frames FOLDER_MENU_ICON_NEW/
       REMOVE, added in the designer. }
     ImageList1: TImageList;
-    { No longer read by code since the "Archive"/"All chats" pseudo-rows
-      were redesigned to look like a card (those now take their icon
-      from icons12, see CHATROW_ICON_ARCHIVE/ALLCHATS) — the field is
-      deliberately left in place: the component is still declared in
-      the .lfm, and removing a typed field for a component that's
-      already there in the designer is a risk not worth taking without
-      a clear need (not a case where the payoff is worth risking the
-      streaming). }
+    { 32x32 — the avatar's own size (AVATAR_SIZE). It went unread for a
+      while after the "Archive"/"All chats" pseudo-rows were redesigned
+      to take their icon from icons12 (12x12); it holds the skull
+      stamped over a deleted account's avatar now, DELETED_ACCOUNT_ICON. }
     ImageListBig: TImageList;
     procedure GridDrawCell(Sender: TObject; ACol, ARow: Integer; ARect: TRect; AState: TGridDrawState);
     procedure GridSelectCell(Sender: TObject; ACol, ARow: Integer; var CanSelect: Boolean);
@@ -1252,6 +1248,21 @@ begin
     Bmp.Draw(Cv, AvatarR.Left, AvatarR.Top, False);
   end;
 
+  { A deleted account has no photo and no initials to fall back on (its
+    name is empty, which is the whole reason the title is substituted
+    below), so the avatar is a bare colored disc. The skull goes on top
+    of it rather than instead of it — the disc keeps the chat's own
+    color, the way every other row's does. Centered rather than drawn
+    at AvatarR's corner: the two are the same size today, and this
+    stays right if either one is retuned. }
+  if FModel.IsDeletedUser(R) and (ImageListBig <> nil)
+     and (DELETED_ACCOUNT_ICON < ImageListBig.Count) then begin
+    ImageListBig.Draw(Cv,
+      AvatarR.Left + (AVATAR_SIZE - ImageListBig.Width) div 2,
+      AvatarR.Top + (AVATAR_SIZE - ImageListBig.Height) div 2,
+      DELETED_ACCOUNT_ICON, True);
+  end;
+
   DrawIcon12(IconR, TypeIconIndex(R));
 
   { Premium crown — right after the chat-type icon, before the name.
@@ -1336,7 +1347,15 @@ begin
   Cv.Font.Style  := [fsBold];
   Cv.Font.Height := -13;
   Cv.Font.Color := Accent;
-  S := String(R.Title);
+  { TDLib hands over an empty name for a deleted account (first_name
+    and last_name both blank, see tdchats.IsDeletedUser), so the card
+    would carry no name at all — a stand-in is written instead. }
+  if FModel.IsDeletedUser(R) then begin
+    S := DELETED_ACCOUNT_TITLE;
+  end
+  else begin
+    S := String(R.Title);
+  end;
   { No entity data is captured for chat titles (see the comment on
     A.Preview's own DrawEmojiLine call below) — nil. NameLeft, not
     IconR.Right + MSG_ICON_GAP directly: the crown above may have

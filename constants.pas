@@ -502,6 +502,16 @@ const
   { Native frame size for icons12 — matches the component's own
     Height/Width in the designer. }
   CHATROW_ICON_SIZE = 12;
+  { A deleted account: TDLib leaves its name empty, so it would show up
+    nameless (in the chat list and the chat header) or as a bare
+    "User <id>" (in the history, where TUserRow.DisplayName falls back
+    to that). The name is substituted and a skull is stamped over the
+    avatar — the ONLY frame in framechats' ImageListBig (32x32), which
+    had been sitting in the .lfm unused since the pseudo-rows were
+    redesigned and is back at work for this.
+    No CHATROW_ prefix on purpose: all three surfaces use them. }
+  DELETED_ACCOUNT_TITLE = 'Deleted account';
+  DELETED_ACCOUNT_ICON  = 0;
   { Premium crown badge, shown right after the chat-type icon
     (TypeIconIndex) for a private chat whose peer is a Telegram Premium
     user (TTdChats.IsPremiumUser, tdchats.pas) — NOT a frame in icons12:

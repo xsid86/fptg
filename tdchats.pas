@@ -187,6 +187,12 @@ type
     { Bots are identified by user, not chat: a chat's type is always
       chatTypePrivate. updateUser updates arrive on their own. }
     FBots:   TBotMap;
+    { Same idea as FBots again: user ids whose account is gone
+      (userTypeDeleted). TDLib leaves first_name/last_name empty for
+      those, so the chat title comes through blank — confirmed in this
+      project's own tdlib_raw.log, which is also where the type name
+      itself was read rather than recalled. }
+    FDeletedUsers: TBotMap;
     { Same idea as FBots, one boolean per user id, but for
       user.is_premium — a separate map, not a second field alongside
       IsBot on some shared record: the two flags are independent and
@@ -323,6 +329,9 @@ type
       ask (secret chats never get UserId populated either, see
       ChatUserId). }
     function IsPremiumUser(ARow: TChatRow): boolean;
+    { True when the peer's account has been deleted. Same shape as the
+      two above: a private chat with a known peer, nothing else. }
+    function IsDeletedUser(ARow: TChatRow): boolean;
     { Whether ARow IS this account's own Saved Messages chat (a
       ckPrivate row whose peer is this account's own user id — the
       standard TDLib representation, no dedicated chat type of its
@@ -829,6 +838,8 @@ begin
   FBots.Sorted := True;
   FPremiumUsers := TBotMap.Create;
   FPremiumUsers.Sorted := True;
+  FDeletedUsers := TBotMap.Create;
+  FDeletedUsers.Sorted := True;
   FRows := TFPList.Create;
   FArchiveRows := TFPList.Create;
   FLoadLimit := 30;
@@ -853,6 +864,7 @@ begin
   FArchiveRows.Free;
   FBots.Free;
   FPremiumUsers.Free;
+  FDeletedUsers.Free;
   FByFile.Free;
   FAll.Free;
   inherited Destroy;
@@ -871,6 +883,7 @@ begin
   FByFile.Clear;
   FBots.Clear;
   FPremiumUsers.Clear;
+  FDeletedUsers.Clear;
   { Folders belong to the account, so they go out with the chats. TDLib
     re-announces them with a fresh updateChatFolders AFTER
     authorizationStateReady (which is what triggers this Clear — that
@@ -1384,7 +1397,7 @@ end;
 procedure TTdChats.ApplyUser(AUser: TJSONObject);
 var
   Id: Int64;
-  IsBot, IsPrem: boolean;
+  IsBot, IsPrem, IsDel: boolean;
   Idx: integer;
   Changed: boolean;
 begin
@@ -1396,13 +1409,15 @@ begin
     Exit;
   end;
   IsBot := JGetStr(JGetObj(AUser, 'type'), '@type') = 'userTypeBot';
+  IsDel := JGetStr(JGetObj(AUser, 'type'), '@type') = 'userTypeDeleted';
   IsPrem := JGetBool(AUser, 'is_premium');
   { updateUser arrives for EVERY known user, and there are thousands of
-    them. A repaint is only requested when one of the two flags this
-    model tracks actually changed — checking bot status alone (the
-    original shape of this method) and bailing out early on "unchanged"
-    would silently skip a genuine is_premium change riding along on the
-    same update, so both are checked before deciding whether to Touch. }
+    them. A repaint is only requested when one of the flags this model
+    tracks actually changed — checking bot status alone (the original
+    shape of this method) and bailing out early on "unchanged" would
+    silently skip a genuine is_premium change riding along on the same
+    update, so all of them are checked before deciding whether to
+    Touch. }
   Changed := False;
 
   Idx := FBots.IndexOf(Id);
@@ -1425,6 +1440,17 @@ begin
   end else begin
     FPremiumUsers.Add(Id, IsPrem);
     Changed := Changed or IsPrem;
+  end;
+
+  Idx := FDeletedUsers.IndexOf(Id);
+  if Idx >= 0 then begin
+    if FDeletedUsers.Data[Idx] <> IsDel then begin
+      FDeletedUsers.Data[Idx] := IsDel;
+      Changed := True;
+    end;
+  end else begin
+    FDeletedUsers.Add(Id, IsDel);
+    Changed := Changed or IsDel;
   end;
 
   if Changed then begin
@@ -1457,6 +1483,20 @@ begin
   Idx := FPremiumUsers.IndexOf(ARow.UserId);
   if Idx >= 0 then begin
     Result := FPremiumUsers.Data[Idx];
+  end;
+end;
+
+function TTdChats.IsDeletedUser(ARow: TChatRow): boolean;
+var
+  Idx: integer;
+begin
+  Result := False;
+  if (ARow = nil) or (ARow.Kind <> ckPrivate) or (ARow.UserId = 0) then begin
+    Exit;
+  end;
+  Idx := FDeletedUsers.IndexOf(ARow.UserId);
+  if Idx >= 0 then begin
+    Result := FDeletedUsers.Data[Idx];
   end;
 end;
 

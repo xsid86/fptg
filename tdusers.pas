@@ -5,7 +5,7 @@ unit tdusers;
 interface
 
 uses
-  Classes, SysUtils, fgl, fpjson,
+  Classes, constants, SysUtils, fgl, fpjson,
   tdauth, tdsession, tdreq;
 
 type
@@ -20,6 +20,11 @@ type
     { 0..6 are reserved built-in colors; 7+ are resolved through
       TTdAccentColors (tdaccentcolors.pas) from updateAccentColors. }
     AccentColorId: integer;
+    { userTypeDeleted. TDLib sends such a user with both names blank,
+      which is exactly the case DisplayName's "User <id>" fallback was
+      written for — so without this the history would label every
+      deleted account by its raw id. }
+    Deleted: boolean;
     function DisplayName: utf8string;
   end;
 
@@ -83,6 +88,14 @@ implementation
 
 function TUserRow.DisplayName: utf8string;
 begin
+  { Checked before the names, not after: a deleted account has none,
+    so this is what the id fallback below would otherwise catch. One
+    place for it, and every caller in the history — the message
+    header, a forward's source, a reply quote — follows. }
+  if Deleted then begin
+    Result := DELETED_ACCOUNT_TITLE;
+    Exit;
+  end;
   Result := utf8string(Trim(string(FirstName) + ' ' + string(LastName)));
   if Result = '' then begin
     Result := utf8string('User ' + IntToStr(Id));
@@ -195,6 +208,7 @@ begin
   R.FirstName := JGetStr(AUser, 'first_name');
   R.LastName := JGetStr(AUser, 'last_name');
   R.AccentColorId := JGetInt(AUser, 'accent_color_id');
+  R.Deleted := JGetStr(JGetObj(AUser, 'type'), '@type') = 'userTypeDeleted';
 
   if Assigned(FOnChanged) then begin
     FOnChanged(Self);

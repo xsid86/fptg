@@ -116,6 +116,7 @@ type
     FChatId:       Int64;
     FTypeIcons:    TCustomImageList;
     FPremiumIcons: TCustomImageList;
+    FDeletedIcons: TCustomImageList;
     FAvatarPath:   utf8string;
     FAvatarBmp:    TBGRABitmap;
     FCardBg:       TColor;
@@ -123,6 +124,7 @@ type
     { Everything Paint needs about the current chat, read once per
       Refresh — Paint itself never touches the model. }
     FTitle:       string;
+    FDeleted:     boolean;
     FIdText:      string;
     FTypeIconIdx: integer;
     FPremium:     boolean;
@@ -201,9 +203,10 @@ type
       FilterButtons (CHAT_HEADER_FILTER_* indices). ASearchIcons/
       ASearchIconIndex — the magnifier (Actions16, index 2 as the
       project stands) — passed in rather than hard-coded, this unit has
-      no access to TFrameHistory's own LFM components. }
-    procedure SetImageLists(ATypeIcons, APremiumIcons, AFilterIcons, ASearchIcons: TCustomImageList;
-      ASearchIconIndex: integer);
+      no access to TFrameHistory's own LFM components. ADeletedIcons —
+      ImageListBig (DELETED_ACCOUNT_ICON), for the same reason. }
+    procedure SetImageLists(ATypeIcons, APremiumIcons, AFilterIcons, ASearchIcons,
+      ADeletedIcons: TCustomImageList; ASearchIconIndex: integer);
     { AChatId=0, or no such chat in TdChatList, collapses the bar to
       Height=0 — see the class comment for why Height, not Visible.
       Switching to a DIFFERENT chat also clears the filter buttons and
@@ -355,13 +358,14 @@ begin
   inherited Destroy;
 end;
 
-procedure TChatHeaderPanel.SetImageLists(ATypeIcons, APremiumIcons, AFilterIcons, ASearchIcons: TCustomImageList;
-  ASearchIconIndex: integer);
+procedure TChatHeaderPanel.SetImageLists(ATypeIcons, APremiumIcons, AFilterIcons, ASearchIcons,
+  ADeletedIcons: TCustomImageList; ASearchIconIndex: integer);
 var
   I: integer;
 begin
   FTypeIcons := ATypeIcons;
   FPremiumIcons := APremiumIcons;
+  FDeletedIcons := ADeletedIcons;
   for I := 0 to 11 do begin
     FFilters[I].Images := AFilterIcons;
     FFilters[I].ImageIndex := I;
@@ -586,6 +590,18 @@ begin
   if FAvatarBmp <> nil then begin
     FAvatarBmp.Draw(Canvas, FAvatarRect.Left, FAvatarRect.Top, False);
   end;
+  { A deleted account has neither a photo nor initials to fall back on
+    (its name is empty, which is why FTitle is substituted too), so the
+    avatar is a bare colored disc — the skull goes ON it, leaving the
+    chat's own color around the edges. Centered: the disc is 48 and the
+    frame is 32, and centering keeps it right if either is retuned. }
+  if FDeleted and (FDeletedIcons <> nil)
+     and (DELETED_ACCOUNT_ICON < FDeletedIcons.Count) then begin
+    FDeletedIcons.Draw(Canvas,
+      FAvatarRect.Left + (CHAT_HEADER_AVATAR_SIZE - FDeletedIcons.Width) div 2,
+      FAvatarRect.Top + (CHAT_HEADER_AVATAR_SIZE - FDeletedIcons.Height) div 2,
+      DELETED_ACCOUNT_ICON, True);
+  end;
 
   PaintCard(FSearchSlotRect, Min(CHATROW_CORNER_RADIUS,
     (FSearchSlotRect.Bottom - FSearchSlotRect.Top) div 2), [], clWindow, Border);
@@ -683,7 +699,6 @@ begin
   if ChatChanged then begin
     FTypeIconIdx := ChatHeaderTypeIcon(Row);
     FPremium := TdChatList.IsPremiumUser(Row);
-    FTitle := string(Row.Title);
     FIdText := IntToStr(Row.Id);
     { Only meaningful for channels — hidden for every other chat kind,
       per direct request. }
@@ -709,6 +724,19 @@ begin
   FPinned := Row.IsPinned;
   FMuted := Row.IsMuted;
   FHasMute := not TdChatList.IsSelfChat(Row);
+
+  { Read on every call, not once per chat switch, for the same reason
+    as the three above: the deleted flag comes from a SEPARATE
+    updateUser, which routinely lands after the chat was opened — held
+    behind ChatChanged the header would keep a blank name until the
+    user switched away and back. Hence the title here as well. }
+  FDeleted := TdChatList.IsDeletedUser(Row);
+  if FDeleted then begin
+    FTitle := DELETED_ACCOUNT_TITLE;
+  end
+  else begin
+    FTitle := string(Row.Title);
+  end;
 
   { The avatar is re-rendered only when the chat changed (FAvatarPath
     reset above) or its photo path did — RenderAvatarBmp decodes a real
