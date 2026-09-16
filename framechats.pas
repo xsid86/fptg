@@ -13,7 +13,8 @@ uses
 
 type
   { Clickable areas within a row. }
-  TChatHitArea = (chaNone, chaBell, chaAvatar, chaHeader, chaPin);
+  TChatHitArea = (chaNone, chaBell, chaAvatar, chaHeader, chaPin, chaFolder,
+    chaArchive);
 
   { Which list is shown. }
   TChatListMode = (clmMain, clmArchive);
@@ -42,8 +43,12 @@ type
     Grid:      TDrawGrid;
     icons12: TImageList;
     mnuChat:   TPopupMenu;
-    { Chat-type icons. Placed on the frame in the designer; the name
-      must match the one in the .lfm. }
+    { 16x16, placed on the frame in the designer (the name must match
+      the .lfm). Its comment used to say "chat-type icons" — those
+      moved to icons12 (12x12) when the row was redesigned, and this
+      list went unread for a while. It is in use again as the image
+      list of the folder chip's popup: frames FOLDER_MENU_ICON_NEW/
+      REMOVE, added in the designer. }
     ImageList1: TImageList;
     { No longer read by code since the "Archive"/"All chats" pseudo-rows
       were redesigned to look like a card (those now take their icon
@@ -73,6 +78,21 @@ type
     FMeasure:  TBGRABitmap;   { 1x1, for measuring text with the same font }
     FReceipts: array[TChatReceipt, Boolean] of TBGRABitmap;
     FMenuRow:  TChatRow;
+    { The folder chip's own popup, built fresh on every click (the set
+      of folders is the model's, and it changes) — a separate menu from
+      mnuChat rather than a reuse of it: that one is the grid's
+      right-click context menu, wired in the designer, and having two
+      unrelated callers rewrite the same Items list is how one of them
+      ends up showing the other's entries. Created in code, not in the
+      .lfm, for the same reason its items are: nothing about it is
+      designable. }
+    FFolderMenu: TPopupMenu;
+    { The row whose chip opened FFolderMenu — captured at click time
+      and read back in FolderMenuClick, exactly like FMenuRow for the
+      context menu: by the time the user picks an item the model may
+      have rebuilt and the grid row under the cursor may be a
+      different chat. }
+    FFolderRow: TChatRow;
     FOnSelect: TChatSelectEvent;
     FOnRowsChanged: TNotifyEvent;
     FOnListMode: TListModeEvent;
@@ -194,8 +214,8 @@ type
       anchored off AMuteR.Left, not a fixed offset from the header edge
       — the pin (if AHasPin) slides right into the slot the mute icon
       would have occupied, flush against the edge, no leftover gap. }
-    function ChatRowRects(const ARect: TRect; AHasPin, AHasMute: Boolean; out AHeader, AContent,
-      AIconR, AAvatarR, AMuteR, APinR: TRect): TRect;
+    function ChatRowRects(const ARect: TRect; AHasPin, AHasMute, AHasArchive: Boolean;
+      out AHeader, AContent, AIconR, AAvatarR, AMuteR, APinR, AArchiveR: TRect): TRect;
     { One hit test shared by everything: clicks and cursor updates
       alike. Duplicating the geometry in two places is a reliable way
       to let them drift apart over time. }
@@ -210,6 +230,31 @@ type
     procedure MaybeLoadMore;
     procedure BuildMenu(ARow: TChatRow);
     procedure MenuItemClick(Sender: TObject);
+    { What the folder chip reads: the chat's folder name, or
+      CHATROW_FOLDER_NONE when it is in none. }
+    function FolderChipCaption(ARow: TChatRow): String;
+    { The chip's rectangle. Not part of ChatRowRects (which knows
+      nothing about a canvas) because the width depends on the caption
+      and so has to be measured — but still a single source of truth
+      shared by painting and hit-testing, the same principle.
+      ARight is the right edge it may not cross. The canvas font is
+      changed to measure and put back: in GridDrawCell this is called
+      mid-paint, with the canvas already set up for something else. }
+    function FolderChipRect(const AAvatarR: TRect; ARight: Integer;
+      const ACaption: String): TRect;
+    { The unread badge's rectangle — in the card's bottom right corner,
+      with the same margin the avatar has on the other side. Shared by
+      painting and by the folder chip's right-hand clamp (the two sit
+      on the same line now), so neither has to guess the other's width.
+      An EMPTY rect anchored at the corner means "no badge": its Left
+      is still the boundary the chip must not cross, which keeps the
+      caller free of a special case. }
+    function UnreadBadgeRect(ARow: TChatRow; const AContent: TRect): TRect;
+    { Right-hand boundary for the folder chip: the badge's left edge
+      when there is one, the content's own padding edge otherwise. }
+    function FolderChipLimit(ARow: TChatRow; const AContent: TRect): Integer;
+    procedure ShowFolderMenu(ARow: TChatRow; const AScreenPos: TPoint);
+    procedure FolderMenuClick(Sender: TObject);
     function CurrentRow: TChatRow;
   public
     constructor Create(TheOwner: TComponent); override;
@@ -352,6 +397,10 @@ begin
   FBadges.Sorted := True;
   FBadges.Duplicates := dupIgnore;
   FBadges.OwnsObjects := False;
+
+  { Owned by the frame, so it goes with it — nothing to free by hand
+    in the destructor. Its items are rebuilt per click (ShowFolderMenu). }
+  FFolderMenu := TPopupMenu.Create(Self);
 
   FMeasure := TBGRABitmap.Create(1, 1);
   FMeasure.FontName := 'default';
@@ -900,8 +949,8 @@ begin
   icons12.Draw(Grid.Canvas, ARect.Left, ARect.Top, AIndex, True);
 end;
 
-function TFrameChats.ChatRowRects(const ARect: TRect; AHasPin, AHasMute: Boolean; out AHeader, AContent,
-  AIconR, AAvatarR, AMuteR, APinR: TRect): TRect;
+function TFrameChats.ChatRowRects(const ARect: TRect; AHasPin, AHasMute, AHasArchive: Boolean;
+  out AHeader, AContent, AIconR, AAvatarR, AMuteR, APinR, AArchiveR: TRect): TRect;
 var
   IconY, RightEdge: Integer;
 begin
@@ -937,12 +986,18 @@ begin
   { The avatar lives in the content area, before the message preview,
     vertically centered on the same height as the area itself
     (CHATROW_CONTENT_H is computed SPECIFICALLY around the avatar, see
-    constants.pas). }
-  AAvatarR := Rect(AContent.Left + MSG_PAD_H, AContent.Top + MSG_PAD_V,
-    AContent.Left + MSG_PAD_H + AVATAR_SIZE, AContent.Top + MSG_PAD_V + AVATAR_SIZE);
+    constants.pas).
+
+    Inset by MSG_PAD_V on the left, not MSG_PAD_H: that is the SAME
+    number the content area already leaves above and below it, so the
+    avatar sits in an even margin on three sides instead of a wider
+    one on the left (by direct request). MSG_PAD_H stays the text
+    padding everywhere else on the card. }
+  AAvatarR := Rect(AContent.Left + MSG_PAD_V, AContent.Top + MSG_PAD_V,
+    AContent.Left + MSG_PAD_V + AVATAR_SIZE, AContent.Top + MSG_PAD_V + AVATAR_SIZE);
 
   { Right to left: the notification bell (at the very edge), then the
-    pin to its left. Further left (checkmark/time) is variable width,
+    pin, then archive/unarchive. Further left (checkmark/time) is variable width,
     computed at the point of drawing, and not part of the hit test
     (not clickable). RightEdge is the "next icon goes here" cursor —
     starts at the header's own right padding edge, and only moves left
@@ -962,14 +1017,21 @@ begin
   end;
   if AHasPin then begin
     APinR := Rect(RightEdge - CHATROW_ICON_SIZE, IconY, RightEdge, IconY + CHATROW_ICON_SIZE);
+    RightEdge := APinR.Left - GAP;
   end
   else begin
     { Pinning isn't allowed in the archive — collapsed to zero width,
       not simply "not drawn": TitleRight in GridDrawCell is computed
-      from PinR.Left, and the time needs to butt right up against
-      whatever real icon precedes it, as if the pin slot had never
-      existed. }
+      from the LEFTMOST icon slot, and the time needs to butt right up
+      against whatever real icon precedes it, as if the pin slot had
+      never existed. }
     APinR := Rect(RightEdge, IconY, RightEdge, IconY + CHATROW_ICON_SIZE);
+  end;
+  if AHasArchive then begin
+    AArchiveR := Rect(RightEdge - CHATROW_ICON_SIZE, IconY, RightEdge, IconY + CHATROW_ICON_SIZE);
+  end
+  else begin
+    AArchiveR := Rect(RightEdge, IconY, RightEdge, IconY + CHATROW_ICON_SIZE);
   end;
 end;
 
@@ -978,7 +1040,7 @@ var
   Cv:    TCanvas;
   Badge: TBGRABitmap;
   A:     TArchiveInfo;
-  Card, Header, Content, IconR, AvatarR, MuteR, PinR: TRect;
+  Card, Header, Content, IconR, AvatarR, MuteR, PinR, ArchiveR: TRect;
   BodyFill, HeaderFill, BorderCol: TColor;
   PrevRight, Y, IconIdx: Integer;
   S, Title: String;
@@ -1006,7 +1068,10 @@ begin
     go unused here (this card has none of them). AHasPin/AHasMute don't
     matter (both False for consistency — there's no icon from either
     pair here either way). }
-  Card := ChatRowRects(ARect, False, False, Header, Content, IconR, AvatarR, MuteR, PinR);
+  { No per-row buttons on the pseudo-row: it IS the archive, and the
+    whole row is one click target (chaHeader). }
+  Card := ChatRowRects(ARect, False, False, False,
+    Header, Content, IconR, AvatarR, MuteR, PinR, ArchiveR);
 
   if ASelected then begin
     Cv.Brush.Color := BlendWithBackground(CHATROW_PSEUDO_COLOR, CHATROW_SELECTED_OPACITY, clWindow);
@@ -1078,16 +1143,19 @@ var
   R:   TChatRow;
   Cv:  TCanvas;
   Bmp, Badge, Rec, StatusBmp: TBGRABitmap;
-  Card, Header, Content, IconR, AvatarR, MuteR, PinR: TRect;
+  Card, Header, Content, IconR, AvatarR, MuteR, PinR, ArchiveR: TRect;
   BaseBg, Accent, BodyFill, HeaderFill, BorderCol: TColor;
-  TitleRight, PrevRight, Y, W, MuteIdx, PinIdx: Integer;
+  TitleRight, PrevRight, W, MuteIdx, PinIdx: Integer;
   NameLeft, NameEndX, CrownY, StatusSize, StatusX: Integer;
   CrownIcons: TImageList;
   Sel: Boolean;
-  HasMute: Boolean;
+  IsSelf: Boolean;
   S:   String;
   PrevGlyphs: TCustomGlyphSpanArray;
   GlyphShift, GI: Integer;
+  ChipR, BadgeR: TRect;
+  ChipCap: String;
+  ChipColor: TColor;
 begin
   { FCache is created in the constructor's body, i.e. after streaming.
     If the grid requests a paint before that finishes, it's nil here. }
@@ -1150,10 +1218,14 @@ begin
   end;
 
   { Pinning isn't allowed in the archive — the pin icon isn't drawn at
-    all, not merely disabled. Muting has no effect on Saved Messages
-    (you can't mute notifications from yourself) — same treatment. }
-  HasMute := not FModel.IsSelfChat(R);
-  Card := ChatRowRects(ARect, FMode <> clmArchive, HasMute, Header, Content, IconR, AvatarR, MuteR, PinR);
+    all, not merely disabled. Saved Messages loses two of the three
+    buttons for the same "the action makes no sense here" reason:
+    muting has no effect (you can't mute notifications from yourself),
+    and archiving your own notes away is not something to offer on a
+    one-pixel-wide icon (by direct request). }
+  IsSelf := FModel.IsSelfChat(R);
+  Card := ChatRowRects(ARect, FMode <> clmArchive, not IsSelf, not IsSelf,
+    Header, Content, IconR, AvatarR, MuteR, PinR, ArchiveR);
 
   { The card uses the same visual language as a message block: body
     (SENDER_BG_OPACITY), header on top (SENDER_HEADER_OPACITY, more
@@ -1198,7 +1270,7 @@ begin
     end;
   end;
 
-  if HasMute then begin
+  if not IsSelf then begin
     if R.IsMuted then begin
       MuteIdx := CHATROW_ICON_NOTIFY_OFF;
     end
@@ -1218,6 +1290,20 @@ begin
     DrawIcon12(PinR, PinIdx);
   end;
 
+  { Archive/unarchive — the icon shows what the CLICK WILL DO, not the
+    current state (there is no "state" to show: which list the row is
+    in is already obvious from which list you are looking at). In the
+    main list that means the archive box, in the archive the crossed-out
+    one. }
+  if not IsSelf then begin
+    if FMode = clmArchive then begin
+      DrawIcon12(ArchiveR, CHATROW_ICON_UNARCHIVE);
+    end
+    else begin
+      DrawIcon12(ArchiveR, CHATROW_ICON_ARCHIVE);
+    end;
+  end;
+
   Cv.Brush.Style := bsClear;
 
   { --- header: time + read receipt, right to left from the pin ---
@@ -1225,7 +1311,9 @@ begin
     comment above about the "behind the card" fill) — the card looks
     the same whether the row is selected or not; the selection cue is
     the fill surrounding it. }
-  TitleRight := PinR.Left - GAP;
+  { From the LEFTMOST icon slot, which is the archive button now — not
+    the pin. }
+  TitleRight := ArchiveR.Left - GAP;
   S := ChatTimeStr(R.LastDate);
   if S <> '' then begin
     Cv.Font.Style  := [];
@@ -1288,10 +1376,17 @@ begin
     end;
   end;
 
-  { --- last-message preview + unread counter --- }
+  { --- last-message preview + unread counter ---
+    The counter now sits in the card's bottom right corner, with the
+    same margin the avatar has on the left (by direct request), rather
+    than centered on the content area. Two things follow from that: the
+    preview line above is no longer shortened by it at all (it runs the
+    full width of the card), and the badge shares its line with the
+    folder chip instead — which is what FolderChipLimit is for. }
   Cv.Brush.Style := bsClear;
   PrevRight := Content.Right - MSG_PAD_H;
-  if (R.UnreadCount > 0) or R.IsMarkedAsUnread then begin
+  BadgeR := UnreadBadgeRect(R, Content);
+  if BadgeR.Right > BadgeR.Left then begin
     if R.UnreadCount > 0 then begin
       S := IntToStr(R.UnreadCount);
     end
@@ -1300,9 +1395,7 @@ begin
     end;
     Badge := BadgeBitmap(S, False);
     if Badge <> nil then begin
-      Y := Content.Top + (CHATROW_CONTENT_H - Badge.Height) div 2;
-      Badge.Draw(Cv, PrevRight - Badge.Width, Y, False);
-      Dec(PrevRight, Badge.Width + GAP);
+      Badge.Draw(Cv, BadgeR.Left, BadgeR.Top, False);
     end;
   end;
 
@@ -1328,13 +1421,44 @@ begin
     PrevGlyphs[GI].CustomEmojiId := R.LastGlyphs[GI].CustomEmojiId;
   end;
   { Starts right after the avatar (which lives here now, see AvatarR/
-    ChatRowRects), vertically centered on the same line as the avatar,
-    not just "top-aligned with a MSG_PAD_V offset" as it was before the
-    avatar moved. }
+    ChatRowRects) and level with its top edge — the line no longer sits
+    centered on the avatar, because it now shares those 44px with the
+    folder chip underneath it (by direct request; see
+    CHATROW_LINE_INSET). The clip rectangle ends where the chip begins
+    so an over-long preview can't run into it. }
+  ChipCap := FolderChipCaption(R);
+  ChipR := FolderChipRect(AvatarR, FolderChipLimit(R, Content), ChipCap);
   DrawEmojiLine(Cv, Rect(AvatarR.Right + MSG_ICON_GAP, Content.Top,
-    PrevRight, Content.Bottom),
-    AvatarR.Right + MSG_ICON_GAP, Content.Top + (CHATROW_CONTENT_H - Cv.TextHeight(S)) div 2, S,
+    PrevRight, ChipR.Top),
+    AvatarR.Right + MSG_ICON_GAP, AvatarR.Top + CHATROW_LINE_INSET, S,
     PrevGlyphs);
+
+  { --- folder chip ---
+    A pill in the chat's own accent color when it belongs to a folder,
+    grey when it doesn't. Outline and text only, with the card's body
+    showing through (clNone fill) rather than a tinted one: the chip
+    already sits ON the tinted card body, and a second wash of the same
+    accent over it reads as a smudge rather than a button. }
+  if FModel.RowFolderId(R) <> 0 then begin
+    ChipColor := Accent;
+  end
+  else begin
+    ChipColor := clGrayText;
+  end;
+  PaintCardRoundRect(Cv, ChipR, CHATROW_FOLDER_RADIUS, [], clNone, ChipColor);
+  Cv.Brush.Style := bsClear;
+  Cv.Font.Style  := [];
+  Cv.Font.Height := CHATROW_FOLDER_FONT_H;
+  Cv.Font.Color  := ChipColor;
+  { TextRect, not TextOut: a folder name wider than the room left on
+    the row is clipped to the chip instead of spilling across the card.
+    DrawEmojiLine isn't used here — a chatFolderName may only carry
+    custom emoji entities (schema), and those aren't fetched for folder
+    titles. }
+  Cv.TextRect(Rect(ChipR.Left + CHATROW_FOLDER_PAD_H, ChipR.Top,
+      ChipR.Right - CHATROW_FOLDER_PAD_H, ChipR.Bottom),
+    ChipR.Left + CHATROW_FOLDER_PAD_H,
+    ChipR.Top + (CHATROW_FOLDER_H - Cv.TextHeight(ChipCap)) div 2, ChipCap);
 
   { --- card outline — drawn last, on top of the content --- }
   PaintCardRoundRect(Cv, Card, CHATROW_CORNER_RADIUS, [], clNone, BorderCol);
@@ -1404,7 +1528,7 @@ function TFrameChats.HitArea(X, Y: Integer; out ARow: TChatRow): TChatHitArea;
 var
   C, Row: Integer;
   Cell:   TRect;
-  Card, Header, Content, IconR, AvatarR, MuteR, PinR: TRect;
+  Card, Header, Content, IconR, AvatarR, MuteR, PinR, ArchiveR: TRect;
   P: TPoint;
 begin
   Result := chaNone;
@@ -1431,7 +1555,8 @@ begin
   Cell := Grid.CellRect(C, Row);
   P    := Point(X - Cell.Left, Y - Cell.Top);
   Card := ChatRowRects(Rect(0, 0, Cell.Right - Cell.Left, Cell.Bottom - Cell.Top),
-    FMode <> clmArchive, not FModel.IsSelfChat(ARow), Header, Content, IconR, AvatarR, MuteR, PinR);
+    FMode <> clmArchive, not FModel.IsSelfChat(ARow), not FModel.IsSelfChat(ARow),
+    Header, Content, IconR, AvatarR, MuteR, PinR, ArchiveR);
 
   if PtInRect(MuteR, P) then begin
     Result := chaBell;
@@ -1441,8 +1566,21 @@ begin
     Result := chaPin;
     Exit;
   end;
+  if PtInRect(ArchiveR, P) then begin
+    Result := chaArchive;
+    Exit;
+  end;
   if PtInRect(AvatarR, P) then begin
     Result := chaAvatar;
+    Exit;
+  end;
+  { The chip's width depends on its caption, so it is measured the same
+    way it is drawn (FolderChipRect) rather than guessed at — including
+    the same right-hand limit, which is the unread badge's left edge
+    when there is one: the two share this line. }
+  if PtInRect(FolderChipRect(AvatarR, FolderChipLimit(ARow, Content),
+       FolderChipCaption(ARow)), P) then begin
+    Result := chaFolder;
     Exit;
   end;
 end;
@@ -1450,12 +1588,15 @@ end;
 procedure TFrameChats.GridMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
 var
   R:    TChatRow;
+  Area: TChatHitArea;
   Want: TCursor;
+  Tip:  String;
 begin
   if (not FReady) or (Grid = nil) then begin
     Exit;
   end;
-  if HitArea(X, Y, R) = chaNone then begin
+  Area := HitArea(X, Y, R);
+  if Area = chaNone then begin
     Want := crDefault;
   end
   else begin
@@ -1465,6 +1606,44 @@ begin
     cursor pokes the widget set. }
   if Grid.Cursor <> Want then begin
     Grid.Cursor := Want;
+  end;
+
+  { Tooltips for the three icon buttons. Each one says what the CLICK
+    WILL DO, not what the current state is — that is what the icon
+    itself already shows. A grid is one control with one Hint, so the
+    text is swapped as the pointer moves; Application.CancelHint is
+    needed because a hint already on screen keeps its old text
+    otherwise. }
+  Tip := '';
+  if R <> nil then begin
+    case Area of
+      chaBell:
+        if R.IsMuted then begin
+          Tip := 'Unmute';
+        end
+        else begin
+          Tip := 'Mute';
+        end;
+      chaPin:
+        if R.IsPinned then begin
+          Tip := 'Unpin';
+        end
+        else begin
+          Tip := 'Pin';
+        end;
+      chaArchive:
+        if FMode = clmArchive then begin
+          Tip := 'Move to main list';
+        end
+        else begin
+          Tip := 'Archive';
+        end;
+    end;
+  end;
+  if Grid.Hint <> Tip then begin
+    Grid.Hint := Tip;
+    Grid.ShowHint := Tip <> '';
+    Application.CancelHint;
   end;
 end;
 
@@ -1508,11 +1687,25 @@ begin
       FSuppressSelect := True;
       FModel.SetPinned(R, not R.IsPinned);
     end;
+    chaArchive: begin
+      { Which way it goes follows the list being shown, not a flag on
+        the row: the archive list can only un-archive, the main list can
+        only archive. The row leaves the list on its own once TDLib
+        reports the new position — nothing to update here. }
+      FSuppressSelect := True;
+      FModel.SetArchived(R, FMode <> clmArchive);
+    end;
     chaAvatar: begin
       FSuppressSelect := True;
       if Assigned(FOnAvatar) then begin
         FOnAvatar(Self, R);
       end;
+    end;
+    chaFolder: begin
+      { Same as the icons above: the chip is a button, clicking it
+        doesn't open the chat. }
+      FSuppressSelect := True;
+      ShowFolderMenu(R, Grid.ClientToScreen(Point(X, Y)));
     end;
   end;
 end;
@@ -1631,6 +1824,223 @@ begin
       end;
     end;
   end;
+end;
+
+{ ---------------- folder chip ---------------- }
+
+{ Characters, not bytes: chatFolderName's 1-12 limit is counted in
+  characters by the server, and a Cyrillic folder name is two bytes per
+  character. Counting continuation bytes out (10xxxxxx) is all that
+  takes, and it saves pulling LazUTF8 in for one call — nothing else in
+  this project uses it. }
+function Utf8Chars(const S: String): Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 1 to Length(S) do begin
+    if (Byte(S[I]) and $C0) <> $80 then begin
+      Inc(Result);
+    end;
+  end;
+end;
+
+function TFrameChats.UnreadBadgeRect(ARow: TChatRow; const AContent: TRect): TRect;
+var
+  S: String;
+  B: TBGRABitmap;
+begin
+  { The anchor corner itself, zero-sized — see the declaration. }
+  Result := Rect(AContent.Right - MSG_PAD_V, AContent.Bottom - MSG_PAD_V,
+    AContent.Right - MSG_PAD_V, AContent.Bottom - MSG_PAD_V);
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.UnreadCount <= 0) and (not ARow.IsMarkedAsUnread) then begin
+    Exit;
+  end;
+  if ARow.UnreadCount > 0 then begin
+    S := IntToStr(ARow.UnreadCount);
+  end
+  else begin
+    { Marked as unread by hand — a dot, no number. }
+    S := '';
+  end;
+  B := BadgeBitmap(S, False);
+  if B = nil then begin
+    Exit;
+  end;
+  Result.Left := Result.Right - B.Width;
+  Result.Top := Result.Bottom - B.Height;
+end;
+
+function TFrameChats.FolderChipLimit(ARow: TChatRow; const AContent: TRect): Integer;
+begin
+  { Min() covers both cases in one line: with no badge the "empty"
+    rect's Left is the corner anchor itself, which is further right
+    than the text padding edge, so the padding edge wins. }
+  Result := Min(AContent.Right - MSG_PAD_H,
+    UnreadBadgeRect(ARow, AContent).Left - GAP);
+end;
+
+function TFrameChats.FolderChipCaption(ARow: TChatRow): String;
+var
+  Id: Integer;
+begin
+  Result := CHATROW_FOLDER_NONE;
+  if (ARow = nil) or (FModel = nil) then begin
+    Exit;
+  end;
+  Id := FModel.RowFolderId(ARow);
+  if Id = 0 then begin
+    Exit;
+  end;
+  Result := String(FModel.FolderTitle(Id));
+  if Result = '' then begin
+    { The chat is in a folder the model has an id for but no name —
+      updateChatFolders hasn't arrived (or has just replaced the list).
+      "no folder" is the honest thing to show; it corrects itself on
+      the next repaint. }
+    Result := CHATROW_FOLDER_NONE;
+  end;
+end;
+
+function TFrameChats.FolderChipRect(const AAvatarR: TRect; ARight: Integer;
+  const ACaption: String): TRect;
+var
+  Cv: TCanvas;
+  W, SaveH: Integer;
+  SaveStyle: TFontStyles;
+begin
+  Cv := Grid.Canvas;
+  SaveH := Cv.Font.Height;
+  SaveStyle := Cv.Font.Style;
+  Cv.Font.Height := CHATROW_FOLDER_FONT_H;
+  Cv.Font.Style := [];
+  W := Cv.TextWidth(ACaption) + 2 * CHATROW_FOLDER_PAD_H;
+  Cv.Font.Height := SaveH;
+  Cv.Font.Style := SaveStyle;
+
+  { Left-aligned with the preview line above it (both start after the
+    avatar), and anchored to the avatar's BOTTOM edge — see
+    CHATROW_LINE_INSET. }
+  Result := Rect(AAvatarR.Right + MSG_ICON_GAP,
+    AAvatarR.Bottom - CHATROW_LINE_INSET - CHATROW_FOLDER_H,
+    AAvatarR.Right + MSG_ICON_GAP + W,
+    AAvatarR.Bottom - CHATROW_LINE_INSET);
+  if Result.Right > ARight then begin
+    Result.Right := ARight;
+  end;
+end;
+
+procedure TFrameChats.ShowFolderMenu(ARow: TChatRow; const AScreenPos: TPoint);
+var
+  I, Cur: Integer;
+  F: TChatFolder;
+  MI: TMenuItem;
+
+  { ARadio marks the folder entries only: they are one choice out of a
+    set and the current one carries the dot. The separator and the two
+    actions below it are neither, and making them radio items too would
+    indent them into the same column for no reason.
+    AIcon = -1 means no image — which is every folder entry, see
+    ShowFolderMenu's own comment below. }
+  procedure AddItem(const ACaption: String; ATag: Integer; ARadio, AChecked: Boolean;
+    AIcon: Integer = -1; AEnabled: Boolean = True);
+  begin
+    MI := TMenuItem.Create(FFolderMenu);
+    MI.Caption := ACaption;
+    MI.Tag := ATag;
+    MI.RadioItem := ARadio;
+    MI.Checked := AChecked;
+    MI.ImageIndex := AIcon;
+    MI.Enabled := AEnabled;
+    MI.OnClick := @FolderMenuClick;
+    FFolderMenu.Items.Add(MI);
+  end;
+
+begin
+  if (ARow = nil) or (FModel = nil) then begin
+    Exit;
+  end;
+  FFolderRow := ARow;
+  { The two actions at the bottom carry icons, so the menu needs an
+    image list. The FOLDERS themselves carry none, and can't: TDLib
+    describes a folder's icon by NAME only — chatFolderIcon is a string
+    out of a fixed set ("Work", "Airplane", "Custom"...), never a
+    picture, so showing them would mean shipping one icon per name.
+    Checked against td_api.tl and against this project's own
+    tdlib_raw.log, where all six real folders arrive as exactly that. }
+  FFolderMenu.Images := ImageList1;
+  FFolderMenu.Items.Clear;
+  Cur := FModel.RowFolderId(ARow);
+  for I := 0 to FModel.FolderCount - 1 do begin
+    F := FModel.Folders[I];
+    { Tag = folder id, which TDLib never assigns as 0 or negative —
+      that leaves both FOLDER_MENU_* values free, no separate flag. }
+    AddItem(String(F.Title), F.Id, True, F.Id = Cur);
+  end;
+  if FModel.FolderCount > 0 then begin
+    AddItem('-', FOLDER_MENU_NEW, False, False);
+  end;
+  { Disabled rather than dropped when the chat is in no folder: the
+    menu keeps the same shape wherever it opens, so the item the user
+    is reaching for doesn't move from row to row. }
+  AddItem('Remove from folder', FOLDER_MENU_REMOVE, False, False,
+    FOLDER_MENU_ICON_REMOVE, Cur <> 0);
+  AddItem('New folder', FOLDER_MENU_NEW, False, False, FOLDER_MENU_ICON_NEW);
+  FFolderMenu.PopUp(AScreenPos.X, AScreenPos.Y);
+end;
+
+procedure TFrameChats.FolderMenuClick(Sender: TObject);
+var
+  R: TChatRow;
+  Id: Integer;
+  { Not "Name": that one is TComponent's own published property, and a
+    local of the same name inside a method of a component shadows it
+    into a compile error (5002), not just a warning. }
+  FolderName: String;
+begin
+  { Captured locally, exactly as MenuItemClick does it: the model can
+    rebuild while the menu (or the dialog below) is up. }
+  R := FFolderRow;
+  if (R = nil) or (FModel = nil) then begin
+    Exit;
+  end;
+  Id := TMenuItem(Sender).Tag;
+  if Id = FOLDER_MENU_REMOVE then begin
+    FModel.RemoveChatFromFolders(R);
+    Exit;
+  end;
+  if Id <> FOLDER_MENU_NEW then begin
+    { A real folder. Picking the one the chat is already in would
+      otherwise send a pointless addChatToList. }
+    if Id <> FModel.RowFolderId(R) then begin
+      FModel.MoveChatToFolder(R, Id);
+    end;
+    Exit;
+  end;
+
+  FolderName := '';
+  if not InputQuery('New folder',
+    Format('Folder name (up to %d characters):', [CHATROW_FOLDER_NAME_MAX]),
+    FolderName) then begin
+    Exit;
+  end;
+  FolderName := Trim(FolderName);
+  if FolderName = '' then begin
+    Exit;
+  end;
+  { Checked here rather than left to the server: createChatFolder would
+    refuse the whole request, and the reply would surface as a bare
+    error code in the status bar with nothing pointing at the name. }
+  if Utf8Chars(FolderName) > CHATROW_FOLDER_NAME_MAX then begin
+    MessageDlg('New folder',
+      Format('A folder name can be at most %d characters long.',
+        [CHATROW_FOLDER_NAME_MAX]), mtError, [mbOK], 0);
+    Exit;
+  end;
+  FModel.CreateFolderWithChat(Utf8string(FolderName), R);
 end;
 
 end.

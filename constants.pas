@@ -255,6 +255,76 @@ const
   VIEWER_ICON_CLOSE = 5;
   AUDIO_BUTTON_SIZE = 32;
 
+  { The viewer's video control bar (TVideoControlBar, framehistory.pas).
+    It used to be painted inside the video widget itself, pinned to the
+    bottom of the frame; it is now its own control, pinned to the
+    bottom of the VIEWER instead, so its position no longer depends on
+    the video's proportions.
+
+    VIEWER_BAR_COLOR is #37474F written the way TColor stores it
+    ($00BBGGRR, not $RRGGBB). The bar is an opaque child control, so
+    outside its rounded shape it paints the viewer's own background
+    (black) — which is also why the video is fitted into the area ABOVE
+    the bar rather than running underneath it: the antialiased corners
+    have to composite against something real, and a child control
+    cannot see the video behind it. }
+  { How many media files (photo/video/GIF/document/audio) may be
+    downloading from TDLib at once — see tdmessages.pas,
+    RequestFileDownload. Without a cap, one scroll through a media-rich
+    chat with auto-download on fires AUTODL_PREFETCH_MESSAGES requests
+    at TDLib in one go and they all compete for the same connection.
+    User-configurable (Settings > General), these are just the default
+    and the range the spin box allows. }
+  DOWNLOAD_CONCURRENCY_DEFAULT = 3;
+  DOWNLOAD_CONCURRENCY_MIN     = 1;
+  DOWNLOAD_CONCURRENCY_MAX     = 20;
+
+  { Download speed cap in KB/s, 0 = unlimited (the default — this is
+    off unless the user turns it on). TDLib has no bandwidth setting of
+    any kind (checked against the real td_api.tl, not assumed), so this
+    is implemented on top of downloadFile's offset/limit window — see
+    tdmessages.pas, the media download queue.
+
+    The cap is enforced by how OFTEN a byte window is granted, not by
+    how big it is. TDLib fetches in parts of its own and rounds a
+    smaller window up to one: confirmed from tdlib_raw.log, where a
+    paced download asked for 128000-byte windows and its prefix
+    advanced in exact 524288-byte steps regardless. So the size of the
+    window is not a throttle at all, and an earlier attempt to use it
+    as one made the setting change nothing. The pacer instead keeps a
+    byte budget that refills at the configured rate and spends what the
+    download actually fetched — see tdmessages.pas.
+
+    TD_DOWNLOAD_PART_BYTES is that observed part size. It is NOT a
+    documented API value, so nothing depends on it being exact: it is
+    only the smallest window worth asking for. If the real part is
+    bigger, the budget still charges whatever was really fetched and
+    the average rate stays correct. }
+  DOWNLOAD_SPEED_DEFAULT_KB = 0;
+  DOWNLOAD_SPEED_MIN_KB     = 0;
+  DOWNLOAD_SPEED_MAX_KB     = 102400;
+  DOWNLOAD_CHUNK_INTERVAL_MS = 250;
+  TD_DOWNLOAD_PART_BYTES     = 512 * 1024;
+
+  VIEWER_BAR_BOTTOM_MARGIN = 50;
+  { The bar is centered and no wider than this — stretching it across a
+    wide window would fling the elapsed/remaining labels far away from
+    the buttons. Narrower windows just get a narrower bar. }
+  VIEWER_BAR_MAX_WIDTH     = 640;
+  VIEWER_BAR_COLOR         = $4F4737;
+  { The same radius the chat list cards use — CHATROW_CORNER_RADIUS is
+    itself just MSG_CORNER_RADIUS, and referring to it by that name
+    here would be a forward reference (it is declared further down this
+    same const block, which Object Pascal does not allow). }
+  VIEWER_BAR_CORNER_RADIUS = MSG_CORNER_RADIUS;
+  { Inner padding of the bar card: above the scrub bar and below the
+    button row, and on both sides. }
+  VIEWER_BAR_PAD           = MSG_PAD_H;
+  { The bar and the mouse cursor both disappear after this long with no
+    cursor movement anywhere in the viewer, and come back on the first
+    movement. }
+  VIEWER_IDLE_HIDE_MS      = 2000;
+
   { Transport-button row under the video widget's scrub bar
     (TVideoWidget, framehistory.pas) — viewer only (FIsActive=True
     there; in the chat the widget is never active and the row is not
@@ -421,6 +491,14 @@ const
     unpack + visual inspection). }
   CHATROW_ICON_ARCHIVE    = 8;
   CHATROW_ICON_ALLCHATS   = 9;
+  { The same archive box with a slash through it. Added later, and the
+    frame was identified the same way as the two above rather than
+    assumed from its position: the Bitmap blob was unpacked out of
+    framechats.lfm (zlib after the 'Lz' header, 11 frames of 12x12x4)
+    and looked at. It doubles as BOTH the row button's icon in the
+    archive list AND the header slot icon, which is why it sits next to
+    them here. }
+  CHATROW_ICON_UNARCHIVE  = 10;
   { Native frame size for icons12 — matches the component's own
     Height/Width in the designer. }
   CHATROW_ICON_SIZE = 12;
@@ -552,6 +630,52 @@ const
     their own). #2196F3 (Material Blue 500) — TColor stores BGR, so the
     bytes are reversed. }
   CHATROW_PSEUDO_COLOR = $F39621;  { RGB(33, 150, 243) }
+
+  { --- the row's second line and its folder chip ---
+
+    Both are placed RELATIVE TO THE AVATAR rather than centered in the
+    content area: the preview line starts CHATROW_LINE_INSET below the
+    avatar's top edge, the folder chip ends CHATROW_LINE_INSET above
+    its bottom edge (by direct request). The two stack inside the
+    avatar's own 44px without the card growing at all — which is why
+    CHATROW_CONTENT_H above is untouched.
+
+    0 = flush with the avatar's edges, which is what it is: the first
+    version inset both by 5px and the pair came out visibly cramped
+    against each other in the middle (the inset is taken off BOTH ends,
+    so it costs 10 of the 44px and all of it out of the space BETWEEN
+    the two lines). Flush spreads them to the full height of the avatar
+    and leaves the gap in the middle instead. Kept as a named knob
+    rather than dropped: it is the one number that tunes this. }
+  CHATROW_LINE_INSET = 0;
+  { Chip height. With the two lines flush to the avatar's edges this
+    leaves 44 - 15 (the preview line) - 18 = 11px of air between
+    them. }
+  CHATROW_FOLDER_H = 18;
+  CHATROW_FOLDER_PAD_H = 8;
+  { Half the height — a pill, the same "stadium" shape as a reaction
+    chip in the message history (see REACTION_PILL_CORNER_RADIUS). }
+  CHATROW_FOLDER_RADIUS = CHATROW_FOLDER_H div 2;
+  CHATROW_FOLDER_FONT_H = -11;
+  { Shown when the chat is in no folder at all. Clicking it opens the
+    same menu — it is a button, not a label. }
+  CHATROW_FOLDER_NONE = 'no folder';
+  { chatFolderName, per the TDLib schema: "1-12 characters without line
+    feeds". Checked before sending rather than letting the server
+    refuse the whole createChatFolder. }
+  CHATROW_FOLDER_NAME_MAX = 12;
+  { Tags on the folder chip's popup items. A folder entry carries its
+    own id, and TDLib never assigns 0 or a negative one, so neither of
+    these can ever collide with a real folder. }
+  FOLDER_MENU_NEW    = 0;
+  FOLDER_MENU_REMOVE = -1;
+  { Frames in framechats' OWN ImageList1 (16x16) — not icons12 (12x12,
+    the chat-type/pin/bell icons the row itself draws) and not
+    FormMain.ImageList1 (where PREMIUM_CROWN_ICON lives). That list had
+    been left in the .lfm unused since the pseudo-rows were redesigned;
+    these two frames, added in the designer, put it back to work. }
+  FOLDER_MENU_ICON_NEW    = 12;
+  FOLDER_MENU_ICON_REMOVE = 13;
 
   { Context-menu item codes. }
   MI_NONE    = 0;

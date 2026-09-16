@@ -27,10 +27,25 @@ unit mediaviewer;
   The ORIGINAL is shown (PhotoBestLocalPath), not the inline-preview
   copy.
 
-  Video reuses TVideoWidget (framehistory.pas) wholesale — the same
-  look/play/pause/seek controls as in the chat, but through a new
-  SetVideoSized (also bypassing ComputePhotoPreviewSize/the AMaxW cap —
-  see its comment in framehistory.pas). Playback uses its OWN,
+  Video reuses TVideoWidget (framehistory.pas) for the picture, through
+  a new SetVideoSized (also bypassing ComputePhotoPreviewSize/the AMaxW
+  cap — see its comment in framehistory.pas). The transport controls
+  are NOT part of that widget: they are TVideoControlBar, a separate
+  control pinned to the bottom of THIS panel (VIEWER_BAR_BOTTOM_MARGIN)
+  rather than to the video, so they sit in the same place whatever the
+  clip's proportions. The video keeps its own margin from the WINDOW's
+  edges and the bar floats on top of it. A child control cannot see
+  through itself, so the bar is handed the video's frame buffer
+  (SetBackdrop, fed from VideoTick) and paints the overlapping slice of
+  it behind its own rounded card — otherwise the antialiased corners
+  would blend into flat black sitting over the picture.
+
+  The bar and the mouse cursor both disappear after VIEWER_IDLE_HIDE_MS
+  with no cursor movement anywhere in the viewer, and come back on the
+  first movement (NoteActivity/IdleTick). Movement over the child
+  controls counts too — they republish OnMouseMove for exactly that.
+
+  Playback uses its OWN,
   independent TMediaPlayer (mediaplayer.pas) — inline video playback in
   the chat no longer exists at all (see framehistory.pas,
   TMsgScroller.VideoBodyClick/VideoPlayClick — the widget there is now
@@ -73,6 +88,7 @@ type
 
     { Video — a single slot, not a pool (see the unit header). }
     FVideoWidget: TVideoWidget;
+    FControlBar: TVideoControlBar;
     FPlayer: TMediaPlayer;
     FDonePlayer: TMediaPlayer;
     FVideoTimer: TTimer;
@@ -89,10 +105,36 @@ type
     FPollTimer: TTimer;
 
     FCloseBtnRect, FPrevBtnRect, FNextBtnRect: TRect;
+    { Where the control bar sits, in this panel's coordinates — pinned
+      to the bottom of the WINDOW, not to the video, and floating over
+      the picture. }
+    FBarRect: TRect;
+    { Idle auto-hide of the bar and the cursor — see the unit header.
+      FLastMousePos is what makes it stable: hiding a control from
+      under the pointer makes Windows deliver a mouse-move to whatever
+      is uncovered, and taking that at face value would re-show the bar
+      the instant it hid, forever, with the mouse sitting perfectly
+      still. A move only counts when the pointer really moved. }
+    FIdleTimer: TTimer;
+    FControlsVisible: boolean;
+    FLastMousePos: TPoint;
+    { The video's REAL frame size, probed from the file itself — see
+      mediaplayer.ProbeVideoSize for why TDLib's own numbers cannot be
+      trusted. Cached per message: StartVideoPlayer runs again on every
+      seek and on some resizes, and there is no reason to reopen the
+      file each time. }
+    FProbedId: Int64;
+    FProbedW, FProbedH: integer;
 
     procedure Layout;
     procedure GetAvailArea(out AW, AH: integer);
+    function MediaBox: TRect;
     function PhotoRect: TRect;
+    procedure NoteActivity(AForce: boolean = False);
+    procedure IdleTick(Sender: TObject);
+    procedure ApplyControlsVisible;
+    procedure UpdateBarBackdrop;
+    procedure ChildMouseMove(Sender: TObject; Shift: TShiftState; X, Y: integer);
     procedure DrawIconButton(const ARect: TRect; AIconIndex: integer);
 
     procedure OpenRow(ARow: TMsgRow);
@@ -102,6 +144,8 @@ type
     procedure UpdateNavFlags(ACurrentId: Int64);
     procedure NavigatePhoto(ADirection: integer);
     function FindAdjacentPhotoId(AFromId: Int64; ADirection: integer): Int64;
+
+    procedure VideoNaturalSize(ARow: TMsgRow; out AW, AH: integer);
 
     procedure StopVideoInternal;
     procedure FlushDonePlayer;
@@ -155,19 +199,31 @@ type
 implementation
 
 const
-  MVIEW_MARGIN = 48;
+  { Gap kept clear around the picture: from the top/bottom edges of the
+    window, and from the inner edge of the prev/next buttons (so a wide
+    photo stops short of them instead of running underneath). }
+  MVIEW_MARGIN = 20;
+  { Inset of the close/prev/next buttons from the window edge. }
+  MVIEW_BTN_INSET = 12;
   { Buttons are real ImageList1 icons (VIEWER_ICON_*, constants.pas),
     not a hand-drawn text glyph in a circle — button size matches
     AUDIO_BUTTON_SIZE, the same size as the icons themselves. }
   MVIEW_BTN    = AUDIO_BUTTON_SIZE;
 
-{ Fits a natural size into a box, PRESERVING proportions, with NO
-  upscaling past the natural size (Scale never exceeds 1) — unlike
+{ Fits a natural size into a box, PRESERVING proportions — unlike
   ComputePhotoPreviewSize (msglayout.pas), which always has a fixed
   upper cap of PHOTO_MAX_WIDTH/HEIGHT: there is no such cap here, the
   available area is the real viewer window size, not a chat row's
-  width. }
-procedure FitToBox(ANatW, ANatH, AMaxW, AMaxH: integer; out AOutW, AOutH: integer);
+  width.
+
+  AAllowUpscale is the one place photo and video differ. A photo is
+  never enlarged past its own pixels — blowing up a small picture just
+  makes it blurry, and that was an explicit requirement. A video is:
+  every player fills the window with a 720p file, and the scaling costs
+  nothing extra anyway (swscale already resamples every frame into
+  whatever size it was created with). }
+procedure FitToBox(ANatW, ANatH, AMaxW, AMaxH: integer; out AOutW, AOutH: integer;
+  AAllowUpscale: boolean = False);
 var
   Scale: double;
 begin
@@ -176,12 +232,16 @@ begin
     AOutH := Max(1, AMaxH);
     Exit;
   end;
-  Scale := 1.0;
-  if (AMaxW > 0) and (ANatW > AMaxW) then begin
-    Scale := Min(Scale, AMaxW / ANatW);
-  end;
-  if (AMaxH > 0) and (ANatH > AMaxH) then begin
-    Scale := Min(Scale, AMaxH / ANatH);
+  if AAllowUpscale then begin
+    Scale := Min(AMaxW / ANatW, AMaxH / ANatH);
+  end else begin
+    Scale := 1.0;
+    if (AMaxW > 0) and (ANatW > AMaxW) then begin
+      Scale := Min(Scale, AMaxW / ANatW);
+    end;
+    if (AMaxH > 0) and (ANatH > AMaxH) then begin
+      Scale := Min(Scale, AMaxH / ANatH);
+    end;
   end;
   AOutW := Max(1, Round(ANatW * Scale));
   AOutH := Max(1, Round(ANatH * Scale));
@@ -201,11 +261,26 @@ begin
   { No rounding and no outline — matches the chat now (see
     TVideoWidget.Paint; the Rounded property was removed entirely, both
     sides paint the same way). }
-  FVideoWidget.OnPlayClick := @VideoWidgetPlayClick;
-  FVideoWidget.OnSeek := @VideoWidgetSeek;
-  FVideoWidget.OnPrevClick := @VideoWidgetPrevClick;
-  FVideoWidget.OnNextClick := @VideoWidgetNextClick;
-  FVideoWidget.OnRepeatClick := @VideoWidgetRepeatClick;
+  FVideoWidget.OnMouseMove := @ChildMouseMove;
+
+  { Created AFTER the video widget, so it sits above it in z-order —
+    they never overlap (see the unit header), but the order is what
+    makes that guaranteed rather than incidental. }
+  FControlBar := TVideoControlBar.Create(Self);
+  FControlBar.Parent := Self;
+  FControlBar.Visible := False;
+  FControlBar.OnPlayClick := @VideoWidgetPlayClick;
+  FControlBar.OnSeek := @VideoWidgetSeek;
+  FControlBar.OnPrevClick := @VideoWidgetPrevClick;
+  FControlBar.OnNextClick := @VideoWidgetNextClick;
+  FControlBar.OnRepeatClick := @VideoWidgetRepeatClick;
+  FControlBar.OnMouseMove := @ChildMouseMove;
+
+  FIdleTimer := TTimer.Create(Self);
+  FIdleTimer.Interval := VIEWER_IDLE_HIDE_MS;
+  FIdleTimer.OnTimer := @IdleTick;
+  FIdleTimer.Enabled := False;
+  FControlsVisible := True;
 
   FVideoTimer := TTimer.Create(Self);
   FVideoTimer.Interval := 33;
@@ -229,30 +304,176 @@ end;
 { ---------------- geometry / drawing ---------------- }
 
 procedure TMediaViewerPanel.Layout;
+var
+  BarL, BarR, BarH: integer;
 begin
+  if FControlBar = nil then begin
+    { Can be reached through Resize before the constructor has built
+      the child controls. }
+    Exit;
+  end;
   { MVIEW_BTN = AUDIO_BUTTON_SIZE (32) — the same ImageList1 frames as
     play/pause/download on the audio/video widgets, see VIEWER_ICON_*
     (constants.pas) — the hit area matches the icon size exactly, no
     extra margin. }
-  FCloseBtnRect := Rect(ClientWidth - MVIEW_BTN - 12, 12, ClientWidth - 12, 12 + MVIEW_BTN);
-  FPrevBtnRect := Rect(12, (ClientHeight - MVIEW_BTN) div 2,
-    12 + MVIEW_BTN, (ClientHeight - MVIEW_BTN) div 2 + MVIEW_BTN);
-  FNextBtnRect := Rect(ClientWidth - MVIEW_BTN - 12, (ClientHeight - MVIEW_BTN) div 2,
-    ClientWidth - 12, (ClientHeight - MVIEW_BTN) div 2 + MVIEW_BTN);
+  FCloseBtnRect := Rect(ClientWidth - MVIEW_BTN - MVIEW_BTN_INSET, MVIEW_BTN_INSET,
+    ClientWidth - MVIEW_BTN_INSET, MVIEW_BTN_INSET + MVIEW_BTN);
+  FPrevBtnRect := Rect(MVIEW_BTN_INSET, (ClientHeight - MVIEW_BTN) div 2,
+    MVIEW_BTN_INSET + MVIEW_BTN, (ClientHeight - MVIEW_BTN) div 2 + MVIEW_BTN);
+  FNextBtnRect := Rect(ClientWidth - MVIEW_BTN - MVIEW_BTN_INSET, (ClientHeight - MVIEW_BTN) div 2,
+    ClientWidth - MVIEW_BTN_INSET, (ClientHeight - MVIEW_BTN) div 2 + MVIEW_BTN);
+
+  { The control bar: centered, as wide as the media box but never wider
+    than VIEWER_BAR_MAX_WIDTH, pinned VIEWER_BAR_BOTTOM_MARGIN above
+    the window's bottom edge. }
+  BarL := MVIEW_BTN_INSET + MVIEW_BTN + MVIEW_MARGIN;
+  BarR := ClientWidth - BarL;
+  if BarR - BarL < 50 then begin
+    BarL := 0;
+    BarR := Max(50, ClientWidth);
+  end;
+  if BarR - BarL > VIEWER_BAR_MAX_WIDTH then begin
+    BarL := (ClientWidth - VIEWER_BAR_MAX_WIDTH) div 2;
+    BarR := BarL + VIEWER_BAR_MAX_WIDTH;
+  end;
+  BarH := FControlBar.PreferredHeight;
+  FBarRect := Rect(BarL, ClientHeight - VIEWER_BAR_BOTTOM_MARGIN - BarH,
+    BarR, ClientHeight - VIEWER_BAR_BOTTOM_MARGIN);
+  FControlBar.SetBounds(FBarRect.Left, FBarRect.Top,
+    FBarRect.Right - FBarRect.Left, FBarRect.Bottom - FBarRect.Top);
+  ApplyControlsVisible;
+  UpdateBarBackdrop;
+end;
+
+{ The bar is only ever shown for a video that is actually up (there is
+  nothing to control while the file is still downloading), and only
+  while the viewer counts as "active" — see NoteActivity/IdleTick. }
+procedure TMediaViewerPanel.ApplyControlsVisible;
+begin
+  if FControlBar = nil then begin
+    Exit;
+  end;
+  FControlBar.Visible := (FKind = mvkVideo) and FControlsVisible and
+    (FVideoWidget <> nil) and FVideoWidget.Visible;
+  if (not FControlBar.Visible) and (FVideoWidget <> nil) and FVideoWidget.Visible then begin
+    { The bar was floating over the picture — whatever it covered has
+      to be redrawn now that it is gone. }
+    FVideoWidget.Invalidate;
+  end;
+end;
+
+{ Hands the bar the slice of video that lies behind it — see
+  TVideoControlBar.SetBackdrop. Called whenever either one moves or a
+  new frame arrives; before the first decoded frame there is nothing
+  meaningful in the buffer (it is raw GetMem memory), so nil is passed
+  and the corners stay black for that brief moment. }
+procedure TMediaViewerPanel.UpdateBarBackdrop;
+begin
+  if (FControlBar = nil) or (FVideoWidget = nil) then begin
+    Exit;
+  end;
+  if FVideoWidget.Visible and FVideoWidget.HasFrame and (FVideoWidget.FrameBuf <> nil) then begin
+    FControlBar.SetBackdrop(FVideoWidget.FrameBuf,
+      FVideoWidget.TargetWidth, FVideoWidget.TargetHeight,
+      FVideoWidget.Left - FBarRect.Left, FVideoWidget.Top - FBarRect.Top);
+  end else begin
+    FControlBar.SetBackdrop(nil, 0, 0, 0, 0);
+  end;
+end;
+
+procedure TMediaViewerPanel.NoteActivity(AForce: boolean);
+var
+  P: TPoint;
+begin
+  P := Mouse.CursorPos;
+  if (not AForce) and (P.X = FLastMousePos.X) and (P.Y = FLastMousePos.Y) then begin
+    { Not a real movement — see the comment on FLastMousePos. }
+    Exit;
+  end;
+  FLastMousePos := P;
+  FIdleTimer.Enabled := False;
+  if not FControlsVisible then begin
+    FControlsVisible := True;
+    ApplyControlsVisible;
+  end;
+  { crNone hides the pointer; every control the cursor can be over
+    inside the viewer has to be put back, not just this panel. }
+  Cursor := crDefault;
+  if FVideoWidget <> nil then begin
+    FVideoWidget.Cursor := crDefault;
+  end;
+  if FControlBar <> nil then begin
+    FControlBar.Cursor := crDefault;
+  end;
+  if Visible then begin
+    FIdleTimer.Enabled := True;
+  end;
+end;
+
+procedure TMediaViewerPanel.IdleTick(Sender: TObject);
+begin
+  FIdleTimer.Enabled := False;
+  if not Visible then begin
+    Exit;
+  end;
+  { Never pull the bar out from under a thumb the user is still
+    holding — the same rule that already kept it on screen during a
+    drag when it lived inside the video widget. }
+  if (FControlBar <> nil) and FControlBar.Dragging then begin
+    FIdleTimer.Enabled := True;
+    Exit;
+  end;
+  FControlsVisible := False;
+  ApplyControlsVisible;
+  Cursor := crNone;
+  if FVideoWidget <> nil then begin
+    FVideoWidget.Cursor := crNone;
+  end;
+  if FControlBar <> nil then begin
+    FControlBar.Cursor := crNone;
+  end;
+end;
+
+procedure TMediaViewerPanel.ChildMouseMove(Sender: TObject; Shift: TShiftState; X, Y: integer);
+begin
+  NoteActivity;
+end;
+
+{ The box the media is fitted into and centered in: MVIEW_MARGIN clear
+  of the top and bottom edges of the WINDOW, and MVIEW_MARGIN clear of
+  the prev/next buttons on either side (those sit MVIEW_BTN_INSET from
+  the edge and are MVIEW_BTN wide). The same box for photo and video —
+  the control bar overlaps the picture rather than pushing it up. }
+function TMediaViewerPanel.MediaBox: TRect;
+var
+  L, R: integer;
+begin
+  L := MVIEW_BTN_INSET + MVIEW_BTN + MVIEW_MARGIN;
+  R := ClientWidth - L;
+  if R - L < 50 then begin
+    L := 0;
+    R := Max(50, ClientWidth);
+  end;
+  Result := Rect(L, MVIEW_MARGIN, R, ClientHeight - MVIEW_MARGIN);
 end;
 
 procedure TMediaViewerPanel.GetAvailArea(out AW, AH: integer);
+var
+  Box: TRect;
 begin
-  AW := Max(50, ClientWidth - 2 * MVIEW_MARGIN);
-  AH := Max(50, ClientHeight - 2 * MVIEW_MARGIN);
+  Box := MediaBox;
+  AW := Box.Right - Box.Left;
+  AH := Box.Bottom - Box.Top;
 end;
 
 function TMediaViewerPanel.PhotoRect: TRect;
 var
+  Box: TRect;
   X, Y: integer;
 begin
-  X := (ClientWidth - FPhotoW) div 2;
-  Y := (ClientHeight - FPhotoH) div 2;
+  Box := MediaBox;
+  X := Box.Left + (Box.Right - Box.Left - FPhotoW) div 2;
+  Y := Box.Top + (Box.Bottom - Box.Top - FPhotoH) div 2;
   Result := Rect(X, Y, X + FPhotoW, Y + FPhotoH);
 end;
 
@@ -316,8 +537,9 @@ procedure TMediaViewerPanel.Resize;
 var
   Idx: integer;
   Row: TMsgRow;
-  AvailW, AvailH, TgtW, TgtH: integer;
+  AvailW, AvailH, TgtW, TgtH, NatW, NatH: integer;
   Pos: double;
+  Box: TRect;
 begin
   inherited Resize;
   Layout;
@@ -338,7 +560,8 @@ begin
     mvkVideo: begin
       if (FPlayer <> nil) and (FVideoWidget <> nil) then begin
         GetAvailArea(AvailW, AvailH);
-        FitToBox(Row.VideoWidth, Row.VideoHeight, AvailW, AvailH, TgtW, TgtH);
+        VideoNaturalSize(Row, NatW, NatH);
+        FitToBox(NatW, NatH, AvailW, AvailH, TgtW, TgtH, True);
         if (Abs(TgtW - FVideoWidget.TargetWidth) > 10) or (Abs(TgtH - FVideoWidget.TargetHeight) > 10) then begin
           { A real size change — restart the player at the new
             resolution (swscale inside TMediaPlayer decodes into a
@@ -348,8 +571,10 @@ begin
           Pos := FPlayer.PositionSec;
           StartVideoPlayer(Row, Pos);
         end else begin
-          FVideoWidget.SetBounds((ClientWidth - FVideoWidget.TargetWidth) div 2,
-            (ClientHeight - FVideoWidget.TargetHeight) div 2,
+          Box := MediaBox;
+          FVideoWidget.SetBounds(
+            Box.Left + (Box.Right - Box.Left - FVideoWidget.TargetWidth) div 2,
+            Box.Top + (Box.Bottom - Box.Top - FVideoWidget.TargetHeight) div 2,
             FVideoWidget.TargetWidth, FVideoWidget.TargetHeight);
         end;
       end;
@@ -364,6 +589,7 @@ var
   P: TPoint;
 begin
   inherited MouseDown(Button, Shift, X, Y);
+  NoteActivity(True);   { a click counts even without any movement }
   if Button <> mbLeft then begin
     Exit;
   end;
@@ -399,6 +625,7 @@ var
   OverBtn: boolean;
 begin
   inherited MouseMove(Shift, X, Y);
+  NoteActivity;
   P := Point(X, Y);
   OverBtn := PtInRect(FCloseBtnRect, P) or
     ((FKind = mvkPhoto) and FHasPrev and PtInRect(FPrevBtnRect, P)) or
@@ -448,14 +675,28 @@ end;
 
 procedure TMediaViewerPanel.StartPhotoDecode(ARow: TMsgRow);
 var
-  AvailW, AvailH, TgtW, TgtH: integer;
+  AvailW, AvailH, TgtW, TgtH, NatW, NatH: integer;
 begin
   if FDecodeThread <> nil then begin
     FDecodeThread.Cancel;
     FDecodeThread := nil;
   end;
   GetAvailArea(AvailW, AvailH);
-  FitToBox(ARow.PhotoWidth, ARow.PhotoHeight, AvailW, AvailH, TgtW, TgtH);
+  { The file being decoded is PhotoBestLocalPath — the ORIGINAL layer —
+    so the fit has to use that layer's own dimensions. PhotoWidth/Height
+    describe the medium layer the chat row shows (capped near
+    PHOTO_MAX_WIDTH), and fitting against those capped the viewer's
+    picture at preview size no matter how large the window was.
+    PhotoBestWidth/Height can still be 0 for a photo parsed before this
+    field existed in a running session — fall back rather than fit to a
+    zero box. }
+  NatW := ARow.PhotoBestWidth;
+  NatH := ARow.PhotoBestHeight;
+  if (NatW <= 0) or (NatH <= 0) then begin
+    NatW := ARow.PhotoWidth;
+    NatH := ARow.PhotoHeight;
+  end;
+  FitToBox(NatW, NatH, AvailW, AvailH, TgtW, TgtH);
   FDecodeThread := TPhotoDecodeThread.Create(ARow.PhotoBestLocalPath, TgtW, TgtH, @PhotoDecodeDone);
 end;
 
@@ -530,6 +771,26 @@ begin
   end;
 end;
 
+procedure TMediaViewerPanel.VideoNaturalSize(ARow: TMsgRow; out AW, AH: integer);
+begin
+  if (ARow.Id <> FProbedId) or (FProbedW <= 0) or (FProbedH <= 0) then begin
+    FProbedId := ARow.Id;
+    if not ProbeVideoSize(ARow.VideoLocalPath, FProbedW, FProbedH) then begin
+      FProbedW := 0;
+      FProbedH := 0;
+    end;
+  end;
+  if (FProbedW > 0) and (FProbedH > 0) then begin
+    AW := FProbedW;
+    AH := FProbedH;
+  end else begin
+    { Unreadable file, or not a video after all — TDLib's declared size
+      is still better than nothing. }
+    AW := ARow.VideoWidth;
+    AH := ARow.VideoHeight;
+  end;
+end;
+
 procedure TMediaViewerPanel.StopVideoInternal;
 begin
   FlushDonePlayer;
@@ -542,27 +803,43 @@ begin
   if FVideoWidget <> nil then begin
     FVideoWidget.Visible := False;
   end;
+  { Dropped BEFORE anything can reallocate the widget's frame buffer
+    (SetVideoSized does, on a size change) — the bar only borrows that
+    pointer, it must not be left holding a stale one. }
+  if FControlBar <> nil then begin
+    FControlBar.SetBackdrop(nil, 0, 0, 0, 0);
+  end;
+  ApplyControlsVisible;
 end;
 
 procedure TMediaViewerPanel.StartVideoPlayer(ARow: TMsgRow; AStartPositionSec: double);
 var
-  AvailW, AvailH, TgtW, TgtH: integer;
+  AvailW, AvailH, TgtW, TgtH, NatW, NatH: integer;
+  Box: TRect;
 begin
   StopVideoInternal;
   GetAvailArea(AvailW, AvailH);
-  FitToBox(ARow.VideoWidth, ARow.VideoHeight, AvailW, AvailH, TgtW, TgtH);
+  VideoNaturalSize(ARow, NatW, NatH);
+  FitToBox(NatW, NatH, AvailW, AvailH, TgtW, TgtH, True);
   FVideoWidget.Images := FImages;
-  FVideoWidget.PlaybackImages := FPlaybackImages;
   FVideoWidget.BackgroundColor := clBlack;
-  FVideoWidget.SetVideoSized(ARow.Id, ARow.VideoWidth, ARow.VideoHeight, ARow.VideoThumbLocalPath,
-    True, ARow.VideoLocalPath, TgtW, TgtH, ARow.VideoDuration);
-  FVideoWidget.SetBounds((ClientWidth - TgtW) div 2, (ClientHeight - TgtH) div 2, TgtW, TgtH);
+  FVideoWidget.Active := True;
+  FVideoWidget.SetVideoSized(ARow.Id, NatW, NatH, ARow.VideoThumbLocalPath,
+    True, ARow.VideoLocalPath, TgtW, TgtH);
+  Box := MediaBox;
+  FVideoWidget.SetBounds(Box.Left + (Box.Right - Box.Left - TgtW) div 2,
+    Box.Top + (Box.Bottom - Box.Top - TgtH) div 2, TgtW, TgtH);
   FVideoWidget.Visible := True;
   FPlayer := TMediaPlayer.Create(ARow.VideoLocalPath, FAudioDeviceName, TgtW, TgtH, AStartPositionSec);
   FPlayer.OnStateChanged := @VideoPlayerStateChanged;
   FVideoFrameKnownVersion := 0;
   FVideoTimer.Enabled := True;
-  FVideoWidget.SetPlayback(True, True, AStartPositionSec);
+  FControlBar.Images := FPlaybackImages;
+  FControlBar.Duration := ARow.VideoDuration;
+  FControlBar.SetPlayback(True, AStartPositionSec);
+  ApplyControlsVisible;
+  UpdateBarBackdrop;
+  FControlBar.BringToFront;
   Invalidate;
 end;
 
@@ -572,7 +849,7 @@ var
   NewId: Int64;
 begin
   if (Sender = FPlayer) and ((FPlayer.State = mpsStopped) or (FPlayer.State = mpsError)) then begin
-    if (FPlayer.State = mpsStopped) and (FVideoWidget <> nil) and (FModel <> nil) then begin
+    if (FPlayer.State = mpsStopped) and (FControlBar <> nil) and (FModel <> nil) then begin
       { Repeat (the transport-row button, TVideoWidget.RepeatMode, three
         states) acts on its own when the file naturally ends, WITHOUT
         resetting to the "stopped" state — the same path as an ordinary
@@ -584,7 +861,7 @@ begin
         only moves FPlayer into FDonePlayer (WaitFor/Free is deferred
         to the next tick/call, not done now) — the same approach used
         throughout this file. }
-      case FVideoWidget.RepeatMode of
+      case FControlBar.RepeatMode of
         vrmOne: begin
           { Repeat one — the same file again. }
           Idx := FModel.IndexOfId(FMessageId);
@@ -612,18 +889,16 @@ begin
     FDonePlayer := FPlayer;
     FPlayer := nil;
     FVideoTimer.Enabled := False;
-    { Without this the widget would stay forever in whatever state
-      VideoTick last set BEFORE stopping (FIsActive=True, FPlaying=True
-      — the last tick before the timer above got disabled) — a frozen
-      frame that still looks like it's "playing", and clicking
-      play/pause would do nothing (VideoWidgetPlayClick returns
-      immediately when FPlayer=nil) — the actual cause of "doesn't
-      restart", separate from the end-of-playback stall itself (see
-      AudioClockSec/mediaplayer.pas). Resetting to the inactive state
-      matches how not-yet-started video looks, and VideoWidgetPlayClick
-      now restarts playback from scratch when FPlayer=nil. }
-    if FVideoWidget <> nil then begin
-      FVideoWidget.SetPlayback(False, False, 0);
+    { Without this the bar would stay forever in whatever state
+      VideoTick last set BEFORE stopping (FPlaying=True — the last tick
+      before the timer above got disabled), still showing a pause
+      button, while clicking it did nothing (VideoWidgetPlayClick
+      returns immediately when FPlayer=nil) — the actual cause of
+      "doesn't restart", separate from the end-of-playback stall itself
+      (see AudioClockSec/mediaplayer.pas). VideoWidgetPlayClick now
+      restarts playback from scratch when FPlayer=nil. }
+    if FControlBar <> nil then begin
+      FControlBar.SetPlayback(False, 0);
     end;
   end;
   Invalidate;
@@ -638,14 +913,17 @@ begin
   if FPlayer.HasVideo and (FVideoWidget <> nil) then begin
     if FPlayer.TryGetFrame(FVideoWidget.FrameBuf, FVideoFrameKnownVersion) then begin
       FVideoWidget.NotifyNewFrame;
+      { The bar shows this same frame through its corners — it has to
+        follow the picture, not lag a frame behind it. }
+      UpdateBarBackdrop;
     end;
   end;
   { Same guard against "dragging gets reset on the very next tick" as
     LayoutVideoWidgets/LayoutAudioWidgets (framehistory.pas) — this
     tick fires every 33ms, more often than the user can finish
     dragging the thumb down to MouseUp. }
-  if (FVideoWidget <> nil) and (not FVideoWidget.Dragging) then begin
-    FVideoWidget.SetPlayback(True, FPlayer.State = mpsPlaying, FPlayer.PositionSec);
+  if (FControlBar <> nil) and (not FControlBar.Dragging) then begin
+    FControlBar.SetPlayback(FPlayer.State = mpsPlaying, FPlayer.PositionSec);
   end;
 end;
 
@@ -745,9 +1023,9 @@ procedure TMediaViewerPanel.UpdateVideoNavFlags(ACurrentId: Int64);
 begin
   FHasPrevVideo := FindAdjacentVideoId(ACurrentId, -1) <> 0;
   FHasNextVideo := FindAdjacentVideoId(ACurrentId, 1) <> 0;
-  if FVideoWidget <> nil then begin
-    FVideoWidget.HasPrevVideo := FHasPrevVideo;
-    FVideoWidget.HasNextVideo := FHasNextVideo;
+  if FControlBar <> nil then begin
+    FControlBar.HasPrev := FHasPrevVideo;
+    FControlBar.HasNext := FHasNextVideo;
   end;
 end;
 
@@ -783,7 +1061,7 @@ end;
 
 procedure TMediaViewerPanel.VideoWidgetRepeatClick(Sender: TObject);
 begin
-  if FVideoWidget = nil then begin
+  if FControlBar = nil then begin
     Exit;
   end;
   { Cyclic toggle — off -> repeat all -> repeat one -> off again. A
@@ -791,13 +1069,13 @@ begin
     between videos (see the comment on TVideoWidget.RepeatMode) — the
     auto-action on reaching the end reads this same field, see
     VideoPlayerStateChanged. }
-  case FVideoWidget.RepeatMode of
-    vrmOff: FVideoWidget.RepeatMode := vrmAll;
-    vrmAll: FVideoWidget.RepeatMode := vrmOne;
+  case FControlBar.RepeatMode of
+    vrmOff: FControlBar.RepeatMode := vrmAll;
+    vrmAll: FControlBar.RepeatMode := vrmOne;
   else
-    FVideoWidget.RepeatMode := vrmOff;
+    FControlBar.RepeatMode := vrmOff;
   end;
-  FVideoWidget.Invalidate;
+  FControlBar.Invalidate;
 end;
 
 { ---------------- shared ---------------- }
@@ -893,10 +1171,17 @@ begin
   Visible := True;
   BringToFront;
   SetFocus;
+  NoteActivity(True);
 end;
 
 procedure TMediaViewerPanel.CloseViewer;
 begin
+  FIdleTimer.Enabled := False;
+  FControlsVisible := True;
+  Cursor := crDefault;
+  if FVideoWidget <> nil then begin
+    FVideoWidget.Cursor := crDefault;
+  end;
   FPollTimer.Enabled := False;
   StopVideoInternal;
   FlushDonePlayer;

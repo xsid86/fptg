@@ -5,7 +5,7 @@ unit framesettingsgeneral;
 interface
 
 uses
-  Classes, SysUtils, Controls, StdCtrls, ColorBox, uiframe;
+  Classes, SysUtils, Controls, StdCtrls, Spin, ColorBox, uiframe, constants;
 
 type
 
@@ -33,7 +33,15 @@ type
     with one deliberate difference: its Style also includes
     cbSystemColors, so clBtnFace — the default, the one value that
     keeps following the Windows theme instead of freezing a grey — is
-    actually selectable, not just the initial state. }
+    actually selectable, not just the initial state.
+    spnDownloads — how many media files may download at the same time
+    (tdmessages.pas queues the rest). Saved on OnChange like the rest;
+    its Min/Max are set from DOWNLOAD_CONCURRENCY_MIN/MAX in code
+    rather than left in the .lfm, so the two cannot drift apart, and
+    FormMain.SetDownloadConcurrency clamps again regardless.
+    spnSpeed — download speed cap in KB/s, 0 meaning unlimited (TDLib
+    itself has no such setting; see tdmessages.pas for how it is done).
+    Same code-set bounds and the same immediate save. }
 
   TFrameSettingsGeneral = class(TFrameBase)
     chkCloseToTray: TCheckBox;
@@ -43,10 +51,16 @@ type
     cbAccentColor: TColorBox;
     lblSurfaceColor: TLabel;
     cbSurfaceColor: TColorBox;
+    lblDownloads: TLabel;
+    spnDownloads: TSpinEdit;
+    lblSpeed: TLabel;
+    spnSpeed: TSpinEdit;
     procedure chkCloseToTrayChange(Sender: TObject);
     procedure edtDeviceModelExit(Sender: TObject);
     procedure cbAccentColorChange(Sender: TObject);
     procedure cbSurfaceColorChange(Sender: TObject);
+    procedure spnDownloadsChange(Sender: TObject);
+    procedure spnSpeedChange(Sender: TObject);
   protected
     procedure DoActivate; override;
   private
@@ -76,6 +90,12 @@ begin
     edtDeviceModel.Text := string(TdApp.DeviceModel);
     cbAccentColor.Selected := FormMain.AccentColor;
     cbSurfaceColor.Selected := FormMain.SurfaceColor;
+    spnDownloads.MinValue := DOWNLOAD_CONCURRENCY_MIN;
+    spnDownloads.MaxValue := DOWNLOAD_CONCURRENCY_MAX;
+    spnDownloads.Value := FormMain.DownloadConcurrency;
+    spnSpeed.MinValue := DOWNLOAD_SPEED_MIN_KB;
+    spnSpeed.MaxValue := DOWNLOAD_SPEED_MAX_KB;
+    spnSpeed.Value := FormMain.DownloadSpeedKB;
   finally
     FLoading := False;
   end;
@@ -106,6 +126,22 @@ begin
     repaints), so the choice can be judged against the real UI rather
     than a swatch. }
   FormMain.SetSurfaceColor(cbSurfaceColor.Selected);
+end;
+
+procedure TFrameSettingsGeneral.spnDownloadsChange(Sender: TObject);
+begin
+  if FLoading then begin
+    Exit;
+  end;
+  FormMain.SetDownloadConcurrency(spnDownloads.Value);
+end;
+
+procedure TFrameSettingsGeneral.spnSpeedChange(Sender: TObject);
+begin
+  if FLoading then begin
+    Exit;
+  end;
+  FormMain.SetDownloadSpeedKB(spnSpeed.Value);
 end;
 
 procedure TFrameSettingsGeneral.edtDeviceModelExit(Sender: TObject);

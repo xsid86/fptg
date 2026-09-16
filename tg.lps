@@ -8,10 +8,9 @@
       <Unit>
         <Filename Value="tg.lpr"/>
         <IsPartOfProject Value="True"/>
-        <IsVisibleTab Value="True"/>
         <TopLine Value="64"/>
-        <CursorPos Y="41"/>
-        <UsageCount Value="142"/>
+        <CursorPos X="41" Y="76"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -19,7 +18,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <CursorPos X="80" Y="17"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
       </Unit>
       <Unit>
         <Filename Value="login.pas"/>
@@ -30,7 +29,7 @@
         <EditorIndex Value="12"/>
         <TopLine Value="89"/>
         <CursorPos X="5" Y="109"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -41,7 +40,7 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
       </Unit>
       <Unit>
         <Filename Value="splash.pas"/>
@@ -52,7 +51,7 @@
         <EditorIndex Value="11"/>
         <TopLine Value="92"/>
         <CursorPos X="5" Y="125"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -61,7 +60,7 @@
         <IsPartOfProject Value="True"/>
         <HasResources Value="True"/>
         <EditorIndex Value="18"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -73,7 +72,7 @@
         <EditorIndex Value="13"/>
         <TopLine Value="361"/>
         <CursorPos X="32" Y="404"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -83,7 +82,7 @@
         <EditorIndex Value="16"/>
         <TopLine Value="21"/>
         <CursorPos X="14" Y="21"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -91,7 +90,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="17"/>
         <CursorPos X="10" Y="21"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -100,7 +99,7 @@
         <EditorIndex Value="2"/>
         <TopLine Value="56"/>
         <CursorPos Y="74"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -109,13 +108,13 @@
         <EditorIndex Value="7"/>
         <TopLine Value="505"/>
         <CursorPos X="29" Y="532"/>
-        <UsageCount Value="81"/>
+        <UsageCount Value="85"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="cardpaint.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
+        <UsageCount Value="24"/>
       </Unit>
       <Unit>
         <Filename Value="tdjson.pas"/>
@@ -123,7 +122,7 @@
         <EditorIndex Value="10"/>
         <TopLine Value="7"/>
         <CursorPos X="43" Y="17"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -133,13 +132,13 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
       </Unit>
       <Unit>
         <Filename Value="tg.lps"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
       </Unit>
       <Unit>
         <Filename Value="tg.res"/>
@@ -148,14 +147,14 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
       </Unit>
       <Unit>
         <Filename Value="qrrender.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="29"/>
         <CursorPos X="4" Y="25"/>
-        <UsageCount Value="142"/>
+        <UsageCount Value="146"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -163,7 +162,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="30"/>
         <CursorPos X="21" Y="27"/>
-        <UsageCount Value="130"/>
+        <UsageCount Value="134"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -171,7 +170,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="1"/>
         <CursorPos X="24" Y="28"/>
-        <UsageCount Value="130"/>
+        <UsageCount Value="134"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -183,14 +182,14 @@
         <EditorIndex Value="19"/>
         <TopLine Value="44"/>
         <CursorPos X="27" Y="79"/>
-        <UsageCount Value="130"/>
+        <UsageCount Value="134"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="framelog.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
       <Unit>
         <Filename Value="framewelcome.pas"/>
@@ -200,14 +199,14 @@
         <ResourceBaseClass Value="Frame"/>
         <EditorIndex Value="20"/>
         <CursorPos Y="23"/>
-        <UsageCount Value="130"/>
+        <UsageCount Value="134"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="framewelcome.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
       <Unit>
         <Filename Value="tdchats.pas"/>
@@ -215,7 +214,7 @@
         <EditorIndex Value="21"/>
         <TopLine Value="202"/>
         <CursorPos X="5" Y="1167"/>
-        <UsageCount Value="129"/>
+        <UsageCount Value="133"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -224,10 +223,11 @@
         <ComponentName Value="FrameChats"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="26"/>
-        <TopLine Value="208"/>
+        <TopLine Value="212"/>
         <CursorPos X="5" Y="212"/>
-        <UsageCount Value="128"/>
+        <UsageCount Value="132"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -236,7 +236,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <TopLine Value="181"/>
-        <UsageCount Value="128"/>
+        <UsageCount Value="132"/>
       </Unit>
       <Unit>
         <Filename Value="avatarcache.pas"/>
@@ -244,73 +244,73 @@
         <EditorIndex Value="28"/>
         <TopLine Value="366"/>
         <CursorPos X="7" Y="401"/>
-        <UsageCount Value="128"/>
+        <UsageCount Value="132"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdrecv.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="23"/>
-        <UsageCount Value="114"/>
+        <UsageCount Value="118"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdmessages.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="22"/>
-        <TopLine Value="225"/>
-        <CursorPos X="5" Y="225"/>
-        <UsageCount Value="91"/>
+        <TopLine Value="245"/>
+        <CursorPos X="70" Y="245"/>
+        <UsageCount Value="95"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdusers.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="25"/>
-        <UsageCount Value="85"/>
+        <UsageCount Value="89"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdaccentcolors.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="8"/>
-        <UsageCount Value="83"/>
+        <UsageCount Value="87"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="audiodevices.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="81"/>
+        <UsageCount Value="85"/>
       </Unit>
       <Unit>
         <Filename Value="ffdecode.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="81"/>
+        <UsageCount Value="85"/>
       </Unit>
       <Unit>
         <Filename Value="audioplayer.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="81"/>
+        <UsageCount Value="85"/>
       </Unit>
       <Unit>
         <Filename Value="videoplayer.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="58"/>
+        <UsageCount Value="62"/>
       </Unit>
       <Unit>
         <Filename Value="photodecoder.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="58"/>
+        <UsageCount Value="62"/>
       </Unit>
       <Unit>
         <Filename Value="mediaplayer.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="58"/>
+        <UsageCount Value="62"/>
       </Unit>
       <Unit>
         <Filename Value="rlottie.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="58"/>
+        <UsageCount Value="62"/>
       </Unit>
       <Unit>
         <Filename Value="lottieplayer.pas"/>
@@ -318,7 +318,7 @@
         <EditorIndex Value="6"/>
         <TopLine Value="362"/>
         <CursorPos X="6" Y="371"/>
-        <UsageCount Value="58"/>
+        <UsageCount Value="62"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -326,7 +326,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="3"/>
         <CursorPos X="103" Y="22"/>
-        <UsageCount Value="91"/>
+        <UsageCount Value="95"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -338,7 +338,7 @@
         <EditorIndex Value="4"/>
         <TopLine Value="6571"/>
         <CursorPos X="34" Y="1009"/>
-        <UsageCount Value="91"/>
+        <UsageCount Value="95"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
@@ -348,13 +348,13 @@
         <HasResources Value="True"/>
         <EditorIndex Value="9"/>
         <TopLine Value="3664"/>
-        <UsageCount Value="91"/>
+        <UsageCount Value="95"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="mediaviewer.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="58"/>
+        <UsageCount Value="62"/>
       </Unit>
       <Unit>
         <Filename Value="chatheader.pas"/>
@@ -365,14 +365,14 @@
         <EditorIndex Value="5"/>
         <TopLine Value="370"/>
         <CursorPos Y="384"/>
-        <UsageCount Value="20"/>
+        <UsageCount Value="24"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="chatheader.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
+        <UsageCount Value="24"/>
       </Unit>
       <Unit>
         <Filename Value="msginput.pas"/>
@@ -382,14 +382,14 @@
         <ResourceBaseClass Value="Frame"/>
         <EditorIndex Value="14"/>
         <CursorPos X="5" Y="73"/>
-        <UsageCount Value="55"/>
+        <UsageCount Value="59"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="msginput.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
       <Unit>
         <Filename Value="settings.pas"/>
@@ -399,14 +399,14 @@
         <ResourceBaseClass Value="Form"/>
         <EditorIndex Value="15"/>
         <TopLine Value="60"/>
-        <UsageCount Value="61"/>
+        <UsageCount Value="65"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="settings.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsgeneral.pas"/>
@@ -415,14 +415,14 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
         <EditorIndex Value="27"/>
-        <UsageCount Value="61"/>
+        <UsageCount Value="65"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsgeneral.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsaudio.pas"/>
@@ -430,12 +430,12 @@
         <ComponentName Value="FrameSettingsAudio"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <UsageCount Value="61"/>
+        <UsageCount Value="65"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsaudio.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsautodownload.pas"/>
@@ -443,44 +443,44 @@
         <ComponentName Value="FrameSettingsAutoDownload"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
-        <UsageCount Value="61"/>
+        <UsageCount Value="65"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsautodownload.lfm"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
       <Unit>
         <Filename Value="tdsession.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="24"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="28"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="tdaccount.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="28"/>
       </Unit>
       <Unit>
         <Filename Value="emojiassets.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="28"/>
       </Unit>
       <Unit>
         <Filename Value="customemoji.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="24"/>
+        <UsageCount Value="28"/>
       </Unit>
       <Unit>
         <Filename Value="tdsupergroups.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
       <Unit>
         <Filename Value="thinscrollbar.pas"/>
         <IsPartOfProject Value="True"/>
-        <UsageCount Value="23"/>
+        <UsageCount Value="27"/>
       </Unit>
     </Units>
     <JumpHistory HistoryIndex="-1"/>

@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, IniFiles, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
   Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, tdsupergroups, uiframe, framelog, framewelcome,
-  framechats, framehistory, mediaviewer, msginput, constants;
+  framechats, framehistory, mediaviewer, msginput, tdmessages, constants;
 
 type
 
@@ -141,6 +141,15 @@ type
       keep in step here. Persisted to config.ini/[ui], same pattern as
       FAccentColor above. }
     FSurfaceColor: TColor;
+    { How many media files may download at once — the value itself
+      lives in tdmessages.pas (SetDownloadConcurrency), which is where
+      the queueing happens; this form only persists it and pushes it
+      back on startup. }
+    FDownloadConcurrency: integer;
+    { Download speed cap in KB/s, 0 = unlimited. Same arrangement as
+      the concurrency cap: the live value lives in tdmessages.pas, this
+      form only persists it. }
+    FDownloadSpeedKB: integer;
     { Set by the few paths that mean an actual quit, not just closing
       the window: File > Quit (menuQuitClick), the tray icon's own
       "Exit" (same handler), and RequestAppClose (closing the pre-login
@@ -248,11 +257,15 @@ type
       APP_SURFACE_COLOR (constants.pas) is only the fallback used when
       nothing has been saved to config.ini yet, see FormCreate. }
     property SurfaceColor: TColor read FSurfaceColor;
+    property DownloadConcurrency: integer read FDownloadConcurrency;
+    property DownloadSpeedKB: integer read FDownloadSpeedKB;
     { Changes the setting, applies it to the open window right away and
       persists it — same pattern as SetAccentColor, plus the immediate
       repaint (an accent color only shows up on the next paint of a
       progress bar; a background is on screen the whole time). }
     procedure SetSurfaceColor(AValue: TColor);
+    procedure SetDownloadConcurrency(AValue: integer);
+    procedure SetDownloadSpeedKB(AValue: integer);
     { Photo/video viewer — needed by framehistory.pas (clicking a
       photo/video in a chat opens it), same global-FormMain access
       pattern already used for Chats/Nav. }
@@ -386,11 +399,23 @@ begin
       FCloseToTray := ReadBool('ui', 'closetotray', True);
       FAccentColor := TColor(ReadInteger('ui', 'accentcolor', Integer(APP_ACCENT_COLOR)));
       FSurfaceColor := TColor(ReadInteger('ui', 'surfacecolor', Integer(APP_SURFACE_COLOR)));
+      FDownloadConcurrency := ReadInteger('downloads', 'concurrency',
+        DOWNLOAD_CONCURRENCY_DEFAULT);
+      FDownloadSpeedKB := ReadInteger('downloads', 'speedkb',
+        DOWNLOAD_SPEED_DEFAULT_KB);
     finally
       Free;
     end;
   end;
   LoadAutoDownloadSettings;
+  { tdmessages.pas keeps the live value — it is read by every
+    TTdMessages instance, including ones created later for other
+    accounts, so it has to be pushed once at startup rather than
+    handed to a particular model. }
+  tdmessages.SetDownloadConcurrency(FDownloadConcurrency);
+  FDownloadConcurrency := tdmessages.DownloadConcurrency;   { clamped }
+  tdmessages.SetDownloadSpeedLimit(FDownloadSpeedKB);
+  FDownloadSpeedKB := tdmessages.DownloadSpeedLimit;
   ApplySurfaceColor;
   UpdatePresencePanel;
   { No chat is open yet — hidden until the Welcome screen (or a real
@@ -1113,6 +1138,43 @@ begin
   with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
     try
       WriteInteger('ui', 'surfacecolor', Integer(FSurfaceColor));
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TFormMain.SetDownloadConcurrency(AValue: integer);
+begin
+  tdmessages.SetDownloadConcurrency(AValue);
+  { Read back rather than stored as given — tdmessages clamps to
+    DOWNLOAD_CONCURRENCY_MIN/MAX, and config.ini should hold what is
+    actually in effect. }
+  AValue := tdmessages.DownloadConcurrency;
+  if AValue = FDownloadConcurrency then begin
+    Exit;
+  end;
+  FDownloadConcurrency := AValue;
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteInteger('downloads', 'concurrency', FDownloadConcurrency);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TFormMain.SetDownloadSpeedKB(AValue: integer);
+begin
+  tdmessages.SetDownloadSpeedLimit(AValue);
+  AValue := tdmessages.DownloadSpeedLimit;   { clamped, see the other setter }
+  if AValue = FDownloadSpeedKB then begin
+    Exit;
+  end;
+  FDownloadSpeedKB := AValue;
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteInteger('downloads', 'speedkb', FDownloadSpeedKB);
     finally
       Free;
     end;

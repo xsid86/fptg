@@ -64,4 +64,40 @@ object FrameSettingsGeneral: TFrameSettingsGeneral
     TabOrder = 3
     OnChange = cbSurfaceColorChange
   end
+  object lblDownloads: TLabel
+    Left = 16
+    Height = 15
+    Top = 236
+    Width = 250
+    Caption = 'Simultaneous media downloads'
+  end
+  object spnDownloads: TSpinEdit
+    Left = 16
+    Height = 23
+    Top = 256
+    Width = 80
+    MaxValue = 20
+    MinValue = 1
+    TabOrder = 4
+    Value = 3
+    OnChange = spnDownloadsChange
+  end
+  object lblSpeed: TLabel
+    Left = 16
+    Height = 15
+    Top = 296
+    Width = 250
+    Caption = 'Download speed limit, KB/s (0 = unlimited)'
+  end
+  object spnSpeed: TSpinEdit
+    Left = 16
+    Height = 23
+    Top = 316
+    Width = 100
+    MaxValue = 102400
+    MinValue = 0
+    TabOrder = 5
+    Value = 0
+    OnChange = spnSpeedChange
+  end
 end

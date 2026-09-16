@@ -12,6 +12,30 @@ type
   TMsgContentKind = (mckText, mckAudio, mckPhoto, mckAnimation, mckSticker,
     mckVoiceNote, mckFile, mckVideo, mckOther);
 
+  { One media download waiting for a free slot — see
+    TTdMessages.RequestFileDownload. }
+  TQueuedDownload = record
+    FileId: integer;
+    Callback: TTdResponseEvent;
+  end;
+
+  { One media download in flight. NextOffset/Stalls are only used while
+    a speed limit is set: the download is then handed out one byte
+    window at a time (see TTdMessages.GrantChunk). Unthrottled, the
+    request is a single open-ended downloadFile and these stay 0. }
+  TActiveDownload = record
+    FileId: integer;
+    Callback: TTdResponseEvent;
+    NextOffset: Int64;
+    Stalls: integer;
+    { Running as one open-ended request rather than paced windows.
+      GaveUp tells the two reasons apart: no limit is set (and the
+      moment one is, this download should start being paced), or pacing
+      was tried on this file and got nowhere (and must not be retried). }
+    Unthrottled: boolean;
+    GaveUp: boolean;
+  end;
+
   { Telegram's three sticker formats — confirmed against the official
     TDLib docs (classtd_1_1td__api_1_1sticker_format*.html), not
     guessed: stickerFormatWebp (a static image), stickerFormatTgs
@@ -189,6 +213,12 @@ type
     PhotoBestFileId:            integer;
     PhotoBestLocalPath:         utf8string;
     PhotoBestDownloadRequested: boolean;
+    { The natural size of THAT largest layer, not of the preview one.
+      PhotoWidth/Height above describe the medium layer that the chat
+      row shows; the viewer opens PhotoBestLocalPath, so fitting it to
+      the window needs the original's own dimensions — using the
+      preview's would cap the picture at preview size. }
+    PhotoBestWidth, PhotoBestHeight: integer;
     { messageAnimation.animation — Kind=mckAnimation only.
       AnimWidth/Height/Duration are the natural size (pixels) and
       duration (seconds) of the source video, the same scheme as
@@ -455,6 +485,25 @@ type
       shared across every chat/row that happens to use the same custom
       emoji, unlike the *ByFile maps above which are all per-TMsgRow. }
     FCustomEmojiPending: array of Int64;
+    { Media downloads in flight and waiting — see RequestFileDownload.
+      Only file ids and callbacks are kept, never row references: rows
+      are freed wholesale on Clear, and a queue entry can easily
+      outlive the row it was queued for. }
+    FActiveDownloads: array of TActiveDownload;
+    FQueuedDownloads: array of TQueuedDownload;
+    { Hands the byte windows out, one per tick, round-robin over the
+      active throttled downloads — see GrantChunk. Runs only while a
+      speed limit is set AND something is downloading. }
+    FChunkTimer: TTimer;
+    FChunkCursor: integer;
+    { Token bucket for the speed cap, in bytes, shared by every paced
+      download of this instance. Refilled at the configured rate on
+      each tick and charged with what the downloads actually fetched,
+      so it goes NEGATIVE whenever TDLib overshoots the window it was
+      given — which is the normal case, since TDLib rounds any window
+      up to a whole part. Waiting for it to climb back above zero is
+      what actually enforces the rate. }
+    FByteBudget: Int64;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
@@ -479,6 +528,33 @@ type
       out ADuration: integer; out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadVoiceDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyVoiceFile(AFile: TJSONObject);
+    function ActiveDownloadIndex(AFileId: integer): integer;
+    function QueuedDownloadIndex(AFileId: integer): integer;
+    { The single funnel every media downloadFile goes through. Sends
+      straight away while fewer than DownloadConcurrency files are in
+      flight, queues otherwise; a repeat request for a file already in
+      flight or already queued is dropped. }
+    procedure RequestFileDownload(AFileId: integer; ACallback: TTdResponseEvent);
+    procedure SendFileDownload(AFileId: integer; ACallback: TTdResponseEvent);
+    { Frees the slot AFileId was holding (a no-op for a file that never
+      went through here) and starts whatever was waiting behind it. }
+    procedure ReleaseDownloadSlot(AFileId: integer);
+    procedure PumpDownloadQueue;
+    { Issues the next byte window for one throttled download and moves
+      the round-robin cursor on. }
+    procedure ChunkTick(Sender: TObject);
+    procedure GrantChunk(AIndex: integer);
+    procedure UpdateChunkTimer;
+    { Bytes the budget gains per tick — the configured rate spread over
+      one timer interval. }
+    function RefillBytes: Int64;
+    { How big a window to ask for right now: whatever the budget has
+      saved up, but never less than one TDLib part (a smaller request
+      would be rounded up anyway, so asking for less only misleads). }
+    function WindowBytes: Int64;
+    { Reads a TDLib file object and releases its slot if TDLib is done
+      with it — finished, or not downloading any more. }
+    procedure NoteFileDownloadState(AFile: TJSONObject);
     procedure ExtractDocMeta(AContent: TJSONObject; const AType: utf8string;
       out AFileName: utf8string; out AFileSize: Int64;
       out AFileId: integer; out ALocalPath: utf8string);
@@ -487,7 +563,8 @@ type
     procedure ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8string;
       out AWidth, AHeight: integer; out AMinithumb: RawByteString;
       out AFileId: integer; out ALocalPath: utf8string;
-      out ABestFileId: integer; out ABestLocalPath: utf8string);
+      out ABestFileId: integer; out ABestLocalPath: utf8string;
+      out ABestWidth, ABestHeight: integer);
     procedure DownloadPhotoDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyPhotoFile(AFile: TJSONObject);
     procedure DownloadPhotoBestDone(Sender: TObject; const AResp: TTdResponse);
@@ -704,10 +781,59 @@ function PlayableLocalPath(ARow: TMsgRow): utf8string;
   VoiceDuration) — needed when seeking (AFraction * duration). }
 function PlayableDuration(ARow: TMsgRow): integer;
 
+{ The cap on how many media files may be downloading at the same time,
+  shared by every TTdMessages instance (there is one per account, but
+  only one account is ever in the foreground). Settings > General
+  writes it through TFormMain.SetDownloadConcurrency; the queueing
+  itself is per-instance, see TTdMessages.RequestFileDownload. }
+procedure SetDownloadConcurrency(AValue: integer);
+function DownloadConcurrency: integer;
+
+{ Download speed cap in KB/s, 0 = unlimited. Same story as the
+  concurrency cap above: global value, per-instance pacing. }
+procedure SetDownloadSpeedLimit(AValue: integer);
+function DownloadSpeedLimit: integer;
+
 implementation
 
 uses
   customemoji;
+
+var
+  GDownloadConcurrency: integer = DOWNLOAD_CONCURRENCY_DEFAULT;
+  GDownloadSpeedLimit: integer = DOWNLOAD_SPEED_DEFAULT_KB;
+
+procedure SetDownloadConcurrency(AValue: integer);
+begin
+  if AValue < DOWNLOAD_CONCURRENCY_MIN then begin
+    AValue := DOWNLOAD_CONCURRENCY_MIN;
+  end;
+  if AValue > DOWNLOAD_CONCURRENCY_MAX then begin
+    AValue := DOWNLOAD_CONCURRENCY_MAX;
+  end;
+  GDownloadConcurrency := AValue;
+end;
+
+function DownloadConcurrency: integer;
+begin
+  Result := GDownloadConcurrency;
+end;
+
+procedure SetDownloadSpeedLimit(AValue: integer);
+begin
+  if AValue < DOWNLOAD_SPEED_MIN_KB then begin
+    AValue := DOWNLOAD_SPEED_MIN_KB;
+  end;
+  if AValue > DOWNLOAD_SPEED_MAX_KB then begin
+    AValue := DOWNLOAD_SPEED_MAX_KB;
+  end;
+  GDownloadSpeedLimit := AValue;
+end;
+
+function DownloadSpeedLimit: integer;
+begin
+  Result := GDownloadSpeedLimit;
+end;
 
 function MessageReceipt(ARow: TMsgRow; ALastReadOutbox: Int64): TChatReceipt;
 begin
@@ -954,6 +1080,14 @@ begin
   FRetryTimer.OnTimer := @RetryTick;
   FRetryTimer.Enabled := False;
 
+  { Hands out the download byte windows while a speed limit is set —
+    see the media download queue below. }
+  FChunkTimer := TTimer.Create(Self);
+  FChunkTimer.Interval := DOWNLOAD_CHUNK_INTERVAL_MS;
+  FChunkTimer.OnTimer := @ChunkTick;
+  FChunkTimer.Enabled := False;
+  FChunkCursor := -1;
+
   if FSession <> nil then begin
     FSession.Subscribe(Self);
   end;
@@ -1003,6 +1137,11 @@ begin
   FVideoByFile.Clear;
   FVideoThumbByFile.Clear;
   FStickerByFile.Clear;
+  { Downloads that were still WAITING belong to a view that no longer
+    exists — dropped. The ones already in flight are left alone: TDLib
+    carries on with them either way, and their updateFile still arrives
+    and still frees the slot, which is all FActiveDownloads is for. }
+  SetLength(FQueuedDownloads, 0);
   SetLength(FReplyPending, 0);
   { Every reset path goes through here (OpenChat, CloseChat,
     SetSearchFilter), so this is the one place the search generation
@@ -1719,6 +1858,337 @@ end;
   content.audio.audio above: content.document is metadata (file name),
   content.document.document is the downloadable TDLib file object
   itself. Confirmed from tdlib_raw.log, not from memory. }
+{ ---------------- media download queue ----------------
+
+  Everything heavy (photo preview and original, video, GIF, document,
+  audio, voice note) goes through RequestFileDownload instead of
+  calling downloadFile directly, so that no more than
+  DownloadConcurrency of them are in flight at once. Without it, one
+  scroll through a media-rich chat with auto-download on fires the
+  whole AUTODL_PREFETCH_MESSAGES window at TDLib in a single go and
+  every file crawls at a fraction of the bandwidth.
+
+  Deliberately NOT gated: video thumbnails, stickers and custom emoji.
+  They are tiny (tens of KB), they are the placeholders the UI shows
+  while everything else loads, and queueing them behind a couple of
+  multi-megabyte videos would make the chat look broken.
+
+  SPEED LIMIT. TDLib has no bandwidth setting at all — checked against
+  the real td_api.tl, not assumed: downloadFile takes a priority (an
+  ordering, not a rate) and an offset/limit window, and that window is
+  the only lever there is. So a limited download is not one open-ended
+  request but a series of them: every DOWNLOAD_CHUNK_INTERVAL_MS one
+  download is handed a fresh window of ChunkBytes starting at whatever
+  it has already got, and TDLib physically cannot fetch past the end of
+  that window until the next one is granted. Windows are handed out
+  round-robin, one per tick across ALL throttled downloads, so the cap
+  is on the total rather than per file.
+
+  Two things this deliberately does NOT rely on. It does not wait to be
+  told a window was filled (no notification is documented for the
+  auto-cancel at the end of a limit), and it does not care whether the
+  previous window is finished — re-requesting from the current prefix
+  simply moves the ceiling, and if the network is slower than the cap
+  the ceiling just stays ahead and nothing is throttled twice. If a
+  file makes no progress for several windows in a row it is released
+  back to a plain unlimited request (see NoteFileDownloadState): a
+  speed cap must never be able to wedge a download permanently. }
+
+function TTdMessages.ActiveDownloadIndex(AFileId: integer): integer;
+var
+  I: integer;
+begin
+  Result := -1;
+  for I := 0 to High(FActiveDownloads) do begin
+    if FActiveDownloads[I].FileId = AFileId then begin
+      Result := I;
+      Exit;
+    end;
+  end;
+end;
+
+function TTdMessages.QueuedDownloadIndex(AFileId: integer): integer;
+var
+  I: integer;
+begin
+  Result := -1;
+  for I := 0 to High(FQueuedDownloads) do begin
+    if FQueuedDownloads[I].FileId = AFileId then begin
+      Result := I;
+      Exit;
+    end;
+  end;
+end;
+
+function TTdMessages.RefillBytes: Int64;
+begin
+  Result := (Int64(DownloadSpeedLimit) * 1024 * DOWNLOAD_CHUNK_INTERVAL_MS) div 1000;
+  if Result < 1 then begin
+    Result := 1;
+  end;
+end;
+
+function TTdMessages.WindowBytes: Int64;
+begin
+  Result := FByteBudget;
+  if Result < TD_DOWNLOAD_PART_BYTES then begin
+    Result := TD_DOWNLOAD_PART_BYTES;
+  end;
+end;
+
+{ Runs for as long as anything is downloading, limit or no limit: the
+  limit is a global that can change at any moment and nothing notifies
+  this instance, so the tick is also where a change is noticed (see
+  ChunkTick). A 250ms timer scanning a handful of entries costs
+  nothing. }
+procedure TTdMessages.UpdateChunkTimer;
+begin
+  FChunkTimer.Enabled := Length(FActiveDownloads) > 0;
+end;
+
+procedure TTdMessages.SendFileDownload(AFileId: integer; ACallback: TTdResponseEvent);
+var
+  Idx: integer;
+begin
+  SetLength(FActiveDownloads, Length(FActiveDownloads) + 1);
+  Idx := High(FActiveDownloads);
+  FActiveDownloads[Idx].FileId := AFileId;
+  FActiveDownloads[Idx].Callback := ACallback;
+  FActiveDownloads[Idx].NextOffset := 0;
+  FActiveDownloads[Idx].Stalls := 0;
+  FActiveDownloads[Idx].Unthrottled := DownloadSpeedLimit <= 0;
+  FActiveDownloads[Idx].GaveUp := False;
+  if FActiveDownloads[Idx].Unthrottled then begin
+    FReq.SendRequest('downloadFile',
+      '"file_id":' + utf8string(IntToStr(AFileId)) +
+      ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+      ACallback, AFileId);
+  end else if FByteBudget > 0 then begin
+    { The first window right away — waiting a tick before a download
+      even starts would be visible on small files. Only while there is
+      budget for it, though: granting unconditionally would hand every
+      newly started download a free part, and a stream of files smaller
+      than one part (previews, scrolling a feed) would then never be
+      paced at all — each one finishes inside its free window, releases
+      its slot, and the queue starts the next one just as freely. With
+      no budget the download simply waits for a tick; ChunkTick's
+      round-robin picks it up, it is already in FActiveDownloads. }
+    GrantChunk(Idx);
+  end;
+  UpdateChunkTimer;
+end;
+
+procedure TTdMessages.GrantChunk(AIndex: integer);
+begin
+  if (AIndex < 0) or (AIndex > High(FActiveDownloads)) or (FReq = nil) then begin
+    Exit;
+  end;
+  if FActiveDownloads[AIndex].Unthrottled then begin
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(FActiveDownloads[AIndex].FileId)) +
+    ',"priority":32,"offset":' + utf8string(IntToStr(FActiveDownloads[AIndex].NextOffset)) +
+    ',"limit":' + utf8string(IntToStr(WindowBytes)) +
+    ',"synchronous":false',
+    FActiveDownloads[AIndex].Callback, FActiveDownloads[AIndex].FileId);
+end;
+
+{ One window per tick, round-robin — that, and not the window size
+  alone, is what makes the cap apply to the total rather than to each
+  file separately.
+
+  The tick is also where a change to the limit is picked up, in both
+  directions. Turning the limit OFF has to hand every paced download
+  back to an open-ended request, or it would sit there forever waiting
+  for windows that are no longer granted. Turning it ON adopts the
+  downloads that started unlimited: re-requesting from offset 0 with a
+  window is harmless — TDLib keeps what it already has, reports the
+  real prefix back, and pacing continues from there. }
+procedure TTdMessages.ChunkTick(Sender: TObject);
+var
+  I, Tries: integer;
+  Cap: Int64;
+begin
+  if Length(FActiveDownloads) = 0 then begin
+    UpdateChunkTimer;
+    Exit;
+  end;
+
+  if DownloadSpeedLimit <= 0 then begin
+    for I := 0 to High(FActiveDownloads) do begin
+      if not FActiveDownloads[I].Unthrottled then begin
+        FActiveDownloads[I].Unthrottled := True;
+        if FReq <> nil then begin
+          FReq.SendRequest('downloadFile',
+            '"file_id":' + utf8string(IntToStr(FActiveDownloads[I].FileId)) +
+            ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+            FActiveDownloads[I].Callback, FActiveDownloads[I].FileId);
+        end;
+      end;
+    end;
+    Exit;
+  end;
+
+  for I := 0 to High(FActiveDownloads) do begin
+    if FActiveDownloads[I].Unthrottled and (not FActiveDownloads[I].GaveUp) then begin
+      FActiveDownloads[I].Unthrottled := False;
+      FActiveDownloads[I].NextOffset := 0;
+      FActiveDownloads[I].Stalls := 0;
+    end;
+  end;
+
+  { Refill, then cap. The cap matters after a lull — several ticks with
+    nothing to spend on must not add up to one huge burst the moment a
+    download appears. One part plus one tick's worth is enough to keep
+    a fast link saturated without letting the bucket hoard. }
+  Inc(FByteBudget, RefillBytes);
+  Cap := TD_DOWNLOAD_PART_BYTES + RefillBytes;
+  if FByteBudget > Cap then begin
+    FByteBudget := Cap;
+  end;
+  if FByteBudget <= 0 then begin
+    { Still paying off the last window TDLib overshot — that wait IS
+      the throttle. }
+    Exit;
+  end;
+
+  Tries := 0;
+  while Tries <= High(FActiveDownloads) do begin
+    Inc(FChunkCursor);
+    if FChunkCursor > High(FActiveDownloads) then begin
+      FChunkCursor := 0;
+    end;
+    if not FActiveDownloads[FChunkCursor].Unthrottled then begin
+      GrantChunk(FChunkCursor);
+      Exit;
+    end;
+    Inc(Tries);
+  end;
+end;
+
+procedure TTdMessages.RequestFileDownload(AFileId: integer; ACallback: TTdResponseEvent);
+begin
+  if (FReq = nil) or (AFileId = 0) then begin
+    Exit;
+  end;
+  if (ActiveDownloadIndex(AFileId) >= 0) or (QueuedDownloadIndex(AFileId) >= 0) then begin
+    Exit;
+  end;
+  if Length(FActiveDownloads) < DownloadConcurrency then begin
+    SendFileDownload(AFileId, ACallback);
+    Exit;
+  end;
+  SetLength(FQueuedDownloads, Length(FQueuedDownloads) + 1);
+  FQueuedDownloads[High(FQueuedDownloads)].FileId := AFileId;
+  FQueuedDownloads[High(FQueuedDownloads)].Callback := ACallback;
+end;
+
+procedure TTdMessages.PumpDownloadQueue;
+var
+  Next: TQueuedDownload;
+  I: integer;
+begin
+  while (Length(FQueuedDownloads) > 0) and (Length(FActiveDownloads) < DownloadConcurrency) do begin
+    Next := FQueuedDownloads[0];
+    for I := 0 to High(FQueuedDownloads) - 1 do begin
+      FQueuedDownloads[I] := FQueuedDownloads[I + 1];
+    end;
+    SetLength(FQueuedDownloads, Length(FQueuedDownloads) - 1);
+    if FReq <> nil then begin
+      SendFileDownload(Next.FileId, Next.Callback);
+    end;
+  end;
+end;
+
+procedure TTdMessages.ReleaseDownloadSlot(AFileId: integer);
+var
+  Idx, I: integer;
+begin
+  Idx := ActiveDownloadIndex(AFileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  for I := Idx to High(FActiveDownloads) - 1 do begin
+    FActiveDownloads[I] := FActiveDownloads[I + 1];
+  end;
+  SetLength(FActiveDownloads, Length(FActiveDownloads) - 1);
+  UpdateChunkTimer;
+  PumpDownloadQueue;
+end;
+
+{ A slot is held from the moment downloadFile is sent until TDLib says
+  it is no longer downloading that file. Both endings count: completed,
+  and stopped without completing (cancelled, or failed). Releasing on
+  "not active" is also the safety valve against a leaked slot — an
+  updateFile that raced ahead of our own request can free a slot a
+  moment early, which at worst means one extra parallel download, while
+  the opposite mistake would shrink the cap permanently.
+
+  With a speed limit on, "not active" is the NORMAL state between
+  windows and must not release anything — only completion does. What
+  this reads instead is how far the file has actually got
+  (download_offset + downloaded_prefix_size, exactly as td_api.tl
+  defines the pair), which is where the next window will start. }
+procedure TTdMessages.NoteFileDownloadState(AFile: TJSONObject);
+var
+  Local: TJSONObject;
+  FileId, Idx: integer;
+  Prefix: Int64;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := ActiveDownloadIndex(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Local := JGetObj(AFile, 'local');
+  if Local = nil then begin
+    Exit;
+  end;
+  if JGetBool(Local, 'is_downloading_completed') then begin
+    ReleaseDownloadSlot(FileId);
+    Exit;
+  end;
+  if FActiveDownloads[Idx].Unthrottled then begin
+    if not JGetBool(Local, 'is_downloading_active') then begin
+      ReleaseDownloadSlot(FileId);
+    end;
+    Exit;
+  end;
+
+  Prefix := JGetInt64(Local, 'download_offset') + JGetInt64(Local, 'downloaded_prefix_size');
+  if Prefix > FActiveDownloads[Idx].NextOffset then begin
+    { Charge the budget with what was ACTUALLY fetched, not with the
+      window that was asked for: TDLib rounds a window up to a whole
+      part, so the two differ almost every time, and only the real
+      figure keeps the average at the configured rate. }
+    Dec(FByteBudget, Prefix - FActiveDownloads[Idx].NextOffset);
+    FActiveDownloads[Idx].NextOffset := Prefix;
+    FActiveDownloads[Idx].Stalls := 0;
+    Exit;
+  end;
+  if JGetBool(Local, 'is_downloading_active') then begin
+    Exit;
+  end;
+  { Not moving and not downloading: either the window happens to be
+    exactly full at this instant, or the windowing is not working for
+    this file at all. After a few of these, stop paying for the
+    experiment and let it run unlimited — a speed cap that can strand a
+    download is worse than no cap. }
+  Inc(FActiveDownloads[Idx].Stalls);
+  if FActiveDownloads[Idx].Stalls >= 4 then begin
+    FActiveDownloads[Idx].Unthrottled := True;
+    FActiveDownloads[Idx].GaveUp := True;
+    FReq.SendRequest('downloadFile',
+      '"file_id":' + utf8string(IntToStr(FileId)) +
+      ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+      FActiveDownloads[Idx].Callback, FileId);
+  end;
+end;
+
 procedure TTdMessages.ExtractDocMeta(AContent: TJSONObject; const AType: utf8string;
   out AFileName: utf8string; out AFileSize: Int64;
   out AFileId: integer; out ALocalPath: utf8string);
@@ -1773,7 +2243,8 @@ end;
 procedure TTdMessages.ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8string;
   out AWidth, AHeight: integer; out AMinithumb: RawByteString;
   out AFileId: integer; out ALocalPath: utf8string;
-  out ABestFileId: integer; out ABestLocalPath: utf8string);
+  out ABestFileId: integer; out ABestLocalPath: utf8string;
+  out ABestWidth, ABestHeight: integer);
 var
   PhotoObj, MiniObj, SizeObj, FileObj, LocalObj: TJSONObject;
   Arr: TJSONArray;
@@ -1788,6 +2259,8 @@ begin
   ALocalPath := '';
   ABestFileId := 0;
   ABestLocalPath := '';
+  ABestWidth := 0;
+  ABestHeight := 0;
   if (AContent = nil) or (AType <> 'messagePhoto') then begin
     Exit;
   end;
@@ -1850,6 +2323,8 @@ begin
 
   if Arr.Items[LargestIdx].JSONType = jtObject then begin
     SizeObj := TJSONObject(Arr.Items[LargestIdx]);
+    ABestWidth := JGetInt(SizeObj, 'width');
+    ABestHeight := JGetInt(SizeObj, 'height');
     FileObj := JGetObj(SizeObj, 'photo');
     if FileObj <> nil then begin
       ABestFileId := JGetInt(FileObj, 'id');
@@ -2174,7 +2649,8 @@ begin
   ExtractVoiceMeta(ContentObj, T, R.VoiceDuration, R.VoiceFileId, R.VoiceLocalPath);
   ExtractDocMeta(ContentObj, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   ExtractPhotoMeta(ContentObj, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
-    R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
+    R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath,
+    R.PhotoBestWidth, R.PhotoBestHeight);
   ExtractAnimMeta(ContentObj, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   ExtractVideoMeta(ContentObj, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
@@ -2213,7 +2689,8 @@ begin
   ExtractVoiceMeta(ANewContent, T, R.VoiceDuration, R.VoiceFileId, R.VoiceLocalPath);
   ExtractDocMeta(ANewContent, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   ExtractPhotoMeta(ANewContent, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
-    R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath);
+    R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath,
+    R.PhotoBestWidth, R.PhotoBestHeight);
   ExtractAnimMeta(ANewContent, T, R.AnimWidth, R.AnimHeight, R.AnimDuration,
     R.AnimMinithumb, R.AnimFileId, R.AnimLocalPath);
   ExtractVideoMeta(ANewContent, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
@@ -2856,10 +3333,7 @@ begin
   { priority 32 — the highest: unlike avatars (background, shouldn't
     delay history), this is an explicit user request to listen — it
     shouldn't be made to wait. }
-  FReq.SendRequest('downloadFile',
-    '"file_id":' + utf8string(IntToStr(ARow.AudioFileId)) +
-    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
-    @DownloadAudioDone, ARow.AudioFileId);
+  RequestFileDownload(ARow.AudioFileId, @DownloadAudioDone);
 end;
 
 procedure TTdMessages.DownloadAudioDone(Sender: TObject; const AResp: TTdResponse);
@@ -2868,8 +3342,13 @@ var
 begin
   if AResp.Success then begin
     ApplyAudioFile(AResp.Obj);
+    { A file TDLib already had on disk comes back complete right here
+      and never produces an updateFile — without this the slot it took
+      would be held for the rest of the session. }
+    NoteFileDownloadState(AResp.Obj);
     Exit;
   end;
+  ReleaseDownloadSlot(integer(AResp.Tag));
   Idx := FByFile.IndexOf(integer(AResp.Tag));
   if Idx >= 0 then begin
     FByFile.Data[Idx].AudioDownloadRequested := False;
@@ -2932,10 +3411,7 @@ begin
   end;
   { priority 32 — the same logic as audio: an explicit user request to
     listen, not a background download. }
-  FReq.SendRequest('downloadFile',
-    '"file_id":' + utf8string(IntToStr(ARow.VoiceFileId)) +
-    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
-    @DownloadVoiceDone, ARow.VoiceFileId);
+  RequestFileDownload(ARow.VoiceFileId, @DownloadVoiceDone);
 end;
 
 procedure TTdMessages.DownloadVoiceDone(Sender: TObject; const AResp: TTdResponse);
@@ -2944,8 +3420,13 @@ var
 begin
   if AResp.Success then begin
     ApplyVoiceFile(AResp.Obj);
+    { A file TDLib already had on disk comes back complete right here
+      and never produces an updateFile — without this the slot it took
+      would be held for the rest of the session. }
+    NoteFileDownloadState(AResp.Obj);
     Exit;
   end;
+  ReleaseDownloadSlot(integer(AResp.Tag));
   Idx := FVoiceByFile.IndexOf(integer(AResp.Tag));
   if Idx >= 0 then begin
     FVoiceByFile.Data[Idx].VoiceDownloadRequested := False;
@@ -3018,10 +3499,7 @@ begin
   end;
   { priority 32 — the highest, same as audio: an explicit user request
     "I want to save this file", not a background download. }
-  FReq.SendRequest('downloadFile',
-    '"file_id":' + utf8string(IntToStr(ARow.DocFileId)) +
-    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
-    @DownloadDocDone, ARow.DocFileId);
+  RequestFileDownload(ARow.DocFileId, @DownloadDocDone);
 end;
 
 procedure TTdMessages.DownloadDocDone(Sender: TObject; const AResp: TTdResponse);
@@ -3030,8 +3508,13 @@ var
 begin
   if AResp.Success then begin
     ApplyDocFile(AResp.Obj);
+    { A file TDLib already had on disk comes back complete right here
+      and never produces an updateFile — without this the slot it took
+      would be held for the rest of the session. }
+    NoteFileDownloadState(AResp.Obj);
     Exit;
   end;
+  ReleaseDownloadSlot(integer(AResp.Tag));
   Idx := FDocByFile.IndexOf(integer(AResp.Tag));
   if Idx >= 0 then begin
     FDocByFile.Data[Idx].DocDownloadRequested := False;
@@ -3090,10 +3573,7 @@ begin
     ARow.PhotoDownloadRequested := False;
     Exit;
   end;
-  FReq.SendRequest('downloadFile',
-    '"file_id":' + utf8string(IntToStr(ARow.PhotoFileId)) +
-    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
-    @DownloadPhotoDone, ARow.PhotoFileId);
+  RequestFileDownload(ARow.PhotoFileId, @DownloadPhotoDone);
 end;
 
 procedure TTdMessages.DownloadPhotoDone(Sender: TObject; const AResp: TTdResponse);
@@ -3102,8 +3582,13 @@ var
 begin
   if AResp.Success then begin
     ApplyPhotoFile(AResp.Obj);
+    { A file TDLib already had on disk comes back complete right here
+      and never produces an updateFile — without this the slot it took
+      would be held for the rest of the session. }
+    NoteFileDownloadState(AResp.Obj);
     Exit;
   end;
+  ReleaseDownloadSlot(integer(AResp.Tag));
   Idx := FPhotoByFile.IndexOf(integer(AResp.Tag));
   if Idx >= 0 then begin
     FPhotoByFile.Data[Idx].PhotoDownloadRequested := False;
@@ -3207,10 +3692,7 @@ begin
     ARow.PhotoBestDownloadRequested := False;
     Exit;
   end;
-  FReq.SendRequest('downloadFile',
-    '"file_id":' + utf8string(IntToStr(ARow.PhotoBestFileId)) +
-    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
-    @DownloadPhotoBestDone, ARow.PhotoBestFileId);
+  RequestFileDownload(ARow.PhotoBestFileId, @DownloadPhotoBestDone);
 end;
 
 procedure TTdMessages.DownloadPhotoBestDone(Sender: TObject; const AResp: TTdResponse);
@@ -3219,8 +3701,13 @@ var
 begin
   if AResp.Success then begin
     ApplyPhotoBestFile(AResp.Obj);
+    { A file TDLib already had on disk comes back complete right here
+      and never produces an updateFile — without this the slot it took
+      would be held for the rest of the session. }
+    NoteFileDownloadState(AResp.Obj);
     Exit;
   end;
+  ReleaseDownloadSlot(integer(AResp.Tag));
   Idx := FPhotoBestByFile.IndexOf(integer(AResp.Tag));
   if Idx >= 0 then begin
     FPhotoBestByFile.Data[Idx].PhotoBestDownloadRequested := False;
@@ -3281,10 +3768,7 @@ begin
     ARow.AnimDownloadRequested := False;
     Exit;
   end;
-  FReq.SendRequest('downloadFile',
-    '"file_id":' + utf8string(IntToStr(ARow.AnimFileId)) +
-    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
-    @DownloadAnimDone, ARow.AnimFileId);
+  RequestFileDownload(ARow.AnimFileId, @DownloadAnimDone);
 end;
 
 procedure TTdMessages.DownloadAnimDone(Sender: TObject; const AResp: TTdResponse);
@@ -3293,8 +3777,13 @@ var
 begin
   if AResp.Success then begin
     ApplyAnimFile(AResp.Obj);
+    { A file TDLib already had on disk comes back complete right here
+      and never produces an updateFile — without this the slot it took
+      would be held for the rest of the session. }
+    NoteFileDownloadState(AResp.Obj);
     Exit;
   end;
+  ReleaseDownloadSlot(integer(AResp.Tag));
   Idx := FAnimByFile.IndexOf(integer(AResp.Tag));
   if Idx >= 0 then begin
     FAnimByFile.Data[Idx].AnimDownloadRequested := False;
@@ -3352,10 +3841,7 @@ begin
     ARow.VideoDownloadRequested := False;
     Exit;
   end;
-  FReq.SendRequest('downloadFile',
-    '"file_id":' + utf8string(IntToStr(ARow.VideoFileId)) +
-    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
-    @DownloadVideoDone, ARow.VideoFileId);
+  RequestFileDownload(ARow.VideoFileId, @DownloadVideoDone);
 end;
 
 procedure TTdMessages.DownloadVideoDone(Sender: TObject; const AResp: TTdResponse);
@@ -3364,8 +3850,13 @@ var
 begin
   if AResp.Success then begin
     ApplyVideoFile(AResp.Obj);
+    { A file TDLib already had on disk comes back complete right here
+      and never produces an updateFile — without this the slot it took
+      would be held for the rest of the session. }
+    NoteFileDownloadState(AResp.Obj);
     Exit;
   end;
+  ReleaseDownloadSlot(integer(AResp.Tag));
   Idx := FVideoByFile.IndexOf(integer(AResp.Tag));
   if Idx >= 0 then begin
     FVideoByFile.Data[Idx].VideoDownloadRequested := False;
@@ -3828,6 +4319,9 @@ begin
       ApplyVideoThumbFile(JGetObj(Obj, 'file'));
       ApplyStickerFile(JGetObj(Obj, 'file'));
       ApplyCustomEmojiFile(JGetObj(Obj, 'file'));
+      { Last, after everyone has read the file: this is what lets the
+        next queued download start (see RequestFileDownload). }
+      NoteFileDownloadState(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));

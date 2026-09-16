@@ -357,17 +357,13 @@ type
     narrow enough that the blur is simply dropped, rather than adding
     conditional logic for "blur only if auto-download is off".
 
-    Visibility: in the CHAT (FIsActive always False) — ALWAYS the same
-    large centered PLAY icon, regardless of cursor position, the same
-    approach as before. In the VIEWER (FIsActive always True, see the
-    class comment below) — the center icon is removed entirely,
-    play/pause moved into the transport-button row under the scrub bar
-    (see PlaybackButtonRect/ControlsVisible): the bar/time/whole button
-    row are shown ALWAYS while the video is NOT playing (paused/not yet
-    started — the same case that used to show the lone center icon),
-    and ONLY on hover (MouseEnter/MouseLeave, FHovering) while the video
-    is actively playing — a clean picture, unobstructed, until the user
-    explicitly hovers.
+    Visibility: in the CHAT (Active=False) — ALWAYS the same large
+    centered PLAY icon, regardless of cursor position. In the VIEWER
+    (Active=True) — no icon and no controls of any kind: the scrub bar,
+    the time and the transport buttons used to be painted here, pinned
+    to the bottom of the frame, and now live in TVideoControlBar, a
+    separate control the viewer pins to ITS OWN bottom edge instead (see
+    that class). What is left here is just the picture.
 
     Live playback uses TMediaPlayer (mediaplayer.pas), but NOT from
     here: inline playback in the chat was removed entirely — clicking
@@ -375,9 +371,8 @@ type
     (mediaviewer.pas, TMsgScroller.VideoBodyClick), which holds its own,
     independent TMediaPlayer. Here, in the chat, the widget is just a
     clickable preview (the same role as TPhotoWidget): it has no player
-    of its own, is never "active" (FIsActive always False, see
-    SetPlayback in LayoutVideoWidgets), so the scrub bar/pause are never
-    shown — only the fixed play icon. }
+    of its own and is never "active" (Active stays False, see
+    LayoutVideoWidgets), so only the fixed play icon is shown. }
   { Repeat mode for the transport row's button: three states, in the
     order the button cycles through them (mediaviewer.pas,
     VideoWidgetRepeatClick): off -> repeat all (on reaching the end,
@@ -397,24 +392,18 @@ type
       on TPhotoWidget.FDownloadedSize/FTotalSize above; the same
       PaintDownloadProgress helper draws both. }
     FDownloadedSize, FTotalSize: Int64;
-    FDuration: integer;
     FThumbBmp: TBGRABitmap;     { the sharp frame from content.video.thumbnail, shown until the first live frame arrives — see SetVideoCore }
     FFrameBuf: PByte;           { the latest live frame, BGRA, FTargetW*FTargetH*4 — also what's shown while paused }
     FHaveFrame: boolean;        { whether this widget has ever received a live frame }
     FDownloadImages: TImageList; { the "download" icon }
     FImages: TImageList;         { play/pause — the same ImageList1 as TAudioWidget }
     FBgColor: TColor;
-    FHovering: boolean;
-    { Playback state — see SetPlayback/UpdateFrame, the same principle
-      as TAudioWidget.SetPlayback/FIsActive. }
-    FIsActive:    boolean;
-    FPlaying:     boolean;
-    FPositionSec: double;
-    FDraggingSeek: boolean;
-    FDragFraction: double;
+    { True only in the viewer: suppresses the centered play icon (the
+      viewer's own TVideoControlBar owns play/pause there) and hands the
+      cursor over to the viewer, which hides it while idle. }
+    FIsActive: boolean;
     FOnClick: TNotifyEvent;       { a click anywhere on an undownloaded widget — download }
-    FOnPlayClick: TNotifyEvent;   { a click on the play/pause button (widget center in chat, transport row in the viewer) }
-    FOnSeek: TAudioSeekEvent;
+    FOnPlayClick: TNotifyEvent;   { a click on the play/pause button — chat only, the widget's center }
     { A click on an already-downloaded video, NOT on the play/pause
       button and NOT on the scrub bar — i.e. on the frame/preview
       itself. The chat's inline player never reacted to this (only
@@ -422,68 +411,31 @@ type
       (mediaviewer.pas): "open bigger" needs to be a separate gesture
       from "play inline, small". }
     FOnBodyClick: TNotifyEvent;
-    { The transport-button row under the scrub bar, viewer only (see
-      the class comment and ControlsVisible below). Prev/next/repeat
-      can't be decided by the widget itself (it doesn't know about
-      neighboring messages or the repeat mode) — three new events on
-      the owner (mediaviewer.pas), the same approach already used for
-      OnPlayClick/OnSeek/OnBodyClick. Skip ±10s reuses the ALREADY
-      existing OnSeek (the widget computes the target fraction from
-      FPositionSec/FDuration itself, see SkipBy) — no new event was
-      added for it. }
-    FPlaybackImages: TImageList;
-    FHasPrevVideo, FHasNextVideo: boolean;
-    FRepeatMode: TVideoRepeatMode;
-    FOnPrevClick, FOnNextClick, FOnRepeatClick: TNotifyEvent;
     function PlayButtonRect: TRect;
-    function ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
-    function TrackAreaRect: TRect;
-    function FractionFromX(AX: integer): double;
-    { The top edge of the transport-button row — a shared source for
-      both Paint (where to draw) and PlaybackButtonRect (where to hit
-      test). }
-    function ButtonsRowTop: integer;
-    { The rectangle for button AIndex (0=prev,1=-10s,2=play/pause,
-      3=repeat,4=+10s,5=next) — a row of 6 PLAYBACK_BTN_SIZE buttons,
-      with a PLAYBACK_BTN_GAP gap, centered horizontally in ClientRect. }
-    function PlaybackButtonRect(AIndex: integer): TRect;
-    { Whether to show the transport row/bar/time RIGHT NOW — the same
-      condition that decides this block's visibility in Paint (see its
-      comment), factored out so MouseDown/MouseMove can never drift
-      from what's actually drawn (no clicking an invisible button). }
-    function ControlsVisible: boolean;
-    { Seeks by ADeltaSec seconds from the current position (negative
-      means backward), clamped to [0, FDuration] — through the already
-      existing OnSeek (the same path as dragging the thumb), no new
-      infrastructure was needed. }
-    procedure SkipBy(ADeltaSec: double);
     procedure ClearBitmap;
     procedure SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-      ATargetW, ATargetH, ADuration: integer; ADownloadedSize, ATotalSize: Int64);
+      ATargetW, ATargetH: integer; ADownloadedSize, ATotalSize: Int64);
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
-    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
-    procedure MouseEnter; override;
-    procedure MouseLeave; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    { The same signature/role as TAnimationWidget.SetAnim, plus
-      ADuration (seconds, like AudioDuration) — needed by the widget
-      for the time label on the scrub bar, even while the video isn't
-      active. AThumbLocalPath is the path to the already-downloaded
+    { The same signature/role as TAnimationWidget.SetAnim.
+      AThumbLocalPath is the path to the already-downloaded
       content.video.thumbnail (a 320x180 JPEG), '' while not yet
       downloaded (see TMsgRow.VideoThumbFileId and the class comment
       above about dropping the blur). ADownloadedSize/ATotalSize —
       TMsgRow.VideoDownloadedSize/VideoTotalSize, refreshed on every
       call the same way TPhotoWidget.SetPhoto's do, used by Paint for
-      the progress bar while ADownloaded is False. }
+      the progress bar while ADownloaded is False. The duration used to
+      be passed in as well, for the time label on the scrub bar — that
+      label belongs to TVideoControlBar now. }
     procedure SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-      AMaxW: integer; ADuration: integer; ADownloadedSize: Int64 = 0; ATotalSize: Int64 = 0);
+      AMaxW: integer; ADownloadedSize: Int64 = 0; ATotalSize: Int64 = 0);
     { The same as SetVideo, but with an EXPLICIT target size, not via
       ComputePhotoPreviewSize/AMaxW (which always clamps to
       PHOTO_MAX_WIDTH/HEIGHT, the small cap for an inline chat
@@ -492,8 +444,7 @@ type
       the size of a chat row. }
     procedure SetVideoSized(ARowId: Int64; ANaturalW, ANaturalH: integer;
       const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-      ATargetW, ATargetH, ADuration: integer);
-    procedure SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
+      ATargetW, ATargetH: integer);
     { Marks that FrameBuf has just been updated (the player itself
       writes DIRECTLY into FrameBuf, see its comment — the caller calls
       TryGetFrame(Widget.FrameBuf, ...), and follows up with this if it
@@ -514,31 +465,128 @@ type
     property RowId: Int64 read FRowId;
     property Downloaded: boolean read FDownloaded;
     property LocalPath: utf8string read FLocalPath;
-    property Dragging: boolean read FDraggingSeek;
     property BackgroundColor: TColor read FBgColor write FBgColor;
+    { Whether FrameBuf holds a real decoded frame yet (before the first
+      one arrives it is uninitialized memory — see NotifyNewFrame). The
+      viewer checks this before handing the buffer to TVideoControlBar
+      as the backdrop for its corners. }
+    property HasFrame: boolean read FHaveFrame;
+    { Viewer mode: no centered play icon, and the cursor is left alone
+      (the viewer hides it while idle). }
+    property Active: boolean read FIsActive write FIsActive;
     property OnClick: TNotifyEvent read FOnClick write FOnClick;
     property OnPlayClick: TNotifyEvent read FOnPlayClick write FOnPlayClick;
-    property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
     property OnBodyClick: TNotifyEvent read FOnBodyClick write FOnBodyClick;
-    property PlaybackImages: TImageList read FPlaybackImages write FPlaybackImages;
-    { Gray/colored variant of the row's prev/next buttons — the owner
-      (mediaviewer.pas) knows about neighboring video messages itself,
-      the widget doesn't. }
-    property HasPrevVideo: boolean read FHasPrevVideo write FHasPrevVideo;
-    property HasNextVideo: boolean read FHasNextVideo write FHasNextVideo;
-    { The repeat button's state — deliberately NOT reset in
-      SetVideoCore when switching to a different message (see its
-      comment) — a sticky mode for the whole viewer session, as
-      "repeat" should behave in an ordinary player, not a per-video
-      setting. Three states (TVideoRepeatMode), was previously a simple
-      on/off. }
-    property RepeatMode: TVideoRepeatMode read FRepeatMode write FRepeatMode;
-    property OnPrevClick: TNotifyEvent read FOnPrevClick write FOnPrevClick;
-    property OnNextClick: TNotifyEvent read FOnNextClick write FOnNextClick;
-    property OnRepeatClick: TNotifyEvent read FOnRepeatClick write FOnRepeatClick;
+    { Republished so the viewer can treat movement over the frame as
+      user activity (it hides the bar and the cursor after
+      VIEWER_IDLE_HIDE_MS of stillness) — TControl declares it, but
+      only protected. }
+    property OnMouseMove;
   end;
 
   TVideoWidgetMap = specialize TFPGMap<Int64, TVideoWidget>;
+
+  { TVideoControlBar
+
+    The media viewer's transport bar: scrub bar, elapsed/remaining time
+    and the six transport buttons (prev / -10s / play-pause / repeat /
+    +10s / next). All of this used to be painted by TVideoWidget at the
+    bottom of the video frame itself; it is a control of its own now,
+    which the viewer pins to the bottom of ITS OWN window
+    (VIEWER_BAR_BOTTOM_MARGIN) instead, so a tall portrait clip and a
+    wide one put the controls in the same place.
+
+    It lives in this unit rather than mediaviewer.pas only because
+    everything it draws with — BlendWithBackground, FormatAudioTime,
+    the AUDIO_* bar geometry — is implementation-private here; moving
+    it out of TVideoWidget was a cut-and-paste, not a rewrite.
+
+    It knows nothing about players or messages: the viewer feeds it
+    position/duration/playing through SetPlayback and gets clicks back
+    through the events, exactly as it used to with the widget. }
+  TVideoControlBar = class(TCustomControl)
+  private
+    FImages: TImageList;        { the playback ImageList (PLAYBACK_ICON_*) }
+    FDuration: integer;
+    FPositionSec: double;
+    FPlaying: boolean;
+    FHasPrev, FHasNext: boolean;
+    FRepeatMode: TVideoRepeatMode;
+    FDragging: boolean;
+    FDragFraction: double;
+    FTimeH: integer;            { cached, see TimeRowHeight }
+    { What lies behind the bar — the live video frame, since the bar
+      floats ON TOP of the picture. A child control cannot see through
+      itself, so anything outside the rounded card (the four corner
+      wedges, where the antialiased edge has to blend into something)
+      would otherwise come out flat black over the video. The buffer is
+      the video widget's own (not owned here, see SetBackdrop);
+      FBackBuf is this control's scratch copy, composed once per
+      repaint and blitted in one go. }
+    FSrcBuf: PByte;
+    FSrcW, FSrcH: integer;
+    FSrcOriginX, FSrcOriginY: integer;
+    FBackBuf: PByte;
+    FBackW, FBackH: integer;
+    FOnPlayClick, FOnPrevClick, FOnNextClick, FOnRepeatClick: TNotifyEvent;
+    FOnSeek: TAudioSeekEvent;
+    procedure PaintBackdrop;
+    { Height of the elapsed/remaining row. Measured on a throwaway
+      TBitmap canvas rather than this control's own: PreferredHeight is
+      needed by the viewer's layout before the bar is ever realized,
+      and an unrealized control has no usable canvas. Cached — the font
+      never changes. }
+    function TimeRowHeight: integer;
+    function ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
+    function TrackAreaRect: TRect;
+    function FractionFromX(AX: integer): double;
+    function ButtonsRowTop: integer;
+    { The rectangle for button AIndex (0=prev,1=-10s,2=play/pause,
+      3=repeat,4=+10s,5=next) — a row of 6 PLAYBACK_BTN_SIZE buttons,
+      with a PLAYBACK_BTN_GAP gap, centered horizontally. }
+    function PlaybackButtonRect(AIndex: integer): TRect;
+    { Seeks by ADeltaSec seconds from the current position (negative
+      means backward), clamped to [0, FDuration] — through the same
+      OnSeek the thumb drag uses, no separate event. }
+    procedure SkipBy(ADeltaSec: double);
+  protected
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    { The height the card needs for its contents — the viewer asks for
+      it when placing the bar. }
+    function PreferredHeight: integer;
+    procedure SetPlayback(APlaying: boolean; APositionSec: double);
+    { What to show through the rounded corners: ABuf is the video
+      widget's frame buffer (borrowed, never freed here), AW/AH its
+      size, AOriginX/AOriginY the position of that frame's top-left
+      corner in THIS control's coordinates. ABuf=nil means "nothing
+      known" — the corners fall back to plain black. }
+    procedure SetBackdrop(ABuf: PByte; AW, AH, AOriginX, AOriginY: integer);
+    property Images: TImageList read FImages write FImages;
+    property Duration: integer read FDuration write FDuration;
+    { True while the thumb is being dragged: the viewer must not
+      overwrite the position from the player during a drag, and must
+      not auto-hide the bar out from under the held thumb. }
+    property Dragging: boolean read FDragging;
+    { Gray/colored variant of the prev/next buttons — the owner knows
+      about neighboring video messages, this control doesn't. }
+    property HasPrev: boolean read FHasPrev write FHasPrev;
+    property HasNext: boolean read FHasNext write FHasNext;
+    { Sticky for the whole viewer session, not per video — the way
+      "repeat" behaves in an ordinary player. }
+    property RepeatMode: TVideoRepeatMode read FRepeatMode write FRepeatMode;
+    property OnPlayClick: TNotifyEvent read FOnPlayClick write FOnPlayClick;
+    property OnPrevClick: TNotifyEvent read FOnPrevClick write FOnPrevClick;
+    property OnNextClick: TNotifyEvent read FOnNextClick write FOnNextClick;
+    property OnRepeatClick: TNotifyEvent read FOnRepeatClick write FOnRepeatClick;
+    property OnSeek: TAudioSeekEvent read FOnSeek write FOnSeek;
+    property OnMouseMove;
+  end;
 
   { TStickerWidget
 
@@ -1421,8 +1469,14 @@ begin
   end;
 end;
 
-{ HH:MM:SS, with a leading "-" for negative values (a track's remaining time). }
-function FormatAudioTime(ASeconds: integer): string;
+{ MM:SS, or HH:MM:SS for a track that actually runs an hour or more,
+  with a leading "-" for negative values (a track's remaining time).
+
+  Which one is used is decided by ATotalSeconds — the whole track —
+  not by the value being formatted: the two ends of the same bar have
+  to agree, otherwise a 35-minute track would read "00:03" next to
+  "-00:35:30" one second in, and both would change shape mid-play. }
+function FormatAudioTime(ASeconds, ATotalSeconds: integer): string;
 var
   H, M, S: integer;
   Neg: boolean;
@@ -1434,7 +1488,11 @@ begin
   H := ASeconds div 3600;
   M := (ASeconds mod 3600) div 60;
   S := ASeconds mod 60;
-  Result := Format('%.2d:%.2d:%.2d', [H, M, S]);
+  if (ATotalSeconds >= 3600) or (H > 0) then begin
+    Result := Format('%.2d:%.2d:%.2d', [H, M, S]);
+  end else begin
+    Result := Format('%.2d:%.2d', [M, S]);
+  end;
   if Neg then begin
     Result := '-' + Result;
   end;
@@ -1854,14 +1912,14 @@ begin
     filling, otherwise the text would be drawn with an opaque
     background. }
   if FDraggingSeek then begin
-    ElapsedStr := FormatAudioTime(Round(FDragFraction * FDuration));
-    RemainStr := FormatAudioTime(Round(FDragFraction * FDuration) - FDuration);
+    ElapsedStr := FormatAudioTime(Round(FDragFraction * FDuration), FDuration);
+    RemainStr := FormatAudioTime(Round(FDragFraction * FDuration) - FDuration, FDuration);
   end else if FIsActive then begin
-    ElapsedStr := FormatAudioTime(Round(FPositionSec));
-    RemainStr := FormatAudioTime(Round(FPositionSec) - FDuration);
+    ElapsedStr := FormatAudioTime(Round(FPositionSec), FDuration);
+    RemainStr := FormatAudioTime(Round(FPositionSec) - FDuration, FDuration);
   end else begin
-    ElapsedStr := FormatAudioTime(0);
-    RemainStr := FormatAudioTime(-FDuration);
+    ElapsedStr := FormatAudioTime(0, FDuration);
+    RemainStr := FormatAudioTime(-FDuration, FDuration);
   end;
   Canvas.Brush.Style := bsClear;
   Canvas.Font.Style := [];
@@ -2523,29 +2581,29 @@ end;
 
 procedure TVideoWidget.SetVideo(ARowId: Int64; ANaturalW, ANaturalH: integer;
   const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-  AMaxW: integer; ADuration: integer; ADownloadedSize: Int64; ATotalSize: Int64);
+  AMaxW: integer; ADownloadedSize: Int64; ATotalSize: Int64);
 var
   TgtW, TgtH: integer;
 begin
   ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW, TgtW, TgtH);
-  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, TgtW, TgtH, ADuration,
+  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, TgtW, TgtH,
     ADownloadedSize, ATotalSize);
 end;
 
 procedure TVideoWidget.SetVideoSized(ARowId: Int64; ANaturalW, ANaturalH: integer;
   const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-  ATargetW, ATargetH, ADuration: integer);
+  ATargetW, ATargetH: integer);
 begin
   { The viewer (mediaviewer.pas, the only caller) has no progress
     tracking of its own — see the comment on SetVideoCore's new
     parameters. }
-  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, ATargetW, ATargetH, ADuration,
+  SetVideoCore(ARowId, ANaturalW, ANaturalH, AThumbLocalPath, ADownloaded, ALocalPath, ATargetW, ATargetH,
     0, 0);
 end;
 
 procedure TVideoWidget.SetVideoCore(ARowId: Int64; ANaturalW, ANaturalH: integer;
   const AThumbLocalPath: utf8string; ADownloaded: boolean; const ALocalPath: utf8string;
-  ATargetW, ATargetH, ADuration: integer; ADownloadedSize, ATotalSize: Int64);
+  ATargetW, ATargetH: integer; ADownloadedSize, ATotalSize: Int64);
 var
   Src: TBGRABitmap;
   OldTargetW, OldTargetH: integer;
@@ -2560,14 +2618,10 @@ begin
     FLocalPath := '';
     FHaveFrame := False;
     FIsActive := False;
-    FPlaying := False;
-    FPositionSec := 0;
-    FDraggingSeek := False;
   end;
   FRowId := ARowId;
   FNaturalW := ANaturalW;
   FNaturalH := ANaturalH;
-  FDuration := ADuration;
   OldTargetW := FTargetW;
   OldTargetH := FTargetH;
   FTargetW := ATargetW;
@@ -2614,14 +2668,6 @@ begin
   Invalidate;
 end;
 
-procedure TVideoWidget.SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
-begin
-  FIsActive := AIsActive;
-  FPlaying := APlaying;
-  FPositionSec := APositionSec;
-  Invalidate;
-end;
-
 procedure TVideoWidget.NotifyNewFrame;
 begin
   FHaveFrame := True;
@@ -2637,99 +2683,7 @@ begin
     (Box.Right + AUDIO_BUTTON_SIZE) div 2, (Box.Bottom + AUDIO_BUTTON_SIZE) div 2);
 end;
 
-function TVideoWidget.ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
-var
-  Box: TRect;
-  TimeH: integer;
-begin
-  Box := ClientRect;
-  AContentX := Box.Left + MSG_PAD_H;
-  AContentW := Box.Right - MSG_PAD_H - AContentX;
-  TimeH := Canvas.TextHeight('0');
-  { Bottom to top: MSG_PAD_V (bottom padding), the transport-button row
-    (PLAYBACK_BTN_SIZE, see ButtonsRowTop/PlaybackButtonRect — viewer
-    only, FIsActive), HEADER_PAD_V (gap), the time row (TimeH),
-    HEADER_PAD_V (gap), the scrub bar (AUDIO_THUMB_H). }
-  AProgressTop := Box.Bottom - MSG_PAD_V - PLAYBACK_BTN_SIZE - HEADER_PAD_V -
-    TimeH - HEADER_PAD_V - AUDIO_THUMB_H;
-  Result := AContentW >= 10;
-end;
-
-function TVideoWidget.ButtonsRowTop: integer;
-begin
-  Result := ClientRect.Bottom - MSG_PAD_V - PLAYBACK_BTN_SIZE;
-end;
-
-function TVideoWidget.PlaybackButtonRect(AIndex: integer): TRect;
-var
-  Box: TRect;
-  TotalW, StartX, RowTop: integer;
-begin
-  Box := ClientRect;
-  TotalW := 6 * PLAYBACK_BTN_SIZE + 5 * PLAYBACK_BTN_GAP;
-  StartX := Box.Left + (Box.Right - Box.Left - TotalW) div 2;
-  RowTop := ButtonsRowTop;
-  Result := Rect(StartX + AIndex * (PLAYBACK_BTN_SIZE + PLAYBACK_BTN_GAP), RowTop,
-    StartX + AIndex * (PLAYBACK_BTN_SIZE + PLAYBACK_BTN_GAP) + PLAYBACK_BTN_SIZE,
-    RowTop + PLAYBACK_BTN_SIZE);
-end;
-
-function TVideoWidget.ControlsVisible: boolean;
-begin
-  Result := FIsActive and (FHovering or FDraggingSeek or (not FPlaying));
-end;
-
-procedure TVideoWidget.SkipBy(ADeltaSec: double);
-var
-  NewPos, Frac: double;
-begin
-  if (FDuration <= 0) or (not Assigned(FOnSeek)) then begin
-    Exit;
-  end;
-  NewPos := FPositionSec + ADeltaSec;
-  if NewPos < 0 then begin
-    NewPos := 0;
-  end;
-  if NewPos > FDuration then begin
-    NewPos := FDuration;
-  end;
-  Frac := NewPos / FDuration;
-  FOnSeek(Self, Frac);
-end;
-
-function TVideoWidget.TrackAreaRect: TRect;
-var
-  CX, CW, PT: integer;
-begin
-  if not ContentGeometry(CX, CW, PT) then begin
-    Result := Rect(0, 0, 0, 0);
-    Exit;
-  end;
-  { The hit area extends above and below the visual bar/thumb — the
-    same margin (4px) as TAudioWidget.TrackAreaRect. }
-  Result := Rect(CX, PT - 4, CX + CW, PT + AUDIO_THUMB_H + 4);
-end;
-
-function TVideoWidget.FractionFromX(AX: integer): double;
-var
-  CX, CW, PT: integer;
-begin
-  Result := 0;
-  if not ContentGeometry(CX, CW, PT) or (CW <= 0) then begin
-    Exit;
-  end;
-  Result := (AX - CX) / CW;
-  if Result < 0 then begin
-    Result := 0;
-  end;
-  if Result > 1 then begin
-    Result := 1;
-  end;
-end;
-
 procedure TVideoWidget.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
-var
-  I: integer;
 begin
   inherited MouseDown(Button, Shift, X, Y);
   if Button <> mbLeft then begin
@@ -2746,133 +2700,47 @@ begin
   end;
   if not FIsActive then begin
     { In the chat, this is the only clickable zone over the frame (see
-      Paint — the widget never shows the transport row here). }
+      Paint — the widget shows nothing else here). }
     if PtInRect(PlayButtonRect, Point(X, Y)) then begin
       if Assigned(FOnPlayClick) then begin
         FOnPlayClick(Self);
       end;
-    end;
-    Exit;
-  end;
-  { In the viewer — the transport-button row, only while it's actually
-    visible (see ControlsVisible/Paint) — otherwise an invisible button
-    could be clicked. Skip ±10s goes through SkipBy (the already
-    existing OnSeek, see its comment), the other four are their own
-    events — prev/next/repeat are decided by the owner
-    (mediaviewer.pas). }
-  if ControlsVisible then begin
-    for I := 0 to 5 do begin
-      if PtInRect(PlaybackButtonRect(I), Point(X, Y)) then begin
-        case I of
-          0: if Assigned(FOnPrevClick) then FOnPrevClick(Self);
-          1: SkipBy(-PLAYBACK_SKIP_SEC);
-          2: if Assigned(FOnPlayClick) then FOnPlayClick(Self);
-          3: if Assigned(FOnRepeatClick) then FOnRepeatClick(Self);
-          4: SkipBy(PLAYBACK_SKIP_SEC);
-        else
-          if Assigned(FOnNextClick) then FOnNextClick(Self);
-        end;
-        Exit;
-      end;
+      Exit;
     end;
   end;
-  { Seeking is only possible while the bar is actually visible (see
-    ControlsVisible), the same approach as TAudioWidget, plus a
-    visibility requirement that audio doesn't have (its bar is always
-    on screen). }
-  if ControlsVisible and PtInRect(TrackAreaRect, Point(X, Y)) then begin
-    FDraggingSeek := True;
-    FDragFraction := FractionFromX(X);
-    Invalidate;
-    Exit;
-  end;
-  { A click on the frame itself — not play/pause, not the bar, not the
-    button row — means "open bigger" (see FOnBodyClick). Inside the
-    viewer itself, this callback isn't assigned — a safe no-op. }
+  { A click on the frame itself means "open bigger" (see FOnBodyClick).
+    Inside the viewer this callback isn't assigned — a safe no-op, and
+    the transport controls are no longer part of this widget at all
+    (TVideoControlBar), so there is nothing else here to hit. }
   if Assigned(FOnBodyClick) then begin
     FOnBodyClick(Self);
   end;
 end;
 
 procedure TVideoWidget.MouseMove(Shift: TShiftState; X, Y: integer);
-var
-  I: integer;
-  OverControl: boolean;
 begin
   inherited MouseMove(Shift, X, Y);
-  if FDraggingSeek then begin
-    FDragFraction := FractionFromX(X);
-    Invalidate;
-    Exit;
-  end;
   if not FDownloaded then begin
     Cursor := crHandPoint;
     Exit;
   end;
-  if not FIsActive then begin
-    if PtInRect(PlayButtonRect, Point(X, Y)) then begin
-      Cursor := crHandPoint;
-    end else begin
-      Cursor := crDefault;
-    end;
+  if FIsActive then begin
+    { In the viewer the cursor belongs to the viewer, not to this
+      widget: it hides both the control bar and the cursor itself after
+      VIEWER_IDLE_HIDE_MS of stillness, and a Cursor assignment here
+      would undo that on the very next mouse message. }
     Exit;
   end;
-  OverControl := False;
-  if ControlsVisible then begin
-    OverControl := PtInRect(TrackAreaRect, Point(X, Y));
-    if not OverControl then begin
-      for I := 0 to 5 do begin
-        if PtInRect(PlaybackButtonRect(I), Point(X, Y)) then begin
-          OverControl := True;
-          Break;
-        end;
-      end;
-    end;
-  end;
-  if OverControl then begin
+  if PtInRect(PlayButtonRect, Point(X, Y)) then begin
     Cursor := crHandPoint;
   end else begin
     Cursor := crDefault;
   end;
 end;
 
-procedure TVideoWidget.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
-begin
-  inherited MouseUp(Button, Shift, X, Y);
-  if FDraggingSeek and (Button = mbLeft) then begin
-    FDraggingSeek := False;
-    if Assigned(FOnSeek) then begin
-      FOnSeek(Self, FDragFraction);
-    end;
-    Invalidate;
-  end;
-end;
-
-procedure TVideoWidget.MouseEnter;
-begin
-  inherited MouseEnter;
-  FHovering := True;
-  Invalidate;
-end;
-
-procedure TVideoWidget.MouseLeave;
-begin
-  inherited MouseLeave;
-  FHovering := False;
-  { Dragging is NOT interrupted — FDraggingSeek/ShowSeekBar in Paint
-    account for it separately from FHovering (see Paint), otherwise the
-    bar would visually vanish right under the held thumb the moment the
-    mouse leaves the widget for a fraction of a second during the
-    drag. }
-  Invalidate;
-end;
-
 procedure TVideoWidget.Paint;
 var
-  Box, PlayRect, TrackRect, ThumbRect, PlayedRect, OverlayRect, BtnRect: TRect;
-  ContentX, ContentW, ProgressTop, PlayedW, IconIdx, TimeH, I: integer;
-  Frac: double;
-  ElapsedStr, RemainStr: string;
+  Box, PlayRect: TRect;
 begin
   Box := ClientRect;
   Canvas.Brush.Style := bsSolid;
@@ -2901,57 +2769,296 @@ begin
     Exit;
   end;
 
+  { In the chat the widget is never active and has no player of its own
+    (see the class comment) — one large centered PLAY icon, always. In
+    the viewer nothing is drawn over the frame at all: play/pause and
+    everything else moved to TVideoControlBar, which the viewer pins to
+    its own bottom edge. }
   if not FIsActive then begin
-    { In the chat, the widget is NEVER active, has no player/transport
-      row of its own (see the class comment) — just one large,
-      centered PLAY icon, ALWAYS. }
     PlayRect := PlayButtonRect;
     if (FImages <> nil) and (AUDIO_ICON_PLAY < FImages.Count) then begin
       FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, AUDIO_ICON_PLAY, True);
     end;
+  end;
+end;
+
+{ ---------------- TVideoControlBar ---------------- }
+
+constructor TVideoControlBar.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  DoubleBuffered := True;
+  FRepeatMode := vrmOff;
+end;
+
+destructor TVideoControlBar.Destroy;
+begin
+  if FBackBuf <> nil then begin
+    FreeMem(FBackBuf);
+    FBackBuf := nil;
+  end;
+  inherited Destroy;
+end;
+
+procedure TVideoControlBar.SetBackdrop(ABuf: PByte; AW, AH, AOriginX, AOriginY: integer);
+begin
+  FSrcBuf := ABuf;
+  FSrcW := AW;
+  FSrcH := AH;
+  FSrcOriginX := AOriginX;
+  FSrcOriginY := AOriginY;
+end;
+
+{ Composes the bar-sized backdrop (black, with whatever part of the
+  video frame overlaps copied in) and blits it in one call. Copying row
+  slices into a scratch buffer rather than blitting the frame at a
+  negative offset avoids relying on how SetDIBitsToDevice treats source
+  coordinates for a TOP-DOWN DIB — documented ambiguously, and this is
+  the only place in the project that would have needed a partial one. }
+procedure TVideoControlBar.PaintBackdrop;
+var
+  W, H, Y, SrcY, DstX0, DstX1, Count: integer;
+  Dst, Src: PByte;
+begin
+  W := ClientWidth;
+  H := ClientHeight;
+  if (W <= 0) or (H <= 0) then begin
     Exit;
   end;
-
-  { In the viewer (having reached here means FIsActive is True). The
-    whole block (bar+time+transport row) acts as one unit: shown
-    ALWAYS while the video isn't playing (paused/not yet started —
-    the same case that used to show a lone centered PLAY, whose role
-    now belongs to the play/pause button in the row), and ONLY on
-    hover (or while a drag started on hover is still in progress, see
-    MouseLeave) while the video is actively playing — a clean picture,
-    unobstructed. }
-  if FPlaying and (not ControlsVisible) then begin
-    Exit;   { a clean video, no controls, until the mouse hovers }
+  if (FBackBuf = nil) or (FBackW <> W) or (FBackH <> H) then begin
+    if FBackBuf <> nil then begin
+      FreeMem(FBackBuf);
+    end;
+    GetMem(FBackBuf, cardinal(W) * cardinal(H) * 4);
+    FBackW := W;
+    FBackH := H;
   end;
+  FillChar(FBackBuf^, cardinal(W) * cardinal(H) * 4, 0);
+
+  if (FSrcBuf <> nil) and (FSrcW > 0) and (FSrcH > 0) then begin
+    DstX0 := Max(0, FSrcOriginX);
+    DstX1 := Min(W, FSrcOriginX + FSrcW);
+    Count := DstX1 - DstX0;
+    if Count > 0 then begin
+      for Y := 0 to H - 1 do begin
+        SrcY := Y - FSrcOriginY;
+        if (SrcY < 0) or (SrcY >= FSrcH) then begin
+          Continue;
+        end;
+        Dst := FBackBuf + (cardinal(Y) * cardinal(W) + cardinal(DstX0)) * 4;
+        Src := FSrcBuf + (cardinal(SrcY) * cardinal(FSrcW) + cardinal(DstX0 - FSrcOriginX)) * 4;
+        Move(Src^, Dst^, cardinal(Count) * 4);
+      end;
+    end;
+  end;
+
+  DrawBgraBuffer(Canvas, FBackBuf, W, H);
+end;
+
+function TVideoControlBar.TimeRowHeight: integer;
+var
+  Bmp: TBitmap;
+begin
+  if FTimeH <= 0 then begin
+    Bmp := TBitmap.Create;
+    try
+      Bmp.Canvas.Font.Name := 'default';
+      Bmp.Canvas.Font.Height := -11;
+      Bmp.Canvas.Font.Style := [];
+      FTimeH := Bmp.Canvas.TextHeight('0');
+    finally
+      Bmp.Free;
+    end;
+  end;
+  Result := FTimeH;
+end;
+
+function TVideoControlBar.PreferredHeight: integer;
+begin
+  { Top to bottom: padding, the scrub bar, a gap, the time row, a gap,
+    the transport-button row, padding. The same stack the widget used
+    to draw bottom-up inside the video frame. }
+  Result := VIEWER_BAR_PAD + AUDIO_THUMB_H + HEADER_PAD_V + TimeRowHeight +
+    HEADER_PAD_V + PLAYBACK_BTN_SIZE + VIEWER_BAR_PAD;
+end;
+
+function TVideoControlBar.ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
+begin
+  AContentX := VIEWER_BAR_PAD;
+  AContentW := ClientWidth - 2 * VIEWER_BAR_PAD;
+  AProgressTop := VIEWER_BAR_PAD;
+  Result := AContentW >= 10;
+end;
+
+function TVideoControlBar.ButtonsRowTop: integer;
+begin
+  Result := ClientHeight - VIEWER_BAR_PAD - PLAYBACK_BTN_SIZE;
+end;
+
+function TVideoControlBar.PlaybackButtonRect(AIndex: integer): TRect;
+var
+  TotalW, StartX, RowTop: integer;
+begin
+  TotalW := 6 * PLAYBACK_BTN_SIZE + 5 * PLAYBACK_BTN_GAP;
+  StartX := (ClientWidth - TotalW) div 2;
+  RowTop := ButtonsRowTop;
+  Result := Rect(StartX + AIndex * (PLAYBACK_BTN_SIZE + PLAYBACK_BTN_GAP), RowTop,
+    StartX + AIndex * (PLAYBACK_BTN_SIZE + PLAYBACK_BTN_GAP) + PLAYBACK_BTN_SIZE,
+    RowTop + PLAYBACK_BTN_SIZE);
+end;
+
+function TVideoControlBar.TrackAreaRect: TRect;
+var
+  CX, CW, PT: integer;
+begin
+  if not ContentGeometry(CX, CW, PT) then begin
+    Result := Rect(0, 0, 0, 0);
+    Exit;
+  end;
+  { The hit area extends above and below the visual bar/thumb — the
+    same margin (4px) as TAudioWidget.TrackAreaRect. }
+  Result := Rect(CX, PT - 4, CX + CW, PT + AUDIO_THUMB_H + 4);
+end;
+
+function TVideoControlBar.FractionFromX(AX: integer): double;
+var
+  CX, CW, PT: integer;
+begin
+  Result := 0;
+  if not ContentGeometry(CX, CW, PT) or (CW <= 0) then begin
+    Exit;
+  end;
+  Result := (AX - CX) / CW;
+  if Result < 0 then begin
+    Result := 0;
+  end;
+  if Result > 1 then begin
+    Result := 1;
+  end;
+end;
+
+procedure TVideoControlBar.SkipBy(ADeltaSec: double);
+var
+  NewPos, Frac: double;
+begin
+  if (FDuration <= 0) or (not Assigned(FOnSeek)) then begin
+    Exit;
+  end;
+  NewPos := FPositionSec + ADeltaSec;
+  if NewPos < 0 then begin
+    NewPos := 0;
+  end;
+  if NewPos > FDuration then begin
+    NewPos := FDuration;
+  end;
+  Frac := NewPos / FDuration;
+  FOnSeek(Self, Frac);
+end;
+
+procedure TVideoControlBar.SetPlayback(APlaying: boolean; APositionSec: double);
+begin
+  FPlaying := APlaying;
+  FPositionSec := APositionSec;
+  Invalidate;
+end;
+
+procedure TVideoControlBar.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+var
+  I: integer;
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  if Button <> mbLeft then begin
+    Exit;
+  end;
+  for I := 0 to 5 do begin
+    if PtInRect(PlaybackButtonRect(I), Point(X, Y)) then begin
+      case I of
+        0: if Assigned(FOnPrevClick) then FOnPrevClick(Self);
+        1: SkipBy(-PLAYBACK_SKIP_SEC);
+        2: if Assigned(FOnPlayClick) then FOnPlayClick(Self);
+        3: if Assigned(FOnRepeatClick) then FOnRepeatClick(Self);
+        4: SkipBy(PLAYBACK_SKIP_SEC);
+      else
+        if Assigned(FOnNextClick) then FOnNextClick(Self);
+      end;
+      Exit;
+    end;
+  end;
+  if PtInRect(TrackAreaRect, Point(X, Y)) then begin
+    FDragging := True;
+    FDragFraction := FractionFromX(X);
+    Invalidate;
+  end;
+end;
+
+procedure TVideoControlBar.MouseMove(Shift: TShiftState; X, Y: integer);
+var
+  I: integer;
+  OverControl: boolean;
+begin
+  inherited MouseMove(Shift, X, Y);
+  if FDragging then begin
+    FDragFraction := FractionFromX(X);
+    Invalidate;
+    Exit;
+  end;
+  OverControl := PtInRect(TrackAreaRect, Point(X, Y));
+  if not OverControl then begin
+    for I := 0 to 5 do begin
+      if PtInRect(PlaybackButtonRect(I), Point(X, Y)) then begin
+        OverControl := True;
+        Break;
+      end;
+    end;
+  end;
+  if OverControl then begin
+    Cursor := crHandPoint;
+  end else begin
+    Cursor := crDefault;
+  end;
+end;
+
+procedure TVideoControlBar.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  inherited MouseUp(Button, Shift, X, Y);
+  if FDragging and (Button = mbLeft) then begin
+    FDragging := False;
+    if Assigned(FOnSeek) then begin
+      FOnSeek(Self, FDragFraction);
+    end;
+    Invalidate;
+  end;
+end;
+
+procedure TVideoControlBar.Paint;
+var
+  TrackRect, ThumbRect, PlayedRect, BtnRect: TRect;
+  ContentX, ContentW, ProgressTop, PlayedW, IconIdx, TimeH, TimeY, I: integer;
+  Frac: double;
+  ElapsedStr, RemainStr: string;
+begin
+  { The bar floats over the picture, so what shows through outside the
+    rounded card is the video itself — see PaintBackdrop/SetBackdrop.
+    It has to be painted first: the antialiased edge of the card blends
+    into whatever is already on the canvas. }
+  PaintBackdrop;
+  PaintRounded(Canvas, ClientRect, VIEWER_BAR_CORNER_RADIUS, [],
+    VIEWER_BAR_COLOR, clNone, SMOOTH_CHROME_CORNERS);
 
   if not ContentGeometry(ContentX, ContentW, ProgressTop) then begin
     Exit;
   end;
-
-  TimeH := Canvas.TextHeight('0');
-
-  { A dark backing under the bar/time/button row — otherwise they'd be
-    hard to read against an arbitrary video. A solid fill, not
-    semi-transparent — real alpha blending against a frame that changes
-    dozens of times a second would cost noticeably more (the same
-    reason other widgets use cheap rounding). Having reached this
-    point, the whole block is shown as-is — no separate condition on
-    the fill itself is needed. }
-  OverlayRect := Rect(Box.Left, ProgressTop - MSG_PAD_V, Box.Right, Box.Bottom);
-  Canvas.Brush.Style := bsSolid;
-  Canvas.Pen.Style := psClear;
-  Canvas.Brush.Color := RGBToColor(20, 20, 20);
-  Canvas.FillRect(OverlayRect);
+  TimeH := TimeRowHeight;
 
   { The scrub bar — the same geometry/colors/behavior as
     TAudioWidget.Paint (AUDIO_TRACK_H/AUDIO_THUMB_H/W/
     AUDIO_PLAYED_OPACITY/AUDIO_REMAIN_OPACITY/FormatAudioTime), matching
-    it exactly. Blended toward black (clBlack), not clWindow like
-    audio — the backing here is dark (see OverlayRect above), not the
+    it exactly. Blended toward the card color rather than clWindow like
+    audio — the backing here is the dark VIEWER_BAR_COLOR, not a
     message block's light background. }
   TrackRect := Rect(ContentX, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2,
     ContentX + ContentW, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2 + AUDIO_TRACK_H);
-  if FDraggingSeek then begin
+  if FDragging then begin
     PlayedW := Round(FDragFraction * ContentW);
   end else if FDuration > 0 then begin
     Frac := FPositionSec / FDuration;
@@ -2966,35 +3073,36 @@ begin
     PlayedW := 0;
   end;
 
+  Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Style := psClear;
-  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_REMAIN_OPACITY, clBlack);
+  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_REMAIN_OPACITY, VIEWER_BAR_COLOR);
   Canvas.FillRect(TrackRect);
   if PlayedW > 0 then begin
     PlayedRect := Rect(TrackRect.Left, TrackRect.Top, TrackRect.Left + PlayedW, TrackRect.Bottom);
-    Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, clBlack);
+    Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, VIEWER_BAR_COLOR);
     Canvas.FillRect(PlayedRect);
   end;
 
   ThumbRect := Rect(ContentX + PlayedW - AUDIO_THUMB_W div 2, ProgressTop,
     ContentX + PlayedW - AUDIO_THUMB_W div 2 + AUDIO_THUMB_W, ProgressTop + AUDIO_THUMB_H);
-  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, clBlack);
+  Canvas.Brush.Color := BlendWithBackground(AUDIO_COLOR, AUDIO_PLAYED_OPACITY, VIEWER_BAR_COLOR);
   Canvas.FillRect(ThumbRect);
 
-  if FDraggingSeek then begin
-    ElapsedStr := FormatAudioTime(Round(FDragFraction * FDuration));
-    RemainStr := FormatAudioTime(Round(FDragFraction * FDuration) - FDuration);
+  if FDragging then begin
+    ElapsedStr := FormatAudioTime(Round(FDragFraction * FDuration), FDuration);
+    RemainStr := FormatAudioTime(Round(FDragFraction * FDuration) - FDuration, FDuration);
   end else begin
-    ElapsedStr := FormatAudioTime(Round(FPositionSec));
-    RemainStr := FormatAudioTime(Round(FPositionSec) - FDuration);
+    ElapsedStr := FormatAudioTime(Round(FPositionSec), FDuration);
+    RemainStr := FormatAudioTime(Round(FPositionSec) - FDuration, FDuration);
   end;
+  TimeY := ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V;
   Canvas.Brush.Style := bsClear;
   Canvas.Font.Name := 'default';
   Canvas.Font.Height := -11;
   Canvas.Font.Style := [];
   Canvas.Font.Color := clWhite;
-  Canvas.TextOut(ContentX, ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, ElapsedStr);
-  Canvas.TextOut(ContentX + ContentW - Canvas.TextWidth(RemainStr),
-    ProgressTop + AUDIO_THUMB_H + HEADER_PAD_V, RemainStr);
+  Canvas.TextOut(ContentX, TimeY, ElapsedStr);
+  Canvas.TextOut(ContentX + ContentW - Canvas.TextWidth(RemainStr), TimeY, RemainStr);
 
   { The transport-button row: left to right, prev / -10s / play-pause /
     repeat / +10s / next. The gray/colored variant reflects
@@ -3002,10 +3110,10 @@ begin
     already at the edge) or mode (repeat state), not the button's own
     hover state (there are no separate "pressed" frames in the
     playback list). }
-  if FPlaybackImages <> nil then begin
+  if FImages <> nil then begin
     for I := 0 to 5 do begin
       case I of
-        0: IconIdx := IfThen(FHasPrevVideo, PLAYBACK_ICON_PREV_ON, PLAYBACK_ICON_PREV_OFF);
+        0: IconIdx := IfThen(FHasPrev, PLAYBACK_ICON_PREV_ON, PLAYBACK_ICON_PREV_OFF);
         1: IconIdx := IfThen(FPositionSec > 0.01, PLAYBACK_ICON_BACK10_ON, PLAYBACK_ICON_BACK10_OFF);
         2: IconIdx := IfThen(FPlaying, PLAYBACK_ICON_PAUSE, PLAYBACK_ICON_PLAY);
         3: case FRepeatMode of
@@ -3017,11 +3125,11 @@ begin
         4: IconIdx := IfThen((FDuration > 0) and (FPositionSec < FDuration - 0.01),
              PLAYBACK_ICON_FWD10_ON, PLAYBACK_ICON_FWD10_OFF);
       else
-        IconIdx := IfThen(FHasNextVideo, PLAYBACK_ICON_NEXT_ON, PLAYBACK_ICON_NEXT_OFF);
+        IconIdx := IfThen(FHasNext, PLAYBACK_ICON_NEXT_ON, PLAYBACK_ICON_NEXT_OFF);
       end;
-      if IconIdx < FPlaybackImages.Count then begin
+      if IconIdx < FImages.Count then begin
         BtnRect := PlaybackButtonRect(I);
-        FPlaybackImages.Draw(Canvas, BtnRect.Left, BtnRect.Top, IconIdx, True);
+        FImages.Draw(Canvas, BtnRect.Left, BtnRect.Top, IconIdx, True);
       end;
     end;
   end;
@@ -5881,13 +5989,12 @@ begin
       NatH := R.VideoHeight;
     end;
     W.SetVideo(R.Id, NatW, NatH, R.VideoThumbLocalPath,
-      R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left, R.VideoDuration,
+      R.VideoLocalPath <> '', R.VideoLocalPath, CR.Right - CR.Left,
       R.VideoDownloadedSize, R.VideoTotalSize);
     { There's no inline playback (see the comment on FVideoPool) — the
-      chat widget is always "inactive" (a play icon, no scrub bar on
-      hover); real playback happens only in the viewer, see
-      VideoBodyClick. }
-    W.SetPlayback(False, False, 0);
+      chat widget is always "inactive" (just a play icon); real playback
+      happens only in the viewer, see VideoBodyClick. }
+    W.Active := False;
     W.SetBounds(CR.Left, CR.Top, W.TargetWidth, W.TargetHeight);
     W.Visible := True;
   end;

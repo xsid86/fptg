@@ -32,6 +32,31 @@ type
   end;
   TPreviewGlyphArray = array of TPreviewGlyph;
 
+  { A chat folder (chatListFolder), as announced by updateChatFolders.
+
+    Only the two fields the chat list actually shows: TDLib's
+    chatFolderInfo also carries an icon name, a color id and sharing
+    flags, none of which the folder button on a row uses. Title comes
+    from name.text.text — chatFolderName is a formattedText whose
+    entities may only be custom emoji (per the schema), and those are
+    not rendered on the button either. }
+  TChatFolder = record
+    Id:    integer;
+    Title: utf8string;
+  end;
+  TChatFolderArray = array of TChatFolder;
+
+  { Context for one in-flight getChatFolder -> editChatFolder pair, see
+    RemoveChatFromFolder. TTdRequests carries exactly one PtrInt Tag
+    through a request (tdreq.pas, no anonymous functions in FPC 3.2),
+    so the TWO values that pair needs live in a slot here and the slot
+    INDEX is what rides along as the tag. Slots are reused rather than
+    appended forever: ChatId = 0 means free. }
+  TFolderOp = record
+    FolderId: integer;
+    ChatId:   Int64;
+  end;
+
   { TChatRow
 
     Plain data, with no reference to LCL at all. The mini-thumbnail is
@@ -48,6 +73,21 @@ type
     InList:             boolean;   { has a position in chatListMain }
     InArchive:          boolean;   { has a position in chatListArchive }
     ArchiveOrder:       Int64;
+    { Ids of the chat folders (chatListFolder) this chat currently
+      appears in — empty for a chat in no folder, and also for one
+      whose folder positions TDLib simply hasn't sent yet.
+
+      Maintained ADDITIVELY: one id added or removed per explicit
+      signal (updateChatPosition with a folder list, or
+      updateChatAddedToList/updateChatRemovedFromList), never rebuilt
+      wholesale from a positions array the way InList/InArchive are.
+      That difference is deliberate, not an oversight —
+      updateChatLastMessage routinely arrives with "positions":[] for a
+      chat that IS in the main list and in several folders (confirmed
+      in this project's own tdlib_raw.log, not assumed), so treating
+      that array as exhaustive for folders would clear every folder
+      again on the next incoming message. }
+    FolderIds:          array of integer;
     Kind:               TChatKind;
     Title:              utf8string;
     LastText:           utf8string;
@@ -174,6 +214,14 @@ type
       anyway (the underlying cache in customemoji.pas is the one thing
       actually shared between them). }
     FCustomEmojiPending: array of Int64;
+    { Chat folders, in the order TDLib lists them (which is the order
+      the user arranged their folder tabs in — reorderChatFolders).
+      Replaced wholesale on every updateChatFolders: that update is a
+      complete list, not a delta. }
+    FFolders: TChatFolderArray;
+    { Slots for in-flight getChatFolder -> editChatFolder pairs, see
+      TFolderOp. }
+    FFolderOps: array of TFolderOp;
 
     function GetCount: integer;
     function GetRow(AIndex: integer): TChatRow;
@@ -207,6 +255,15 @@ type
     procedure ApplyCustomEmojiFile(AFile: TJSONObject);
     procedure ApplyUser(AUser: TJSONObject);
     procedure ApplyNotifySettings(ARow: TChatRow; ASettings: TJSONObject);
+    procedure ApplyChatFolders(AFolders: TJSONArray);
+    procedure SetRowFolder(ARow: TChatRow; AFolderId: integer; AIn: boolean);
+    procedure ApplyListMembership(AObj: TJSONObject; AIn: boolean);
+    function GetFolderCount: integer;
+    function GetFolder(AIndex: integer): TChatFolder;
+    function AllocFolderOp(AFolderId: integer; AChatId: Int64): PtrInt;
+    procedure DetachChatFromFolders(ARow: TChatRow; AExceptId: integer);
+    procedure RemoveChatFromFolder(AChatId: Int64; AFolderId: integer);
+    procedure GetChatFolderDone(Sender: TObject; const AResp: TTdResponse);
   public
     { The model belongs to an account. The resolver is passed in from
       outside rather than fetched as a singleton: each account has its
@@ -233,6 +290,30 @@ type
     procedure SetPinned(ARow: TChatRow; APinned: boolean);
     procedure SetArchived(ARow: TChatRow; AArchived: boolean);
     procedure LeaveChat(ARow: TChatRow);
+
+    { --- chat folders ---
+      Membership is read straight off TChatRow.FolderIds (kept current
+      by updates); the two actions below only send requests, and the
+      row updates itself when TDLib reports the new positions. }
+    { A folder's display title by id, '' if that id is unknown. }
+    function FolderTitle(AFolderId: integer): utf8string;
+    { The folder to SHOW for a chat that may be in several at once: the
+      first one in FFolders order, i.e. the leftmost of the user's own
+      folder tabs. 0 = none. }
+    function RowFolderId(ARow: TChatRow): integer;
+    { Moves a chat into AFolderId, leaving every other folder it is
+      currently in. Not "add to folder": one button showing one folder
+      is the whole point of the row's folder chip. }
+    procedure MoveChatToFolder(ARow: TChatRow; AFolderId: integer);
+    { Creates a new folder holding just this chat (and removes the chat
+      from its current folders, as MoveChatToFolder would). The folder
+      list refreshes itself: TDLib answers with a new updateChatFolders. }
+    procedure CreateFolderWithChat(const ATitle: utf8string; ARow: TChatRow);
+    { Takes the chat out of every folder it is in, without putting it
+      anywhere else. Same caveat as the removal half of
+      MoveChatToFolder: a chat a folder includes BY RULE stays in it —
+      see GetChatFolderDone. }
+    procedure RemoveChatFromFolders(ARow: TChatRow);
 
     { Whether the peer is a bot. Always False for non-private chats. }
     function IsBotChat(ARow: TChatRow): boolean;
@@ -299,6 +380,10 @@ type
     property AllLoaded: boolean read FAllLoaded;
     property LoadLimit: integer read FLoadLimit write FLoadLimit;
 
+    { The user's chat folders, in their own tab order. }
+    property FolderCount: integer read GetFolderCount;
+    property Folders[AIndex: integer]: TChatFolder read GetFolder;
+
     property Session: ITdSession read FSession;
     property OnChanged: TTdChatsEvent read FOnChanged write FOnChanged;
     property OnActionError: TTdChatsErrorEvent read FOnActionError write FOnActionError;
@@ -329,6 +414,129 @@ begin
     ckSecret:     Result := 'secret';
   else
     Result := 'unknown';
+  end;
+end;
+
+{ chat_folder_id of a ChatList object, or -1 when it isn't a folder at
+  all (chatListMain/chatListArchive, which the model tracks through
+  their own dedicated fields). Folder ids are assigned by the server
+  and are positive, so -1 can never collide with a real one. }
+function ChatListFolderId(AList: TJSONObject): integer;
+begin
+  Result := -1;
+  if AList = nil then begin
+    Exit;
+  end;
+  if JGetStr(AList, '@type') = 'chatListFolder' then begin
+    Result := JGetInt(AList, 'chat_folder_id');
+  end;
+end;
+
+{ Strips TDLib's envelope keys off a cloned RESPONSE object so it can
+  be handed straight back as a REQUEST parameter, and forces its
+  '@type'. A response carries '@extra' (this project's own request tag,
+  tdreq.pas) and '@client_id'; neither belongs inside a chatFolder
+  being sent to editChatFolder. Everything else is preserved untouched,
+  including fields this code knows nothing about — that is the entire
+  point of a get/modify/put cycle: a folder's icon, color and filter
+  flags have to survive an edit that only means to change which chats
+  are in it. }
+procedure StripEnvelope(AObj: TJSONObject; const AType: utf8string);
+var
+  I: integer;
+  N: string;
+begin
+  if AObj = nil then begin
+    Exit;
+  end;
+  I := 0;
+  while I < AObj.Count do begin
+    N := AObj.Names[I];
+    if (N <> '') and (N[1] = '@') then begin
+      AObj.Delete(I);
+    end else begin
+      Inc(I);
+    end;
+  end;
+  AObj.Strings['@type'] := string(AType);
+end;
+
+{ Drops every occurrence of AId from the named int53 array, if the
+  array is there at all. }
+procedure RemoveIdFromArray(AObj: TJSONObject; const AName: string; AId: Int64);
+var
+  Arr: TJSONArray;
+  I: integer;
+begin
+  Arr := JGetArr(AObj, AName);
+  if Arr = nil then begin
+    Exit;
+  end;
+  I := 0;
+  while I < Arr.Count do begin
+    if (Arr.Items[I].JSONType = jtNumber) and (Arr.Items[I].AsInt64 = AId) then begin
+      Arr.Delete(I);
+    end else begin
+      Inc(I);
+    end;
+  end;
+end;
+
+{ A complete chatFolder object for createChatFolder, holding exactly
+  one chat and no automatic filters — the minimum that describes "a
+  folder called X with this chat in it". Built with TJSONObject rather
+  than by string concatenation for one reason that matters: the title
+  is arbitrary user input and has to be escaped properly. }
+function NewFolderJson(const ATitle: utf8string; AChatId: Int64): utf8string;
+var
+  Obj, NameObj, TextObj, IconObj: TJSONObject;
+  Included: TJSONArray;
+begin
+  Obj := TJSONObject.Create;
+  try
+    TextObj := TJSONObject.Create;
+    TextObj.Strings['@type'] := 'formattedText';
+    TextObj.Strings['text'] := string(ATitle);
+    TextObj.Add('entities', TJSONArray.Create);
+
+    NameObj := TJSONObject.Create;
+    NameObj.Strings['@type'] := 'chatFolderName';
+    NameObj.Add('text', TextObj);
+    NameObj.Booleans['animate_custom_emoji'] := False;
+
+    { "Custom" is a real icon name from the schema's own list, and the
+      one TDLib itself hands back for a folder with no theme of its
+      own. color_id -1 means "no color", the only value guaranteed to
+      be accepted: per the schema a real color can't be set at all
+      without Premium or with folder tags disabled. }
+    IconObj := TJSONObject.Create;
+    IconObj.Strings['@type'] := 'chatFolderIcon';
+    IconObj.Strings['name'] := 'Custom';
+
+    Included := TJSONArray.Create;
+    if AChatId <> 0 then begin
+      Included.Add(AChatId);
+    end;
+
+    Obj.Strings['@type'] := 'chatFolder';
+    Obj.Add('name', NameObj);
+    Obj.Add('icon', IconObj);
+    Obj.Add('color_id', -1);
+    Obj.Booleans['is_shareable'] := False;
+    Obj.Add('pinned_chat_ids', TJSONArray.Create);
+    Obj.Add('included_chat_ids', Included);
+    Obj.Add('excluded_chat_ids', TJSONArray.Create);
+    Obj.Booleans['exclude_muted'] := False;
+    Obj.Booleans['exclude_read'] := False;
+    Obj.Booleans['exclude_archived'] := False;
+    Obj.Booleans['include_contacts'] := False;
+    Obj.Booleans['include_non_contacts'] := False;
+    Obj.Booleans['include_bots'] := False;
+    Obj.Booleans['include_groups'] := False;
+    Obj.Booleans['include_channels'] := False;
+    Result := utf8string(Obj.AsJSON);
+  finally
+    Obj.Free;
   end;
 end;
 
@@ -663,6 +871,14 @@ begin
   FByFile.Clear;
   FBots.Clear;
   FPremiumUsers.Clear;
+  { Folders belong to the account, so they go out with the chats. TDLib
+    re-announces them with a fresh updateChatFolders AFTER
+    authorizationStateReady (which is what triggers this Clear — that
+    order verified in tdlib_raw.log, not assumed), so nothing is lost.
+    In-flight folder edits are abandoned with them: their slots name
+    chats that no longer exist. }
+  SetLength(FFolders, 0);
+  SetLength(FFolderOps, 0);
   FAllLoaded := False;
   FArchiveLoading := False;
   FArchiveAllLoaded := False;
@@ -1394,6 +1610,266 @@ begin
     '"chat_id":' + utf8string(IntToStr(ARow.Id)), @ActionDone);
 end;
 
+{ ---------------- chat folders ---------------- }
+
+function TTdChats.GetFolderCount: integer;
+begin
+  Result := Length(FFolders);
+end;
+
+function TTdChats.GetFolder(AIndex: integer): TChatFolder;
+begin
+  if (AIndex < 0) or (AIndex > High(FFolders)) then begin
+    Result.Id := 0;
+    Result.Title := '';
+  end else begin
+    Result := FFolders[AIndex];
+  end;
+end;
+
+function TTdChats.FolderTitle(AFolderId: integer): utf8string;
+var
+  I: integer;
+begin
+  Result := '';
+  for I := 0 to High(FFolders) do begin
+    if FFolders[I].Id = AFolderId then begin
+      Result := FFolders[I].Title;
+      Exit;
+    end;
+  end;
+end;
+
+function TTdChats.RowFolderId(ARow: TChatRow): integer;
+var
+  I, J: integer;
+begin
+  Result := 0;
+  if ARow = nil then begin
+    Exit;
+  end;
+  { Walked in FFolders order, not in the row's own: a chat can sit in
+    several folders at once and the row shows ONE chip, so which one it
+    shows has to be stable and meaningful rather than "whichever
+    position update happened to arrive first". FFolders order is the
+    user's own tab order, so the chip names the leftmost tab the chat
+    appears under. }
+  for I := 0 to High(FFolders) do begin
+    for J := 0 to High(ARow.FolderIds) do begin
+      if ARow.FolderIds[J] = FFolders[I].Id then begin
+        Result := FFolders[I].Id;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+procedure TTdChats.ApplyChatFolders(AFolders: TJSONArray);
+var
+  I, N: integer;
+  Info: TJSONObject;
+begin
+  SetLength(FFolders, 0);
+  if AFolders <> nil then begin
+    N := 0;
+    SetLength(FFolders, AFolders.Count);
+    for I := 0 to AFolders.Count - 1 do begin
+      if AFolders.Items[I].JSONType <> jtObject then begin
+        Continue;
+      end;
+      Info := TJSONObject(AFolders.Items[I]);
+      FFolders[N].Id := JGetInt(Info, 'id');
+      { name.text.text — chatFolderName wraps a formattedText, it is
+        not a plain string (schema-confirmed, and confirmed again
+        against this project's own tdlib_raw.log). }
+      FFolders[N].Title := JGetStr(JGetObj(JGetObj(Info, 'name'), 'text'), 'text');
+      Inc(N);
+    end;
+    SetLength(FFolders, N);
+  end;
+  Touch;
+end;
+
+procedure TTdChats.SetRowFolder(ARow: TChatRow; AFolderId: integer; AIn: boolean);
+var
+  I, N: integer;
+begin
+  if (ARow = nil) or (AFolderId <= 0) then begin
+    Exit;
+  end;
+  for I := 0 to High(ARow.FolderIds) do begin
+    if ARow.FolderIds[I] = AFolderId then begin
+      if AIn then begin
+        Exit;   { already there }
+      end;
+      for N := I to High(ARow.FolderIds) - 1 do begin
+        ARow.FolderIds[N] := ARow.FolderIds[N + 1];
+      end;
+      SetLength(ARow.FolderIds, Length(ARow.FolderIds) - 1);
+      Touch;
+      Exit;
+    end;
+  end;
+  if AIn then begin
+    SetLength(ARow.FolderIds, Length(ARow.FolderIds) + 1);
+    ARow.FolderIds[High(ARow.FolderIds)] := AFolderId;
+    Touch;
+  end;
+end;
+
+{ updateChatAddedToList / updateChatRemovedFromList. Both also fire for
+  chatListMain/chatListArchive, which are tracked through positions
+  instead (order carries information these two updates don't) — only
+  the folder case is acted on here. }
+procedure TTdChats.ApplyListMembership(AObj: TJSONObject; AIn: boolean);
+var
+  FolderId: integer;
+  R: TChatRow;
+begin
+  FolderId := ChatListFolderId(JGetObj(AObj, 'chat_list'));
+  if FolderId <= 0 then begin
+    Exit;
+  end;
+  R := Lookup(JGetInt64(AObj, 'chat_id'));
+  if R <> nil then begin
+    SetRowFolder(R, FolderId, AIn);
+  end;
+end;
+
+function TTdChats.AllocFolderOp(AFolderId: integer; AChatId: Int64): PtrInt;
+var
+  I: integer;
+begin
+  for I := 0 to High(FFolderOps) do begin
+    if FFolderOps[I].ChatId = 0 then begin
+      FFolderOps[I].FolderId := AFolderId;
+      FFolderOps[I].ChatId := AChatId;
+      Result := I;
+      Exit;
+    end;
+  end;
+  SetLength(FFolderOps, Length(FFolderOps) + 1);
+  FFolderOps[High(FFolderOps)].FolderId := AFolderId;
+  FFolderOps[High(FFolderOps)].ChatId := AChatId;
+  Result := High(FFolderOps);
+end;
+
+{ TDLib has no removeChatFromList: dropping a chat out of a folder
+  means editing the FOLDER, and editChatFolder replaces it whole, so
+  the current one has to be fetched first. }
+procedure TTdChats.RemoveChatFromFolder(AChatId: Int64; AFolderId: integer);
+begin
+  if (FReq = nil) or (AChatId = 0) or (AFolderId <= 0) then begin
+    Exit;
+  end;
+  FReq.SendRequest('getChatFolder',
+    '"chat_folder_id":' + utf8string(IntToStr(AFolderId)),
+    @GetChatFolderDone, AllocFolderOp(AFolderId, AChatId));
+end;
+
+procedure TTdChats.GetChatFolderDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Op: TFolderOp;
+  Folder: TJSONObject;
+  Body: utf8string;
+begin
+  if (AResp.Tag < 0) or (AResp.Tag > High(FFolderOps)) then begin
+    Exit;
+  end;
+  Op := FFolderOps[AResp.Tag];
+  FFolderOps[AResp.Tag].ChatId := 0;   { slot free again, whatever follows }
+  if not AResp.Success then begin
+    if Assigned(FOnActionError) then begin
+      FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'folder');
+    end;
+    Exit;
+  end;
+  if (FReq = nil) or (Op.ChatId = 0) or (AResp.Obj = nil) then begin
+    Exit;
+  end;
+
+  { Cloned, not referenced: AResp.Obj is only valid inside this
+    callback (see TTdResponse) and SendRequest below is asynchronous.
+
+    Only the two lists that hold a chat in a folder BY NAME are
+    touched. The chat is deliberately NOT added to excluded_chat_ids:
+    that would make the removal stick even against the folder's own
+    filter rules, a bigger and longer-lived change to the user's folder
+    than "this chat lives somewhere else now" asked for. A chat the
+    folder includes by rule (include_groups and friends) therefore
+    stays visible in it — the same thing the official clients do. }
+  Folder := AResp.Obj.Clone as TJSONObject;
+  try
+    StripEnvelope(Folder, 'chatFolder');
+    RemoveIdFromArray(Folder, 'pinned_chat_ids', Op.ChatId);
+    RemoveIdFromArray(Folder, 'included_chat_ids', Op.ChatId);
+    Body := '"chat_folder_id":' + utf8string(IntToStr(Op.FolderId)) +
+            ',"folder":' + utf8string(Folder.AsJSON);
+  finally
+    Folder.Free;
+  end;
+  FReq.SendRequest('editChatFolder', Body, @ActionDone);
+end;
+
+procedure TTdChats.DetachChatFromFolders(ARow: TChatRow; AExceptId: integer);
+var
+  I: integer;
+  Ids: array of integer;
+begin
+  { The ids are copied out first: each RemoveChatFromFolder is only a
+    request, but the reply that eventually shrinks ARow.FolderIds
+    arrives through the same update stream this loop is not holding
+    still — walking the live array while something else may rewrite it
+    is not a risk worth taking to save three lines. }
+  SetLength(Ids, Length(ARow.FolderIds));
+  for I := 0 to High(ARow.FolderIds) do begin
+    Ids[I] := ARow.FolderIds[I];
+  end;
+  for I := 0 to High(Ids) do begin
+    if Ids[I] <> AExceptId then begin
+      RemoveChatFromFolder(ARow.Id, Ids[I]);
+    end;
+  end;
+end;
+
+procedure TTdChats.MoveChatToFolder(ARow: TChatRow; AFolderId: integer);
+begin
+  if (ARow = nil) or (FReq = nil) or (AFolderId <= 0) then begin
+    Exit;
+  end;
+  DetachChatFromFolders(ARow, AFolderId);
+  { addChatToList is the cheap half: for a folder list it appends the
+    chat to included_chat_ids with no round trip of our own. }
+  FReq.SendRequest('addChatToList',
+    '"chat_id":' + utf8string(IntToStr(ARow.Id)) +
+    ',"chat_list":{"@type":"chatListFolder","chat_folder_id":' +
+    utf8string(IntToStr(AFolderId)) + '}', @ActionDone);
+end;
+
+procedure TTdChats.RemoveChatFromFolders(ARow: TChatRow);
+begin
+  if (ARow = nil) or (FReq = nil) then begin
+    Exit;
+  end;
+  { AExceptId = 0 spares nothing: TDLib assigns no folder that id. }
+  DetachChatFromFolders(ARow, 0);
+end;
+
+procedure TTdChats.CreateFolderWithChat(const ATitle: utf8string; ARow: TChatRow);
+begin
+  if (ARow = nil) or (FReq = nil) or (ATitle = '') then begin
+    Exit;
+  end;
+  DetachChatFromFolders(ARow, 0);
+  { The reply (a chatFolderInfo) is not parsed: TDLib follows it with a
+    fresh updateChatFolders and with the chat's new position, which is
+    what actually refreshes the list. ActionDone is still the callback
+    so a refusal — a name over 12 characters, or the folder limit —
+    gets reported rather than swallowed. }
+  FReq.SendRequest('createChatFolder',
+    '"folder":' + NewFolderJson(ATitle, ARow.Id), @ActionDone);
+end;
+
 { ---------------- update parsing ---------------- }
 
 procedure TTdChats.ApplyPosition(ARow: TChatRow; APos: TJSONObject);
@@ -1427,8 +1903,13 @@ begin
       ARow.InArchive := True;
       ARow.ArchiveOrder := Ord;
     end;
+  end else begin
+    { A folder position. Order 0 means the same thing here as in the
+      two lists above — gone from that folder. ChatListFolderId returns
+      -1 for anything that isn't a folder at all, and SetRowFolder
+      ignores that. }
+    SetRowFolder(ARow, ChatListFolderId(JGetObj(APos, 'list')), Ord <> 0);
   end;
-  { Folders (chatListFolder) are not supported yet. }
 end;
 
 procedure TTdChats.ApplyPositions(ARow: TChatRow; APositions: TJSONArray);
@@ -1458,6 +1939,11 @@ begin
       ApplyPosition(ARow, P);
     end else if Kind = 'chatListArchive' then begin
       SawArchive := True;
+      ApplyPosition(ARow, P);
+    end else if Kind = 'chatListFolder' then begin
+      { Folder entries are applied one at a time and never cleared from
+        an ABSENT entry — see TChatRow.FolderIds for why this array
+        can't be treated as exhaustive where folders are concerned. }
       ApplyPosition(ARow, P);
     end;
   end;
@@ -1690,6 +2176,12 @@ begin
         ApplyEmojiStatus(R, JGetObj(Obj, 'emoji_status'));
         Touch;
       end;
+    end else if T = 'updateChatFolders' then begin
+      ApplyChatFolders(JGetArr(Obj, 'chat_folders'));
+    end else if T = 'updateChatAddedToList' then begin
+      ApplyListMembership(Obj, True);
+    end else if T = 'updateChatRemovedFromList' then begin
+      ApplyListMembership(Obj, False);
     end else if T = 'updateChatPermissions' then begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));
       if R <> nil then begin

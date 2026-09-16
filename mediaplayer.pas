@@ -205,6 +205,24 @@ type
     property OnStateChanged: TNotifyEvent read FOnStateChanged write FOnStateChanged;
   end;
 
+{ The REAL pixel size of a video file's first frame.
+
+  Needed because TDLib's content.video.width/height is not measured by
+  TDLib at all — it is whatever the uploading client declared, and it
+  can simply be wrong. Confirmed on this account's own history: every
+  LostFilm release in it reports 715x330 while the actual stream is
+  1280x720 (checked against the mp4 boxes of the cached files, not
+  assumed), which showed the picture both squashed and far too small.
+
+  Reads the size off a decoded frame rather than off AVCodecParameters:
+  ffdecode.pas deliberately declares only the first three fields of
+  that struct, and width/height sit well past them, behind fields that
+  have been added between FFmpeg releases — a guessed offset there
+  would be silent memory corruption, while AVFrame.width/height is
+  already declared and already relied on elsewhere. The cost is opening
+  the file and decoding a single frame, once per video opened. }
+function ProbeVideoSize(const APath: utf8string; out AWidth, AHeight: integer): boolean;
+
 implementation
 
 const
@@ -214,6 +232,97 @@ const
     fix applied to the identical pattern in videoplayer.pas after a
     live heaptrc-caught heap corruption there. }
   SWS_SCALE_TAIL_PAD = 64;
+
+function ProbeVideoSize(const APath: utf8string; out AWidth, AHeight: integer): boolean;
+var
+  FmtCtx: PAVFormatContext;
+  VStream: PAVStream;
+  VCodecCtx, VCodec: pointer;
+  Pkt: PAVPacket;
+  Frame: PAVFrame;
+  VideoStreamIdx, I: integer;
+  Guard: integer;
+begin
+  Result := False;
+  AWidth := 0;
+  AHeight := 0;
+  FmtCtx := nil;
+  VCodecCtx := nil;
+  Pkt := nil;
+  Frame := nil;
+  VideoStreamIdx := -1;
+
+  if APath = '' then begin
+    Exit;
+  end;
+  if avformat_open_input(FmtCtx, PAnsiChar(APath), nil, nil) < 0 then begin
+    Exit;
+  end;
+  try
+    if avformat_find_stream_info(FmtCtx, nil) < 0 then begin
+      Exit;
+    end;
+    for I := 0 to FmtCtx^.nb_streams - 1 do begin
+      if (Pointer(PPAVStream(FmtCtx^.streams)[I]) <> nil) and
+         (PPAVStream(FmtCtx^.streams)[I]^.codecpar^.codec_type = AVMEDIA_TYPE_VIDEO) then begin
+        VideoStreamIdx := I;
+        Break;
+      end;
+    end;
+    if VideoStreamIdx < 0 then begin
+      Exit;
+    end;
+    VStream := PPAVStream(FmtCtx^.streams)[VideoStreamIdx];
+    VCodec := avcodec_find_decoder(VStream^.codecpar^.codec_id);
+    if VCodec = nil then begin
+      Exit;
+    end;
+    VCodecCtx := avcodec_alloc_context3(VCodec);
+    if VCodecCtx = nil then begin
+      Exit;
+    end;
+    if (avcodec_parameters_to_context(VCodecCtx, VStream^.codecpar) < 0) or
+       (avcodec_open2(VCodecCtx, VCodec, nil) < 0) then begin
+      Exit;
+    end;
+    Pkt := av_packet_alloc;
+    Frame := av_frame_alloc;
+    if (Pkt = nil) or (Frame = nil) then begin
+      Exit;
+    end;
+    { Bounded: a file whose first video frame never decodes (truncated,
+      broken) must not spin here — the caller falls back to TDLib's
+      declared size in that case. }
+    Guard := 0;
+    while (not Result) and (Guard < 500) and (av_read_frame(FmtCtx, Pkt) >= 0) do begin
+      Inc(Guard);
+      if Pkt^.stream_index = VideoStreamIdx then begin
+        if avcodec_send_packet(VCodecCtx, Pkt) >= 0 then begin
+          while avcodec_receive_frame(VCodecCtx, Frame) >= 0 do begin
+            if (Frame^.width > 0) and (Frame^.height > 0) then begin
+              AWidth := Frame^.width;
+              AHeight := Frame^.height;
+              Result := True;
+              Break;
+            end;
+          end;
+        end;
+      end;
+      av_packet_unref(Pkt);
+    end;
+  finally
+    if Frame <> nil then begin
+      av_frame_free(Frame);
+    end;
+    if Pkt <> nil then begin
+      av_packet_free(Pkt);
+    end;
+    if VCodecCtx <> nil then begin
+      avcodec_free_context(VCodecCtx);
+    end;
+    avformat_close_input(FmtCtx);
+  end;
+end;
 
 { ---------------- TVideoDecodeThread ---------------- }
 
