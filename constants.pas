@@ -702,6 +702,11 @@ const
   { Shown when the chat is in no folder at all. Clicking it opens the
     same menu — it is a button, not a label. }
   CHATROW_FOLDER_NONE = 'no folder';
+  { Fill for that one, by direct request (#f1f2f3, so $F3F2F1 here —
+    TColor is BGR). A fixed grey rather than a blend, because there is
+    no folder to take an accent color from, and the chat's own accent
+    would read as "this one has a folder too". }
+  CHATROW_FOLDER_NONE_FILL = TColor($F3F2F1);
   { chatFolderName, per the TDLib schema: "1-12 characters without line
     feeds". Checked before sending rather than letting the server
     refuse the whole createChatFolder. }

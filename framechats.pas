@@ -1151,7 +1151,7 @@ var
   GlyphShift, GI: Integer;
   ChipR, BadgeR: TRect;
   ChipCap: String;
-  ChipColor: TColor;
+  ChipColor, ChipFill: TColor;
 begin
   { FCache is created in the constructor's body, i.e. after streaming.
     If the grid requests a paint before that finishes, it's nil here. }
@@ -1454,17 +1454,22 @@ begin
 
   { --- folder chip ---
     A pill in the chat's own accent color when it belongs to a folder,
-    grey when it doesn't. Outline and text only, with the card's body
-    showing through (clNone fill) rather than a tinted one: the chip
-    already sits ON the tinted card body, and a second wash of the same
-    accent over it reads as a smudge rather than a button. }
+    grey when it doesn't — outline and text. The fill is HeaderFill,
+    the very same color as the card's header strip (direct request):
+    the chip reads as a button that way instead of as a hole in the
+    card, and it can't be mistaken for the body tint underneath it,
+    which is the weaker SENDER_BG_OPACITY blend. A chat in no folder
+    gets a fixed grey instead (CHATROW_FOLDER_NONE_FILL) — there is no
+    folder accent to echo. }
   if FModel.RowFolderId(R) <> 0 then begin
     ChipColor := Accent;
+    ChipFill  := HeaderFill;
   end
   else begin
     ChipColor := clGrayText;
+    ChipFill  := CHATROW_FOLDER_NONE_FILL;
   end;
-  PaintCardRoundRect(Cv, ChipR, CHATROW_FOLDER_RADIUS, [], clNone, ChipColor);
+  PaintCardRoundRect(Cv, ChipR, CHATROW_FOLDER_RADIUS, [], ChipFill, ChipColor);
   Cv.Brush.Style := bsClear;
   Cv.Font.Style  := [];
   Cv.Font.Height := CHATROW_FOLDER_FONT_H;
