@@ -1,0 +1,82 @@
+object FrameSettingsStorage: TFrameSettingsStorage
+  Left = 0
+  Height = 300
+  Top = 0
+  Width = 400
+  ClientHeight = 300
+  ClientWidth = 400
+  TabOrder = 0
+  object lblUsageCaption: TLabel
+    Left = 16
+    Height = 15
+    Top = 16
+    Width = 250
+    Caption = 'Media cache on disk'
+  end
+  object lblUsage: TLabel
+    Left = 16
+    Height = 15
+    Top = 36
+    Width = 300
+    Caption = 'not measured yet'
+  end
+  object lblDatabase: TLabel
+    Left = 16
+    Height = 15
+    Top = 56
+    Width = 300
+    Caption = ''
+  end
+  object lblLimit: TLabel
+    Left = 16
+    Height = 15
+    Top = 96
+    Width = 300
+    Caption = 'Maximum cache size, MB (0 = unlimited)'
+  end
+  object spnLimit: TSpinEdit
+    Left = 16
+    Height = 23
+    Top = 116
+    Width = 100
+    MaxValue = 1048576
+    MinValue = 0
+    TabOrder = 0
+    Value = 2048
+    OnChange = spnLimitChange
+  end
+  object lblTtl: TLabel
+    Left = 16
+    Height = 15
+    Top = 156
+    Width = 300
+    Caption = 'Also drop files unused for, days (0 = off)'
+  end
+  object spnTtl: TSpinEdit
+    Left = 16
+    Height = 23
+    Top = 176
+    Width = 100
+    MaxValue = 3650
+    MinValue = 0
+    TabOrder = 1
+    Value = 0
+    OnChange = spnTtlChange
+  end
+  object btnCleanup: TButton
+    Left = 16
+    Height = 25
+    Top = 216
+    Width = 120
+    Caption = 'Clean up now'
+    TabOrder = 2
+    OnClick = btnCleanupClick
+  end
+  object lblStatus: TLabel
+    Left = 16
+    Height = 15
+    Top = 252
+    Width = 300
+    Caption = ''
+  end
+end

@@ -162,6 +162,22 @@ type
     AudioFileId:            integer;
     AudioLocalPath:         utf8string;
     AudioDownloadRequested: boolean;
+    { The album cover shown at the left of TAudioWidget. Two possible
+      sources, both plain "thumbnail" objects (format/width/height/
+      file), confirmed from tdlib_raw.log: content.audio.
+      album_cover_thumbnail — the art actually embedded in the file —
+      and content.audio.external_album_covers — what Telegram found by
+      title/performer when the file carries none. ExtractAudioMeta
+      prefers the former and picks the smallest of the latter that
+      still covers AUDIO_COVER_SIZE.
+      Downloaded WITHOUT the Auto download gate, the same reasoning as
+      the video preview frame and stickers: tens of KB, and it is the
+      placeholder the widget is showing in the meantime.
+      AudioCoverFileId=0 means the track has no cover at all (then the
+      widget keeps the headphones placeholder). }
+    AudioCoverFileId:            integer;
+    AudioCoverLocalPath:         utf8string;
+    AudioCoverDownloadRequested: boolean;
     { messageVoiceNote.voice_note — Kind=mckVoiceNote only. The same
       two-level scheme as audio (content.voice_note.voice is the
       downloadable file, confirmed from tdlib_raw.log), but without
@@ -355,6 +371,10 @@ type
   { Audio file_id -> message — the same approach as TTdChats.FByFile
     for avatars (tdchats.pas). }
   TAudioFileMap = specialize TFPGMap<integer, TMsgRow>;
+  { Album-cover file_id -> message — a separate file_id from the audio
+    itself (TAudioFileMap above), its own map for the same reason as
+    TVideoThumbFileMap. }
+  TAudioCoverFileMap = specialize TFPGMap<integer, TMsgRow>;
   { Voice-note file_id -> message — the same role as TAudioFileMap for
     audio, a separate map (not shared): its own file_id, its own TDLib
     cache file, the same principle as TDocFileMap below. }
@@ -456,6 +476,9 @@ type
 
     { Audio-file downloads — see EnsureAudioFile/ApplyAudioFile. }
     FByFile: TAudioFileMap;
+    { Album-cover downloads — see
+      EnsureAudioCoverFile/ApplyAudioCoverFile. }
+    FAudioCoverByFile: TAudioCoverFileMap;
     { Voice-note downloads — see EnsureVoiceFile/ApplyVoiceFile. }
     FVoiceByFile: TVoiceFileMap;
     { Document-file downloads — see EnsureDocFile/ApplyDocFile. }
@@ -521,7 +544,10 @@ type
       out AReactions: TMsgReactionArray);
     procedure ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
       out ADuration: integer; out ATitle, APerformer, AFileName: utf8string;
+      out ACoverFileId: integer; out ACoverLocalPath: utf8string;
       out AFileId: integer; out ALocalPath: utf8string);
+    procedure DownloadAudioCoverDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyAudioCoverFile(AFile: TJSONObject);
     procedure DownloadAudioDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyAudioFile(AFile: TJSONObject);
     procedure ExtractVoiceMeta(AContent: TJSONObject; const AType: utf8string;
@@ -697,6 +723,10 @@ type
       separate event is set up — the same approach already used for
       avatars. }
     procedure EnsureAudioFile(ARow: TMsgRow);
+    { The track's album cover (see AudioCoverFileId) — WITHOUT the Auto
+      download settings gate, the same principle as
+      EnsureVideoThumbFile/stickers (see the field's comment). }
+    procedure EnsureAudioCoverFile(ARow: TMsgRow);
     { Same for a voice note (see VoiceFileId) — the same approach. }
     procedure EnsureVoiceFile(ARow: TMsgRow);
     { EnsureAudioFile/EnsureVoiceFile under one name — the same
@@ -1052,6 +1082,8 @@ begin
   FReplyCache.Sorted := True;
   FByFile := TAudioFileMap.Create;
   FByFile.Sorted := True;
+  FAudioCoverByFile := TAudioCoverFileMap.Create;
+  FAudioCoverByFile.Sorted := True;
   FVoiceByFile := TVoiceFileMap.Create;
   FVoiceByFile.Sorted := True;
   FDocByFile := TDocFileMap.Create;
@@ -1104,6 +1136,7 @@ begin
   FAll.Free;
   FReplyCache.Free;
   FByFile.Free;
+  FAudioCoverByFile.Free;
   FVoiceByFile.Free;
   FDocByFile.Free;
   FPhotoByFile.Free;
@@ -1129,6 +1162,7 @@ begin
   end;
   FReplyCache.Clear;
   FByFile.Clear;
+  FAudioCoverByFile.Clear;
   FVoiceByFile.Clear;
   FDocByFile.Clear;
   FPhotoByFile.Clear;
@@ -1780,14 +1814,44 @@ end;
   "...","file_name":"..."}}. }
 procedure TTdMessages.ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
   out ADuration: integer; out ATitle, APerformer, AFileName: utf8string;
+  out ACoverFileId: integer; out ACoverLocalPath: utf8string;
   out AFileId: integer; out ALocalPath: utf8string);
+
+  { A "thumbnail" object (format/width/height/file) -> its file id and,
+    if it happens to be downloaded already, its path. Both cover
+    sources below have this exact shape. }
+  procedure ReadThumb(AThumb: TJSONObject; out AId: integer; out APath: utf8string);
+  var
+    FO, LO: TJSONObject;
+  begin
+    AId := 0;
+    APath := '';
+    if AThumb = nil then begin
+      Exit;
+    end;
+    FO := JGetObj(AThumb, 'file');
+    if FO = nil then begin
+      Exit;
+    end;
+    AId := JGetInt(FO, 'id');
+    LO := JGetObj(FO, 'local');
+    if (LO <> nil) and JGetBool(LO, 'is_downloading_completed') then begin
+      APath := JGetStr(LO, 'path');
+    end;
+  end;
+
 var
-  AudioObj, FileObj, LocalObj: TJSONObject;
+  AudioObj, FileObj, LocalObj, CoverObj, ItemObj: TJSONObject;
+  Arr: TJSONArray;
+  I, W, H, BestIdx, LargestIdx: integer;
+  Area, BestArea, LargestArea: Int64;
 begin
   ADuration := 0;
   ATitle := '';
   APerformer := '';
   AFileName := '';
+  ACoverFileId := 0;
+  ACoverLocalPath := '';
   AFileId := 0;
   ALocalPath := '';
   if (AContent = nil) or (AType <> 'messageAudio') then begin
@@ -1801,6 +1865,59 @@ begin
   ATitle := JGetStr(AudioObj, 'title');
   APerformer := JGetStr(AudioObj, 'performer');
   AFileName := JGetStr(AudioObj, 'file_name');
+
+  { The album cover, in order of preference (both confirmed from
+    tdlib_raw.log, not from memory): album_cover_thumbnail — the art
+    embedded in the file itself, usually 300x300; failing that,
+    external_album_covers — what Telegram matched by title/performer
+    for files that carry none, an ARRAY of the same thumbnail objects
+    (100x100 and 600x600 in practice). From the array, the smallest
+    entry that still covers AUDIO_COVER_SIZE is taken — the display is
+    48px, downloading the 600px one for it would be pure waste — with
+    the largest as the fallback when nothing reaches that size.
+    album_cover_minithumbnail (a 40x40 inline base64 blur) is
+    deliberately NOT used: the cover file is tens of KB and is fetched
+    right away without the Auto download gate, so the blur would only
+    ever flash for an instant — the same call already made for the
+    video preview frame. }
+  CoverObj := JGetObj(AudioObj, 'album_cover_thumbnail');
+  if CoverObj <> nil then begin
+    ReadThumb(CoverObj, ACoverFileId, ACoverLocalPath);
+  end;
+  if ACoverFileId = 0 then begin
+    Arr := JGetArr(AudioObj, 'external_album_covers');
+    if (Arr <> nil) and (Arr.Count > 0) then begin
+      BestIdx := -1;
+      BestArea := -1;
+      LargestIdx := -1;
+      LargestArea := -1;
+      for I := 0 to Arr.Count - 1 do begin
+        if Arr.Items[I].JSONType <> jtObject then begin
+          Continue;
+        end;
+        ItemObj := TJSONObject(Arr.Items[I]);
+        W := JGetInt(ItemObj, 'width');
+        H := JGetInt(ItemObj, 'height');
+        Area := Int64(W) * H;
+        if Area > LargestArea then begin
+          LargestArea := Area;
+          LargestIdx := I;
+        end;
+        if (W >= AUDIO_COVER_SIZE) and (H >= AUDIO_COVER_SIZE) then begin
+          if (BestArea < 0) or (Area < BestArea) then begin
+            BestArea := Area;
+            BestIdx := I;
+          end;
+        end;
+      end;
+      if BestIdx < 0 then begin
+        BestIdx := LargestIdx;
+      end;
+      if BestIdx >= 0 then begin
+        ReadThumb(TJSONObject(Arr.Items[BestIdx]), ACoverFileId, ACoverLocalPath);
+      end;
+    end;
+  end;
 
   { content.audio.audio is the downloadable file itself (a TDLib file
     object), a separate level from content.audio (the track's
@@ -2645,7 +2762,7 @@ begin
   R.Kind := ContentKindFromType(T);
   ExtractFormatted(ContentObj, T, R.PlainText, R.Entities);
   ExtractAudioMeta(ContentObj, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
-    R.AudioFileId, R.AudioLocalPath);
+    R.AudioCoverFileId, R.AudioCoverLocalPath, R.AudioFileId, R.AudioLocalPath);
   ExtractVoiceMeta(ContentObj, T, R.VoiceDuration, R.VoiceFileId, R.VoiceLocalPath);
   ExtractDocMeta(ContentObj, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   ExtractPhotoMeta(ContentObj, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
@@ -2685,7 +2802,7 @@ begin
   R.ContentRaw := utf8string(ANewContent.AsJSON);
   ExtractFormatted(ANewContent, T, R.PlainText, R.Entities);
   ExtractAudioMeta(ANewContent, T, R.AudioDuration, R.AudioTitle, R.AudioPerformer, R.AudioFileName,
-    R.AudioFileId, R.AudioLocalPath);
+    R.AudioCoverFileId, R.AudioCoverLocalPath, R.AudioFileId, R.AudioLocalPath);
   ExtractVoiceMeta(ANewContent, T, R.VoiceDuration, R.VoiceFileId, R.VoiceLocalPath);
   ExtractDocMeta(ANewContent, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
   ExtractPhotoMeta(ANewContent, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
@@ -3385,6 +3502,84 @@ begin
     Exit;
   end;
   R.AudioLocalPath := Path;
+  Touch;
+end;
+
+{ The album cover — an exact copy of EnsureVideoThumbFile/
+  DownloadVideoThumbDone/ApplyVideoThumbFile in shape, with its own
+  map (its own file_id, not shared with the track itself). Like the
+  video preview frame it goes through FReq.SendRequest DIRECTLY rather
+  than RequestFileDownload: covers are tens of KB and are the artwork
+  the widget is standing in for, so queueing them behind a couple of
+  multi-megabyte videos would leave the chat looking broken — the same
+  exemption stickers and video thumbnails already have. }
+procedure TTdMessages.EnsureAudioCoverFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.AudioCoverFileId = 0) or (ARow.AudioCoverLocalPath <> '') or
+     ARow.AudioCoverDownloadRequested then begin
+    Exit;
+  end;
+  ARow.AudioCoverDownloadRequested := True;
+  if FAudioCoverByFile.IndexOf(ARow.AudioCoverFileId) < 0 then begin
+    FAudioCoverByFile.Add(ARow.AudioCoverFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.AudioCoverDownloadRequested := False;
+    Exit;
+  end;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.AudioCoverFileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    @DownloadAudioCoverDone, ARow.AudioCoverFileId);
+end;
+
+procedure TTdMessages.DownloadAudioCoverDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyAudioCoverFile(AResp.Obj);
+    Exit;
+  end;
+  Idx := FAudioCoverByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FAudioCoverByFile.Data[Idx].AudioCoverDownloadRequested := False;
+  end;
+end;
+
+procedure TTdMessages.ApplyAudioCoverFile(AFile: TJSONObject);
+var
+  Idx, FileId: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FAudioCoverByFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+
+  Local := JGetObj(AFile, 'local');
+  if not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+
+  R := FAudioCoverByFile.Data[Idx];
+  if R.AudioCoverLocalPath = Path then begin
+    Exit;
+  end;
+  R.AudioCoverLocalPath := Path;
   Touch;
 end;
 
@@ -4310,6 +4505,7 @@ begin
         JGetObj(Obj, 'new_content'));
     end else if T = 'updateFile' then begin
       ApplyAudioFile(JGetObj(Obj, 'file'));
+      ApplyAudioCoverFile(JGetObj(Obj, 'file'));
       ApplyVoiceFile(JGetObj(Obj, 'file'));
       ApplyDocFile(JGetObj(Obj, 'file'));
       ApplyPhotoFile(JGetObj(Obj, 'file'));

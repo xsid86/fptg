@@ -44,11 +44,13 @@ uses
   Forms, Controls, Dialogs, SysUtils,
   constants, cardpaint,
   tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
+  tdstorage,
   tdusers, tdaccentcolors, tdaccount, tdcore, audiodevices, ffdecode, audioplayer, videoplayer,
   photodecoder, mediaplayer, rlottie, lottieplayer,
   uiframe, avatarcache, qrrender, msglayout, emojiassets, customemoji,
   main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
-  framesettingsautodownload, framelog, framewelcome, framechats, framehistory,
+  framesettingsautodownload, framesettingsstorage,
+  framelog, framewelcome, framechats, framehistory,
   mediaviewer, msginput, apisetup, chatheader
   { you can add units after this };
 

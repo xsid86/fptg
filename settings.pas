@@ -6,7 +6,8 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, ComCtrls, ExtCtrls, StdCtrls,
-  uiframe, framesettingsgeneral, framesettingsaudio, framesettingsautodownload;
+  uiframe, framesettingsgeneral, framesettingsaudio, framesettingsautodownload,
+  framesettingsstorage;
 
 type
 
@@ -48,6 +49,7 @@ begin
   tvSections.Items.Add(nil, 'General');
   tvSections.Items.Add(nil, 'Audio');
   tvSections.Items.Add(nil, 'Auto download');
+  tvSections.Items.Add(nil, 'Storage');
   tvSections.Selected := tvSections.Items[0];
   { Selecting the first item does not always fire OnSelectionChanged
     (depends on whether a node was already selected) — show the frame
@@ -69,6 +71,7 @@ begin
     0: FNav.ShowFrame(TFrameSettingsGeneral);
     1: FNav.ShowFrame(TFrameSettingsAudio);
     2: FNav.ShowFrame(TFrameSettingsAutoDownload);
+    3: FNav.ShowFrame(TFrameSettingsStorage);
   end;
 end;
 

@@ -11864,7 +11864,7 @@ object FormMain: TFormMain
     Top = 56
   end
   object TrayPopupMenu: TPopupMenu
-    Left = 336
+    Left = 360
     Top = 56
     object MenuItemTrayShow: TMenuItem
       Caption = 'Show Telegram'

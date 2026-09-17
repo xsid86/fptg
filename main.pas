@@ -8,7 +8,8 @@ uses
   Classes, SysUtils, IniFiles, Forms, Controls, Dialogs, StdCtrls, ExtCtrls,
   Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, tdsupergroups, uiframe, framelog, framewelcome,
-  framechats, framehistory, mediaviewer, msginput, tdmessages, constants;
+  framechats, framehistory, mediaviewer, msginput, tdmessages, tdstorage,
+  constants;
 
 type
 
@@ -150,6 +151,12 @@ type
       the concurrency cap: the live value lives in tdmessages.pas, this
       form only persists it. }
     FDownloadSpeedKB: integer;
+    { Cache cleanup limits, config.ini/[storage]. Unlike the two above
+      the live value IS here — tdstorage.pas holds no settings of its
+      own, it is handed the numbers on each call. 0 = that particular
+      limit is off. }
+    FCacheLimitMB: integer;
+    FCacheTtlDays: integer;
     { Set by the few paths that mean an actual quit, not just closing
       the window: File > Quit (menuQuitClick), the tray icon's own
       "Exit" (same handler), and RequestAppClose (closing the pre-login
@@ -177,6 +184,9 @@ type
       TFrameHistory), see the comment on TFrameHistory.Model. }
     procedure MessageInputSend(Sender: TObject);
     procedure ApplyPresence;
+    { Prunes TDLib's media cache to the configured limits. No-op when
+      both are 0 — the whole point of 0 is "keep everything". }
+    procedure ApplyCacheLimit;
     procedure PresenceSetDone(Sender: TObject; const AResp: TTdResponse);
     procedure UpdatePresencePanel;
     procedure SetPresence(AInvisible: boolean);
@@ -266,10 +276,24 @@ type
     procedure SetSurfaceColor(AValue: TColor);
     procedure SetDownloadConcurrency(AValue: integer);
     procedure SetDownloadSpeedKB(AValue: integer);
+    { How big TDLib's media cache may get and how old a file may be
+      before the next cleanup drops it; 0 disables that limit. Read by
+      the settings window's Storage section, applied by ApplyCacheLimit
+      on every transition to Ready. }
+    property CacheLimitMB: integer read FCacheLimitMB;
+    property CacheTtlDays: integer read FCacheTtlDays;
+    procedure SetCacheLimitMB(AValue: integer);
+    procedure SetCacheTtlDays(AValue: integer);
     { Photo/video viewer — needed by framehistory.pas (clicking a
       photo/video in a chat opens it), same global-FormMain access
       pattern already used for Chats/Nav. }
     property MediaViewer: TMediaViewerPanel read FMediaViewer;
+    { "Quote selected" in the message history's right-click menu. The
+      input panel is a private field and the history has no reference
+      to it — it comes through this form, the same access pattern as
+      Chats/Nav/MediaViewer. No-op while the panel is hidden (no chat
+      open, or a channel this account can't post to). }
+    procedure QuoteToInput(const AText: string);
     { Audio output device selected in Settings — needed by
       framehistory.pas (TAudioPlayer.Create) so it doesn't need a
       second source of truth on top of config.ini/[audio]. }
@@ -403,6 +427,10 @@ begin
         DOWNLOAD_CONCURRENCY_DEFAULT);
       FDownloadSpeedKB := ReadInteger('downloads', 'speedkb',
         DOWNLOAD_SPEED_DEFAULT_KB);
+      FCacheLimitMB := ReadInteger('storage', 'maxcachemb',
+        CACHE_LIMIT_DEFAULT_MB);
+      FCacheTtlDays := ReadInteger('storage', 'ttldays',
+        CACHE_TTL_DEFAULT_DAYS);
     finally
       Free;
     end;
@@ -562,6 +590,14 @@ begin
     actually formatted" branch needed. }
   F.Model.SendFormattedText(utf8string(MsgText), FMessageInput.IsHtmlMode);
   FMessageInput.ClearText;
+end;
+
+procedure TFormMain.QuoteToInput(const AText: string);
+begin
+  if (FMessageInput = nil) or (not FMessageInput.Visible) then begin
+    Exit;
+  end;
+  FMessageInput.InsertQuote(AText);
 end;
 
 procedure TFormMain.UpdateMessageInputVisibility;
@@ -829,6 +865,13 @@ begin
       just became ready needs to be told again. Idempotent — resending
       the same value is harmless. }
     ApplyPresence;
+    { Same "on every transition to Ready" reasoning as ApplyPresence,
+      and for the same underlying reason: TdRequests talks to whichever
+      account is active, so an account switch has to prune ITS cache,
+      not re-prune the previous one. Repeats are harmless — tdstorage
+      ignores a call while one is still running, and a cache already
+      inside the limit loses nothing. }
+    ApplyCacheLimit;
     if not Visible then begin
       Show;
       { The first screen is shown only once the form has actually
@@ -1179,6 +1222,60 @@ begin
       Free;
     end;
   end;
+end;
+
+procedure TFormMain.SetCacheLimitMB(AValue: integer);
+begin
+  if AValue < CACHE_LIMIT_MIN_MB then begin
+    AValue := CACHE_LIMIT_MIN_MB;
+  end;
+  if AValue > CACHE_LIMIT_MAX_MB then begin
+    AValue := CACHE_LIMIT_MAX_MB;
+  end;
+  if AValue = FCacheLimitMB then begin
+    Exit;
+  end;
+  FCacheLimitMB := AValue;
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteInteger('storage', 'maxcachemb', FCacheLimitMB);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TFormMain.SetCacheTtlDays(AValue: integer);
+begin
+  if AValue < CACHE_TTL_MIN_DAYS then begin
+    AValue := CACHE_TTL_MIN_DAYS;
+  end;
+  if AValue > CACHE_TTL_MAX_DAYS then begin
+    AValue := CACHE_TTL_MAX_DAYS;
+  end;
+  if AValue = FCacheTtlDays then begin
+    Exit;
+  end;
+  FCacheTtlDays := AValue;
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteInteger('storage', 'ttldays', FCacheTtlDays);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TFormMain.ApplyCacheLimit;
+begin
+  if (FCacheLimitMB <= 0) and (FCacheTtlDays <= 0) then begin
+    Exit;
+  end;
+  { Deliberately not subscribed to TdCache.OnChanged: that is a
+    single-listener event and it belongs to the Storage settings
+    section, which is the only place the numbers are shown. A silent
+    prune at startup is the intended behavior. }
+  TdCache.Cleanup(FCacheLimitMB, FCacheTtlDays);
 end;
 
 procedure TFormMain.SetAudioDeviceName(const AName: string);

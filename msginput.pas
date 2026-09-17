@@ -200,6 +200,12 @@ type
   public
     constructor Create(TheOwner: TComponent); override;
     procedure ClearText;
+    { Drops AText into the box as a quote block, in whichever syntax
+      the HTML toggle currently selects — the same markup the Quote
+      button writes for a selection typed here. Used by the message
+      history's "Quote selected" (framehistory.pas, through
+      TFormMain.QuoteToInput). }
+    procedure InsertQuote(const AText: string);
     property Text: string read GetText write SetText;
     { True = the toolbar buttons insert HTML tags and
       TFormMain.MessageInputSend should ask TDLib to parse the message
@@ -599,6 +605,34 @@ end;
 procedure TMessageInputPanel.SpoilerBtnClick(Sender: TObject);
 begin
   WrapSelection('||', '||', '<tg-spoiler>', '</tg-spoiler>');
+end;
+
+procedure TMessageInputPanel.InsertQuote(const AText: string);
+var
+  T, Quoted: string;
+begin
+  if AText = '' then begin
+    Exit;
+  end;
+  { The history hands over the message's OWN line breaks — TDLib sends
+    a bare #10 — while a Windows edit control wants CRLF, and the '>'
+    prefixing below has to see the same separator it inserts. Normalize
+    once, here: this is the one place that knows the text is headed
+    into a TMemo. }
+  T := StringReplace(AText, #13#10, #10, [rfReplaceAll]);
+  T := StringReplace(T, #10, LineEnding, [rfReplaceAll]);
+
+  if IsHtmlMode then begin
+    Quoted := '<blockquote>' + T + '</blockquote>';
+  end else begin
+    Quoted := '>' + StringReplace(T, LineEnding, LineEnding + '>', [rfReplaceAll]);
+  end;
+
+  { At the caret, with a break after it — the reply gets typed under
+    the quote instead of inside it. }
+  Memo.SelText := Quoted + LineEnding;
+  Memo.SelLength := 0;
+  Memo.SetFocus;
 end;
 
 procedure TMessageInputPanel.QuoteBtnClick(Sender: TObject);

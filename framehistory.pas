@@ -45,6 +45,17 @@ type
     FTitle, FPerformer, FFileName: utf8string;
     FDuration: integer;
     FImages: TImageList;
+    { The album cover at the left edge. FCoverImages is Img48 on
+      TFrameHistory — one 48x48 frame, the headphones placeholder used
+      when the track has no cover (or it hasn't arrived yet); its
+      rounded corners are baked into that frame's own alpha, which is
+      what AUDIO_COVER_RADIUS matches. FCoverBmp is the real cover,
+      decoded and masked ONCE per path in SetCover, not on every
+      Paint. }
+    FCoverImages: TImageList;
+    FCoverIcon: integer;
+    FCoverPath: utf8string;
+    FCoverBmp: TBGRABitmap;
     { Playback state — see SetPlayback/TMsgScroller.AudioPlayClick.
       FIsActive=False means this message isn't the one currently
       playing/paused (the ordinary state of most widgets). }
@@ -63,6 +74,13 @@ type
     { Background outside the rounded backing — see WidgetBackdropColor
       and the comment on TPhotoWidget.FBgColor, the same approach. }
     FBgColor: TColor;
+    { The cover square: AUDIO_COVER_PAD from the left/top/bottom edge,
+      AUDIO_COVER_SIZE on a side — and, since the widget's height is
+      derived from it, exactly as tall as the space between the top and
+      bottom padding. Everything else in the widget starts
+      AUDIO_COVER_PAD to the right of it (direct request). }
+    function CoverRect: TRect;
+    procedure SetCover(const APath: utf8string);
     function PlayButtonRect: TRect;
     { Shared content geometry (right of the play button) — a single
       source of truth for both Paint AND the thumb hit test
@@ -78,15 +96,23 @@ type
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
   public
     constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
     { A specific message's data — called from LayoutAudioWidgets every
       time the widget is reused for a (possibly different) message, not
       only when created. Resets playback state (a pooled widget may
       have previously represented the active track) — the actual state
       is restored right after by SetPlayback, if the new ARowId happens
       to be the active track. }
-    procedure SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
+    procedure SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string;
+      ADuration: integer; const ACoverPath: utf8string);
     procedure SetPlayback(AIsActive, APlaying: boolean; APositionSec: double);
     property Images: TImageList read FImages write FImages;
+    property CoverImages: TImageList read FCoverImages write FCoverImages;
+    { Which Img48 frame stands in for a missing cover — headphones for
+      audio, a microphone for a voice note (AUDIO_COVER_ICON_*). Set on
+      every LayoutAudioWidgets pass, like Images/CoverImages: the same
+      pooled widget serves both kinds. }
+    property CoverIcon: integer read FCoverIcon write FCoverIcon;
     property RowId: Int64 read FRowId;
     { A thumb drag is happening RIGHT NOW — LayoutAudioWidgets must skip
       SetPlayback for this pass, otherwise it would overwrite the local
@@ -698,10 +724,21 @@ type
     OWN local coordinates (0,0 = this widget's own top-left) by
     WrapText's recursive, range-scoped call (see TQuoteSlot's own
     comment for why they're computed once there, not re-derived here).
-    A known, deliberate scope cut for this pass: text selection/copy
-    does not reach into a quote's content — those Runs are no longer
-    part of the message's own selectable array at all — so Paint always
-    calls PaintRuns with no selection (-1, -1). }
+
+    Its text IS selectable, even though those Runs are not part of the
+    message's own array: the byte offsets in them are the message's own
+    absolute ones (the quote is wrapped by a range-scoped recursive
+    call over the SAME text), so a selection range resolved by the
+    scroller applies here untranslated. What the widget owns is the
+    geometry — which is why both the painting of the band and the hit
+    test live here, on its own canvas, rather than in the scroller.
+
+    The font is deliberately left alone: these Runs were measured at
+    wrap time with the scroller's font, but this control paints with
+    its own, and pinning one to the other would change the size the
+    quote is drawn at — explicitly not wanted. Paint and CharOffsetAt
+    therefore use the SAME canvas, so the band and the hit both land on
+    the glyphs that were really drawn. }
   TQuoteWidget = class(TCustomControl)
   private
     FRowId:       Int64;
@@ -709,13 +746,27 @@ type
     FRuns:        TTextRunArray;
     FAccentColor: TColor;
     FBgColor:     TColor;
+    FSelStart:    integer;
+    FSelEnd:      integer;
   protected
     procedure Paint; override;
   public
+    constructor Create(AOwner: TComponent); override;
     procedure SetQuote(ARowId: Int64; ASlotIndex: integer; const ARuns: TTextRunArray;
       AAccentColor, ABgColor: TColor);
+    { The message's own selection range (byte offsets into its
+      PlainText, -1 for none), narrowed to this row by the scroller —
+      the same pair its renderers get. }
+    procedure SetSelection(ASelStart, ASelEnd: integer);
+    function CharOffsetAt(X, Y: integer): integer;
     property RowId: Int64 read FRowId;
     property SlotIndex: integer read FSlotIndex;
+    { Republished (TControl declares them protected) so the scroller can
+      drive a selection drag that starts, or passes through, a quote —
+      see TMsgScroller.QuoteMouseDown and friends. }
+    property OnMouseDown;
+    property OnMouseMove;
+    property OnMouseUp;
   end;
 
   { Key — the id of the user or source chat of a forward (see the field
@@ -791,6 +842,10 @@ type
       list on the form (not framechats.ImageList1 — that one is 16x16,
       this one 32x32). }
     FAudioImages: TImageList;
+    { Img48 on TFrameHistory — the 48x48 headphones placeholder shown
+      in TAudioWidget's cover slot until (or unless) a real album cover
+      arrives. Its own list, not FAudioImages: that one is 32x32. }
+    FAudioCoverImages: TImageList;
     { TVideoWidget's transport-button row (in the viewer) — only passed
       along to TMediaViewerPanel.ShowMessage, TMsgScroller itself never
       uses it (in the chat, the widget is never active, the row is
@@ -939,6 +994,13 @@ type
       the constructor. }
     FMarkReadTimer: TTimer;
 
+    { Right-click menu over the message text. Lives in the LFM
+      (TFrameHistory.TextPopupMenu, editable in the designer), handed
+      over through the TextPopupMenu property — the same arrangement
+      FFilePopupMenu already has, and for the same reason: a menu item's
+      icon is a designer thing, not something to spell out in code. }
+    FTextPopupMenu: TPopupMenu;
+
     FOnScrollRangeChanged: TNotifyEvent;
     FOnNearTop: TNotifyEvent;
 
@@ -992,6 +1054,12 @@ type
       wheel fling sends one viewMessages once scrolling actually stops
       instead of one per ClampScrollTop call. }
     procedure MarkReadTick(Sender: TObject);
+    procedure SetTextPopupMenu(AValue: TPopupMenu);
+    { The font the runs were measured with. Painting sets it inline
+      (see Paint) and so does RebuildOffsets; the hit test needs it too
+      now that it resolves the character under the pointer by
+      re-measuring inside the run. }
+    procedure SetTextFont;
 
     procedure AudioPlayClick(Sender: TObject);
     procedure AudioSeek(Sender: TObject; AFraction: double);
@@ -1098,6 +1166,21 @@ type
     function ObtainQuoteWidget: TQuoteWidget;
     function FindActiveQuote(ARowId: Int64; ASlotIndex: integer): integer;
     function HitTestAt(X, Y: integer; out AIndex: integer): TMsgHit;
+    { Moves the selection's focus end to a point in THIS control's
+      coordinates. Split out of MouseMove because a drag that starts
+      inside a quote widget has to reach the same code (see
+      QuoteMouseMove) once it leaves that widget. }
+    procedure ExtendSelectionTo(X, Y: integer);
+    { The visible quote widget under a point in this control's
+      coordinates, nil if none. Its own bounds are asked rather than
+      recomputed from the layout — the widget was positioned from those
+      very numbers, so there is nothing to keep in sync. }
+    function QuoteWidgetAt(X, Y: integer): TQuoteWidget;
+    procedure QuoteMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
+    procedure QuoteMouseMove(Sender: TObject; Shift: TShiftState; X, Y: integer);
+    procedure QuoteMouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
     function ResolveSelection(out ALowIdx, AHighIdx, ALowChar, AHighChar: integer): boolean;
     procedure RangeForRow(AIndex, ALowIdx, AHighIdx, ALowChar, AHighChar,
       ATextLen: integer; out ASelStart, ASelEnd: integer);
@@ -1116,6 +1199,10 @@ type
       reflect it. }
     procedure ScrollToMessage(AMessageId: Int64);
     procedure CopySelection;
+    { The selected text across however many messages it spans, one
+      message per line, WITHOUT a trailing line break. Empty when
+      nothing is selected. }
+    function SelectionText: string;
   protected
     procedure Paint; override;
     { The rows, widgets and everything else — split out of Paint so
@@ -1148,9 +1235,20 @@ type
     property OnScrollRangeChanged: TNotifyEvent read FOnScrollRangeChanged write FOnScrollRangeChanged;
     property OnNearTop: TNotifyEvent read FOnNearTop write FOnNearTop;
     property AudioImages: TImageList read FAudioImages write FAudioImages;
+    property AudioCoverImages: TImageList read FAudioCoverImages write FAudioCoverImages;
     property PlaybackImages: TImageList read FPlaybackImages write FPlaybackImages;
     property FileImages: TImageList read FFileImages write FFileImages;
     property FilePopupMenu: TPopupMenu read FFilePopupMenu write FFilePopupMenu;
+    { Assigning it also makes it THIS control's own PopupMenu — LCL
+      raises it on a right click by itself from there. The quote widgets
+      pick the same instance up as they are created (ObtainQuoteWidget),
+      so a right click inside a quote offers the same two items. }
+    property TextPopupMenu: TPopupMenu read FTextPopupMenu write SetTextPopupMenu;
+    { For TFrameHistory.TextPopupMenu's items and its OnPopup — same
+      split as the file menu above: the LFM resolves handlers only to
+      the owning form's methods, so they live there and call in here. }
+    function HasSelection: boolean;
+    procedure QuoteSelection;
     { Handlers for TFrameHistory.FilePopupMenu's items — called from
       there (the LFM resolves OnClick only to methods of the owning
       form, not a dynamically created TMsgScroller), Sender is the
@@ -1178,9 +1276,13 @@ type
     FilePopupMenu: TPopupMenu;
     ImageList2: TImageList;
     FilterButtons: TImageList;
+    Img48: TImageList;
     playback: TImageList;
+    TextPopupMenu: TPopupMenu;
     MenuItemFileSaveAs: TMenuItem;
     MenuItemFileShowInFolder: TMenuItem;
+    MenuItemCopySelected: TMenuItem;
+    MenuItemQuoteSelected: TMenuItem;
     { FilePopupMenu's items (LFM, editable in the designer) — the LFM
       resolves OnClick only to methods of the owning form, so the
       handlers live here, not on TMsgScroller (which is created in
@@ -1190,6 +1292,12 @@ type
       click on that exact widget. }
     procedure MenuItemFileSaveAsClick(Sender: TObject);
     procedure MenuItemFileShowInFolderClick(Sender: TObject);
+    { TextPopupMenu's own three (same reason they live here). Both items
+      act on the current selection and are disabled without one rather
+      than hidden, so the menu keeps one shape wherever it opens. }
+    procedure TextPopupMenuPopup(Sender: TObject);
+    procedure MenuItemCopySelectedClick(Sender: TObject);
+    procedure MenuItemQuoteSelectedClick(Sender: TObject);
   private
     FReady: boolean;
     FModel: TTdMessages;
@@ -1681,7 +1789,66 @@ begin
   FBgColor := clWindow;   { fallback until the first LayoutAudioWidgets }
 end;
 
-procedure TAudioWidget.SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string; ADuration: integer);
+destructor TAudioWidget.Destroy;
+begin
+  FreeAndNil(FCoverBmp);
+  inherited Destroy;
+end;
+
+{ Decodes the cover once per path and keeps the result masked to
+  AUDIO_COVER_RADIUS, so Paint is a plain Draw. The file is a JPEG of a
+  few tens of KB already on disk by this point — decode+resample stays
+  synchronous, a background thread (TPhotoDecodeThread, for full-size
+  photos) isn't warranted, the same call already made for the video
+  preview frame.
+
+  The mask coordinates are pixel-centered (-0.5 .. Size-0.5), NOT
+  (0,0,Size,Size): in BGRABitmap an integer coordinate N is the CENTRE
+  of pixel N, not the boundary before it — reading them the GDI way is
+  what produced the white corner gap / clipped / blurred outline on the
+  photo widget across three separate fixes. }
+procedure TAudioWidget.SetCover(const APath: utf8string);
+var
+  Src, Scaled, Mask: TBGRABitmap;
+begin
+  if APath = FCoverPath then begin
+    Exit;
+  end;
+  FCoverPath := APath;
+  FreeAndNil(FCoverBmp);
+  if FCoverPath = '' then begin
+    Exit;
+  end;
+  Src := nil;
+  Scaled := nil;
+  try
+    try
+      Src := TBGRABitmap.Create(string(FCoverPath));
+      Src.ResampleFilter := rfBestQuality;
+      Scaled := Src.Resample(AUDIO_COVER_SIZE, AUDIO_COVER_SIZE, rmFineResample) as TBGRABitmap;
+      Mask := TBGRABitmap.Create(AUDIO_COVER_SIZE, AUDIO_COVER_SIZE, BGRABlack);
+      try
+        Mask.FillRoundRectAntialias(-0.5, -0.5, AUDIO_COVER_SIZE - 0.5, AUDIO_COVER_SIZE - 0.5,
+          AUDIO_COVER_RADIUS, AUDIO_COVER_RADIUS, BGRAWhite);
+        Scaled.ApplyMask(Mask);
+      finally
+        Mask.Free;
+      end;
+      FCoverBmp := Scaled;
+      Scaled := nil;
+    except
+      { A corrupt/unsupported file just leaves the placeholder in
+        place — the same level of resilience as the other widgets. }
+      FreeAndNil(Scaled);
+      FCoverBmp := nil;
+    end;
+  finally
+    Src.Free;
+  end;
+end;
+
+procedure TAudioWidget.SetTrack(ARowId: Int64; const ATitle, APerformer, AFileName: utf8string;
+  ADuration: integer; const ACoverPath: utf8string);
 begin
   if ARowId <> FRowId then begin
     { The pooled widget was reused for a DIFFERENT message — the old
@@ -1703,6 +1870,7 @@ begin
   FPerformer := APerformer;
   FFileName := AFileName;
   FDuration := ADuration;
+  SetCover(ACoverPath);
   Invalidate;
 end;
 
@@ -1714,13 +1882,24 @@ begin
   Invalidate;
 end;
 
+function TAudioWidget.CoverRect: TRect;
+var
+  Box: TRect;
+begin
+  Box := ClientRect;
+  Result := Rect(Box.Left + AUDIO_COVER_PAD, Box.Top + AUDIO_COVER_PAD,
+    Box.Left + AUDIO_COVER_PAD + AUDIO_COVER_SIZE,
+    Box.Top + AUDIO_COVER_PAD + AUDIO_COVER_SIZE);
+end;
+
 function TAudioWidget.PlayButtonRect: TRect;
 var
   Box: TRect;
 begin
   Box := ClientRect;
-  Result := Rect(Box.Left + MSG_PAD_H, (Box.Top + Box.Bottom - AUDIO_BUTTON_SIZE) div 2,
-    Box.Left + MSG_PAD_H + AUDIO_BUTTON_SIZE, (Box.Top + Box.Bottom + AUDIO_BUTTON_SIZE) div 2);
+  Result := Rect(CoverRect.Right + AUDIO_COVER_PAD, (Box.Top + Box.Bottom - AUDIO_BUTTON_SIZE) div 2,
+    CoverRect.Right + AUDIO_COVER_PAD + AUDIO_BUTTON_SIZE,
+    (Box.Top + Box.Bottom + AUDIO_BUTTON_SIZE) div 2);
 end;
 
 function TAudioWidget.ContentGeometry(out AContentX, AContentW, AProgressTop: integer): boolean;
@@ -1729,9 +1908,15 @@ var
 begin
   Box := ClientRect;
   PlayRect := PlayButtonRect;
-  AContentX := PlayRect.Right + MSG_PAD_H;
-  AContentW := Box.Right - MSG_PAD_H - AContentX;
-  AProgressTop := Box.Top + MSG_PAD_H + REPLY_LINE_H + HEADER_PAD_V;
+  { Every gap inside the widget is AUDIO_COVER_PAD now — cover to the
+    three edges, cover to the play button, play button to the text
+    column, text column to the right edge. Direct request, so that the
+    whole row reads as one evenly spaced strip; MSG_PAD_H (11), which
+    the play-to-text gap used to inherit from the rest of the file, is
+    deliberately not used here. }
+  AContentX := PlayRect.Right + AUDIO_COVER_PAD;
+  AContentW := Box.Right - AUDIO_COVER_PAD - AContentX;
+  AProgressTop := Box.Top + AUDIO_COVER_PAD + REPLY_LINE_H + HEADER_PAD_V;
   Result := AContentW >= 10;
 end;
 
@@ -1813,7 +1998,7 @@ end;
 
 procedure TAudioWidget.Paint;
 var
-  Box, PlayRect, TrackRect, ThumbRect, PlayedRect: TRect;
+  Box, CovRect, PlayRect, TrackRect, ThumbRect, PlayedRect: TRect;
   Radius, ContentX, ContentW, ProgressTop, PlayedW, IconIdx: integer;
   TitleStr, ElapsedStr, RemainStr: string;
   Frac: double;
@@ -1839,7 +2024,20 @@ begin
   PaintRoundRectAA(Canvas, Box, Radius, [],
     BlendWithBackground(AUDIO_COLOR, SENDER_BG_OPACITY, clWindow), clNone);
 
-  { The play/pause button — left edge, vertically centered. }
+  { The album cover — left edge, AUDIO_COVER_PAD from three sides. A
+    real cover if the track has one and it has been downloaded
+    (SetCover masked it to AUDIO_COVER_RADIUS already), otherwise the
+    headphones placeholder, whose single frame is exactly
+    AUDIO_COVER_SIZE and already carries the same rounding in its
+    alpha. }
+  CovRect := CoverRect;
+  if FCoverBmp <> nil then begin
+    FCoverBmp.Draw(Canvas, CovRect.Left, CovRect.Top, False);
+  end else if (FCoverImages <> nil) and (FCoverIcon < FCoverImages.Count) then begin
+    FCoverImages.Draw(Canvas, CovRect.Left, CovRect.Top, FCoverIcon, True);
+  end;
+
+  { The play/pause button — right of the cover, vertically centered. }
   PlayRect := PlayButtonRect;
   if FIsActive and FPlaying then begin
     IconIdx := AUDIO_ICON_PAUSE;
@@ -1850,8 +2048,8 @@ begin
     FImages.Draw(Canvas, PlayRect.Left, PlayRect.Top, IconIdx, True);
   end;
 
-  ContentX := PlayRect.Right + MSG_PAD_H;
-  ContentW := Box.Right - MSG_PAD_H - ContentX;
+  ContentX := PlayRect.Right + AUDIO_COVER_PAD;
+  ContentW := Box.Right - AUDIO_COVER_PAD - ContentX;
   if ContentW < 10 then begin
     Exit;
   end;
@@ -1874,11 +2072,11 @@ begin
   Canvas.Font.Height := -11;
   Canvas.Font.Style := [fsBold];
   Canvas.Font.Color := AUDIO_COLOR;
-  Canvas.TextOut(ContentX, Box.Top + MSG_PAD_H, TruncateToWidth(Canvas, TitleStr, ContentW));
+  Canvas.TextOut(ContentX, Box.Top + AUDIO_COVER_PAD, TruncateToWidth(Canvas, TitleStr, ContentW));
 
   { The progress bar shows the real position only while THIS message is
     active (playing/paused); otherwise, as always, 0%. }
-  ProgressTop := Box.Top + MSG_PAD_H + REPLY_LINE_H + HEADER_PAD_V;
+  ProgressTop := Box.Top + AUDIO_COVER_PAD + REPLY_LINE_H + HEADER_PAD_V;
   TrackRect := Rect(ContentX, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2,
     ContentX + ContentW, ProgressTop + (AUDIO_THUMB_H - AUDIO_TRACK_H) div 2 + AUDIO_TRACK_H);
   if FDraggingSeek then begin
@@ -2612,12 +2810,20 @@ begin
   FTotalSize := ATotalSize;
   if ARowId <> FRowId then begin
     { The pooled widget was reused for a DIFFERENT message — the same
-      approach as TAnimationWidget.SetAnim: any old playback state/
-      decoded placeholder no longer belong to this video. }
+      approach as TAnimationWidget.SetAnim: the decoded placeholder and
+      the frame no longer belong to this video.
+      FIsActive is deliberately NOT reset here. It says who is showing
+      the widget (the chat, never active; the viewer, always active),
+      not anything about the row, and both callers set it explicitly on
+      every pass. Resetting it made the flag order-dependent, and the
+      viewer paid for it: it set Active BEFORE SetVideoSized, so on the
+      first open of a video — the one case where ARowId really differs
+      — this line switched it straight back off and the widget painted
+      the big centered PLAY icon over a video that was already
+      playing. }
     ClearBitmap;
     FLocalPath := '';
     FHaveFrame := False;
-    FIsActive := False;
   end;
   FRowId := ARowId;
   FNaturalW := ANaturalW;
@@ -3377,6 +3583,57 @@ end;
 
 { ---------------- TQuoteWidget ---------------- }
 
+constructor TQuoteWidget.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FSelStart := -1;
+  FSelEnd := -1;
+  { Its text is selectable, so it carries the same pointer the message
+    text does over the scroller itself. }
+  Cursor := crIBeam;
+end;
+
+procedure TQuoteWidget.SetSelection(ASelStart, ASelEnd: integer);
+begin
+  { Guarded: SetQuote/SetBounds run on every layout pass, and an
+    unconditional Invalidate here would repaint every visible quote on
+    every frame for nothing. }
+  if (FSelStart = ASelStart) and (FSelEnd = ASelEnd) then begin
+    Exit;
+  end;
+  FSelStart := ASelStart;
+  FSelEnd := ASelEnd;
+  Invalidate;
+end;
+
+{ Byte offset into the message's PlainText for the character under the
+  widget-local (X,Y); -1 only when this quote has no runs at all. }
+function TQuoteWidget.CharOffsetAt(X, Y: integer): integer;
+var
+  Hit: TMsgHit;
+begin
+  Result := -1;
+  if Length(FRuns) = 0 then begin
+    Exit;
+  end;
+  { Same origin shift Paint applies — the runs were wrapped at local
+    Y=0, the top half of the padding is added only when drawing. }
+  Hit := HitTestRuns(Canvas, FRuns, X, Y - QUOTE_PAD);
+  if Hit.CharOffset >= 0 then begin
+    Result := Hit.CharOffset;
+    Exit;
+  end;
+  { The padding bands above the first line and below the last one: no
+    run covers that Y. Clamping to this quote's own ends keeps a drag
+    that overshoots it vertically inside the quote rather than snapping
+    somewhere else. }
+  if Y - QUOTE_PAD < FRuns[0].Rect.Top then begin
+    Result := FRuns[0].CharStart;
+  end else begin
+    Result := FRuns[High(FRuns)].CharEnd;
+  end;
+end;
+
 procedure TQuoteWidget.SetQuote(ARowId: Int64; ASlotIndex: integer;
   const ARuns: TTextRunArray; AAccentColor, ABgColor: TColor);
 begin
@@ -3406,10 +3663,18 @@ procedure TQuoteWidget.Paint;
 var
   BarR: TRect;
 begin
+  { The widget is a real child control, so what lies outside its rounded
+    shape is not the message block showing through — it is this control's
+    own, unpainted pixels. Hence the flat background fill first, in the
+    block's own color (the same one the corners of the media widgets are
+    filled with, and for the same reason), and the rounded box on top. }
   Canvas.Pen.Style := psClear;
   Canvas.Brush.Style := bsSolid;
-  Canvas.Brush.Color := BlendWithBackground(FAccentColor, BLOCKQUOTE_BG_OPACITY, FBgColor);
+  Canvas.Brush.Color := FBgColor;
   Canvas.FillRect(ClientRect);
+  PaintRounded(Canvas, ClientRect, QUOTE_CORNER_RADIUS, [],
+    BlendWithBackground(FAccentColor, BLOCKQUOTE_BG_OPACITY, FBgColor),
+    clNone, False);
 
   { The bar sits QUOTE_PAD in from the left edge (the widget's own
     inner padding, same as the text — see msglayout.HandleQuoteSlot/
@@ -3419,6 +3684,8 @@ begin
     of the wrapped text's own height, so Height-2*QUOTE_PAD here is
     exactly that text height. }
   BarR := Rect(QUOTE_PAD, QUOTE_PAD, QUOTE_PAD + BLOCKQUOTE_BAR_W, Height - QUOTE_PAD);
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Style := bsSolid;
   Canvas.Brush.Color := BlendWithBackground(FAccentColor, BLOCKQUOTE_BAR_OPACITY, FBgColor);
   Canvas.FillRect(BarR);
   Canvas.Brush.Style := bsClear;
@@ -3427,9 +3694,9 @@ begin
     (StartLine starts CurX at QUOTE_PAD+BLOCKQUOTE_INDENT) — only Y
     needs the top half of the padding added here, at paint time; Runs
     themselves were wrapped at local Y=0 regardless (see HandleQuoteSlot).
-    No selection reaches into a quote's content in this pass — see the
-    class comment. }
-  PaintRuns(Canvas, Point(0, QUOTE_PAD), FRuns, -1, -1);
+    The selection range is the message's own, handed down by the
+    scroller — see SetSelection. }
+  PaintRuns(Canvas, Point(0, QUOTE_PAD), FRuns, FSelStart, FSelEnd);
 end;
 
 { ---------------- TMsgScroller ---------------- }
@@ -5281,18 +5548,29 @@ begin
       before this — track data is refreshed on every pass, not just
       the first time. }
     W.Images := FAudioImages;
+    W.CoverImages := FAudioCoverImages;
     W.PopupMenu := FFilePopupMenu;
     R := FModel[MIdx];
     W.BackgroundColor := WidgetBackdropColor(R);
+    { The album cover — requested unconditionally on every pass, like
+      the other Ensure*File calls here: idempotent, and a no-op for a
+      track that has no cover at all (AudioCoverFileId=0) or a voice
+      note. }
+    FModel.EnsureAudioCoverFile(R);
     { Voice notes have no title/performer/file_name (TDLib doesn't
       provide them, see TMsgRow.VoiceDuration) — a static label is
       used instead, through the same TAudioWidget.SetTrack, with no
       change needed in the widget itself: TitleStr there already falls
       back to AFileName when Title/Performer are empty. }
     if R.Kind = mckVoiceNote then begin
-      W.SetTrack(R.Id, '', '', 'Voice message', R.VoiceDuration);
+      { A voice note never has a cover — the microphone placeholder
+        stands in for it, not the headphones one used for audio. }
+      W.CoverIcon := AUDIO_COVER_ICON_VOICE;
+      W.SetTrack(R.Id, '', '', 'Voice message', R.VoiceDuration, '');
     end else begin
-      W.SetTrack(R.Id, R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration);
+      W.CoverIcon := AUDIO_COVER_ICON_AUDIO;
+      W.SetTrack(R.Id, R.AudioTitle, R.AudioPerformer, R.AudioFileName, R.AudioDuration,
+        R.AudioCoverLocalPath);
     end;
     { While a thumb drag is in progress, playback state is left
       untouched on this pass (LayoutAudioWidgets is called on EVERY
@@ -6141,12 +6419,13 @@ end;
 procedure TMsgScroller.LayoutQuoteWidgets(ALo, AHi: integer);
 var
   I, J, AIdx, MIdx: integer;
+  LowIdx, HighIdx, LowChar, HighChar, SelStart, SelEnd: integer;
   R: TMsgRow;
   L: TMsgLayout;
   CR: TRect;
   W: TQuoteWidget;
   Accent, BgColor: TColor;
-  StillWanted: boolean;
+  StillWanted, HasSel: boolean;
 begin
   { Drop widgets whose row scrolled out of [ALo,AHi], or whose row no
     longer has that many quote slots (a rare edit-in-place case — the
@@ -6171,6 +6450,12 @@ begin
     Exit;
   end;
 
+  { Resolved once for the whole pass, then narrowed per row exactly the
+    way Paint narrows it for the renderers — a quote's runs carry the
+    message's own byte offsets, so the same pair applies to them with
+    no translation. }
+  HasSel := ResolveSelection(LowIdx, HighIdx, LowChar, HighChar);
+
   for I := ALo to AHi do begin
     R := FModel[I];
     L := TMsgLayout(R.LayoutCache);
@@ -6180,6 +6465,13 @@ begin
     CR := ContentRect(I);
     Accent := SenderColor(R);
     BgColor := WidgetBackdropColor(R);
+    if HasSel and (I >= LowIdx) and (I <= HighIdx) then begin
+      RangeForRow(I, LowIdx, HighIdx, LowChar, HighChar, Length(R.PlainText),
+        SelStart, SelEnd);
+    end else begin
+      SelStart := -1;
+      SelEnd := -1;
+    end;
     for J := 0 to High(L.QuoteSlots) do begin
       AIdx := FindActiveQuote(R.Id, J);
       if AIdx >= 0 then begin
@@ -6189,6 +6481,7 @@ begin
         FQuoteActive.Add(W);
       end;
       W.SetQuote(R.Id, J, L.QuoteSlots[J].Runs, Accent, BgColor);
+      W.SetSelection(SelStart, SelEnd);
       W.SetBounds(CR.Left + QUOTE_WIDGET_MARGIN, CR.Top + L.QuoteSlots[J].Top,
         (CR.Right - CR.Left) - 2 * QUOTE_WIDGET_MARGIN, L.QuoteSlots[J].Height);
       W.Visible := True;
@@ -6208,6 +6501,16 @@ begin
   end;
   Result := TQuoteWidget.Create(Self);
   Result.Parent := Self;
+  { Assigned once, at creation: the handlers are this scroller's own
+    methods and never change for the life of the widget. The text menu
+    is the same shared instance the scroller itself uses (from the LFM,
+    see TextPopupMenu), so a right-click inside a quote offers
+    Copy/Quote on the current selection just like one over ordinary
+    text. }
+  Result.OnMouseDown := @QuoteMouseDown;
+  Result.OnMouseMove := @QuoteMouseMove;
+  Result.OnMouseUp := @QuoteMouseUp;
+  Result.PopupMenu := FTextPopupMenu;
   FQuotePool.Add(Result);
 end;
 
@@ -6507,7 +6810,8 @@ begin
   end;
   R := FModel[AIndex];
   CR := ContentRect(AIndex);
-  Result := RendererFor(R.Kind).HitTest(R, CR, X, Y);
+  SetTextFont;
+  Result := RendererFor(R.Kind).HitTest(R, CR, X, Y, Canvas);
 end;
 
 procedure TMsgScroller.DoLinkClick(const AUrl: utf8string);
@@ -6567,28 +6871,82 @@ begin
   Invalidate;
 end;
 
-procedure TMsgScroller.CopySelection;
+function TMsgScroller.SelectionText: string;
 var
   I, LowIdx, HighIdx, LowChar, HighChar, SelStart, SelEnd: integer;
   R: TMsgRow;
-  Lines: TStringList;
+  Part: string;
 begin
+  Result := '';
   if not ResolveSelection(LowIdx, HighIdx, LowChar, HighChar) then begin
     Exit;
   end;
-  Lines := TStringList.Create;
-  try
-    for I := LowIdx to HighIdx do begin
-      R := FModel[I];
-      RangeForRow(I, LowIdx, HighIdx, LowChar, HighChar, Length(R.PlainText), SelStart, SelEnd);
-      if SelEnd > SelStart then begin
-        Lines.Add(string(Copy(R.PlainText, SelStart + 1, SelEnd - SelStart)));
+  for I := LowIdx to HighIdx do begin
+    R := FModel[I];
+    RangeForRow(I, LowIdx, HighIdx, LowChar, HighChar, Length(R.PlainText), SelStart, SelEnd);
+    if SelEnd > SelStart then begin
+      Part := string(Copy(R.PlainText, SelStart + 1, SelEnd - SelStart));
+      { Joined by hand instead of through TStringList.Text, which would
+        append a break after the LAST message too — on the clipboard
+        that is a stray empty line, and quoted into the composer it is
+        an empty quoted line. }
+      if Result = '' then begin
+        Result := Part;
+      end else begin
+        Result := Result + LineEnding + Part;
       end;
     end;
-    Clipboard.AsText := Lines.Text;
-  finally
-    Lines.Free;
   end;
+end;
+
+procedure TMsgScroller.CopySelection;
+var
+  S: string;
+begin
+  S := SelectionText;
+  if S = '' then begin
+    Exit;
+  end;
+  Clipboard.AsText := S;
+end;
+
+procedure TMsgScroller.SetTextPopupMenu(AValue: TPopupMenu);
+begin
+  FTextPopupMenu := AValue;
+  { The control's own right click. Quote widgets are separate controls
+    and get it in ObtainQuoteWidget — those created BEFORE this was
+    assigned would miss it, which is why TFrameHistory hands it over in
+    its constructor, long before the first paint. }
+  PopupMenu := AValue;
+end;
+
+function TMsgScroller.HasSelection: boolean;
+var
+  LowIdx, HighIdx, LowChar, HighChar: integer;
+begin
+  Result := ResolveSelection(LowIdx, HighIdx, LowChar, HighChar);
+end;
+
+procedure TMsgScroller.QuoteSelection;
+var
+  S: string;
+begin
+  S := SelectionText;
+  if (S = '') or (FormMain = nil) then begin
+    Exit;
+  end;
+  { Quoting means "put it in the composer as a quote block", the same
+    markup the input panel's own Quote button writes. It does NOT set a
+    reply-to on the outgoing message — sending has no reply support at
+    all yet (SendFormattedText takes no reply_to), so that would be a
+    separate piece of plumbing, not a line here. }
+  FormMain.QuoteToInput(S);
+end;
+
+procedure TMsgScroller.SetTextFont;
+begin
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := -13;
 end;
 
 procedure TMsgScroller.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
@@ -6656,6 +7014,141 @@ begin
   Invalidate;
 end;
 
+function TMsgScroller.QuoteWidgetAt(X, Y: integer): TQuoteWidget;
+var
+  I: integer;
+  W: TQuoteWidget;
+begin
+  Result := nil;
+  for I := 0 to FQuoteActive.Count - 1 do begin
+    W := TQuoteWidget(FQuoteActive[I]);
+    if W.Visible and PtInRect(W.BoundsRect, Point(X, Y)) then begin
+      Result := W;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TMsgScroller.ExtendSelectionTo(X, Y: integer);
+var
+  Idx, Off: integer;
+  R: TMsgRow;
+  Hit: TMsgHit;
+  W: TQuoteWidget;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+
+  { A quote's text lives in its own widget with its own runs, and the
+    message's array does not cover that area at all (the wrap skipped
+    the whole entity) — hit-testing it there would answer with the
+    nearest ordinary line instead. This is the "drag began in ordinary
+    text and crossed into a quote" direction; the opposite one arrives
+    through QuoteMouseMove. }
+  W := QuoteWidgetAt(X, Y);
+  if W <> nil then begin
+    Off := W.CharOffsetAt(X - W.Left, Y - W.Top);
+    if Off >= 0 then begin
+      FSelFocusMsg := W.RowId;
+      FSelFocusChar := Off;
+      Invalidate;
+      Exit;
+    end;
+  end;
+
+  Idx := IndexAtY(FScrollTop + Y);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  R := FModel[Idx];
+  { Same font the runs were measured with — HitTest now measures inside
+    the run to find the character under the pointer, and would land on
+    the wrong one with a different font. }
+  SetTextFont;
+  Hit := RendererFor(R.Kind).HitTest(R, ContentRect(Idx), X, Y, Canvas);
+  FSelFocusMsg := R.Id;
+  if Hit.CharOffset >= 0 then begin
+    FSelFocusChar := Hit.CharOffset;
+  end else if Y < ContentRect(Idx).Top then begin
+    FSelFocusChar := 0;
+  end else begin
+    FSelFocusChar := Length(R.PlainText);
+  end;
+  Invalidate;
+end;
+
+{ A quote widget is a real child control, so the mouse never reaches
+  the scroller over one — these three stand in for MouseDown/Move/Up
+  there. They are assigned once, when the widget is created (see
+  ObtainQuoteWidget). }
+procedure TMsgScroller.QuoteMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: integer);
+var
+  W: TQuoteWidget;
+  Off: integer;
+begin
+  { Right-click keeps the selection so the context menu can act on it —
+    the same early exit the scroller's own MouseDown makes. }
+  if Button <> mbLeft then begin
+    Exit;
+  end;
+  W := TQuoteWidget(Sender);
+  Off := W.CharOffsetAt(X, Y);
+  if Off < 0 then begin
+    Exit;
+  end;
+  SetFocus;
+  FSelAnchorMsg := W.RowId;
+  FSelFocusMsg := W.RowId;
+  FSelAnchorChar := Off;
+  FSelFocusChar := Off;
+  FSelecting := True;
+  { Captured for the same reason the scroller captures its own drags:
+    without it, a release outside this widget never arrives and
+    FSelecting stays stuck at True. It also keeps the moves coming here
+    after the pointer has left the quote, which is what lets a
+    selection started inside one run on into the message. }
+  W.MouseCapture := True;
+  Invalidate;
+end;
+
+procedure TMsgScroller.QuoteMouseMove(Sender: TObject; Shift: TShiftState;
+  X, Y: integer);
+var
+  W: TQuoteWidget;
+  Off: integer;
+begin
+  if not FSelecting then begin
+    Exit;
+  end;
+  W := TQuoteWidget(Sender);
+  if (X >= 0) and (Y >= 0) and (X < W.Width) and (Y < W.Height) then begin
+    Off := W.CharOffsetAt(X, Y);
+    if Off >= 0 then begin
+      FSelFocusMsg := W.RowId;
+      FSelFocusChar := Off;
+      Invalidate;
+    end;
+  end else begin
+    { Still captured, but the pointer is outside — hand the point back
+      in the scroller's own coordinates. }
+    ExtendSelectionTo(X + W.Left, Y + W.Top);
+  end;
+end;
+
+procedure TMsgScroller.QuoteMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: integer);
+var
+  W: TQuoteWidget;
+begin
+  FSelecting := False;
+  W := TQuoteWidget(Sender);
+  if W.MouseCapture then begin
+    W.MouseCapture := False;
+  end;
+end;
+
 procedure TMsgScroller.MouseMove(Shift: TShiftState; X, Y: integer);
 var
   Hit: TMsgHit;
@@ -6666,20 +7159,7 @@ begin
   inherited MouseMove(Shift, X, Y);
 
   if FSelecting then begin
-    Idx := IndexAtY(FScrollTop + Y);
-    if Idx >= 0 then begin
-      R := FModel[Idx];
-      Hit := RendererFor(R.Kind).HitTest(R, ContentRect(Idx), X, Y);
-      FSelFocusMsg := R.Id;
-      if Hit.CharOffset >= 0 then begin
-        FSelFocusChar := Hit.CharOffset;
-      end else if Y < ContentRect(Idx).Top then begin
-        FSelFocusChar := 0;
-      end else begin
-        FSelFocusChar := Length(R.PlainText);
-      end;
-      Invalidate;
-    end;
+    ExtendSelectionTo(X, Y);
     Exit;
   end;
 
@@ -6795,12 +7275,16 @@ begin
     by inherited streaming by this point, before this constructor's
     body runs. }
   FScroller.AudioImages := ImageList1;
+  { Img48 — a single 48x48 frame (headphones), the placeholder in
+    TAudioWidget's album-cover slot. }
+  FScroller.AudioCoverImages := Img48;
   { ImageList2 is a 32x32 list replacing the older 16x16 "playback"
     list — the old one stays in the .lfm as-is (the component wasn't
     removed), just no longer read by name. }
   FScroller.PlaybackImages := ImageList2;
   FScroller.FileImages := FileTypes;
   FScroller.FilePopupMenu := FilePopupMenu;
+  FScroller.TextPopupMenu := TextPopupMenu;
 
   { The flag is set last, the same rule as every form/frame in the
     project: LFM streaming (not formally happening here, but
@@ -6839,6 +7323,29 @@ begin
     FScroller.PhotoWidgetShowInFolderClick(PM.PopupComponent);
   end else if PM.PopupComponent is TAudioWidget then begin
     FScroller.AudioWidgetShowInFolderClick(PM.PopupComponent);
+  end;
+end;
+
+procedure TFrameHistory.TextPopupMenuPopup(Sender: TObject);
+var
+  Has: boolean;
+begin
+  Has := (FScroller <> nil) and FScroller.HasSelection;
+  MenuItemCopySelected.Enabled := Has;
+  MenuItemQuoteSelected.Enabled := Has;
+end;
+
+procedure TFrameHistory.MenuItemCopySelectedClick(Sender: TObject);
+begin
+  if FScroller <> nil then begin
+    FScroller.CopySelection;
+  end;
+end;
+
+procedure TFrameHistory.MenuItemQuoteSelectedClick(Sender: TObject);
+begin
+  if FScroller <> nil then begin
+    FScroller.QuoteSelection;
   end;
 end;
 

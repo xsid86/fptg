@@ -103,7 +103,13 @@ type
       it, same as ASelStart/ASelEnd already are for several of them. }
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
       ASelStart, ASelEnd: integer; AAccentColor: TColor); virtual; abstract;
-    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; virtual;
+    { ACanvas is measured against, not drawn on: the hit test resolves
+      the character UNDER the pointer, which means re-measuring text
+      inside the run. The caller must have set the same font the layout
+      was built with (framehistory does, exactly as it does before
+      Measure/Paint) or the offsets come out shifted. }
+    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer;
+      ACanvas: TCanvas): TMsgHit; virtual;
     { True only for widget-backed content: framehistory creates a real
       pooled child control for such rows instead of painting them
       itself. }
@@ -146,6 +152,16 @@ procedure ComputeStickerSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AO
   WrapText/EnsureTextLayout, not re-derived by the widget). }
 procedure PaintRuns(ACanvas: TCanvas; const AOrigin: TPoint; const ARuns: TTextRunArray;
   ASelStart, ASelEnd: integer);
+
+{ The hit test half of the pair above, exported for the same reason:
+  framehistory.TQuoteWidget owns a run array of its own and has to
+  resolve the character under the pointer in it, or a quote's text
+  could not be selected at all (its runs are NOT part of the message's
+  own array — WrapText hands them to a TQuoteSlot instead). ACanvas is
+  measured against, not drawn on, and must carry the same font the runs
+  will be PAINTED with — the widget passes its own canvas to both. }
+function HitTestRuns(ACanvas: TCanvas; const ARuns: TTextRunArray;
+  LocalX, LocalY: integer): TMsgHit;
 
 implementation
 
@@ -403,8 +419,15 @@ var
     Result[Cnt].Text := Copy(AText, AStart, ALen);
     Result[Cnt].Bold := ABold;
     Result[Cnt].Italic := AItalic;
-    Result[Cnt].CharStart := AStart;
-    Result[Cnt].CharEnd := AStart + ALen;
+    { AStart is a Copy() index, i.e. 1-based; CharStart/CharEnd are
+      documented (and used everywhere else) as 0-based byte offsets
+      into PlainText, the same convention as TMsgEntity. Hence the -1:
+      without it both ends of a copied selection sat one byte into a
+      character, which for Cyrillic (two bytes per letter) meant a
+      dangling half-character at each end — the "?" the user saw when
+      quoting a selection into the composer. }
+    Result[Cnt].CharStart := AStart - 1;
+    Result[Cnt].CharEnd := AStart - 1 + ALen;
     Result[Cnt].URL := AUrl;
     Inc(Cnt);
     CurX := CurX + AW;
@@ -473,8 +496,9 @@ var
     Result[Cnt].Text := Copy(AText, AStart, ALen);
     Result[Cnt].Bold := False;
     Result[Cnt].Italic := False;
-    Result[Cnt].CharStart := AStart;
-    Result[Cnt].CharEnd := AStart + ALen;
+    { 1-based Copy() index -> 0-based byte offset, see EmitChunk. }
+    Result[Cnt].CharStart := AStart - 1;
+    Result[Cnt].CharEnd := AStart - 1 + ALen;
     Result[Cnt].URL := '';
     Result[Cnt].CustomEmojiId := ACustomId;
     Inc(Cnt);
@@ -662,10 +686,95 @@ begin
   Result := L;
 end;
 
+{ The font a run was measured with, and must be re-measured with.
+  Shared by PaintRuns and the hit test so the two can't drift: the
+  selection band inside a partly selected word is a TextWidth of a
+  prefix of that word, and the character under the pointer is found the
+  same way. Height/Name are NOT set here — those come from the caller
+  (framehistory sets them once before measuring, painting and hit
+  testing alike), only the per-run attributes are. }
+procedure ApplyRunFont(ACanvas: TCanvas; const ARun: TTextRun);
+begin
+  ACanvas.Font.Style := [];
+  if ARun.Bold then begin
+    ACanvas.Font.Style := ACanvas.Font.Style + [fsBold];
+  end;
+  if ARun.Italic then begin
+    ACanvas.Font.Style := ACanvas.Font.Style + [fsItalic];
+  end;
+  if ARun.Kind = rkLink then begin
+    ACanvas.Font.Style := ACanvas.Font.Style + [fsUnderline];
+  end;
+end;
+
+function BlendToward(AColor, ABackground: TColor; AOpacity: double): TColor;
+var
+  C, B: LongInt;
+begin
+  { ColorToRGB first: clHighlight/clWindow are symbolic values carrying
+    a flag in the high byte, not RGB triples — reading channels straight
+    out of them yields a garbage color. The project has already been
+    bitten by exactly this once (the blockquote band). }
+  C := ColorToRGB(AColor);
+  B := ColorToRGB(ABackground);
+  Result := RGBToColor(
+    Round((C and $FF) * AOpacity + (B and $FF) * (1 - AOpacity)),
+    Round(((C shr 8) and $FF) * AOpacity + ((B shr 8) and $FF) * (1 - AOpacity)),
+    Round(((C shr 16) and $FF) * AOpacity + ((B shr 16) and $FF) * (1 - AOpacity)));
+end;
+
+{ Byte offset into ARun.Text (0..Length) whose x position is closest to
+  ALocalX — i.e. a caret position, snapped to a UTF-8 character
+  boundary. A boundary is any byte that isn't a continuation byte
+  (10xxxxxx), which needs no length table and can't cut a character in
+  half. Prefix widths are re-measured rather than cached: a run is one
+  word, so this is a handful of TextWidth calls even while dragging. }
+function OffsetInRunText(ACanvas: TCanvas; const AText: utf8string;
+  ARunLeft, ALocalX: integer): integer;
+var
+  P, Len, W, D, BestD: integer;
+begin
+  Result := 0;
+  BestD := Abs(ALocalX - ARunLeft);
+  Len := Length(AText);
+  P := 2;
+  while P <= Len + 1 do begin
+    if (P > Len) or ((Ord(AText[P]) and $C0) <> $80) then begin
+      W := ARunLeft + ACanvas.TextWidth(string(Copy(AText, 1, P - 1)));
+      D := Abs(ALocalX - W);
+      if D < BestD then begin
+        BestD := D;
+        Result := P - 1;
+      end;
+    end;
+    Inc(P);
+  end;
+end;
+
+{ The same, in TMsgRow.PlainText coordinates. An emoji is a single
+  glyph standing for a whole cluster — there is nothing to land inside,
+  so it snaps to one edge or the other. }
+function CharOffsetInRun(ACanvas: TCanvas; const ARun: TTextRun; ALocalX: integer): integer;
+begin
+  if ARun.Kind = rkEmoji then begin
+    if ALocalX < (ARun.Rect.Left + ARun.Rect.Right) div 2 then begin
+      Result := ARun.CharStart;
+    end else begin
+      Result := ARun.CharEnd;
+    end;
+    Exit;
+  end;
+  ApplyRunFont(ACanvas, ARun);
+  Result := ARun.CharStart + OffsetInRunText(ACanvas, ARun.Text, ARun.Rect.Left, ALocalX);
+  if Result > ARun.CharEnd then begin
+    Result := ARun.CharEnd;
+  end;
+end;
+
 procedure PaintRuns(ACanvas: TCanvas; const AOrigin: TPoint; const ARuns: TTextRunArray;
   ASelStart, ASelEnd: integer);
 var
-  I: integer;
+  I, SelL, SelR: integer;
   R: TTextRun;
   HasSel: boolean;
   Bmp: TBGRABitmap;
@@ -673,15 +782,52 @@ begin
   HasSel := (ASelStart >= 0) and (ASelEnd > ASelStart);
   for I := 0 to High(ARuns) do begin
     R := ARuns[I];
-    { Highlighting is per whole run (word) if it at least partially
-      falls within the selection range. Highlighting partway through a
-      word is not handled here — selection granularity is word-level
-      anyway (see framehistory). }
+
+    { The font goes on BEFORE the highlight, not with the text further
+      down: a partly selected run has its band measured with TextWidth
+      here, and whatever font the previous run left behind would measure
+      the wrong width. }
+    if R.Kind <> rkEmoji then begin
+      ApplyRunFont(ACanvas, R);
+    end;
+
     if HasSel and (R.CharEnd > ASelStart) and (R.CharStart < ASelEnd) then begin
-      ACanvas.Brush.Style := bsSolid;
-      ACanvas.Brush.Color := clHighlight;
-      ACanvas.FillRect(Rect(AOrigin.X + R.Rect.Left, AOrigin.Y + R.Rect.Top,
-        AOrigin.X + R.Rect.Right, AOrigin.Y + R.Rect.Bottom));
+      { Whole run by default; cut to the real character boundary at
+        whichever end the selection actually falls inside. }
+      SelL := R.Rect.Left;
+      SelR := R.Rect.Right;
+      if R.Kind <> rkEmoji then begin
+        if ASelStart > R.CharStart then begin
+          SelL := R.Rect.Left
+            + ACanvas.TextWidth(string(Copy(R.Text, 1, ASelStart - R.CharStart)));
+        end;
+        if ASelEnd < R.CharEnd then begin
+          SelR := R.Rect.Left
+            + ACanvas.TextWidth(string(Copy(R.Text, 1, ASelEnd - R.CharStart)));
+        end;
+      end;
+      { The spaces between words belong to no run at all — nothing is
+        emitted for them — so filling runs alone left the selection
+        visibly striped, one band per word. When the gap has selected
+        text on BOTH sides and the two runs sit on the same line, the
+        band is carried across it. The next entry in the array is the
+        next run on the line: they are emitted left to right, and the
+        Top comparison rules out the first run of the following line
+        (there the gap is a line break, not a space). }
+      if (I < High(ARuns)) and (ASelEnd >= R.CharEnd)
+         and (ARuns[I + 1].Rect.Top = R.Rect.Top)
+         and (ARuns[I + 1].CharStart >= ASelStart)
+         and (ARuns[I + 1].CharStart < ASelEnd)
+         and (ARuns[I + 1].Rect.Left > SelR) then begin
+        SelR := ARuns[I + 1].Rect.Left;
+      end;
+
+      if SelR > SelL then begin
+        ACanvas.Brush.Style := bsSolid;
+        ACanvas.Brush.Color := BlendToward(clHighlight, clWindow, SELECTION_OPACITY);
+        ACanvas.FillRect(Rect(AOrigin.X + SelL, AOrigin.Y + R.Rect.Top,
+          AOrigin.X + SelR, AOrigin.Y + R.Rect.Bottom));
+      end;
     end;
     ACanvas.Brush.Style := bsClear;
 
@@ -705,16 +851,11 @@ begin
       Continue;
     end;
 
-    ACanvas.Font.Style := [];
-    if R.Bold then begin
-      ACanvas.Font.Style := ACanvas.Font.Style + [fsBold];
-    end;
-    if R.Italic then begin
-      ACanvas.Font.Style := ACanvas.Font.Style + [fsItalic];
-    end;
+    { Style is already on (ApplyRunFont, above) — only the color is
+      left, and it must not be folded back into that shared routine:
+      the hit test calls it too and has no business touching colors. }
     if R.Kind = rkLink then begin
       ACanvas.Font.Color := clHighlight;
-      ACanvas.Font.Style := ACanvas.Font.Style + [fsUnderline];
     end else begin
       ACanvas.Font.Color := clWindowText;
     end;
@@ -722,26 +863,59 @@ begin
   end;
 end;
 
-function HitTestRuns(const ARuns: TTextRunArray; LocalX, LocalY: integer): TMsgHit;
+function HitTestRuns(ACanvas: TCanvas; const ARuns: TTextRunArray;
+  LocalX, LocalY: integer): TMsgHit;
 var
-  I: integer;
+  I, D, BestI, BestD: integer;
   R: TTextRun;
 begin
   Result.Kind := mhkNone;
   Result.URL := '';
   Result.CharOffset := -1;
+  BestI := -1;
+  BestD := MaxInt;
+
   for I := 0 to High(ARuns) do begin
     R := ARuns[I];
-    if (LocalY >= R.Rect.Top) and (LocalY < R.Rect.Bottom) and
-       (LocalX >= R.Rect.Left) and (LocalX < R.Rect.Right) then begin
+    if (LocalY < R.Rect.Top) or (LocalY >= R.Rect.Bottom) then begin
+      Continue;
+    end;
+    if (LocalX >= R.Rect.Left) and (LocalX < R.Rect.Right) then begin
       if R.Kind = rkLink then begin
         Result.Kind := mhkLink;
         Result.URL := R.URL;
       end else begin
         Result.Kind := mhkText;
       end;
-      Result.CharOffset := R.CharStart;
+      Result.CharOffset := CharOffsetInRun(ACanvas, R, LocalX);
       Exit;
+    end;
+    { Same line but beside the run — the spaces between words and the
+      run-up to the end of a line are not covered by any Rect. Without
+      this the hit came back "nothing", and the caller had to guess
+      (offset 0 or the end of the whole message), which is what made
+      dragging across a space jump. }
+    if LocalX < R.Rect.Left then begin
+      D := R.Rect.Left - LocalX;
+    end else begin
+      D := LocalX - R.Rect.Right;
+    end;
+    if D < BestD then begin
+      BestD := D;
+      BestI := I;
+    end;
+  end;
+
+  if BestI >= 0 then begin
+    R := ARuns[BestI];
+    { Deliberately mhkText even when the nearest run is a link: the
+      pointer is in the gap NEXT to it, and a click there should start
+      a selection, not open the URL. }
+    Result.Kind := mhkText;
+    if LocalX < R.Rect.Left then begin
+      Result.CharOffset := R.CharStart;
+    end else begin
+      Result.CharOffset := R.CharEnd;
     end;
   end;
 end;
@@ -749,7 +923,7 @@ end;
 { ---------------- TMsgContentRenderer (base) ---------------- }
 
 function TMsgContentRenderer.HitTest(ARow: TMsgRow; const ARect: TRect;
-  X, Y: integer): TMsgHit;
+  X, Y: integer; ACanvas: TCanvas): TMsgHit;
 begin
   Result.Kind := mhkNone;
   Result.URL := '';
@@ -769,7 +943,8 @@ type
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
       ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
-    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; override;
+    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer;
+      ACanvas: TCanvas): TMsgHit; override;
   end;
 
 function TTextContentRenderer.Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer;
@@ -790,7 +965,7 @@ begin
 end;
 
 function TTextContentRenderer.HitTest(ARow: TMsgRow; const ARect: TRect;
-  X, Y: integer): TMsgHit;
+  X, Y: integer; ACanvas: TCanvas): TMsgHit;
 var
   L: TMsgLayout;
 begin
@@ -801,7 +976,7 @@ begin
     Result.CharOffset := -1;
     Exit;
   end;
-  Result := HitTestRuns(L.Runs, X - ARect.Left, Y - ARect.Top);
+  Result := HitTestRuns(ACanvas, L.Runs, X - ARect.Left, Y - ARect.Top);
 end;
 
 { ---------------- audio: a real widget (framehistory.TAudioWidget) ---------------- }
@@ -900,7 +1075,8 @@ type
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
       ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
-    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; override;
+    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer;
+      ACanvas: TCanvas): TMsgHit; override;
     function WantsWidget: boolean; override;
   end;
 
@@ -988,7 +1164,7 @@ begin
 end;
 
 function TPhotoContentRenderer.HitTest(ARow: TMsgRow; const ARect: TRect;
-  X, Y: integer): TMsgHit;
+  X, Y: integer; ACanvas: TCanvas): TMsgHit;
 var
   L: TMsgLayout;
 begin
@@ -999,7 +1175,7 @@ begin
     Result.CharOffset := -1;
     Exit;
   end;
-  Result := HitTestRuns(L.Runs, X - ARect.Left, Y - ARect.Top);
+  Result := HitTestRuns(ACanvas, L.Runs, X - ARect.Left, Y - ARect.Top);
 end;
 
 function TPhotoContentRenderer.WantsWidget: boolean;
@@ -1090,7 +1266,8 @@ type
     function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
     procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
       ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
-    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer): TMsgHit; override;
+    function HitTest(ARow: TMsgRow; const ARect: TRect; X, Y: integer;
+      ACanvas: TCanvas): TMsgHit; override;
   end;
 
 { mckVoiceNote/mckPhoto/mckAnimation/mckVideo/mckSticker are excluded
@@ -1150,7 +1327,7 @@ begin
 end;
 
 function TPlaceholderContentRenderer.HitTest(ARow: TMsgRow; const ARect: TRect;
-  X, Y: integer): TMsgHit;
+  X, Y: integer; ACanvas: TCanvas): TMsgHit;
 var
   L: TMsgLayout;
 begin
@@ -1161,7 +1338,7 @@ begin
     Result.CharOffset := -1;
     Exit;
   end;
-  Result := HitTestRuns(L.Runs, X - ARect.Left, Y - ARect.Top);
+  Result := HitTestRuns(ACanvas, L.Runs, X - ARect.Left, Y - ARect.Top);
 end;
 
 { ---------------- registry ---------------- }

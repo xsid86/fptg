@@ -703,10 +703,15 @@ begin
     { Only meaningful for channels — hidden for every other chat kind,
       per direct request. }
     FFilters[CHAT_HEADER_FILTER_SIMILAR].Visible := Row.Kind = ckChannel;
-    { A different chat's avatar may be a completely different image —
-      reset explicitly so the PhotoPath check below can't match a value
-      left over from the previous chat. }
+    { A different chat's avatar may be a completely different image.
+      Dropping the bitmap, not just the remembered path, is what makes
+      the check below correct: a chat with NO photo has PhotoPath = '',
+      which compares equal to a reset path, so the render was skipped
+      and the PREVIOUS chat's avatar stayed on screen (and a chat that
+      never had one — a deleted account — got no disc at all). With the
+      bitmap gone, nil is the "nothing rendered yet" state. }
     FAvatarPath := '';
+    FreeAndNil(FAvatarBmp);
     { The model drops its filter on every chat switch (TTdMessages.
       Clear), so the buttons have to follow, or a pressed one would
       claim a filter that isn't applied to what's on screen. Silent by
@@ -738,11 +743,12 @@ begin
     FTitle := string(Row.Title);
   end;
 
-  { The avatar is re-rendered only when the chat changed (FAvatarPath
-    reset above) or its photo path did — RenderAvatarBmp decodes a real
-    JPEG when a downloaded photo exists, and Refresh runs on every
-    ModelChanged, several times a second while messages stream in. }
-  if Row.PhotoPath <> FAvatarPath then begin
+  { The avatar is re-rendered only when the chat changed (the bitmap
+    was dropped above) or its photo path did — RenderAvatarBmp decodes
+    a real JPEG when a downloaded photo exists, and Refresh runs on
+    every ModelChanged, several times a second while messages stream
+    in. }
+  if (FAvatarBmp = nil) or (Row.PhotoPath <> FAvatarPath) then begin
     FAvatarPath := Row.PhotoPath;
     if TdChatList <> nil then begin
       TdChatList.EnsureAvatar(Row);

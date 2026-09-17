@@ -230,6 +230,14 @@ const
     than the fills above (0.5): a defining border, not a tint. }
   SENDER_BORDER_OPACITY = 0.5;
 
+  { Selected text in the message history (msglayout.PaintRuns). The raw
+    system highlight is a saturated blue meant for a control that also
+    flips its text to clHighlightText; the history keeps body text dark
+    on top, and at full strength that stops reading. A wash of the same
+    color over the background says "selected" and leaves the glyphs on
+    a near-white field. }
+  SELECTION_OPACITY = 0.3;
+
   { Audio widget (TAudioWidget) — same backing/outline treatment as the
     reply-quote box (SENDER_BG_OPACITY/SENDER_BORDER_OPACITY, same
     inner padding MSG_PAD_H), but its own fixed base color rather than
@@ -305,6 +313,30 @@ const
   DOWNLOAD_SPEED_MAX_KB     = 102400;
   DOWNLOAD_CHUNK_INTERVAL_MS = 250;
   TD_DOWNLOAD_PART_BYTES     = 512 * 1024;
+
+  { Cache cleanup (tdstorage.pas, the settings window's Storage
+    section). Nothing ever removed what the downloads above put in
+    tdlib/accN/files, so the folder only grew — gigabytes of video for
+    messages scrolled past once.
+
+    The size cap is on by default, and deliberately so: a cache is by
+    definition re-downloadable, and leaving the default at "unlimited"
+    would mean the mechanism only works for whoever goes looking for
+    it. CACHE_LIMIT_MB = 0 turns it off, and is what the age limit
+    starts at — pruning by age is a second, independent rule most
+    people don't need on top of a size cap.
+
+    STORAGE_OPTIMIZE_TIMEOUT_MS is far above the 30s default of
+    tdreq.pas: optimizeStorage walks the whole file database, and a
+    timed-out request would report a failure for a cleanup that in
+    fact completed. }
+  CACHE_LIMIT_DEFAULT_MB = 2048;
+  CACHE_LIMIT_MIN_MB     = 0;
+  CACHE_LIMIT_MAX_MB     = 1024 * 1024;
+  CACHE_TTL_DEFAULT_DAYS = 0;
+  CACHE_TTL_MIN_DAYS     = 0;
+  CACHE_TTL_MAX_DAYS     = 3650;
+  STORAGE_OPTIMIZE_TIMEOUT_MS = 300000;
 
   VIEWER_BAR_BOTTOM_MARGIN = 50;
   { The bar is centered and no wider than this — stretching it across a
@@ -396,7 +428,7 @@ const
   { This bar's avatar is 48, not the chat list's own AVATAR_SIZE (44) —
     by direct request; the content area is sized around it exactly the
     way CHATROW_CONTENT_H is sized around AVATAR_SIZE. }
-  CHAT_HEADER_AVATAR_SIZE = 48;
+  CHAT_HEADER_AVATAR_SIZE = 64;
   CHAT_HEADER_CONTENT_H   = CHAT_HEADER_AVATAR_SIZE + 2 * MSG_PAD_V;
   { The card's gap from the bar's own edges — one knob per side, NOT one
     shared number: they were briefly folded into a single constant and
@@ -805,6 +837,13 @@ const
     for where the left bar itself sits — it matches the text's own
     padded vertical extent, not the full widget height). }
   QUOTE_PAD              = 8;
+  { The quote widget's own corner radius — direct request, first "4
+    pixels, no smoothing", then 6 once seen on screen (4 read as too
+    tight). Drawn through cardpaint.PaintRounded with ASmooth
+    False rather than following SMOOTH_CORNERS: this is inside the
+    message history, the very place that flag turns antialiasing off
+    for, and it was asked for explicitly on top of that. }
+  QUOTE_CORNER_RADIUS    = 6;
   { The quote widget's own line spacing — separate from the app-wide
     LINE_LEADING (used for every OTHER text block, ordinary message text
     included) so it can be tuned for quotes alone, direct request
@@ -812,11 +851,32 @@ const
     widget-internal recursive WrapText call (AHandleQuoteWidgets=False)
     uses this; the outer, message-level call still uses LINE_LEADING. }
   QUOTE_LINE_LEADING     = 0;
-  { Computed for TAudioWidget (framehistory.pas): 2*MSG_PAD_H (top/
-    bottom inner padding) + max(32 [play/pause button],
-    REPLY_LINE_H + HEADER_PAD_V + AUDIO_THUMB_H + HEADER_PAD_V +
-    REPLY_LINE_H [title+progress+time]) = 2*11 + max(32,48) = 70. }
-  AUDIO_WIDGET_H    = 70;
+  { The album cover shown at the left edge of TAudioWidget
+    (framehistory.pas): content.audio.album_cover_thumbnail, or the
+    smallest of content.audio.external_album_covers that still covers
+    this size, or the headphones placeholder (TFrameHistory.Img48)
+    when the track has neither. The placeholder frame already carries
+    this rounding baked into its alpha, so AUDIO_COVER_RADIUS is what
+    a real cover has to be masked with to match it. }
+  AUDIO_COVER_SIZE   = 48;
+  AUDIO_COVER_RADIUS = 6;
+  { Frames in TFrameHistory.Img48 — the placeholder for a track with no
+    cover (headphones) and for a voice note, which never has one
+    (microphone). Both frames already carry AUDIO_COVER_RADIUS in their
+    own alpha. }
+  AUDIO_COVER_ICON_AUDIO = 0;
+  AUDIO_COVER_ICON_VOICE = 1;
+  { Inner padding of TAudioWidget: cover to the left/top/bottom edge,
+    and cover to everything right of it. Direct request; it is NOT
+    MSG_PAD_H/MSG_PAD_V, which is why it has its own name. }
+  AUDIO_COVER_PAD    = 6;
+  { TAudioWidget's height is driven by the cover (direct request):
+    AUDIO_COVER_SIZE + 2*AUDIO_COVER_PAD = 60. The content column to
+    the right of the cover happens to be exactly AUDIO_COVER_SIZE tall
+    as well — REPLY_LINE_H + HEADER_PAD_V + AUDIO_THUMB_H +
+    HEADER_PAD_V + REPLY_LINE_H = 15+6+6+6+15 = 48 (title, progress
+    bar, times) — so both columns sit flush inside the same padding. }
+  AUDIO_WIDGET_H    = AUDIO_COVER_SIZE + 2 * AUDIO_COVER_PAD;
   { File widget (TFileWidget, framehistory.pas) — same backing/outline/
     rounding treatment as AUDIO_WIDGET_H, but with no progress bar, so
     height is not reused wholesale (that one accounts for
