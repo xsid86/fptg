@@ -1276,6 +1276,7 @@ type
     FilePopupMenu: TPopupMenu;
     ImageList2: TImageList;
     FilterButtons: TImageList;
+    FilterButtons12: TImageList;
     Img48: TImageList;
     playback: TImageList;
     TextPopupMenu: TPopupMenu;
@@ -1290,6 +1291,7 @@ type
       FScroller, taking the source TFileWidget from
       PopupMenu.PopupComponent — the same component shown by a right
       click on that exact widget. }
+    procedure FrameClick(Sender: TObject);
     procedure MenuItemFileSaveAsClick(Sender: TObject);
     procedure MenuItemFileShowInFolderClick(Sender: TObject);
     { TextPopupMenu's own three (same reason they live here). Both items
@@ -7240,7 +7242,7 @@ begin
     SetImageLists for why this bar reuses rather than duplicates them. }
   if FormMain <> nil then begin
     FChatHeader.SetImageLists(FormMain.Chats.icons12, FormMain.ImageList1,
-      FilterButtons, Actions16, FormMain.Chats.ImageListBig, 2);
+      FilterButtons12, Actions16, FormMain.Chats.ImageListBig, 2);
     { Keeps the header's own pin/bell in step with the chat list's.
       Neither SetPinned nor SetMuted changes the row's flags locally —
       they only send the request, and the real state arrives later as a
@@ -7364,6 +7366,11 @@ begin
   end else if PM.PopupComponent is TAudioWidget then begin
     FScroller.AudioWidgetSaveAsClick(PM.PopupComponent);
   end;
+end;
+
+procedure TFrameHistory.FrameClick(Sender: TObject);
+begin
+
 end;
 
 procedure TFrameHistory.BindModel;

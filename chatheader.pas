@@ -32,7 +32,7 @@ type
     own constants, so the two can't drift apart.
 
     Everything in the header strip (chat-type icon, premium badge,
-    title, numeric id, pin, mute, "more") plus the avatar is PAINTED,
+    title, numeric id, pin, mute) plus the avatar is PAINTED,
     not built from child controls, exactly as the chat list paints its
     own rows: an earlier pass made each of these a TSpeedButton/TLabel
     and it neither looked nor behaved like the reference (buttons where
@@ -43,26 +43,47 @@ type
     during Paint, the same approach framechats.HitArea uses.
 
     Real child controls remain only where one is genuinely needed: the
-    12 filter buttons and the magnifier (they want hover feedback and
-    native icon drawing) and the search TEdit (text input).
+    magnifier (it wants hover feedback) and the search TEdit (text
+    input). The filter toggles were twelve 32x32 TSpeedButtons until
+    they were asked to become painted 12x12 glyphs: no button frame, no
+    hover highlight, drawn exactly the way the chat list draws the pin
+    and bell on one of its own rows. Their clickable rects join the
+    hit-test list above.
 
-    Nine of the twelve filter buttons plus the search box drive ONE
-    request — searchChatMessages with a different SearchMessagesFilter
-    (see TD_MSG_FILTER_* and TTdMessages.SetSearchFilter) — and are
-    wired up through OnFilterChanged. They behave as one radio group
-    (GroupIndex/AllowAllUp, set in Create — see there for why not in
-    the .lfm): the pressed one is the active filter, pressing it again
-    releases it and, with an empty search box, returns to the ordinary
-    history. Filter and query COMBINE rather than replace each other,
-    exactly as the TDLib request itself takes both.
+    The right-hand side of the content area is three stacked rows,
+    centred on the avatar and all ending at the same right edge as the
+    header strip above them: the eleven filter toggles on top, spread
+    evenly across the search box's width, the search box itself in the
+    middle, and the similar-channels and info-panel buttons underneath.
 
-    The other three — gifts, saved and similar-channels — are still
-    stubs, and not because they were forgotten: TDLib answers those
-    with receivedGifts / a savedMessagesTopic history / a list of chat
-    ids, none of which are messages, so none of them can go through the
-    message list the other nine reuse. They are also kept out of the
-    radio group, so they can't look "active". "more" is a stub too (no
-    details panel exists yet).
+    Nine of the eleven toggles plus the search box drive ONE request —
+    searchChatMessages with a different SearchMessagesFilter (see
+    TD_MSG_FILTER_* and TTdMessages.SetSearchFilter) — and are wired up
+    through OnFilterChanged. At most ONE is on at a time (FActiveFilter,
+    and turning on a second turns off the first): that is not a UI
+    preference but the API's shape — searchChatMessages takes exactly
+    one filter, so several at once would mean running several searches
+    and merging them by hand, which was explicitly not wanted. Clicking
+    the active one again turns it off and, with an empty search box,
+    returns to the ordinary history. Filter and query COMBINE rather
+    than replace each other, exactly as the TDLib request itself takes
+    both.
+
+    The other two — gifts and saved — are still stubs, and not because
+    they were forgotten: TDLib answers those with receivedGifts and a
+    savedMessagesTopic history, neither of which are messages, so
+    neither can go through the message list the other nine reuse.
+    FilterTypeFor returning '' is what marks a toggle as a stub, and it
+    is the one place that decides; such a toggle can never be the
+    active one. Similar-channels is the same kind of stub (a list of
+    chat ids) but is not part of this row at all any more — it sits in
+    the bottom row, shown only for channels.
+
+    The info-panel button next to it is a stub of a different kind: the
+    details side panel does not exist yet, so this bar holds the
+    open/closed state itself (SetInfoPanelOpen is the hook the real
+    panel will call once there is one) and the arrow only says what a
+    click will do — right to open, left to close.
 
     The bar hides itself by collapsing to Height=0 (Refresh(0), or no
     chat found for the id) rather than toggling Visible — the same
@@ -72,10 +93,10 @@ type
     bar entirely.
 
     A real TFrame with a paired chatheader.lfm, same as msginput.pas —
-    so the 13 buttons and the search edit are ordinary published fields
+    so the magnifier and the search edit are ordinary published fields
     streamed from the .lfm and can be edited in the Lazarus Designer
-    (that is what the .lfm is FOR here: the Hint on each button, and
-    their order, are meant to be set visually, not in code). TFrame
+    (that is what the .lfm is FOR here: their Hints are meant to be set
+    visually, not in code). TFrame
     still descends from TCustomControl (TCustomFrame ->
     TCustomDesignControl -> TScrollingWinControl -> TCustomControl,
     checked in the LCL source, not assumed), so Canvas/Paint below work
@@ -87,29 +108,15 @@ type
     frame around it — white here draws a white band around the card)
     and ParentBackground=False.
 
-    The buttons' positions in the .lfm are design-time only: DoLayout
-    re-places all of them from the card's geometry on every resize. }
+    The two child controls' positions in the .lfm are design-time only:
+    DoLayout re-places them from the card's geometry on every resize,
+    and computes the painted icons' rects in the same pass. }
   TChatHeaderPanel = class(TFrame)
-    { Streamed from chatheader.lfm — the 12 filter buttons in
-      CHAT_HEADER_FILTER_* order (Create wires them into FFilters by
-      that index; changing their ORDER on screen is a matter of moving
-      them in FFilters, not of renaming anything here), the magnifier
-      and the search box. }
-    btnGifts:   TSpeedButton;
-    btnSaved:   TSpeedButton;
-    btnPhotos:  TSpeedButton;
-    btnVideos:  TSpeedButton;
-    btnFiles:   TSpeedButton;
-    btnAudio:   TSpeedButton;
-    btnLinks:   TSpeedButton;
-    btnPolls:   TSpeedButton;
-    btnVoice:   TSpeedButton;
-    btnGif:     TSpeedButton;
-    btnSimilar: TSpeedButton;
-    btnPinned:  TSpeedButton;
+    { Streamed from chatheader.lfm — the only two child controls left,
+      the magnifier and the search box. The filter toggles used to live
+      here too and are painted now, see the class comment. }
     btnSearch:  TSpeedButton;
     edtSearch:  TEdit;
-    procedure FilterClick(Sender: TObject);
     procedure SearchGo(Sender: TObject);
     procedure SearchKeyPress(Sender: TObject; var Key: char);
   private
@@ -117,6 +124,7 @@ type
     FTypeIcons:    TCustomImageList;
     FPremiumIcons: TCustomImageList;
     FDeletedIcons: TCustomImageList;
+    FFilterIcons:  TCustomImageList;
     FAvatarPath:   utf8string;
     FAvatarBmp:    TBGRABitmap;
     FCardBg:       TColor;
@@ -140,25 +148,54 @@ type
     FPinRect:        TRect;
     FMuteRect:       TRect;
     FIdRect:         TRect;
-    FMoreRect:       TRect;
     FAvatarRect:     TRect;
     { The search field's frame — edtSearch sits inset inside it and the
       magnifier inside its right end, so it's neither control's own
       bounds and has to be remembered for Paint. }
     FSearchSlotRect: TRect;
 
-    { The 12 published filter buttons above, indexed by
-      CHAT_HEADER_FILTER_* — filled once in Create. A published field
-      can't be an array (the streaming system addresses components by
-      name), so the array is built from the named fields rather than
-      the other way round. }
-    FFilters: array[0..11] of TSpeedButton;
-    FOnFilterChanged: TChatHeaderFilterEvent;
+    { The filter toggles' own clickable rects, indexed by
+      CHAT_HEADER_FILTER_*, plus the two buttons of the bottom row.
+      Unlike the header strip's rects these depend on no text width, so
+      DoLayout computes them (Paint and MouseDown both just read them)
+      — the same place the two real child controls are positioned, so
+      the three rows can't drift apart. FSimilarRect collapses to zero
+      width outside a channel rather than carrying a "visible" flag,
+      the same rule the header strip's own icons follow. }
+    FFilterRects:  array[0..CHAT_HEADER_FILTER_COUNT - 1] of TRect;
+    FSimilarRect:  TRect;
+    FPanelRect:    TRect;
+
+    { Which toggle is on, or -1 for none — see the class comment for
+      why one and not a set. }
+    FActiveFilter:   integer;
+    { Channels only, per direct request — every other chat kind gets a
+      collapsed FSimilarRect instead. }
+    FSimilarVisible: boolean;
+    { The details side panel's state. Owned here only until that panel
+      exists — see SetInfoPanelOpen. }
+    FInfoPanelOpen:     boolean;
+    FOnToggleInfoPanel: TNotifyEvent;
+    FOnFilterChanged:   TChatHeaderFilterEvent;
 
     { The TDLib SearchMessagesFilter name for one CHAT_HEADER_FILTER_*
-      index, or '' for the three buttons that aren't a message filter
-      at all (gifts/saved/similar — see the class comment). }
+      index, or '' for the two toggles that aren't a message filter at
+      all (gifts/saved — see the class comment). }
     function FilterTypeFor(AIndex: integer): utf8string;
+    { The FilterButtons12 frame for one toggle: its index doubled, plus
+      one when it is the active one (grey pair member first, black
+      second — see CHAT_HEADER_FILTER_ICON_*). The only place that
+      arithmetic is written down. }
+    function FilterIconIndex(AIndex: integer): integer;
+    { Which toggle/button a point falls on, or -1 — one function so
+      MouseDown and MouseMove can't disagree about what is clickable. }
+    function FilterAt(const APoint: TPoint): integer;
+    { The tooltip for whatever FilterAt just returned, '' for nothing.
+      These used to be Designer-set Hints on twelve real buttons; with
+      the buttons painted there is one control and so one Hint, swapped
+      as the mouse moves — the same thing TFrameChats does for the
+      icons on its own rows. }
+    function FilterHint(AHit: integer): string;
     { Gathers the current filter+query from the controls and raises
       OnFilterChanged. One place, so a click on a filter button and a
       run of the search box can't end up asking for different things. }
@@ -200,7 +237,9 @@ type
     { ATypeIcons — icons12 (CHATROW_ICON_* indices: the type/pin/mute
       icons, the same list and indices the chat list itself draws).
       APremiumIcons — ImageList1 (PREMIUM_CROWN_ICON). AFilterIcons —
-      FilterButtons (CHAT_HEADER_FILTER_* indices). ASearchIcons/
+      FilterButtons12, the 12x12 list: the toggles' grey/black pairs
+      plus the similar-channels and info-panel glyphs, see
+      FilterIconIndex and CHAT_HEADER_ICON12_*. ASearchIcons/
       ASearchIconIndex — the magnifier (Actions16, index 2 as the
       project stands) — passed in rather than hard-coded, this unit has
       no access to TFrameHistory's own LFM components. ADeletedIcons —
@@ -213,10 +252,21 @@ type
       the search box, matching TTdMessages.Clear, which drops the
       filter on every chat switch. }
     procedure Refresh(AChatId: Int64);
-    { Releases every filter button and empties the search box WITHOUT
+    { Turns off the active toggle and empties the search box WITHOUT
       raising OnFilterChanged — for putting the bar back in step with a
       model whose filter was dropped elsewhere, not for changing it. }
     procedure ClearFilterUI;
+    { The hook for the details side panel that does not exist yet: it
+      calls this with its real state, the bar flips the arrow. Until
+      there is one, the bar toggles this itself on every click (see
+      MouseDown) so the button still visibly does something — which is
+      the whole of what the stub was asked to do. }
+    procedure SetInfoPanelOpen(AOpen: boolean);
+    property InfoPanelOpen: boolean read FInfoPanelOpen;
+    { Raised on every click of the info-panel button, after the state
+      above has already flipped. Nothing listens yet. }
+    property OnToggleInfoPanel: TNotifyEvent
+      read FOnToggleInfoPanel write FOnToggleInfoPanel;
     property OnFilterChanged: TChatHeaderFilterEvent
       read FOnFilterChanged write FOnFilterChanged;
   end;
@@ -224,6 +274,14 @@ type
 implementation
 
 {$R *.lfm}
+
+const
+  { What FilterAt returns for the two buttons of the bottom row, which
+    are not filter toggles and so have no CHAT_HEADER_FILTER_* index of
+    their own. Negative so they can share one function's result with
+    the toggles' indices, and -1 stays free for "nothing here". }
+  CHAT_HEADER_HIT_SIMILAR = -2;
+  CHAT_HEADER_HIT_PANEL   = -3;
 
 function TChatHeaderPanel.CardRect: TRect;
 begin
@@ -308,47 +366,12 @@ begin
 end;
 
 constructor TChatHeaderPanel.Create(AOwner: TComponent);
-var
-  I: integer;
 begin
-  { Streams chatheader.lfm — every child control below already exists
-    (and already carries its Designer-set Hint) once this returns. }
+  { Streams chatheader.lfm — both child controls below already exist
+    (and already carry their Designer-set Hint) once this returns. }
   inherited Create(AOwner);
   FTypeIconIdx := -1;
-
-  FFilters[CHAT_HEADER_FILTER_GIFTS]   := btnGifts;
-  FFilters[CHAT_HEADER_FILTER_SAVED]   := btnSaved;
-  FFilters[CHAT_HEADER_FILTER_PHOTOS]  := btnPhotos;
-  FFilters[CHAT_HEADER_FILTER_VIDEOS]  := btnVideos;
-  FFilters[CHAT_HEADER_FILTER_FILES]   := btnFiles;
-  FFilters[CHAT_HEADER_FILTER_AUDIO]   := btnAudio;
-  FFilters[CHAT_HEADER_FILTER_LINKS]   := btnLinks;
-  FFilters[CHAT_HEADER_FILTER_POLLS]   := btnPolls;
-  FFilters[CHAT_HEADER_FILTER_VOICE]   := btnVoice;
-  FFilters[CHAT_HEADER_FILTER_GIF]     := btnGif;
-  FFilters[CHAT_HEADER_FILTER_SIMILAR] := btnSimilar;
-  FFilters[CHAT_HEADER_FILTER_PINNED]  := btnPinned;
-  { Tag carries the CHAT_HEADER_FILTER_* index into FilterClick — set
-    here rather than in the .lfm so it can't drift out of step with
-    FFilters if the buttons are reshuffled in the Designer. }
-  for I := 0 to 11 do begin
-    FFilters[I].Tag := I;
-    { GroupIndex/AllowAllUp deliberately here and NOT in the .lfm: this
-      is behavior, not looks, and it has to stay in step with
-      FilterTypeFor — a button that maps to a real SearchMessagesFilter
-      is part of the one-of-N group, the three that don't are left out
-      so they can never appear "active". Setting it from the same loop
-      that indexes FFilters makes that impossible to get out of sync,
-      and a designer round-trip (reordering the buttons, dropping icons
-      on them, editing hints) can't silently drop it — which is exactly
-      what happened to an earlier .lfm version of this. }
-    if FilterTypeFor(I) <> '' then begin
-      FFilters[I].GroupIndex := 1;
-      FFilters[I].AllowAllUp := True;
-    end;
-  end;
-  FFilters[CHAT_HEADER_FILTER_SIMILAR].Visible := False;
-
+  FActiveFilter := -1;
   Height := 0;   { no chat open yet — see the class comment }
 end;
 
@@ -360,27 +383,23 @@ end;
 
 procedure TChatHeaderPanel.SetImageLists(ATypeIcons, APremiumIcons, AFilterIcons, ASearchIcons,
   ADeletedIcons: TCustomImageList; ASearchIconIndex: integer);
-var
-  I: integer;
 begin
   FTypeIcons := ATypeIcons;
   FPremiumIcons := APremiumIcons;
   FDeletedIcons := ADeletedIcons;
-  for I := 0 to 11 do begin
-    FFilters[I].Images := AFilterIcons;
-    FFilters[I].ImageIndex := I;
-  end;
+  FFilterIcons := AFilterIcons;
   btnSearch.Images := ASearchIcons;
   btnSearch.ImageIndex := ASearchIconIndex;
 end;
 
-{ Positions the few REAL child controls (avatar is painted, not a
-  control: only the filter buttons, the magnifier and the search edit
-  are). Geometry copied from framechats.ChatRowRects — header strip of
-  CHATROW_HEADER_BAR_H on top, content area below, MSG_PAD_H in from
-  the card's edges, MSG_PAD_V down from the content area's top. The
-  painted parts' rects are computed in Paint instead, where the text
-  widths they depend on are known. }
+{ Places the two REAL child controls (the magnifier and the search
+  edit) and computes the rects of everything painted in the content
+  area — the avatar and the three right-hand rows. Geometry copied from
+  framechats.ChatRowRects: header strip of CHATROW_HEADER_BAR_H on top,
+  content area below, MSG_PAD_H in from the card's edges, MSG_PAD_V
+  down from the content area's top. Only the HEADER strip's own rects
+  are left to Paint, because those depend on text widths it is the only
+  place to know. }
 procedure TChatHeaderPanel.DoLayout;
 const
   { Fixed, never read back from edtSearch itself — an earlier version
@@ -394,7 +413,7 @@ const
   MagnifierW  = 22;
 var
   Card, Content: TRect;
-  X, RightX, I, SearchY, EditL, EditR: integer;
+  X, RightX, RowsTop, BlockH, BlockTop, Span, I, SearchY, EditL, EditR: integer;
 begin
   if (Width <= 0) or (Height <= 0) then begin
     Exit;
@@ -402,7 +421,7 @@ begin
   { Streaming chatheader.lfm assigns this frame's OWN properties
     (Height among them) before it has created a single child control,
     and every one of those assignments fires Resize -> here with
-    btnSearch/edtSearch/FFilters still nil — a real access violation on
+    btnSearch/edtSearch still nil — a real access violation on
     the first chat opened (TFrameNavigator builds TFrameHistory, and
     with it this bar, lazily), not a hypothetical. There is nothing to
     place until loading has finished anyway; Create's own Height := 0
@@ -419,39 +438,57 @@ begin
   FAvatarRect := Rect(Content.Left + MSG_PAD_H, Content.Top + MSG_PAD_V,
     Content.Left + MSG_PAD_H + CHAT_HEADER_AVATAR_SIZE,
     Content.Top + MSG_PAD_V + CHAT_HEADER_AVATAR_SIZE);
-  { The gap from the avatar to the first filter icon is the same
-    MSG_PAD_H as from the card's edge to the avatar, by direct
-    request — not CHAT_HEADER_FILTER_GAP, which is only the gap
-    BETWEEN two filter icons. }
-  X := FAvatarRect.Right + MSG_PAD_H;
-
-  { The search field is one framed box (Paint draws the frame at
-    FSearchSlotRect) with two children inside it: the text edit filling
-    its left part and the magnifier inside its right end. }
+  { All three rows end at the same right edge, and so does the header
+    strip above them (see Paint) — MSG_PAD_H, the card's own inner
+    padding. The block of three is centred on the avatar rather than
+    stretched to its height — with the gaps pinned at
+    CHAT_HEADER_ROW_GAP_V by direct request, its height is fixed at
+    12 + 6 + 24 + 6 + 12, which is 4 short of the avatar's 64. }
   RightX := Content.Right - MSG_PAD_H;
-  Dec(RightX, SearchW);
-  SearchY := Content.Top + (CHAT_HEADER_CONTENT_H - SearchH) div 2;
-  FSearchSlotRect := Rect(RightX, SearchY, RightX + SearchW, SearchY + SearchH);
+  RowsTop := FAvatarRect.Top;
+  BlockH := 2 * (CHAT_HEADER_FILTER_SIZE + CHAT_HEADER_ROW_GAP_V) + SearchH;
+  BlockTop := RowsTop + (CHAT_HEADER_AVATAR_SIZE - BlockH) div 2;
 
+  { --- middle row: the search field, one framed box (Paint draws the
+        frame at FSearchSlotRect) with two children inside it, the text
+        edit filling its left part and the magnifier inside its right
+        end --- }
+  SearchY := BlockTop + CHAT_HEADER_FILTER_SIZE + CHAT_HEADER_ROW_GAP_V;
+  FSearchSlotRect := Rect(RightX - SearchW, SearchY, RightX, SearchY + SearchH);
   btnSearch.SetBounds(FSearchSlotRect.Right - SearchInset - MagnifierW, SearchY + SearchInset,
     MagnifierW, SearchH - 2 * SearchInset);
   EditL := FSearchSlotRect.Left + SearchInset + MSG_ICON_GAP;
   EditR := FSearchSlotRect.Right - SearchInset - MagnifierW;
   edtSearch.SetBounds(EditL, SearchY + SearchInset, EditR - EditL, SearchH - 2 * SearchInset);
-  Dec(RightX, CHAT_HEADER_FILTER_GAP);
 
-  for I := 0 to 11 do begin
-    if not FFilters[I].Visible then begin
-      Continue;
-    end;
-    { Stops rather than overlaps the search field on a narrow window —
-      no wrapping, the remaining filter icons just don't get a slot. }
-    if X + CHAT_HEADER_FILTER_SIZE > RightX then begin
-      Break;
-    end;
-    FFilters[I].SetBounds(X, Content.Top + (CHAT_HEADER_CONTENT_H - CHAT_HEADER_FILTER_SIZE) div 2,
-      CHAT_HEADER_FILTER_SIZE, CHAT_HEADER_FILTER_SIZE);
-    Inc(X, CHAT_HEADER_FILTER_SIZE + CHAT_HEADER_FILTER_GAP);
+  { --- top row: the filter toggles, spread EVENLY across the search
+        box's width by direct request — first flush with its left
+        edge, last flush with its right. Hence no gap constant here:
+        the leftovers of 200 minus eleven 12s divided by ten gaps do
+        not come out whole, so the position is computed per icon (with
+        rounding, +Span div 2 before the divide) rather than by adding
+        a fixed step, which would let the error pile up and leave the
+        last icon short of the edge. --- }
+  Span := (FSearchSlotRect.Right - FSearchSlotRect.Left) - CHAT_HEADER_FILTER_SIZE;
+  for I := 0 to CHAT_HEADER_FILTER_COUNT - 1 do begin
+    X := FSearchSlotRect.Left
+      + (Span * I + (CHAT_HEADER_FILTER_COUNT - 1) div 2) div (CHAT_HEADER_FILTER_COUNT - 1);
+    FFilterRects[I] := Rect(X, BlockTop, X + CHAT_HEADER_FILTER_SIZE,
+      BlockTop + CHAT_HEADER_FILTER_SIZE);
+  end;
+
+  { --- bottom row: similar channels (channels only) and the info panel
+        toggle, right-aligned with the search box --- }
+  X := RightX - CHAT_HEADER_FILTER_SIZE;
+  FPanelRect := Rect(X, SearchY + SearchH + CHAT_HEADER_ROW_GAP_V,
+    X + CHAT_HEADER_FILTER_SIZE,
+    SearchY + SearchH + CHAT_HEADER_ROW_GAP_V + CHAT_HEADER_FILTER_SIZE);
+  Dec(X, CHAT_HEADER_FILTER_GAP);
+  if FSimilarVisible then begin
+    Dec(X, CHAT_HEADER_FILTER_SIZE);
+    FSimilarRect := Rect(X, FPanelRect.Top, X + CHAT_HEADER_FILTER_SIZE, FPanelRect.Bottom);
+  end else begin
+    FSimilarRect := Rect(X, FPanelRect.Top, X, FPanelRect.Bottom);
   end;
 end;
 
@@ -466,14 +503,14 @@ end;
   off), content, outline last. Everything in the strip plus the avatar
   is drawn here rather than being a child control — see the class
   comment. Along the way this records the clickable rects
-  (FPinRect/FMuteRect/FIdRect/FMoreRect) that MouseDown hit-tests
-  against, since their positions depend on text widths only known
-  here. }
+  (FPinRect/FMuteRect/FIdRect) that MouseDown hit-tests against, since
+  their positions depend on text widths only known here; the content
+  area's rects come ready-made from DoLayout instead. }
 procedure TChatHeaderPanel.Paint;
 var
   Accent, HeaderFill, Border: TColor;
   Card, Header, Content: TRect;
-  IconY, RightX, TitleX, TextY, MoreW, MoreH: integer;
+  IconY, RightX, TitleX, TextY, I, Idx: integer;
 begin
   inherited Paint;
   if (FChatId = 0) or (Height <= 0) then begin
@@ -515,26 +552,16 @@ begin
     Inc(TitleX, FPremiumIcons.Width + MSG_ICON_GAP);
   end;
 
-  { --- header strip, right to left: more, mute, pin, id --- }
+  { --- header strip, right to left: mute, pin, id. "more..." used to
+        start this list and is gone: it was the details panel's button,
+        and that moved down to the bottom row of the content area, next
+        to similar-channels. The margin is MSG_PAD_H, the same one
+        DoLayout gives the three rows below, because these were asked
+        to line up with the search box — writing it as the same
+        constant is what keeps them lined up. --- }
   Canvas.Brush.Style := bsClear;
   Canvas.Font.Style := [];
   RightX := Header.Right - MSG_PAD_H;
-
-  MoreW := Canvas.TextWidth('more...') + 2 * GAP;
-  MoreH := CHATROW_HEADER_BAR_H - 2 * MSG_PAD_V;
-  Dec(RightX, MoreW);
-  FMoreRect := Rect(RightX, Header.Top + (CHATROW_HEADER_BAR_H - MoreH) div 2,
-    RightX + MoreW, Header.Top + (CHATROW_HEADER_BAR_H - MoreH) div 2 + MoreH);
-  { A framed box, like the reference — its radius clamped to half its
-    own height, or GDI draws a squashed capsule instead of rounded
-    corners (the same "oval artifact" already documented for the
-    message header strip elsewhere in this app). }
-  PaintCard(FMoreRect, Min(CHATROW_CORNER_RADIUS, MoreH div 2), [], clWindow, Border);
-  Canvas.Brush.Style := bsClear;
-  Canvas.Font.Color := clWindowText;
-  Canvas.TextOut(FMoreRect.Left + GAP,
-    FMoreRect.Top + (MoreH - Canvas.TextHeight('more...')) div 2, 'more...');
-  Dec(RightX, GAP);
 
   if FHasMute and (FTypeIcons <> nil) then begin
     Dec(RightX, CHATROW_ICON_SIZE);
@@ -585,8 +612,9 @@ begin
     Canvas.Font.Style := [];
   end;
 
-  { --- content area: the avatar (the filter icons and the search box
-        are real child controls, they paint themselves on top) --- }
+  { --- content area: the avatar and the three right-hand rows of
+        icons; the search box is a real child control and paints itself
+        on top --- }
   if FAvatarBmp <> nil then begin
     FAvatarBmp.Draw(Canvas, FAvatarRect.Left, FAvatarRect.Top, False);
   end;
@@ -603,6 +631,38 @@ begin
       DELETED_ACCOUNT_ICON, True);
   end;
 
+  { The three right-hand rows. Bare glyphs, no frame and no hover
+    highlight, by direct request — exactly how framechats draws the
+    pin and bell on one of its rows, and the reason these stopped being
+    TSpeedButtons. The zero-width check is what hides a collapsed rect
+    (FSimilarRect outside a channel, and anything DoLayout ever
+    collapses later) without a separate "visible" flag. }
+  if FFilterIcons <> nil then begin
+    for I := 0 to CHAT_HEADER_FILTER_COUNT - 1 do begin
+      if FFilterRects[I].Right <= FFilterRects[I].Left then begin
+        Continue;
+      end;
+      Idx := FilterIconIndex(I);
+      if (Idx >= 0) and (Idx < FFilterIcons.Count) then begin
+        FFilterIcons.Draw(Canvas, FFilterRects[I].Left, FFilterRects[I].Top, Idx, True);
+      end;
+    end;
+    if FSimilarVisible and (CHAT_HEADER_ICON12_SIMILAR < FFilterIcons.Count) then begin
+      FFilterIcons.Draw(Canvas, FSimilarRect.Left, FSimilarRect.Top,
+        CHAT_HEADER_ICON12_SIMILAR, True);
+    end;
+    { The arrow says what a click will DO, not what the panel is: right
+      while it is closed (click to open), left while it is open. }
+    if FInfoPanelOpen then begin
+      Idx := CHAT_HEADER_ICON12_PANEL_CLOSE;
+    end else begin
+      Idx := CHAT_HEADER_ICON12_PANEL_OPEN;
+    end;
+    if Idx < FFilterIcons.Count then begin
+      FFilterIcons.Draw(Canvas, FPanelRect.Left, FPanelRect.Top, Idx, True);
+    end;
+  end;
+
   PaintCard(FSearchSlotRect, Min(CHATROW_CORNER_RADIUS,
     (FSearchSlotRect.Bottom - FSearchSlotRect.Top) div 2), [], clWindow, Border);
 
@@ -614,6 +674,7 @@ procedure TChatHeaderPanel.MouseDown(Button: TMouseButton; Shift: TShiftState; X
 var
   P: TPoint;
   Row: TChatRow;
+  Hit: integer;
 begin
   inherited MouseDown(Button, Shift, X, Y);
   if (Button <> mbLeft) or (FChatId = 0) or (TdChatList = nil) then begin
@@ -625,6 +686,43 @@ begin
     { Same convention as the chat list's own "Copy id" menu item. }
     if FIdText <> '' then begin
       Clipboard.AsText := FIdText;
+    end;
+    Exit;
+  end;
+
+  { --- the content area's three rows. None of them need the chat row,
+        so they are handled before it is looked up. --- }
+  Hit := FilterAt(P);
+  if Hit = CHAT_HEADER_HIT_PANEL then begin
+    { Stub while there is no details panel: the bar is its own source of
+      truth, so the arrow at least flips. Once the panel exists it will
+      answer the event with SetInfoPanelOpen and take that role over. }
+    SetInfoPanelOpen(not FInfoPanelOpen);
+    if Assigned(FOnToggleInfoPanel) then begin
+      FOnToggleInfoPanel(Self);
+    end;
+    Exit;
+  end;
+  if Hit = CHAT_HEADER_HIT_SIMILAR then begin
+    { Stub, same as it was as a button — getChatSimilarChats answers
+      with a list of chat ids, which is not something the message list
+      can show. }
+    Exit;
+  end;
+  if Hit >= 0 then begin
+    { Gifts and saved have nothing to switch to and must not clear
+      whatever filter IS active — FilterTypeFor is the one place that
+      knows which those are. }
+    if FilterTypeFor(Hit) <> '' then begin
+      { Clicking the active one again turns it off; "off" plus an empty
+        search box is how the bar asks for the plain history back. }
+      if FActiveFilter = Hit then begin
+        FActiveFilter := -1;
+      end else begin
+        FActiveFilter := Hit;
+      end;
+      Invalidate;
+      ApplyFilter;
     end;
     Exit;
   end;
@@ -647,24 +745,36 @@ begin
     TdChatList.SetMuted(Row, not Row.IsMuted);
     Exit;
   end;
-  if PtInRect(FMoreRect, P) then begin
-    { Stub, by direct request — the details side panel doesn't exist
-      yet. }
-    Exit;
-  end;
 end;
 
 procedure TChatHeaderPanel.MouseMove(Shift: TShiftState; X, Y: integer);
 var
   P: TPoint;
+  Hit: integer;
+  NewHint: string;
 begin
   inherited MouseMove(Shift, X, Y);
   P := Point(X, Y);
-  if PtInRect(FIdRect, P) or PtInRect(FPinRect, P) or PtInRect(FMoreRect, P)
+  Hit := FilterAt(P);
+  if PtInRect(FIdRect, P) or PtInRect(FPinRect, P) or (Hit <> -1)
      or (FHasMute and PtInRect(FMuteRect, P)) then begin
     Cursor := crHandPoint;
   end else begin
     Cursor := crDefault;
+  end;
+
+  { One control, one Hint, swapped as the mouse moves over the painted
+    icons. CancelHint is not optional: a hint window already on screen
+    does not re-read the text by itself, so without it the previous
+    icon's tooltip stays up over the new one. ShowHint stays as the
+    .lfm set it — an empty Hint is enough to suppress the window, and
+    flipping ShowHint here would reach the two child controls too
+    (their ParentShowHint is the default True) and could leave the
+    search box without its own tooltip. }
+  NewHint := FilterHint(Hit);
+  if NewHint <> Hint then begin
+    Application.CancelHint;
+    Hint := NewHint;
   end;
 end;
 
@@ -702,7 +812,7 @@ begin
     FIdText := IntToStr(Row.Id);
     { Only meaningful for channels — hidden for every other chat kind,
       per direct request. }
-    FFilters[CHAT_HEADER_FILTER_SIMILAR].Visible := Row.Kind = ckChannel;
+    FSimilarVisible := Row.Kind = ckChannel;
     { A different chat's avatar may be a completely different image.
       Dropping the bitmap, not just the remembered path, is what makes
       the check below correct: a chat with NO photo has PhotoPath = '',
@@ -779,31 +889,97 @@ begin
     CHAT_HEADER_FILTER_GIF:    Result := TD_MSG_FILTER_ANIMATION;
     CHAT_HEADER_FILTER_PINNED: Result := TD_MSG_FILTER_PINNED;
   else
-    { Gifts, saved and similar-channels — not message filters at all,
-      see the class comment. '' is what marks a button as a stub, and
-      Create reads the same function to decide which buttons join the
-      toggle group, so those three can never end up Down and can never
-      be picked up by ApplyFilter below either. }
+    { Gifts and saved — not message filters at all, see the class
+      comment. '' is what marks a toggle as a stub, and MouseDown reads
+      the same function before touching FActiveFilter, so neither of
+      them can ever become the active one (and so can never be picked
+      up by ApplyFilter below either). }
     Result := '';
   end;
 end;
 
-procedure TChatHeaderPanel.ApplyFilter;
+{ Grey frame for an idle toggle, black for the active one — the pairs
+  sit next to each other in FilterButtons12, in CHAT_HEADER_FILTER_*
+  order. }
+function TChatHeaderPanel.FilterIconIndex(AIndex: integer): integer;
+begin
+  Result := 2 * AIndex + CHAT_HEADER_FILTER_ICON_OFF;
+  if AIndex = FActiveFilter then begin
+    Result := 2 * AIndex + CHAT_HEADER_FILTER_ICON_ON;
+  end;
+end;
+
+function TChatHeaderPanel.FilterAt(const APoint: TPoint): integer;
 var
   I: integer;
+begin
+  { The bottom row first. FSimilarRect collapses to zero width outside
+    a channel and PtInRect never matches an empty rect, so there is no
+    "is it visible" flag to check here — that is the whole point of
+    collapsing it rather than hiding it. }
+  if PtInRect(FPanelRect, APoint) then begin
+    Result := CHAT_HEADER_HIT_PANEL;
+    Exit;
+  end;
+  if PtInRect(FSimilarRect, APoint) then begin
+    Result := CHAT_HEADER_HIT_SIMILAR;
+    Exit;
+  end;
+  for I := 0 to CHAT_HEADER_FILTER_COUNT - 1 do begin
+    if PtInRect(FFilterRects[I], APoint) then begin
+      Result := I;
+      Exit;
+    end;
+  end;
+  Result := -1;
+end;
+
+function TChatHeaderPanel.FilterHint(AHit: integer): string;
+begin
+  case AHit of
+    CHAT_HEADER_HIT_PANEL: begin
+      if FInfoPanelOpen then begin
+        Result := 'Hide chat info';
+      end else begin
+        Result := 'Show chat info';
+      end;
+    end;
+    CHAT_HEADER_HIT_SIMILAR:   Result := 'Similar channels';
+    CHAT_HEADER_FILTER_GIFTS:  Result := 'Gifts';
+    CHAT_HEADER_FILTER_SAVED:  Result := 'Saved messages';
+    CHAT_HEADER_FILTER_PHOTOS: Result := 'Photos';
+    CHAT_HEADER_FILTER_VIDEOS: Result := 'Videos';
+    CHAT_HEADER_FILTER_FILES:  Result := 'Files';
+    CHAT_HEADER_FILTER_AUDIO:  Result := 'Music';
+    CHAT_HEADER_FILTER_LINKS:  Result := 'Links';
+    CHAT_HEADER_FILTER_POLLS:  Result := 'Polls';
+    CHAT_HEADER_FILTER_VOICE:  Result := 'Voice messages';
+    CHAT_HEADER_FILTER_GIF:    Result := 'GIFs';
+    CHAT_HEADER_FILTER_PINNED: Result := 'Pinned messages';
+  else
+    Result := '';
+  end;
+end;
+
+procedure TChatHeaderPanel.SetInfoPanelOpen(AOpen: boolean);
+begin
+  if FInfoPanelOpen = AOpen then begin
+    Exit;
+  end;
+  FInfoPanelOpen := AOpen;
+  Invalidate;
+end;
+
+procedure TChatHeaderPanel.ApplyFilter;
+var
   FilterType: utf8string;
 begin
   if not Assigned(FOnFilterChanged) then begin
     Exit;
   end;
-  { At most one can be Down — they share a GroupIndex — so the first
-    hit is the answer. }
   FilterType := '';
-  for I := 0 to 11 do begin
-    if FFilters[I].Down then begin
-      FilterType := FilterTypeFor(I);
-      Break;
-    end;
+  if FActiveFilter >= 0 then begin
+    FilterType := FilterTypeFor(FActiveFilter);
   end;
   { Filter and query go out TOGETHER, not one instead of the other:
     searchChatMessages takes both, so "photos" plus a word narrows to
@@ -812,30 +988,10 @@ begin
 end;
 
 procedure TChatHeaderPanel.ClearFilterUI;
-var
-  I: integer;
 begin
-  for I := 0 to 11 do begin
-    if FFilters[I].GroupIndex <> 0 then begin
-      FFilters[I].Down := False;
-    end;
-  end;
+  FActiveFilter := -1;
   edtSearch.Text := '';
-end;
-
-procedure TChatHeaderPanel.FilterClick(Sender: TObject);
-begin
-  { The three non-filter buttons (gifts/saved/similar) share this
-    handler but must not clear whatever filter IS active — they have
-    nothing to switch to yet. }
-  if (Sender is TSpeedButton) and (FilterTypeFor(TSpeedButton(Sender).Tag) = '') then begin
-    Exit;
-  end;
-  { The button's own Down state has already been toggled by LCL by the
-    time OnClick fires (GroupIndex/AllowAllUp), so ApplyFilter reads
-    exactly what the user just asked for — including "released it
-    again", which with an empty search box means the full history. }
-  ApplyFilter;
+  Invalidate;
 end;
 
 procedure TChatHeaderPanel.SearchGo(Sender: TObject);

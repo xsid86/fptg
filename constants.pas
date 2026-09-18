@@ -407,24 +407,43 @@ const
     card as one row of the chat list, by direct request: same outer gap
     (CHATROW_GAP), same corner radius (CHATROW_CORNER_RADIUS), same
     header strip on top (CHATROW_HEADER_BAR_H, carrying the chat-type
-    icon/name/id/pin/mute/"more"), same content area below it
+    icon/name/id/pin/mute), same content area below it
     (CHATROW_CONTENT_H, sized around AVATAR_SIZE), and the same inner
     paddings throughout (MSG_PAD_H horizontally, MSG_PAD_V vertically,
     GAP between header icons). None of those are duplicated here —
     chatheader.pas reads the chat-list constants directly, so the two
-    can't drift apart. Only the two numbers with no chat-list
-    equivalent live here: the filter icons' own frame size, and the gap
-    between them. }
-  { FilterButtons' native frame size (TImageList, 32x32,
-    framehistory.lfm) — the filter buttons are drawn at their natural
-    size, NOT scaled to AVATAR_SIZE: the avatar next to them is a 44px
-    photo, these are 32px glyphs, two different things that happen to
-    share a row. }
-  CHAT_HEADER_FILTER_SIZE = 32;
-  { Gap between two adjacent filter buttons — deliberately its own knob
-    (not GAP/MSG_ICON_GAP) so this one row can be tuned without
-    touching anything else; 5 by direct request. }
+    can't drift apart. Only the numbers with no chat-list equivalent
+    live here: the filter icons' own frame size, the gap between them,
+    and the header strip's right margin. }
+  { FilterButtons12's native frame size (TImageList, 12x12,
+    framehistory.lfm). The same 12 as CHATROW_ICON_SIZE and for the
+    same reason — these are the chat list's kind of small flat glyph,
+    not a button — but spelled out rather than referenced: that
+    constant is declared FURTHER DOWN this file, and a const block can
+    only look backwards. Was 32 while these were big TSpeedButtons with
+    their own frame and hover highlight; both went away by direct
+    request, and the icons are now painted the way the chat list paints
+    its own row icons. }
+  CHAT_HEADER_FILTER_SIZE = 12;
+  { Gap between the two icons of the BOTTOM row (similar channels, info
+    panel) — deliberately its own knob (not GAP/MSG_ICON_GAP) so that
+    row can be tuned without touching anything else; 5 by direct
+    request. The filter row above does not use it: those eleven icons
+    are spread evenly across the search box's width instead, so their
+    gaps are whatever that division leaves (see DoLayout).
+
+    There is deliberately no constant for the header strip's right
+    margin either. It was briefly 6, then asked to line up with the
+    search box instead — which is MSG_PAD_H, and writing it as
+    MSG_PAD_H in both places is what makes "line up" survive the next
+    time that padding is retuned. }
   CHAT_HEADER_FILTER_GAP  = 5;
+  { Vertical gap between the three right-hand rows of the content area
+    (filter icons / search box / similar+panel), 6 by direct request.
+    Same value as MSG_PAD_V and still its own knob: that one is the
+    card's inner padding, this is the space between three rows, and
+    they were already asked to differ once. }
+  CHAT_HEADER_ROW_GAP_V   = 6;
   { This bar's avatar is 48, not the chat list's own AVATAR_SIZE (44) —
     by direct request; the content area is sized around it exactly the
     way CHATROW_CONTENT_H is sized around AVATAR_SIZE. }
@@ -448,31 +467,58 @@ const
   CHAT_HEADER_CARD_MARGIN_TOP    = 5;
   CHAT_HEADER_CARD_MARGIN_RIGHT  = 5;
   CHAT_HEADER_CARD_MARGIN_BOTTOM = 5;
-  { Frame indices in FilterButtons (TImageList, 32x32, framehistory.lfm)
-    — order confirmed by unpacking and visually inspecting the Bitmap
-    blob (the same verification method already established in this
-    project for icons12/playback/FILE_ICONS — not guessed from the
-    designer screenshot alone), one frame per row-2 filter button, in
-    the exact order they were added. Nine of them plus the search box
-    map onto one TDLib request (searchChatMessages with a different
-    SearchMessagesFilter — see TD_MSG_FILTER_* below); gifts, saved and
-    similar-channels are the three that don't (their TDLib answers
-    aren't messages at all: receivedGifts, savedMessagesTopic history
-    and a list of chat ids respectively) and are still stubs. }
-  CHAT_HEADER_FILTER_GIFTS   = 0;
-  CHAT_HEADER_FILTER_SAVED   = 1;
-  CHAT_HEADER_FILTER_PHOTOS  = 2;
-  CHAT_HEADER_FILTER_VIDEOS  = 3;
-  CHAT_HEADER_FILTER_FILES   = 4;
-  CHAT_HEADER_FILTER_AUDIO   = 5;
-  CHAT_HEADER_FILTER_LINKS   = 6;
-  CHAT_HEADER_FILTER_POLLS   = 7;
-  CHAT_HEADER_FILTER_VOICE   = 8;
-  CHAT_HEADER_FILTER_GIF     = 9;
+  { The filter toggles of the chat header bar, in the order they sit on
+    screen, left to right. NOT frame indices any more (see
+    CHAT_HEADER_FILTER_ICON below): a toggle now has TWO frames, off
+    and on, so the two numberings had to part company.
+
+    Similar-channels used to be one of these and is not any more: it is
+    not a message filter at all (TDLib answers it with a list of chat
+    ids), it is shown only in channels, and by direct request it moved
+    out of this row entirely — it now sits under the search box, see
+    CHAT_HEADER_ICON12_SIMILAR. Gifts and saved are in the same boat
+    (receivedGifts / a savedMessagesTopic history, neither of them
+    messages) but were asked to stay in the row; they are stubs, and
+    chatheader.FilterTypeFor returning '' for them is what marks them
+    as such. The other nine plus the search box map onto ONE TDLib
+    request (searchChatMessages with a different SearchMessagesFilter
+    — see TD_MSG_FILTER_* below). }
+  CHAT_HEADER_FILTER_GIFTS  = 0;
+  CHAT_HEADER_FILTER_SAVED  = 1;
+  CHAT_HEADER_FILTER_PHOTOS = 2;
+  CHAT_HEADER_FILTER_VIDEOS = 3;
+  CHAT_HEADER_FILTER_FILES  = 4;
+  CHAT_HEADER_FILTER_AUDIO  = 5;
+  CHAT_HEADER_FILTER_LINKS  = 6;
+  CHAT_HEADER_FILTER_POLLS  = 7;
+  CHAT_HEADER_FILTER_VOICE  = 8;
+  CHAT_HEADER_FILTER_GIF    = 9;
+  CHAT_HEADER_FILTER_PINNED = 10;
+  CHAT_HEADER_FILTER_COUNT  = 11;
+
+  { Frame indices in FilterButtons12 (TImageList, 12x12,
+    framehistory.lfm) — order confirmed by unpacking and visually
+    inspecting the Bitmap blob (the same verification method already
+    established in this project for icons12/playback/FILE_ICONS, not
+    guessed from the designer screenshot alone).
+
+    The list holds the eleven filter toggles as PAIRS — grey first,
+    black second, in CHAT_HEADER_FILTER_* order — then the three
+    one-off icons. So a toggle's frame is its index doubled, plus one
+    when it is on; the two helpers below are the only place that
+    arithmetic is written down. }
+  CHAT_HEADER_FILTER_ICON_OFF = 0;
+  CHAT_HEADER_FILTER_ICON_ON  = 1;
   { Only meaningful for channels (ckChannel) — hidden for every other
-    chat kind, not merely disabled, per direct request. }
-  CHAT_HEADER_FILTER_SIMILAR = 10;
-  CHAT_HEADER_FILTER_PINNED  = 11;
+    chat kind, not merely disabled, per direct request. A single frame,
+    not a pair: it is a plain button, not a toggle. }
+  CHAT_HEADER_ICON12_SIMILAR = 2 * CHAT_HEADER_FILTER_COUNT;
+  { The details side panel's toggle. The arrow shows what a click will
+    DO, not what the panel currently is: right = open it (so it is what
+    you see while the panel is closed), left = close it. Per direct
+    request. }
+  CHAT_HEADER_ICON12_PANEL_OPEN  = 2 * CHAT_HEADER_FILTER_COUNT + 1;
+  CHAT_HEADER_ICON12_PANEL_CLOSE = 2 * CHAT_HEADER_FILTER_COUNT + 2;
 
   { TDLib SearchMessagesFilter constructor names, passed straight into
     searchChatMessages' filter parameter (TTdMessages.SetSearchFilter).
