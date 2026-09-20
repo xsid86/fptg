@@ -88,6 +88,10 @@ type
     Toolbar: TPanel;
     SendBtn: TBitBtn;
     HtmlModeBox: TToggleBox;
+    { Silent send. Like HtmlModeBox it holds nothing but a boolean the
+      owner reads at send time — this panel knows about neither
+      TDLib nor the chat it is typing into. }
+    SilentBox: TToggleBox;
     Memo: TMemo;
     UnderlineBtn: TSpeedButton;
     procedure SendBtnClick(Sender: TObject);
@@ -189,6 +193,7 @@ type
     function GetText: string;
     procedure SetText(const AValue: string);
     function GetIsHtmlMode: boolean;
+    function GetIsSilent: boolean;
     { Wraps the current Memo selection in the delimiter/tag pair
       matching the current mode (plain args for Markdown, html args for
       HTML — see HtmlModeBox). With nothing selected, both markers are
@@ -211,6 +216,12 @@ type
       TFormMain.MessageInputSend should ask TDLib to parse the message
       as HTML; False = MarkdownV2. }
     property IsHtmlMode: boolean read GetIsHtmlMode;
+    { True = send with messageSendOptions.disable_notification, i.e.
+      the message arrives without a sound/vibration on the recipient's
+      side (it is still an ordinary, unread message — nothing about
+      it is hidden). Read by TFormMain.MessageInputSend at send time,
+      the same way IsHtmlMode is. }
+    property IsSilent: boolean read GetIsSilent;
     property OnSend: TNotifyEvent read FOnSend write FOnSend;
   end;
 
@@ -517,6 +528,11 @@ end;
 function TMessageInputPanel.GetIsHtmlMode: boolean;
 begin
   Result := HtmlModeBox.Checked;
+end;
+
+function TMessageInputPanel.GetIsSilent: boolean;
+begin
+  Result := SilentBox.Checked;
 end;
 
 procedure TMessageInputPanel.ClearText;

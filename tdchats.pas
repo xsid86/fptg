@@ -97,6 +97,12 @@ type
     LastMessageId:      Int64;
     LastSending:        TMsgSendState;
     LastReadOutbox:     Int64;   { id of the last message the peer has read }
+    { id of the last INCOMING message this account has read. What the
+      "Unread messages" divider is placed after — the first message
+      newer than this one is the first unread one. Arrives both in the
+      chat object and in updateChatReadInbox (confirmed in
+      tdlib_raw.log, not assumed). }
+    LastReadInbox:      Int64;
     UnreadCount:        integer;
     UnreadMentionCount: integer;
     IsMarkedAsUnread:   boolean;
@@ -2120,6 +2126,7 @@ begin
   R.UnreadMentionCount := JGetInt(AChat, 'unread_mention_count');
   R.IsMarkedAsUnread := JGetBool(AChat, 'is_marked_as_unread');
   R.LastReadOutbox := JGetInt64(AChat, 'last_read_outbox_message_id');
+  R.LastReadInbox := JGetInt64(AChat, 'last_read_inbox_message_id');
   R.AccentColorId := JGetInt(AChat, 'accent_color_id');
   ApplyPermissions(R, JGetObj(AChat, 'permissions'));
   ApplyNotifySettings(R, JGetObj(AChat, 'notification_settings'));
@@ -2202,6 +2209,7 @@ begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));
       if R <> nil then begin
         R.UnreadCount := JGetInt(Obj, 'unread_count');
+        R.LastReadInbox := JGetInt64(Obj, 'last_read_inbox_message_id');
         Touch;
       end;
     end else if T = 'updateChatAccentColors' then begin

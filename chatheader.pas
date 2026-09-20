@@ -122,7 +122,6 @@ type
   private
     FChatId:       Int64;
     FTypeIcons:    TCustomImageList;
-    FPremiumIcons: TCustomImageList;
     FDeletedIcons: TCustomImageList;
     FFilterIcons:  TCustomImageList;
     FAvatarPath:   utf8string;
@@ -138,14 +137,29 @@ type
     FPremium:     boolean;
     FPinned:      boolean;
     FMuted:       boolean;
-    FHasMute:     boolean;
+    { In chatListArchive (TChatRow.InArchive). The one slot right of
+      the bell serves two mutually exclusive actions because of this:
+      a chat in the archive cannot be pinned — toggleChatIsPinned
+      always addresses chatListMain (see TTdChats.SetPinned) — so
+      offering the pin there was offering an action that does nothing. }
+    FInArchive:   boolean;
+    { Saved Messages. Hides the bell (you cannot mute yourself) and the
+      un-archive button, the same two the chat list card hides for it;
+      the pin stays, exactly as it does there. One field rather than a
+      separate FHasMute, because they would always hold the same fact
+      under two names. }
+    FIsSelf:      boolean;
 
     { Clickable areas of the PAINTED parts, computed by Paint (it's the
       only place the text widths are known) and read by MouseDown/
       MouseMove — the same "paint computes it, hit test reuses it"
       split framechats uses, just without a separate Rects function
       since there's exactly one row here, not a grid of them. }
-    FPinRect:        TRect;
+    { The slot right of the bell: the pin toggle in the main list, the
+      move-to-main-list button in the archive — see FInArchive for why
+      the two share one slot instead of sitting side by side as they do
+      on the chat list card. }
+    FListActionRect: TRect;
     FMuteRect:       TRect;
     FIdRect:         TRect;
     FAvatarRect:     TRect;
@@ -234,9 +248,9 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    { ATypeIcons — icons12 (CHATROW_ICON_* indices: the type/pin/mute
-      icons, the same list and indices the chat list itself draws).
-      APremiumIcons — ImageList1 (PREMIUM_CROWN_ICON). AFilterIcons —
+    { ATypeIcons — icons12 (CHATROW_ICON_* indices: the type/pin/mute/
+      archive icons AND the premium crown, the same list and indices the
+      chat list itself draws). AFilterIcons —
       FilterButtons12, the 12x12 list: the toggles' grey/black pairs
       plus the similar-channels and info-panel glyphs, see
       FilterIconIndex and CHAT_HEADER_ICON12_*. ASearchIcons/
@@ -244,7 +258,7 @@ type
       project stands) — passed in rather than hard-coded, this unit has
       no access to TFrameHistory's own LFM components. ADeletedIcons —
       ImageListBig (DELETED_ACCOUNT_ICON), for the same reason. }
-    procedure SetImageLists(ATypeIcons, APremiumIcons, AFilterIcons, ASearchIcons,
+    procedure SetImageLists(ATypeIcons, AFilterIcons, ASearchIcons,
       ADeletedIcons: TCustomImageList; ASearchIconIndex: integer);
     { AChatId=0, or no such chat in TdChatList, collapses the bar to
       Height=0 — see the class comment for why Height, not Visible.
@@ -381,11 +395,10 @@ begin
   inherited Destroy;
 end;
 
-procedure TChatHeaderPanel.SetImageLists(ATypeIcons, APremiumIcons, AFilterIcons, ASearchIcons,
+procedure TChatHeaderPanel.SetImageLists(ATypeIcons, AFilterIcons, ASearchIcons,
   ADeletedIcons: TCustomImageList; ASearchIconIndex: integer);
 begin
   FTypeIcons := ATypeIcons;
-  FPremiumIcons := APremiumIcons;
   FDeletedIcons := ADeletedIcons;
   FFilterIcons := AFilterIcons;
   btnSearch.Images := ASearchIcons;
@@ -503,7 +516,7 @@ end;
   off), content, outline last. Everything in the strip plus the avatar
   is drawn here rather than being a child control — see the class
   comment. Along the way this records the clickable rects
-  (FPinRect/FMuteRect/FIdRect) that MouseDown hit-tests against, since
+  (FListActionRect/FMuteRect/FIdRect) that MouseDown hit-tests against, since
   their positions depend on text widths only known here; the content
   area's rects come ready-made from DoLayout instead. }
 procedure TChatHeaderPanel.Paint;
@@ -546,13 +559,16 @@ begin
     FTypeIcons.Draw(Canvas, TitleX, IconY, FTypeIconIdx, True);
     Inc(TitleX, CHATROW_ICON_SIZE + MSG_ICON_GAP);
   end;
-  if FPremium and (FPremiumIcons <> nil) and (PREMIUM_CROWN_ICON < FPremiumIcons.Count) then begin
-    FPremiumIcons.Draw(Canvas, TitleX,
-      Header.Top + (CHATROW_HEADER_BAR_H - FPremiumIcons.Height) div 2, PREMIUM_CROWN_ICON, True);
-    Inc(TitleX, FPremiumIcons.Width + MSG_ICON_GAP);
+  { The crown comes out of the same list as the type icon above, so it
+    shares IconY instead of centering itself by its own height. }
+  if FPremium and (FTypeIcons <> nil)
+    and (CHATROW_ICON_PREMIUM < FTypeIcons.Count) then begin
+    FTypeIcons.Draw(Canvas, TitleX, IconY, CHATROW_ICON_PREMIUM, True);
+    Inc(TitleX, CHATROW_ICON_SIZE + MSG_ICON_GAP);
   end;
 
-  { --- header strip, right to left: mute, pin, id. "more..." used to
+  { --- header strip, right to left: mute, pin-or-unarchive, id.
+        "more..." used to
         start this list and is gone: it was the details panel's button,
         and that moved down to the bottom row of the content area, next
         to similar-channels. The margin is MSG_PAD_H, the same one
@@ -563,7 +579,7 @@ begin
   Canvas.Font.Style := [];
   RightX := Header.Right - MSG_PAD_H;
 
-  if FHasMute and (FTypeIcons <> nil) then begin
+  if (not FIsSelf) and (FTypeIcons <> nil) then begin
     Dec(RightX, CHATROW_ICON_SIZE);
     FMuteRect := Rect(RightX, IconY, RightX + CHATROW_ICON_SIZE, IconY + CHATROW_ICON_SIZE);
     if FMuted then begin
@@ -580,15 +596,27 @@ begin
     FMuteRect := Rect(RightX, IconY, RightX, IconY + CHATROW_ICON_SIZE);
   end;
 
-  if FTypeIcons <> nil then begin
+  { In the archive the crossed-out box, and it shows what the CLICK
+    WILL DO rather than a state — the same rule, and the same icon,
+    as the chat list card (framechats.GridDrawCell). Saved Messages
+    gets neither: the card offers it no archive button either, so the
+    slot collapses to a point, exactly as the bell does above. }
+  if (FTypeIcons <> nil) and not (FInArchive and FIsSelf) then begin
     Dec(RightX, CHATROW_ICON_SIZE);
-    FPinRect := Rect(RightX, IconY, RightX + CHATROW_ICON_SIZE, IconY + CHATROW_ICON_SIZE);
-    if FPinned then begin
-      FTypeIcons.Draw(Canvas, FPinRect.Left, FPinRect.Top, CHATROW_ICON_PIN, True);
+    FListActionRect := Rect(RightX, IconY, RightX + CHATROW_ICON_SIZE, IconY + CHATROW_ICON_SIZE);
+    if FInArchive then begin
+      FTypeIcons.Draw(Canvas, FListActionRect.Left, FListActionRect.Top,
+        CHATROW_ICON_UNARCHIVE, True);
+    end else if FPinned then begin
+      FTypeIcons.Draw(Canvas, FListActionRect.Left, FListActionRect.Top,
+        CHATROW_ICON_PIN, True);
     end else begin
-      FTypeIcons.Draw(Canvas, FPinRect.Left, FPinRect.Top, CHATROW_ICON_UNPIN, True);
+      FTypeIcons.Draw(Canvas, FListActionRect.Left, FListActionRect.Top,
+        CHATROW_ICON_UNPIN, True);
     end;
     Dec(RightX, GAP);
+  end else begin
+    FListActionRect := Rect(RightX, IconY, RightX, IconY + CHATROW_ICON_SIZE);
   end;
 
   Canvas.Brush.Style := bsClear;
@@ -732,16 +760,22 @@ begin
     Exit;
   end;
 
-  if PtInRect(FPinRect, P) then begin
-    { Only the request is sent here — the row's own IsPinned doesn't
-      change until TDLib's update comes back, which reaches this bar
-      through TFrameChats.OnRowsChanged (see framehistory), the same
+  if PtInRect(FListActionRect, P) then begin
+    { Only the request is sent here — the row's own IsPinned/InArchive
+      doesn't change until TDLib's update comes back, which reaches this
+      bar through TFrameChats.OnRowsChanged (see framehistory), the same
       path that keeps it in step when the click happens on the chat
-      list side instead. }
-    TdChatList.SetPinned(Row, not Row.IsPinned);
+      list side instead. Note that this leaves the header showing a chat
+      the list no longer has: un-archiving does not close it, the same
+      as doing it from the card while the chat is open. }
+    if FInArchive then begin
+      TdChatList.SetArchived(Row, False);
+    end else begin
+      TdChatList.SetPinned(Row, not Row.IsPinned);
+    end;
     Exit;
   end;
-  if FHasMute and PtInRect(FMuteRect, P) then begin
+  if (not FIsSelf) and PtInRect(FMuteRect, P) then begin
     TdChatList.SetMuted(Row, not Row.IsMuted);
     Exit;
   end;
@@ -756,8 +790,8 @@ begin
   inherited MouseMove(Shift, X, Y);
   P := Point(X, Y);
   Hit := FilterAt(P);
-  if PtInRect(FIdRect, P) or PtInRect(FPinRect, P) or (Hit <> -1)
-     or (FHasMute and PtInRect(FMuteRect, P)) then begin
+  if PtInRect(FIdRect, P) or PtInRect(FListActionRect, P) or (Hit <> -1)
+     or ((not FIsSelf) and PtInRect(FMuteRect, P)) then begin
     Cursor := crHandPoint;
   end else begin
     Cursor := crDefault;
@@ -831,14 +865,14 @@ begin
     ClearFilterUI;
   end;
 
-  { Pin/mute change without a chat switch too (a click here, a click in
-    the chat list, or another client) — read every call, not gated
-    behind ChatChanged. Mute has no effect on Saved Messages
-    (TTdChats.IsSelfChat) — hidden, the same treatment the chat list
-    row gives it. }
+  { Pin/mute/archive change without a chat switch too (a click here, a
+    click in the chat list, or another client) — read every call, not
+    gated behind ChatChanged. InArchive matters for more than the icon:
+    it decides which of the two actions that slot performs at all. }
   FPinned := Row.IsPinned;
   FMuted := Row.IsMuted;
-  FHasMute := not TdChatList.IsSelfChat(Row);
+  FInArchive := Row.InArchive;
+  FIsSelf := TdChatList.IsSelfChat(Row);
 
   { Read on every call, not once per chat switch, for the same reason
     as the three above: the deleted flag comes from a SEPARATE

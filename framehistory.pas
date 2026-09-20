@@ -705,6 +705,93 @@ type
 
   TStickerWidgetMap = specialize TFPGMap<Int64, TStickerWidget>;
 
+  TPollVoteEvent = procedure(Sender: TObject; AOptionIndex: integer) of object;
+  TPollIndexArray = array of integer;
+
+  { TPollWidget
+
+    A messagePoll (a regular poll or a quiz). A real pooled child
+    control rather than something the scroller paints, for the same
+    reason the media widgets are: it needs clicks (voting) and hover
+    feedback on the option under the pointer.
+
+    It owns NO geometry of its own — every coordinate comes from the
+    msglayout.TPollLayout the scroller hands it, the very same record
+    TPollContentRenderer.Measure derived the row height from. That is
+    deliberate: a poll's height is not a constant (question and options
+    wrap), so measuring it twice — once for the row, once inside the
+    widget — is precisely the "two places compute the same geometry and
+    drift apart" bug this project has hit repeatedly. One computation,
+    passed down.
+
+    For the same reason Paint pins its font to MSG_TEXT_FONT_H: the
+    runs were measured with the SCROLLER's font, and painting them with
+    the control's own default would not merely look off, it would
+    overflow the height already reserved. (TQuoteWidget deliberately
+    does the opposite — there the size difference was wanted.)
+
+    Voting goes out through OnVote — the widget knows nothing about
+    TTdMessages; the scroller resolves the row and calls SetPollAnswer,
+    and the new counts come back the ordinary way, as
+    updateMessageContent. Nothing is echoed locally. }
+  TPollWidget = class(TCustomControl)
+  private
+    FRowId:       Int64;
+    FPoll:        TMsgPoll;
+    FLayout:      TPollLayout;
+    FAccentColor: TColor;
+    FBgColor:     TColor;
+    { Index of the option under the pointer, -1 for none. Only tinted
+      while the poll can actually be voted on — a highlight that
+      responds to nothing would be a lie. }
+    FHoverIndex:  integer;
+    { False for a closed poll, and for an already-answered one that
+      does not allow revoting. NOT recomputed here — read straight off
+      TPollLayout.CanVote, so the widget and the layout that reserves
+      room for the Vote button cannot disagree about whether this poll
+      still takes an answer. }
+    FCanVote:     boolean;
+    { Multiple-answer polls only: what the user has ticked but not sent
+      yet. setPollAnswer takes the WHOLE answer in one call, so a multi
+      poll cannot submit on each tap the way a single-answer one does —
+      it collects here and goes out when Vote is pressed.
+
+      FServerChosen is the last is_chosen set TDLib reported. Comparing
+      against it is what tells a real server-side change (our own
+      submission coming back, or somebody else voting) apart from the
+      ordinary repeated SetPoll of every layout pass — which must NOT
+      wipe a half-made selection. That is the same trap
+      TAudioWidget.SetTrack fell into once already. }
+    FPending:      array of boolean;
+    FServerChosen: array of boolean;
+    FOnVote:      TPollVoteEvent;
+    FOnSubmit:    TNotifyEvent;
+    function OptionAt(Y: integer): integer;
+    function VoteEnabled: boolean;
+    procedure PaintBar(const ARect: TRect; APercent: integer; AColor: TColor);
+    procedure PaintVoteButton;
+  protected
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
+    procedure MouseLeave; override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    procedure SetPoll(ARowId: Int64; const APoll: TMsgPoll; const ALayout: TPollLayout;
+      AAccentColor, ABgColor: TColor);
+    { The ticked options of a multiple-answer poll, in order — exactly
+      what the Vote button submits. }
+    function PendingIndexes: TPollIndexArray;
+    property RowId: Int64 read FRowId;
+    property OnVote: TPollVoteEvent read FOnVote write FOnVote;
+    { Vote pressed on a multiple-answer poll. Separate from OnVote:
+      that one carries the single option that was tapped, this one
+      means "send what PendingIndexes says". }
+    property OnSubmit: TNotifyEvent read FOnSubmit write FOnSubmit;
+  end;
+
+  TPollWidgetMap = specialize TFPGMap<Int64, TPollWidget>;
+
   { TQuoteWidget
 
     A textEntityTypeBlockQuote span, extracted out of the message's
@@ -831,6 +918,17 @@ type
     FTotalHeight: integer;
     FScrollTop:   integer;
 
+    { Row index the "Unread messages" divider sits on top of, -1 for
+      none. Recomputed once per RebuildOffsets rather than tested per
+      row: "the first row newer than the marker" is a scan of the whole
+      list, and asking it inside the per-row loop would make the
+      rebuild quadratic. }
+    FUnreadRowIdx: integer;
+    { One shot, armed when a chat with unread messages is opened: the
+      first rebuild that finds the boundary settles the view on the
+      divider instead of the bottom, and disarms this. }
+    FWantUnreadScroll: boolean;
+
     FSelAnchorMsg, FSelFocusMsg:   Int64;
     FSelAnchorChar, FSelFocusChar: integer;
     FSelecting: boolean;
@@ -846,6 +944,10 @@ type
       in TAudioWidget's cover slot until (or unless) a real album cover
       arrives. Its own list, not FAudioImages: that one is 32x32. }
     FAudioCoverImages: TImageList;
+    { ImageList1 again — the 32x32 one, the same list as FAudioImages
+      above — for the jump-to-newest arrow painted over the bottom
+      right corner, see PaintScrollDown. }
+    FScrollDownIcons: TImageList;
     { TVideoWidget's transport-button row (in the viewer) — only passed
       along to TMediaViewerPanel.ShowMessage, TMsgScroller itself never
       uses it (in the chat, the widget is never active, the row is
@@ -903,6 +1005,11 @@ type
       both unconditional, see MaybeAutoDownload/LayoutStickerWidgets. }
     FStickerPool:   TFPList;       { of TStickerWidget }
     FStickerActive: TStickerWidgetMap;
+
+    { Poll/quiz widgets. Ordinary RowId-keyed pool — at most one poll
+      per message. }
+    FPollPool:   TFPList;       { of TPollWidget }
+    FPollActive: TPollWidgetMap;
 
     { Quote widgets (textEntityTypeBlockQuote) — NOT a RowId-keyed map
       like the pools above: a single row can contain more than one
@@ -994,12 +1101,30 @@ type
       the constructor. }
     FMarkReadTimer: TTimer;
 
+    { Eased scrolling (SMOOTH_SCROLL). FScrollTarget is where the wheel
+      asked to be; the timer walks FScrollTop towards it. FAnimating
+      tells ClampScrollTop that the move came from the animation itself
+      and must not cancel it — every OTHER caller of ClampScrollTop
+      does cancel it, so a programmatic jump or a scrollbar drag can
+      never be dragged back to a stale target. }
+    FScrollTarget: integer;
+    FAnimating: boolean;
+    FScrollAnim: TTimer;
+
     { Right-click menu over the message text. Lives in the LFM
       (TFrameHistory.TextPopupMenu, editable in the designer), handed
       over through the TextPopupMenu property — the same arrangement
       FFilePopupMenu already has, and for the same reason: a menu item's
       icon is a designer thing, not something to spell out in code. }
     FTextPopupMenu: TPopupMenu;
+
+    { The centred placeholder for a view with nothing in it at all —
+      see PaintEmptyState. An empty title means no placeholder. Set
+      from the outside (TFrameHistory.UpdateSearchStatus): the scroller
+      can see that the list is empty but not WHY, and "no messages
+      match this filter" is the caller's knowledge, not its own. }
+    FEmptyTitle: string;
+    FEmptyHint:  string;
 
     FOnScrollRangeChanged: TNotifyEvent;
     FOnNearTop: TNotifyEvent;
@@ -1054,6 +1179,11 @@ type
       wheel fling sends one viewMessages once scrolling actually stops
       instead of one per ClampScrollTop call. }
     procedure MarkReadTick(Sender: TObject);
+    { The scrolling entry point for the wheel and the arrow/page keys:
+      adds to the target and lets the animation catch up (or scrolls
+      instantly when SMOOTH_SCROLL is off). }
+    procedure SmoothScrollBy(ADelta: integer);
+    procedure ScrollAnimTick(Sender: TObject);
     procedure SetTextPopupMenu(AValue: TPopupMenu);
     { The font the runs were measured with. Painting sets it inline
       (see Paint) and so does RebuildOffsets; the hit test needs it too
@@ -1085,6 +1215,15 @@ type
     function ObtainVideoWidget: TVideoWidget;
 
     procedure RebuildOffsets;
+    { Extra height given to the TOP of the first unread row's slot for
+      the divider strip. Everything that row draws is shifted down by
+      it — hence the four places that derive a Y from FOffsets
+      (BlockRect, ContentRect, ForwardCardRect, ReplyBoxRect) all add
+      it, and it is a named function rather than four copies of the
+      same test. }
+    function RowTopInset(AIndex: integer): integer;
+    procedure ComputeUnreadRowIdx;
+    procedure PaintUnreadDivider(AIndex: integer);
     { The left/right bounds of the centered message column — no wider
       than MAX_MSG_W. A single source of truth for RebuildOffsets (text
       wrap width), BlockRect, and ContentRect — otherwise they'd drift
@@ -1162,6 +1301,10 @@ type
     procedure AnimationWidgetClick(Sender: TObject);
     procedure LayoutStickerWidgets(ALo, AHi: integer);
     function ObtainStickerWidget: TStickerWidget;
+    procedure LayoutPollWidgets(ALo, AHi: integer);
+    function ObtainPollWidget: TPollWidget;
+    procedure PollWidgetVote(Sender: TObject; AOptionIndex: integer);
+    procedure PollWidgetSubmit(Sender: TObject);
     procedure LayoutQuoteWidgets(ALo, AHi: integer);
     function ObtainQuoteWidget: TQuoteWidget;
     function FindActiveQuote(ARowId: Int64; ASlotIndex: integer): integer;
@@ -1203,16 +1346,36 @@ type
       message per line, WITHOUT a trailing line break. Empty when
       nothing is selected. }
     function SelectionText: string;
+    { What to say over an empty view. Both empty switches it off.
+      Repaints only on a real change: this is called from ModelChanged,
+      which fires many times a second. }
+    procedure SetEmptyText(const ATitle, AHint: string);
   protected
     procedure Paint; override;
     { The rows, widgets and everything else — split out of Paint so
       that its several early exits (no model, nothing visible) can
       never skip the outer corners. }
     procedure PaintContent;
+    { The centred two-line placeholder over an empty view. Does
+      nothing without a title. }
+    procedure PaintEmptyState;
+    { Hands every widget pool an EMPTY row range, which is exactly what
+      makes each of them evict everything it is showing. }
+    procedure HideAllWidgets;
     { The control's own outer corners, antialiased — see its own
       comment for why this and Resize's window region are mutually
       exclusive rather than complementary. }
     procedure PaintOuterCorners;
+    { Where the floating "jump to the newest message" button sits, or
+      an empty rect when it is not wanted (nothing loaded, or the
+      newest message is already on screen in full). One source of truth
+      for the painting, the hit test and the cursor — and empty is
+      enough on its own to switch all three off, since PtInRect never
+      matches an empty rect. }
+    { How far one wheel notch travels, in pixels. }
+    function WheelNotchPx: integer;
+    function ScrollDownRect: TRect;
+    procedure PaintScrollDown;
     procedure Resize; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
@@ -1230,12 +1393,32 @@ type
       history upward). }
     procedure ModelChanged;
     procedure ScrollToBottom;
+    { Whether the newest message is on screen in its entirety — what
+      decides whether the "jump to the newest" button is needed at all.
+      Asks BlockRect for the block's real rectangle instead of
+      comparing ScrollTop against TotalHeight: those two differ by the
+      trailing MSG_GAP and by the unread divider's inset, and BlockRect
+      is the one place that already accounts for both. }
+    function LastMessageFullyVisible: boolean;
+    { Positions the divider strip at the very top of the view — i.e.
+      the first unread message right under it, which is what "open the
+      chat at the first unread message" means. }
+    procedure ScrollToUnread;
+    { Arms the one-shot above. Called right after TTdMessages.OpenChat,
+      which is what decides whether this chat has an unread marker at
+      all. }
+    procedure PrepareUnreadScroll;
     property ScrollTop: integer read FScrollTop write SetScrollTop;
     property TotalHeight: integer read FTotalHeight;
     property OnScrollRangeChanged: TNotifyEvent read FOnScrollRangeChanged write FOnScrollRangeChanged;
     property OnNearTop: TNotifyEvent read FOnNearTop write FOnNearTop;
     property AudioImages: TImageList read FAudioImages write FAudioImages;
     property AudioCoverImages: TImageList read FAudioCoverImages write FAudioCoverImages;
+    { ImageList1 again — SCROLL_DOWN_ICON is literally its download
+      frame in a second role. Its own property rather than a second use
+      of AudioImages, whose name is about the play/pause buttons and
+      would be a lie here. }
+    property ScrollDownIcons: TImageList read FScrollDownIcons write FScrollDownIcons;
     property PlaybackImages: TImageList read FPlaybackImages write FPlaybackImages;
     property FileImages: TImageList read FFileImages write FFileImages;
     property FilePopupMenu: TPopupMenu read FFilePopupMenu write FFilePopupMenu;
@@ -1275,10 +1458,8 @@ type
     Actions16: TImageList;
     FilePopupMenu: TPopupMenu;
     ImageList2: TImageList;
-    FilterButtons: TImageList;
     FilterButtons12: TImageList;
     Img48: TImageList;
-    playback: TImageList;
     TextPopupMenu: TPopupMenu;
     MenuItemFileSaveAs: TMenuItem;
     MenuItemFileShowInFolder: TMenuItem;
@@ -3583,6 +3764,398 @@ begin
   end;
 end;
 
+{ ---------------- TPollWidget ---------------- }
+
+constructor TPollWidget.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  DoubleBuffered := True;
+  FHoverIndex := -1;
+end;
+
+procedure TPollWidget.SetPoll(ARowId: Int64; const APoll: TMsgPoll;
+  const ALayout: TPollLayout; AAccentColor, ABgColor: TColor);
+var
+  I: integer;
+  Resync: boolean;
+begin
+  { Reused for a different message — drop the hover and force the
+    ticks to be re-seeded below; both belonged to the previous poll. }
+  if ARowId <> FRowId then begin
+    FHoverIndex := -1;
+    SetLength(FServerChosen, 0);
+  end;
+  FRowId := ARowId;
+  FPoll := APoll;
+  FLayout := ALayout;
+  FAccentColor := AAccentColor;
+  FBgColor := ABgColor;
+  FCanVote := ALayout.CanVote;
+  if not FCanVote then begin
+    FHoverIndex := -1;
+  end;
+
+  { Re-seed the pending ticks from the server's own is_chosen set, but
+    ONLY when that set really changed. SetPoll runs on every layout
+    pass, and re-seeding unconditionally would wipe a half-made
+    selection within milliseconds of the first tap. }
+  Resync := Length(FServerChosen) <> Length(APoll.Options);
+  if not Resync then begin
+    for I := 0 to High(APoll.Options) do begin
+      if FServerChosen[I] <> APoll.Options[I].IsChosen then begin
+        Resync := True;
+        Break;
+      end;
+    end;
+  end;
+  if Resync then begin
+    SetLength(FServerChosen, Length(APoll.Options));
+    SetLength(FPending, Length(APoll.Options));
+    for I := 0 to High(APoll.Options) do begin
+      FServerChosen[I] := APoll.Options[I].IsChosen;
+      FPending[I] := APoll.Options[I].IsChosen;
+    end;
+  end;
+  Invalidate;
+end;
+
+function TPollWidget.PendingIndexes: TPollIndexArray;
+var
+  I, N: integer;
+begin
+  SetLength(Result, Length(FPending));
+  N := 0;
+  for I := 0 to High(FPending) do begin
+    if FPending[I] then begin
+      Result[N] := I;
+      Inc(N);
+    end;
+  end;
+  SetLength(Result, N);
+end;
+
+{ The button is always drawn once the layout reserved room for it (see
+  TPollLayout.HasVote), but it only does something when the ticks
+  actually differ from the answer the server already holds — which
+  covers both "picked something" and "unticked everything to retract". }
+function TPollWidget.VoteEnabled: boolean;
+var
+  I: integer;
+begin
+  Result := False;
+  if not (FLayout.HasVote and FCanVote) then begin
+    Exit;
+  end;
+  for I := 0 to High(FPending) do begin
+    if (I > High(FServerChosen)) or (FPending[I] <> FServerChosen[I]) then begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+{ The same pill the chat list draws a folder chip with (direct
+  request): the card's header-strength tint as the fill, the accent as
+  outline and caption. Inert it drops to grey with no fill at all, so
+  it reads as "nothing to send yet" rather than as a button refusing to
+  work. Antialiased unconditionally for the same reason the poll marks
+  are — one small rounded shape per poll, not per message per frame. }
+procedure TPollWidget.PaintVoteButton;
+var
+  R: TRect;
+  Col, Fill: TColor;
+  Cap: string;
+begin
+  R := FLayout.VoteRect;
+  if (R.Right <= R.Left) or (R.Bottom <= R.Top) then begin
+    Exit;
+  end;
+  if VoteEnabled then begin
+    Col := FAccentColor;
+    Fill := BlendWithBackground(FAccentColor, SENDER_HEADER_OPACITY, clWindow);
+  end else begin
+    Col := clGrayText;
+    Fill := clNone;
+  end;
+  PaintRounded(Canvas, R, POLL_VOTE_RADIUS, [], Fill, Col, True);
+
+  Cap := POLL_VOTE_CAPTION;
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := POLL_VOTE_FONT_H;
+  Canvas.Font.Style := [];
+  Canvas.Font.Color := Col;
+  Canvas.TextOut(R.Left + (R.Right - R.Left - Canvas.TextWidth(Cap)) div 2,
+    R.Top + (R.Bottom - R.Top - Canvas.TextHeight(Cap)) div 2, Cap);
+  Canvas.Font.Color := clWindowText;
+end;
+
+function TPollWidget.OptionAt(Y: integer): integer;
+var
+  I: integer;
+begin
+  Result := -1;
+  for I := 0 to High(FLayout.Options) do begin
+    if (Y >= FLayout.Options[I].RowTop) and (Y < FLayout.Options[I].RowBottom) then begin
+      Result := I;
+      Exit;
+    end;
+  end;
+end;
+
+{ A capsule track with the voted-for share filled in. The radius is
+  half the height, the same "stadium" shape the reaction pills use —
+  and clamped to half the WIDTH too, so a 0%-wide fill degenerates to
+  nothing instead of to the bulging blob a too-large radius produces
+  (the same guard every rounded element in this file carries). }
+procedure TPollWidget.PaintBar(const ARect: TRect; APercent: integer; AColor: TColor);
+var
+  FilledW: integer;
+  R: TRect;
+begin
+  PaintRoundRectAA(Canvas, ARect, POLL_BAR_H / 2, [],
+    BlendWithBackground(FAccentColor, POLL_TRACK_OPACITY,
+      BlendWithBackground(FAccentColor, SENDER_BG_OPACITY, clWindow)),
+    clNone);
+  if APercent <= 0 then begin
+    Exit;
+  end;
+  FilledW := ((ARect.Right - ARect.Left) * APercent) div 100;
+  if FilledW < POLL_BAR_H then begin
+    FilledW := POLL_BAR_H;
+  end;
+  R := Rect(ARect.Left, ARect.Top, ARect.Left + FilledW, ARect.Bottom);
+  PaintRoundRectAA(Canvas, R, Min(POLL_BAR_H / 2, FilledW / 2), [], AColor, clNone);
+end;
+
+procedure TPollWidget.Paint;
+var
+  Box, RowR, MarkR, BarR: TRect;
+  CardColor, MarkColor, MarkFill: TColor;
+  MarkRadius: single;
+  Ticked: boolean;
+  I, Radius, PctW, PctY: integer;
+  PctStr: string;
+begin
+  Box := ClientRect;
+  CardColor := BlendWithBackground(FAccentColor, SENDER_BG_OPACITY, clWindow);
+
+  { A real child control: what falls outside the rounded card is this
+    control's own unpainted pixels, not the message block showing
+    through — hence the flat backdrop fill first (same as every other
+    widget in this file). }
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Pen.Style := psClear;
+  Canvas.Brush.Color := FBgColor;
+  Canvas.FillRect(Box);
+
+  Radius := Min(POLL_CORNER_RADIUS, (Box.Bottom - Box.Top) div 2);
+  PaintRoundRectAA(Canvas, Box, Radius, [], CardColor, clNone);
+
+  { The hovered option's band. Square, inset by half the card padding:
+    rounding it would compete with the card's own corners on the first
+    and last option. }
+  if (FHoverIndex >= 0) and (FHoverIndex <= High(FLayout.Options)) and FCanVote then begin
+    RowR := Rect(POLL_PAD div 2, FLayout.Options[FHoverIndex].RowTop,
+      Box.Right - POLL_PAD div 2, FLayout.Options[FHoverIndex].RowBottom);
+    Canvas.Brush.Style := bsSolid;
+    Canvas.Pen.Style := psClear;
+    Canvas.Brush.Color := BlendWithBackground(FAccentColor, POLL_HOVER_OPACITY, CardColor);
+    Canvas.FillRect(RowR);
+  end;
+
+  { The font the runs were MEASURED with (by ComputePollLayout, on the
+    scroller's canvas) — see the class comment. }
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := MSG_TEXT_FONT_H;
+  Canvas.Font.Color := clWindowText;
+  Canvas.Brush.Style := bsClear;
+
+  { No selection is ever passed: poll text is not selectable, a click
+    on it votes. }
+  PaintRuns(Canvas, Point(POLL_PAD, FLayout.QuestionTop), FLayout.QuestionRuns, -1, -1);
+
+  for I := 0 to High(FLayout.Options) do begin
+    Canvas.Font.Name := 'default';
+    Canvas.Font.Height := MSG_TEXT_FONT_H;
+    Canvas.Font.Style := [];
+    Canvas.Brush.Style := bsClear;
+    PaintRuns(Canvas, Point(FLayout.TextLeft, FLayout.Options[I].TextTop),
+      FLayout.Options[I].Runs, -1, -1);
+
+    { Right/wrong only ever colors a quiz, and only once TDLib has told
+      us the answer (CorrectOption stays -1 until then, on purpose —
+      see ExtractPollMeta). }
+    MarkColor := FAccentColor;
+    if FPoll.IsQuiz and (FPoll.CorrectOption >= 0) then begin
+      if I = FPoll.CorrectOption then begin
+        MarkColor := POLL_CORRECT_COLOR;
+      end else if (I <= High(FPoll.Options)) and FPoll.Options[I].IsChosen then begin
+        MarkColor := POLL_WRONG_COLOR;
+      end;
+    end;
+
+    if FLayout.ShowResults then begin
+      Canvas.Font.Height := POLL_SMALL_FONT_H;
+      Canvas.Font.Style := [];
+      if (I <= High(FPoll.Options)) and FPoll.Options[I].IsChosen then begin
+        Canvas.Font.Style := [fsBold];
+      end;
+      Canvas.Font.Color := MarkColor;
+      if I <= High(FPoll.Options) then begin
+        PctStr := IntToStr(FPoll.Options[I].VotePercentage) + '%';
+      end else begin
+        PctStr := '';
+      end;
+      PctW := Canvas.TextWidth(PctStr);
+      PctY := FLayout.Options[I].MarkCenterY - Canvas.TextHeight(PctStr) div 2;
+      Canvas.TextOut(FLayout.TextLeft - POLL_HEADER_GAP - PctW, PctY, PctStr);
+      Canvas.Font.Style := [];
+      Canvas.Font.Color := clWindowText;
+
+      BarR := Rect(FLayout.TextLeft, FLayout.Options[I].BarTop,
+        FLayout.TextRight, FLayout.Options[I].BarTop + POLL_BAR_H);
+      if I <= High(FPoll.Options) then begin
+        PaintBar(BarR, FPoll.Options[I].VotePercentage, MarkColor);
+      end;
+    end else begin
+      { The unanswered state: an empty mark per option, centred in the
+        mark column and on the option's FIRST line. A vote already on
+        its way (is_being_chosen) fills it, so the tap has visible
+        feedback before the server answers.
+
+        A radio circle when the poll takes ONE answer, a checkbox when
+        it takes several — the same shape-to-meaning pairing the
+        official clients use, and the only thing on the card that tells
+        the two kinds of poll apart before voting. Both are the same
+        rounded square, only the radius differs: half the size is a
+        circle. }
+      MarkR := Rect(0, 0, 0, 0);
+      MarkR.Left := POLL_PAD + (POLL_MARK_COL_W - POLL_MARK_SIZE) div 2;
+      MarkR.Top := FLayout.Options[I].MarkCenterY - POLL_MARK_SIZE div 2;
+      MarkR.Right := MarkR.Left + POLL_MARK_SIZE;
+      MarkR.Bottom := MarkR.Top + POLL_MARK_SIZE;
+      if FPoll.AllowsMultiple then begin
+        MarkRadius := POLL_MARK_CHECK_RADIUS;
+      end else begin
+        MarkRadius := POLL_MARK_SIZE / 2;
+      end;
+      { A multi poll's mark follows the LOCAL tick — nothing has been
+        sent yet, so is_chosen would still say "no" and the checkbox
+        would not respond to the click at all. A single-answer one
+        sends immediately and has only is_being_chosen to show for it
+        until the server answers. }
+      if FPoll.AllowsMultiple then begin
+        Ticked := (I <= High(FPending)) and FPending[I];
+      end else begin
+        Ticked := (I <= High(FPoll.Options)) and FPoll.Options[I].IsBeingChosen;
+      end;
+      if Ticked then begin
+        MarkFill := MarkColor;
+      end else begin
+        MarkFill := clNone;
+      end;
+      { Antialiased, and ALWAYS — not through PaintRoundRectAA/
+        SMOOTH_CORNERS. That switch is off because of what a rounded
+        rectangle per message per scroll frame costs; a poll mark is
+        drawn once per option and only while the poll is unanswered, so
+        it is not what that switch is about (the reaction pills already
+        make the same exception, see AForceSmooth). }
+      PaintRounded(Canvas, MarkR, MarkRadius, [], MarkFill, MarkColor, True);
+      Canvas.Pen.Style := psClear;
+      Canvas.Brush.Style := bsClear;
+    end;
+  end;
+
+  if FLayout.HasVote then begin
+    PaintVoteButton;
+  end;
+
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := POLL_SMALL_FONT_H;
+  Canvas.Font.Style := [];
+  Canvas.Font.Color := clGrayText;
+  Canvas.Brush.Style := bsClear;
+  Canvas.TextOut(POLL_PAD, FLayout.SubtitleTop, string(FLayout.Subtitle));
+  Canvas.TextOut(POLL_PAD, FLayout.FooterTop, string(FLayout.Footer));
+  Canvas.Font.Color := clWindowText;
+end;
+
+procedure TPollWidget.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+var
+  Idx: integer;
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  if Button <> mbLeft then begin
+    Exit;
+  end;
+  if FLayout.HasVote and PtInRect(FLayout.VoteRect, Point(X, Y)) then begin
+    if VoteEnabled and Assigned(FOnSubmit) then begin
+      FOnSubmit(Self);
+    end;
+    Exit;
+  end;
+  if not FCanVote then begin
+    Exit;
+  end;
+  Idx := OptionAt(Y);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  { A multiple-answer poll only ticks here — the answer is one call
+    for the whole set, so it goes out on the Vote button, not on each
+    tap (which is exactly what the bug report was: one click and the
+    poll was already submitted). }
+  if FPoll.AllowsMultiple then begin
+    if Idx <= High(FPending) then begin
+      FPending[Idx] := not FPending[Idx];
+      Invalidate;
+    end;
+    Exit;
+  end;
+  if Assigned(FOnVote) then begin
+    FOnVote(Self, Idx);
+  end;
+end;
+
+procedure TPollWidget.MouseMove(Shift: TShiftState; X, Y: integer);
+var
+  Idx: integer;
+  OnButton: boolean;
+begin
+  inherited MouseMove(Shift, X, Y);
+  if FCanVote then begin
+    Idx := OptionAt(Y);
+  end else begin
+    Idx := -1;
+  end;
+  OnButton := FLayout.HasVote and VoteEnabled
+    and PtInRect(FLayout.VoteRect, Point(X, Y));
+  if OnButton then begin
+    { The button sits below the last option, outside every option band,
+      so it never fights the hover tint for the same pixels. }
+    Idx := -1;
+  end;
+  if (Idx >= 0) or OnButton then begin
+    Cursor := crHandPoint;
+  end else begin
+    Cursor := crDefault;
+  end;
+  if Idx <> FHoverIndex then begin
+    FHoverIndex := Idx;
+    Invalidate;
+  end;
+end;
+
+procedure TPollWidget.MouseLeave;
+begin
+  inherited MouseLeave;
+  if FHoverIndex <> -1 then begin
+    FHoverIndex := -1;
+    Invalidate;
+  end;
+end;
+
 { ---------------- TQuoteWidget ---------------- }
 
 constructor TQuoteWidget.Create(AOwner: TComponent);
@@ -3727,6 +4300,9 @@ begin
   FStickerPool := TFPList.Create;
   FStickerActive := TStickerWidgetMap.Create;
   FStickerActive.Sorted := True;
+  FPollPool := TFPList.Create;
+  FPollActive := TPollWidgetMap.Create;
+  FPollActive.Sorted := True;
   FQuotePool := TFPList.Create;
   FQuoteActive := TFPList.Create;
   FForwardChatAvatars := TForwardAvatarMap.Create;
@@ -3754,6 +4330,12 @@ begin
   FMarkReadTimer.Interval := 500;
   FMarkReadTimer.OnTimer := @MarkReadTick;
   FMarkReadTimer.Enabled := False;
+
+  { Eased scrolling, see SmoothScrollBy/ScrollAnimTick. }
+  FScrollAnim := TTimer.Create(Self);
+  FScrollAnim.Interval := SMOOTH_SCROLL_MS;
+  FScrollAnim.OnTimer := @ScrollAnimTick;
+  FScrollAnim.Enabled := False;
 end;
 
 destructor TMsgScroller.Destroy;
@@ -3774,6 +4356,8 @@ begin
   FVideoPool.Free;
   FStickerActive.Free;
   FStickerPool.Free;
+  FPollActive.Free;
+  FPollPool.Free;
   FQuoteActive.Free;
   FQuotePool.Free;
   ClearForwardAvatars;
@@ -3807,6 +4391,7 @@ begin
     point raises EInvalidOperation "Control has no parent window". This
     gets recomputed once a real handle exists: BindModel and the
     following Resize guarantee that. }
+  FUnreadRowIdx := -1;
   if not HandleAllocated then begin
     SetLength(FOffsets, 1);
     SetLength(FRowIds, 0);
@@ -3819,6 +4404,9 @@ begin
   if FModel <> nil then begin
     Cnt := FModel.Count;
   end;
+  { Before the loop below: RowTopInset reads the result, and the slot
+    heights being built here have to include the divider strip. }
+  ComputeUnreadRowIdx;
 
   ColumnBounds(ColL, ColR);
   Ctx.Canvas := Canvas;
@@ -3829,7 +4417,27 @@ begin
 
   SetLength(FOffsets, Cnt + 1);
   SetLength(FRowIds, Cnt);
-  FOffsets[0] := 0;
+  { A leading gap, so the first message stands as far from the top of
+    the view as the last one does from the bottom.
+
+    That bottom gap is not a setting anywhere: every slot below is
+    "block + MSG_GAP", and it is the LAST slot's trailing gap that shows
+    under the newest message once FTotalHeight keeps it (see the end of
+    this routine). So MSG_GAP here is not a number that happens to
+    match — it is what makes the two edges the same by construction,
+    and moving MSG_GAP moves both at once.
+
+    Nothing else needs adjusting: every rectangle in this file derives
+    its Y from FOffsets, and IndexAtY already answers "row 0" for a Y
+    above FOffsets[0], so the new strip hit-tests as that row's own gap,
+    exactly like the gap between two messages. }
+  if Cnt > 0 then begin
+    FOffsets[0] := MSG_GAP;
+  end else begin
+    { Nothing loaded: leave the content height a true zero, which is
+      what "nothing to scroll" reads as everywhere else. }
+    FOffsets[0] := 0;
+  end;
   for I := 0 to Cnt - 1 do begin
     FRowIds[I] := FModel[I].Id;
     ForwardMetrics(FModel[I], ColR - ColL, PreH, PostH, InnerW);
@@ -3841,7 +4449,7 @@ begin
     PreH := PreH + ReplyExtraH(FModel[I]);
     Ctx.AvailWidth := InnerW;
     H := HEADER_BAR_H + PreH + RendererFor(FModel[I].Kind).Measure(FModel[I], Ctx) + PostH
-      + ReactionsH(FModel[I]);
+      + ReactionsH(FModel[I]) + RowTopInset(I);
     FOffsets[I + 1] := FOffsets[I] + H + MSG_GAP;
   end;
 
@@ -3872,7 +4480,8 @@ begin
     class as photo, by the same reasoning — all three use
     NaturalMediaSize/ComputePhotoPreviewSize). }
   if (ARow <> nil) and
-    (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto, mckAnimation, mckVideo, mckSticker]) then begin
+    (ARow.Kind in [mckAudio, mckVoiceNote, mckFile, mckPhoto, mckAnimation, mckVideo,
+      mckSticker, mckPoll]) then begin
     Result := MSG_PAD_H;
   end else begin
     Result := MSG_PAD_V;
@@ -4109,6 +4718,15 @@ begin
   if (FModel = nil) or (FormMain = nil) or FormMain.Invisible then begin
     Exit;
   end;
+  { A chat that opened with unread messages is pinned to the BOTTOM while
+    the backfill hunts for the boundary (see ModelChanged) — i.e. the
+    newest, still-unread messages are on screen for a moment before the
+    view settles on the divider. Marking those read would destroy the
+    unread state the user came here to look at, and the divider with it.
+    Nothing is reported read until the view has settled. }
+  if FWantUnreadScroll then begin
+    Exit;
+  end;
   Lo := FirstVisible;
   Hi := LastVisible;
   if (Lo < 0) or (Hi < 0) then begin
@@ -4173,12 +4791,48 @@ begin
   end;
 end;
 
+function TMsgScroller.RowTopInset(AIndex: integer): integer;
+begin
+  if AIndex = FUnreadRowIdx then begin
+    Result := UNREAD_DIVIDER_H;
+  end else begin
+    Result := 0;
+  end;
+end;
+
+{ The first row newer than the frozen unread marker that is actually
+  INCOMING — "unread" says nothing about our own messages, and a reply
+  sent before leaving the chat would otherwise push the divider above
+  it. Nothing at all unless the model says the marker is inside the
+  loaded range: with the boundary further back than anything loaded,
+  the oldest loaded row would be picked, which is not where the divider
+  belongs. }
+procedure TMsgScroller.ComputeUnreadRowIdx;
+var
+  I: integer;
+  Marker: Int64;
+begin
+  FUnreadRowIdx := -1;
+  if (FModel = nil) or (not FModel.UnreadCovered) then begin
+    Exit;
+  end;
+  Marker := FModel.UnreadFromId;
+  for I := 0 to FModel.Count - 1 do begin
+    if (FModel[I].Id > Marker) and (not FModel[I].IsOutgoing) then begin
+      FUnreadRowIdx := I;
+      Exit;
+    end;
+  end;
+end;
+
 function TMsgScroller.BlockRect(AIndex: integer): TRect;
 var
   ColL, ColR: integer;
 begin
   ColumnBounds(ColL, ColR);
-  Result := Rect(ColL, FOffsets[AIndex] - FScrollTop, ColR,
+  { Only the TOP moves: the slot already grew by the same amount, so
+    the bottom edge stays exactly where it was. }
+  Result := Rect(ColL, FOffsets[AIndex] - FScrollTop + RowTopInset(AIndex), ColR,
     FOffsets[AIndex] - FScrollTop + (FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP));
 end;
 
@@ -4191,9 +4845,9 @@ begin
   R := FModel[AIndex];
   ForwardMetrics(R, ColR - ColL, PreH, PostH, InnerW);
   PreH := PreH + ReplyExtraH(R);
-  BlockH := FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP;
+  BlockH := FOffsets[AIndex + 1] - FOffsets[AIndex] - MSG_GAP - RowTopInset(AIndex);
   ContentH := BlockH - HEADER_BAR_H - PreH - PostH - ReactionsH(R);
-  TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + PreH;
+  TopY := FOffsets[AIndex] - FScrollTop + RowTopInset(AIndex) + HEADER_BAR_H + PreH;
   if (R <> nil) and (R.ForwardKind <> mfoNone) then begin
     { The quote's content sits inside the ForwardCardRect frame, which
       already has its own MSG_PAD_H from the block's edges (like
@@ -4468,7 +5122,8 @@ begin
     bottom padding inside a forward card narrower than the other
     three sides. }
   Result := Rect(ColL + MSG_PAD_H,
-    FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + ReplyExtraH(FModel[AIndex]) + FORWARD_HEADER_GAP,
+    FOffsets[AIndex] - FScrollTop + RowTopInset(AIndex)
+      + HEADER_BAR_H + ReplyExtraH(FModel[AIndex]) + FORWARD_HEADER_GAP,
     ColR - MSG_PAD_H, CR.Bottom + ContentPadV(FModel[AIndex]));
 end;
 
@@ -4517,7 +5172,8 @@ var
   ColL, ColR, TopY: integer;
 begin
   ColumnBounds(ColL, ColR);
-  TopY := FOffsets[AIndex] - FScrollTop + HEADER_BAR_H + FORWARD_HEADER_GAP;
+  TopY := FOffsets[AIndex] - FScrollTop + RowTopInset(AIndex)
+    + HEADER_BAR_H + FORWARD_HEADER_GAP;
   Result := Rect(ColL + MSG_PAD_H, TopY, ColR - MSG_PAD_H, TopY + REPLY_BOX_H);
 end;
 
@@ -4531,6 +5187,14 @@ procedure TMsgScroller.ClampScrollTop(AValue: integer);
 var
   MaxTop, OldTop: integer;
 begin
+  { A direct position change beats a running glide: the scrollbar drag,
+    ScrollToBottom/ScrollToMessage/ScrollToUnread and the anchor restore
+    in ModelChanged all land here, and none of them may be pulled back
+    to wherever the wheel was heading. Before the early-out below on
+    purpose — a clamp that changes nothing still has to cancel. }
+  if (not FAnimating) and Assigned(FScrollAnim) and FScrollAnim.Enabled then begin
+    FScrollAnim.Enabled := False;
+  end;
   MaxTop := FTotalHeight - ClientHeight;
   if MaxTop < 0 then begin
     MaxTop := 0;
@@ -4589,9 +5253,107 @@ begin
   end;
 end;
 
+{ Adds to the TARGET rather than to the current position: that is what
+  makes several quick wheel notches add up into one longer glide instead
+  of each one restarting from wherever the previous glide happened to be
+  at that instant. }
+procedure TMsgScroller.SmoothScrollBy(ADelta: integer);
+var
+  MaxTop: integer;
+begin
+  if not SMOOTH_SCROLL then begin
+    SetScrollTop(FScrollTop + ADelta);
+    Exit;
+  end;
+  MaxTop := FTotalHeight - ClientHeight;
+  if MaxTop < 0 then begin
+    MaxTop := 0;
+  end;
+  if not FScrollAnim.Enabled then begin
+    FScrollTarget := FScrollTop;
+  end;
+  FScrollTarget := FScrollTarget + ADelta;
+  if FScrollTarget < 0 then begin
+    FScrollTarget := 0;
+  end;
+  if FScrollTarget > MaxTop then begin
+    FScrollTarget := MaxTop;
+  end;
+  { Older history is requested off the INTENT, not off the animated
+    position: by the time the glide arrives the user has usually already
+    flung past, and waiting for it would make loading visibly late. Same
+    unconditional call as SetScrollTop's, and for the same reason — at
+    the very top the clamped target stops changing, so firing only on
+    change would stop loading exactly when it is needed most. }
+  if (FScrollTarget <= NEAR_TOP_PX) and Assigned(FOnNearTop) then begin
+    FOnNearTop(Self);
+  end;
+  if FScrollTarget <> FScrollTop then begin
+    FScrollAnim.Enabled := True;
+  end;
+end;
+
+procedure TMsgScroller.ScrollAnimTick(Sender: TObject);
+var
+  Diff, Step, MaxTop: integer;
+begin
+  { The content can grow or shrink under a running glide (a page of
+    older history arriving, a window resize), so the target is re-clamped
+    every tick rather than once when it was set. }
+  MaxTop := FTotalHeight - ClientHeight;
+  if MaxTop < 0 then begin
+    MaxTop := 0;
+  end;
+  if FScrollTarget > MaxTop then begin
+    FScrollTarget := MaxTop;
+  end;
+  if FScrollTarget < 0 then begin
+    FScrollTarget := 0;
+  end;
+
+  Diff := FScrollTarget - FScrollTop;
+  FAnimating := True;
+  try
+    if Abs(Diff) <= SMOOTH_SCROLL_SNAP then begin
+      FScrollAnim.Enabled := False;
+      ClampScrollTop(FScrollTarget);
+      Exit;
+    end;
+    Step := Round(Diff * SMOOTH_SCROLL_FACTOR);
+    { Rounding to zero near the end would leave the glide creeping
+      forever; a minimum of one pixel in the right direction guarantees
+      it reaches the snap window. }
+    if Step = 0 then begin
+      if Diff > 0 then begin
+        Step := 1;
+      end else begin
+        Step := -1;
+      end;
+    end;
+    ClampScrollTop(FScrollTop + Step);
+  finally
+    FAnimating := False;
+  end;
+end;
+
 procedure TMsgScroller.ScrollToBottom;
 begin
   ClampScrollTop(FTotalHeight - ClientHeight);
+end;
+
+function TMsgScroller.LastMessageFullyVisible: boolean;
+var
+  Last: integer;
+begin
+  { FOffsets is Count+1 long, so the last message's index is two from
+    the end — and an empty one means nothing is loaded, i.e. there is
+    nothing to jump to either. }
+  Last := Length(FOffsets) - 2;
+  if Last < 0 then begin
+    Result := True;
+    Exit;
+  end;
+  Result := BlockRect(Last).Bottom <= ClientHeight;
 end;
 
 procedure TMsgScroller.ModelChanged;
@@ -4639,7 +5401,24 @@ begin
 
   RebuildOffsets;
 
-  if (OldCount = 0) or WasAtBottom then begin
+  if FWantUnreadScroll and (FModel <> nil) and FModel.UnreadReady then begin
+    { The backfill pages arrive one at a time and each one prepends
+      older history; acting on the first of them would settle on a
+      divider that is still going to move. Hence waiting for
+      UnreadReady, and hence the one shot: from here on this is an
+      ordinary history and the anchor logic below keeps the user where
+      they scrolled to. }
+    FWantUnreadScroll := False;
+    if FUnreadRowIdx >= 0 then begin
+      ScrollToUnread;
+    end else begin
+      ScrollToBottom;
+    end;
+  end else if FWantUnreadScroll then begin
+    { Still looking for the boundary — pinned to the bottom so the
+      growing list doesn't drift under the user before it settles. }
+    ScrollToBottom;
+  end else if (OldCount = 0) or WasAtBottom then begin
     ScrollToBottom;
   end else if AnchorId <> 0 then begin
     AnchorIdx := FModel.IndexOfId(AnchorId);
@@ -5160,7 +5939,158 @@ end;
 procedure TMsgScroller.Paint;
 begin
   PaintContent;
+  { Between the two on purpose: over everything the history has just
+    drawn, so the button's own antialiased corners blend with the real
+    pixels under them, but still under the corner patches, which have
+    to stay able to clip it away at the rounded window edge. }
+  PaintScrollDown;
   PaintOuterCorners;
+end;
+
+function TMsgScroller.ScrollDownRect: TRect;
+begin
+  if (FScrollDownIcons = nil) or (SCROLL_DOWN_ICON >= FScrollDownIcons.Count)
+    or LastMessageFullyVisible then begin
+    Result := Rect(0, 0, 0, 0);
+    Exit;
+  end;
+  { The client area already excludes the scrollbar (that one is an
+    alRight sibling of this control), so this really is the bottom
+    right corner of the history and nothing has to be subtracted. }
+  Result := Rect(
+    ClientWidth - SCROLL_DOWN_BTN_MARGIN - SCROLL_DOWN_BTN_SIZE,
+    ClientHeight - SCROLL_DOWN_BTN_MARGIN - SCROLL_DOWN_BTN_SIZE,
+    ClientWidth - SCROLL_DOWN_BTN_MARGIN,
+    ClientHeight - SCROLL_DOWN_BTN_MARGIN);
+end;
+
+procedure TMsgScroller.PaintScrollDown;
+var
+  R: TRect;
+begin
+  R := ScrollDownRect;
+  if R.Right <= R.Left then begin
+    Exit;
+  end;
+  { Nothing is drawn underneath it: the frame carries its own filled
+    circle in its own alpha, and blitting it straight onto this canvas
+    is exactly what lets that circle's antialiased edge blend with
+    whatever the history painted there — a message card's tint, the
+    plain background, the unread divider, anything. A circle makes this
+    matter more than the rounded card it replaced, not less: most of
+    its bounding box is transparent, so a wrong backdrop would show as
+    a square, not just as four wedges in the corners.
+
+    That is the whole reason this is painted here instead of being a
+    control of its own. A child window cannot see what is underneath
+    it, so it could only fill its rounded-off corners with a guess; the
+    first version guessed the history background and the guess showed
+    up as four white wedges as soon as the button floated over a
+    coloured message card. The cost of painting instead is z-order:
+    the scroller's media widgets (audio/file/poll/quote span the whole
+    column) are real child windows and would cover the button if one
+    of them happened to end up in this corner. }
+  FScrollDownIcons.Draw(Canvas, R.Left, R.Top, SCROLL_DOWN_ICON, True);
+end;
+
+procedure TMsgScroller.SetEmptyText(const ATitle, AHint: string);
+begin
+  if (FEmptyTitle = ATitle) and (FEmptyHint = AHint) then begin
+    Exit;
+  end;
+  FEmptyTitle := ATitle;
+  FEmptyHint := AHint;
+  Invalidate;
+end;
+
+procedure TMsgScroller.PaintEmptyState;
+var
+  R: TRect;
+  TitleH, HintH, TotalH, Y, MaxW, W: integer;
+  S: string;
+begin
+  if FEmptyTitle = '' then begin
+    Exit;
+  end;
+  R := ClientRect;
+  MaxW := (R.Right - R.Left) - 2 * MSG_PAD_H;
+  if MaxW <= 0 then begin
+    Exit;
+  end;
+
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Style := [];
+
+  { Measured in full before anything is drawn: the block is centred
+    vertically as a whole, so the second line's height has to be known
+    before the first line's baseline can be. }
+  Canvas.Font.Height := HISTORY_EMPTY_TITLE_FONT_H;
+  TitleH := Canvas.TextHeight(FEmptyTitle);
+  HintH := 0;
+  if FEmptyHint <> '' then begin
+    Canvas.Font.Height := HISTORY_EMPTY_HINT_FONT_H;
+    HintH := HISTORY_EMPTY_LINE_GAP + Canvas.TextHeight(FEmptyHint);
+  end;
+  TotalH := TitleH + HintH;
+  Y := R.Top + ((R.Bottom - R.Top) - TotalH) div 2;
+
+  Canvas.Font.Height := HISTORY_EMPTY_TITLE_FONT_H;
+  Canvas.Font.Color := clWindowText;
+  S := TruncateToWidth(Canvas, FEmptyTitle, MaxW);
+  W := Canvas.TextWidth(S);
+  Canvas.TextOut(R.Left + ((R.Right - R.Left) - W) div 2, Y, S);
+
+  if FEmptyHint <> '' then begin
+    Canvas.Font.Height := HISTORY_EMPTY_HINT_FONT_H;
+    Canvas.Font.Color := clGrayText;
+    { The hint carries the user's own query, so it can be any length —
+      cut to the view rather than allowed to run off both edges. }
+    S := TruncateToWidth(Canvas, FEmptyHint, MaxW);
+    W := Canvas.TextWidth(S);
+    Canvas.TextOut(R.Left + ((R.Right - R.Left) - W) div 2,
+      Y + TitleH + HISTORY_EMPTY_LINE_GAP, S);
+  end;
+end;
+
+procedure TMsgScroller.HideAllWidgets;
+begin
+  { An empty range is not a special case for any of these: each one
+    first drops every active widget whose row falls outside [ALo,AHi]
+    — and no row can be inside an empty range — and only then fills,
+    which iterates nothing. Same per-pool try/except as in
+    PaintContent, for the same reason. }
+  try
+    LayoutAudioWidgets(0, -1);
+  except
+  end;
+  try
+    LayoutFileWidgets(0, -1);
+  except
+  end;
+  try
+    LayoutPhotoWidgets(0, -1);
+  except
+  end;
+  try
+    LayoutAnimationWidgets(0, -1);
+  except
+  end;
+  try
+    LayoutVideoWidgets(0, -1);
+  except
+  end;
+  try
+    LayoutStickerWidgets(0, -1);
+  except
+  end;
+  try
+    LayoutPollWidgets(0, -1);
+  except
+  end;
+  try
+    LayoutQuoteWidgets(0, -1);
+  except
+  end;
 end;
 
 procedure TMsgScroller.PaintContent;
@@ -5183,12 +6113,25 @@ begin
   Canvas.FillRect(ClientRect);
 
   if (FModel = nil) or (FModel.Count = 0) then begin
+    { Not merely "nothing to draw". The widget pools are real child
+      controls, and leaving here early left the PREVIOUS view's photos,
+      quotes and players standing on the freshly cleared canvas with
+      none of their message cards behind them — reported for a filter
+      that matched nothing, where nothing ever arrives afterwards to
+      repaint over them. The same thing flickered on every chat switch
+      (the model clears and fires OnChanged with Count=0 before the new
+      chat's rows arrive), it was just too brief to notice. }
+    HideAllWidgets;
+    PaintEmptyState;
     Exit;
   end;
 
   Lo := FirstVisible;
   Hi := LastVisible;
   if (Lo < 0) or (Hi < 0) then begin
+    { Rows exist, none are in view. Widgets still have to go, but no
+      placeholder: it would claim the chat is empty when it isn't. }
+    HideAllWidgets;
     Exit;
   end;
 
@@ -5222,6 +6165,9 @@ begin
   for I := Lo to Hi do begin
     try
       R := FModel[I];
+      if I = FUnreadRowIdx then begin
+        PaintUnreadDivider(I);
+      end;
       BR := BlockRect(I);
       CR := ContentRect(I);
 
@@ -5408,6 +6354,10 @@ begin
   end;
   try
     LayoutStickerWidgets(Lo, Hi);
+  except
+  end;
+  try
+    LayoutPollWidgets(Lo, Hi);
   except
   end;
   try
@@ -6390,6 +7340,120 @@ begin
   FStickerPool.Add(Result);
 end;
 
+procedure TMsgScroller.LayoutPollWidgets(ALo, AHi: integer);
+var
+  I, N, MIdx, AIdx: integer;
+  R: TMsgRow;
+  W: TPollWidget;
+  CR: TRect;
+  L: TPollLayout;
+  WantIds: array of Int64;
+
+  function IsWanted(AId: Int64): boolean;
+  var
+    K: integer;
+  begin
+    Result := False;
+    for K := 0 to N - 1 do begin
+      if WantIds[K] = AId then begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
+begin
+  N := 0;
+  if FModel <> nil then begin
+    SetLength(WantIds, AHi - ALo + 2);
+    for I := ALo to AHi do begin
+      R := FModel[I];
+      if R.Kind = mckPoll then begin
+        WantIds[N] := R.Id;
+        Inc(N);
+      end;
+    end;
+  end;
+
+  for AIdx := FPollActive.Count - 1 downto 0 do begin
+    if not IsWanted(FPollActive.Keys[AIdx]) then begin
+      FPollActive.Data[AIdx].Visible := False;
+      FPollActive.Delete(AIdx);
+    end;
+  end;
+
+  for I := 0 to N - 1 do begin
+    MIdx := FModel.IndexOfId(WantIds[I]);
+    if MIdx < 0 then begin
+      Continue;
+    end;
+    CR := ContentRect(MIdx);
+    AIdx := FPollActive.IndexOf(WantIds[I]);
+    if AIdx >= 0 then begin
+      W := FPollActive.Data[AIdx];
+    end else begin
+      W := ObtainPollWidget;
+      FPollActive.Add(WantIds[I], W);
+    end;
+    R := FModel[MIdx];
+    { The SAME layout the row height was measured from, computed on the
+      scroller's canvas with the message font explicitly set — this
+      runs at the tail of Paint, where the font could be anything by
+      now, and a layout measured with the wrong one would not fit the
+      height already reserved. }
+    SetTextFont;
+    L := ComputePollLayout(R, Canvas, CR.Right - CR.Left);
+    W.SetPoll(R.Id, R.Poll, L, SenderColor(R), WidgetBackdropColor(R));
+    W.OnVote := @PollWidgetVote;
+    W.OnSubmit := @PollWidgetSubmit;
+    W.SetBounds(CR.Left, CR.Top, CR.Right - CR.Left, L.Height);
+    W.Visible := True;
+  end;
+end;
+
+function TMsgScroller.ObtainPollWidget: TPollWidget;
+var
+  I: integer;
+begin
+  for I := 0 to FPollPool.Count - 1 do begin
+    Result := TPollWidget(FPollPool[I]);
+    if not Result.Visible then begin
+      Exit;
+    end;
+  end;
+  Result := TPollWidget.Create(Self);
+  Result.Parent := Self;
+  FPollPool.Add(Result);
+end;
+
+procedure TMsgScroller.PollWidgetVote(Sender: TObject; AOptionIndex: integer);
+var
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  Idx := FModel.IndexOfId(TPollWidget(Sender).RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  FModel.SetPollAnswer(FModel[Idx], AOptionIndex);
+end;
+
+procedure TMsgScroller.PollWidgetSubmit(Sender: TObject);
+var
+  Idx: integer;
+begin
+  if FModel = nil then begin
+    Exit;
+  end;
+  Idx := FModel.IndexOfId(TPollWidget(Sender).RowId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  FModel.SetPollAnswers(FModel[Idx], TPollWidget(Sender).PendingIndexes);
+end;
+
 { Not the same shape as the other Layout*Widgets procedures in this
   file — those all key their active/pool maps by RowId because each row
   has AT MOST ONE widget of that kind; a quote is different, a single
@@ -6851,6 +7915,23 @@ begin
   end;
 end;
 
+procedure TMsgScroller.PrepareUnreadScroll;
+begin
+  FWantUnreadScroll := (FModel <> nil) and (FModel.UnreadFromId <> 0);
+end;
+
+procedure TMsgScroller.ScrollToUnread;
+begin
+  if (FUnreadRowIdx < 0) or (FUnreadRowIdx + 1 >= Length(FOffsets)) then begin
+    Exit;
+  end;
+  { Top-aligned, not centered like ScrollToMessage: the divider is the
+    top of that slot, so this puts the marker at the top of the view
+    with the first unread message directly beneath it. }
+  ClampScrollTop(FOffsets[FUnreadRowIdx]);
+  Invalidate;
+end;
+
 procedure TMsgScroller.ScrollToMessage(AMessageId: Int64);
 var
   Idx, RowH: integer;
@@ -6871,6 +7952,33 @@ begin
     more visible. }
   ClampScrollTop(FOffsets[Idx] - (ClientHeight - RowH) div 2);
   Invalidate;
+end;
+
+{ Drawn in the strip RowTopInset reserved at the top of the first
+  unread row's slot: a subtle full-column band with a centered caption,
+  the remainder of the strip separating it from the message block. }
+procedure TMsgScroller.PaintUnreadDivider(AIndex: integer);
+var
+  Y: integer;
+  Cap: string;
+begin
+  Y := FOffsets[AIndex] - FScrollTop;
+  { Edge to edge across the whole history, NOT the message column — it
+    separates the history in two, it isn't part of any one block. Plain
+    rectangle, no rounding. }
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := UNREAD_DIVIDER_COLOR;
+  Canvas.FillRect(Rect(0, Y, ClientWidth, Y + UNREAD_DIVIDER_BAND_H));
+
+  Cap := UNREAD_DIVIDER_CAPTION;
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Name := 'default';
+  Canvas.Font.Height := UNREAD_DIVIDER_FONT_H;
+  Canvas.Font.Style := [];
+  Canvas.Font.Color := UNREAD_DIVIDER_TEXT;
+  Canvas.TextOut((ClientWidth - Canvas.TextWidth(Cap)) div 2,
+    Y + (UNREAD_DIVIDER_BAND_H - Canvas.TextHeight(Cap)) div 2, Cap);
+  Canvas.Font.Color := clWindowText;
 end;
 
 function TMsgScroller.SelectionText: string;
@@ -6948,7 +8056,7 @@ end;
 procedure TMsgScroller.SetTextFont;
 begin
   Canvas.Font.Name := 'default';
-  Canvas.Font.Height := -13;
+  Canvas.Font.Height := MSG_TEXT_FONT_H;
 end;
 
 procedure TMsgScroller.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
@@ -6960,6 +8068,14 @@ begin
   inherited MouseDown(Button, Shift, X, Y);
   SetFocus;
   if Button <> mbLeft then begin
+    Exit;
+  end;
+
+  { Ahead of every other hit test: the button floats over the history,
+    so whichever message happens to lie under it must not take the
+    click. }
+  if PtInRect(ScrollDownRect, Point(X, Y)) then begin
+    ScrollToBottom;
     Exit;
   end;
 
@@ -7166,7 +8282,9 @@ begin
   end;
 
   Hit := HitTestAt(X, Y, Idx);
-  if (Idx >= 0) and (FModel[Idx].ForwardKind = mfoChannel)
+  if PtInRect(ScrollDownRect, Point(X, Y)) then begin
+    Want := crHandPoint;
+  end else if (Idx >= 0) and (FModel[Idx].ForwardKind = mfoChannel)
     and PtInRect(ForwardHeaderRect(Idx), Point(X, Y)) then begin
     Want := crHandPoint;
   end else if (Idx >= 0) and (FModel[Idx].ReplyMessageId <> 0)
@@ -7194,11 +8312,37 @@ begin
   end;
 end;
 
+function TMsgScroller.WheelNotchPx: integer;
+var
+  Lines: integer;
+begin
+  { The user's own mouse setting, which is what every native control on
+    this system scrolls by and what the original client ends up using
+    too (Qt reads the same SPI_GETWHEELSCROLLLINES). LCL already falls
+    back to the Windows default of 3 when the system cannot answer.
+
+    Windows reports "one screen at a time" as WHEEL_PAGESCROLL, a value
+    too large for the signed Integer LCL returns it in, so it arrives
+    negative. That case and the ordinary page clamp (the original
+    clamps to pageStep as well) have the same answer, so they share one
+    branch — with a floor of one line, because a viewport shorter than
+    a line would otherwise scroll by nothing at all. }
+  Lines := Mouse.WheelScrollLines;
+  if (Lines <= 0) or (Lines * WHEEL_LINE_PX > ClientHeight) then begin
+    Result := ClientHeight;
+    if Result < WHEEL_LINE_PX then begin
+      Result := WHEEL_LINE_PX;
+    end;
+    Exit;
+  end;
+  Result := Lines * WHEEL_LINE_PX;
+end;
+
 function TMsgScroller.DoMouseWheel(Shift: TShiftState; WheelDelta: integer;
   MousePos: TPoint): boolean;
 begin
   Result := True;
-  SetScrollTop(FScrollTop - (WheelDelta div 120) * WHEEL_LINE_PX);
+  SmoothScrollBy(-(WheelDelta div 120) * WheelNotchPx);
 end;
 
 procedure TMsgScroller.KeyDown(var Key: word; Shift: TShiftState);
@@ -7210,10 +8354,13 @@ begin
         CopySelection;
         Key := 0;
       end;
-    VK_UP:    SetScrollTop(FScrollTop - LINE_SCROLL_PX);
-    VK_DOWN:  SetScrollTop(FScrollTop + LINE_SCROLL_PX);
-    VK_PRIOR: SetScrollTop(FScrollTop - ClientHeight);
-    VK_NEXT:  SetScrollTop(FScrollTop + ClientHeight);
+    { Same glide as the wheel. Home/End stay instant: easing across the
+      whole history would be a long ride to somewhere the user asked to
+      be at once. }
+    VK_UP:    SmoothScrollBy(-LINE_SCROLL_PX);
+    VK_DOWN:  SmoothScrollBy(LINE_SCROLL_PX);
+    VK_PRIOR: SmoothScrollBy(-ClientHeight);
+    VK_NEXT:  SmoothScrollBy(ClientHeight);
     VK_HOME:  SetScrollTop(0);
     VK_END:   SetScrollTop(FTotalHeight);
   end;
@@ -7233,15 +8380,12 @@ begin
   FChatHeader := TChatHeaderPanel.Create(Self);
   FChatHeader.Parent := Self;
   FChatHeader.Align := alTop;
-  { FormMain.ImageList1 (the main form's own 16x16 list, premium crown
-    at PREMIUM_CROWN_ICON) — NOT this frame's OWN "ImageList1" field
-    (a different, 32x32 component used for audio play/pause icons, see
-    FScroller.AudioImages below) — same name, two unrelated components
-    on two different classes. FormMain.Chats.icons12 is the chat list's
-    own 12x12 type/pin/mute icons — see chatheader.pas's own comment on
-    SetImageLists for why this bar reuses rather than duplicates them. }
+  { FormMain.Chats.icons12 is the chat list's own 12x12 list — the
+    type/pin/mute icons and the premium crown, see chatheader.pas's own
+    comment on SetImageLists for why this bar reuses rather than
+    duplicates them. }
   if FormMain <> nil then begin
-    FChatHeader.SetImageLists(FormMain.Chats.icons12, FormMain.ImageList1,
+    FChatHeader.SetImageLists(FormMain.Chats.icons12,
       FilterButtons12, Actions16, FormMain.Chats.ImageListBig, 2);
     { Keeps the header's own pin/bell in step with the chat list's.
       Neither SetPinned nor SetMuted changes the row's flags locally —
@@ -7287,6 +8431,11 @@ begin
   FScroller.FileImages := FileTypes;
   FScroller.FilePopupMenu := FilePopupMenu;
   FScroller.TextPopupMenu := TextPopupMenu;
+
+  { ImageList1 once more: its download frame doubles as the
+    jump-to-newest arrow the scroller paints over its bottom right
+    corner (SCROLL_DOWN_ICON). }
+  FScroller.ScrollDownIcons := ImageList1;
 
   { The flag is set last, the same rule as every form/frame in the
     project: LFM streaming (not formally happening here, but
@@ -7429,9 +8578,24 @@ begin
 end;
 
 procedure TFrameHistory.OpenChat(AChatId: Int64; AJumpToMessageId: Int64);
+var
+  ChatRow: TChatRow;
+  UnreadFrom: Int64;
 begin
   if FModel = nil then begin
     Exit;
+  end;
+  { Where the "Unread messages" divider goes, and where the history
+    should open. Read here rather than inside the model: the chat list
+    is tdchats' and TTdMessages holds no instance of it. An explicit
+    jump target wins — following a quote is a deliberate
+    destination. }
+  UnreadFrom := 0;
+  if (AJumpToMessageId = 0) and (TdChatList <> nil) then begin
+    ChatRow := TdChatList.Lookup(AChatId);
+    if (ChatRow <> nil) and (ChatRow.UnreadCount > 0) then begin
+      UnreadFrom := ChatRow.LastReadInbox;
+    end;
   end;
   { OpenChat synchronously fires FOnChanged (=ModelChanged) right from
     here — that chain already has its own try/except, but this catches
@@ -7441,7 +8605,10 @@ begin
     under a debugger this looks like a completely frozen application
     if the exception dialog doesn't surface above the active window. }
   try
-    FModel.OpenChat(AChatId, AJumpToMessageId);
+    FModel.OpenChat(AChatId, AJumpToMessageId, UnreadFrom);
+    if FScroller <> nil then begin
+      FScroller.PrepareUnreadScroll;
+    end;
   except
     on E: Exception do begin
       if FormMain <> nil then begin
@@ -7524,6 +8691,26 @@ begin
     FChatHeader.ClearFilterUI;
   end;
   FLastSearchActive := Active;
+
+  { The empty view's own explanation. Without it a filter that matched
+    nothing just showed blank history, which reads as "something broke"
+    rather than "there is nothing of this kind here".
+    OldestLoaded, not "not LoadingOlder", is what says the answer has
+    actually come back: SetSearchFilter fires OnChanged synchronously
+    BEFORE it sends the request, so at that instant nothing is loading
+    yet and "Nothing found" would flash on the way to the real answer. }
+  if Active and (FModel.Count = 0) then begin
+    if not FModel.OldestLoaded then begin
+      FScroller.SetEmptyText(HISTORY_EMPTY_SEARCHING, '');
+    end else if FModel.SearchQuery <> '' then begin
+      FScroller.SetEmptyText(HISTORY_EMPTY_TITLE,
+        HISTORY_EMPTY_HINT_QUERY + '"' + string(FModel.SearchQuery) + '"');
+    end else begin
+      FScroller.SetEmptyText(HISTORY_EMPTY_TITLE, HISTORY_EMPTY_HINT_FILTER);
+    end;
+  end else begin
+    FScroller.SetEmptyText('', '');
+  end;
 
   if FormMain = nil then begin
     Exit;

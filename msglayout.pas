@@ -60,6 +60,66 @@ type
   end;
   TQuoteSlotArray = array of TQuoteSlot;
 
+  { ---- poll / quiz layout (ComputePollLayout, below) ----
+
+    A poll is the only widget in this app with no fixed height: the
+    question and every option wrap, so the height has to come out of a
+    real measurement. That measurement happens ONCE, in
+    ComputePollLayout, and the row height (Measure) and the widget's
+    own painting and hit testing all read the same result — the same
+    "compute once, cache it" rule TQuoteSlot follows, for the same
+    reason.
+
+    All coordinates are local to the widget (0,0 is its top-left).
+    Runs, in turn, are local to their own text block and get painted
+    with an origin offset, exactly like TQuoteSlot.Runs. }
+  TPollOptionLayout = record
+    Runs:    TTextRunArray;   { the option's text, already wrapped }
+    TextTop: integer;
+    { The hoverable/clickable band: the option's text, its result bar
+      and half the gap on either side, so two adjacent options leave no
+      dead strip between them. }
+    RowTop, RowBottom: integer;
+    { Vertical centre of the option's FIRST line — where the radio mark
+      and the percentage sit, so they line up with the text rather than
+      with the whole (possibly multi-line) option block. }
+    MarkCenterY: integer;
+    BarTop:      integer;   { meaningful only when ShowResults }
+  end;
+  TPollOptionLayoutArray = array of TPollOptionLayout;
+
+  TPollLayout = record
+    Width, Height: integer;
+    QuestionRuns:  TTextRunArray;
+    QuestionTop:   integer;
+    SubtitleTop:   integer;
+    Subtitle:      utf8string;
+    Options:       TPollOptionLayoutArray;
+    FooterTop:     integer;
+    Footer:        utf8string;
+    { Percentages and result bars replace the radio marks once this
+      account has voted or the poll has closed — which is exactly when
+      TDLib starts reporting per-option counts. }
+    ShowResults:   boolean;
+    { Left and right edge of the option text column; the mark column is
+      everything between POLL_PAD and TextLeft. }
+    TextLeft, TextRight: integer;
+    { Whether this poll still takes an answer at all. Computed here,
+      not in the widget, so the widget and the height reserved for the
+      Vote button can never disagree about it. }
+    CanVote:  boolean;
+    { A multiple-answer poll sends its whole answer at once, so it
+      cannot submit on each tap and needs a button. Room for it is
+      reserved whenever the poll can still be voted on — NOT only
+      once something is ticked: the ticks live in the widget, and a
+      height that changed with them would mean re-measuring the row
+      from inside a control that has no way to ask for it. The button
+      is therefore always there and merely goes inert (see
+      TPollWidget.VoteEnabled) when pressing it would send nothing. }
+    HasVote:  boolean;
+    VoteRect: TRect;
+  end;
+
   { Layout cache for a single message. Stored in TMsgRow.LayoutCache as
     an opaque TObject — tdmessages knows nothing about TMsgLayout. }
   TMsgLayout = class
@@ -143,6 +203,15 @@ procedure ComputePhotoPreviewSize(ANaturalW, ANaturalH, AMaxW: integer; out AOut
   and webp are almost always close to square, and the official client
   fits them the same way). }
 procedure ComputeStickerSize(ANaturalW, ANaturalH, AMaxW: integer; out AOutW, AOutH: integer);
+
+{ Lays a poll out for AWidth, returning everything both Measure and
+  framehistory.TPollWidget need (see TPollLayout). ACanvas is measured
+  against, never drawn on, and is left with the font it arrived with:
+  the question is measured bold and the secondary lines a size down
+  (POLL_SMALL_FONT_H), and Measure runs in the middle of
+  TMsgScroller.RebuildOffsets' loop — leaving the font changed would
+  measure the NEXT row with it. }
+function ComputePollLayout(ARow: TMsgRow; ACanvas: TCanvas; AWidth: integer): TPollLayout;
 
 { Paints an already-computed run array (bold/italic/links/emoji, text
   selection highlight) at AOrigin — the same routine every content
@@ -1258,6 +1327,214 @@ begin
   Result := True;
 end;
 
+{ ---------------- poll / quiz: a real widget (framehistory.TPollWidget) ---------------- }
+
+{ Word-wraps plain text that carries no entities. Goes through WrapText
+  itself rather than being a second, simpler wrapper: emoji (atlas
+  lookup and all) then behave in poll text exactly as they do in
+  message text, for free. AHandleQuoteWidgets is False — with no
+  entities a blockquote cannot occur anyway, and a poll must never
+  spawn quote widgets of its own.
+
+  ABold asks for the whole thing in bold, and it does so by handing
+  WrapText a single synthetic mekBold entity rather than by setting the
+  canvas font first: WrapText resets Font.Style itself (both at entry
+  and per word, from the entities) and would throw such a font away.
+  Setting the flag on the finished runs instead — what this did
+  before — was worse than useless: the runs were then MEASURED
+  regular and PAINTED bold, so every word overran the space after it
+  and a bold question came out with its words glued together. }
+function WrapPlainRuns(const AText: utf8string; ACanvas: TCanvas;
+  AAvailWidth: integer; out AHeight: integer;
+  ABold: boolean = False): TTextRunArray;
+var
+  Ents: TMsgEntityArray;
+  Slots: TQuoteSlotArray;
+begin
+  if ABold then begin
+    SetLength(Ents, 1);
+    Ents[0].ByteStart := 0;
+    Ents[0].ByteLen := Length(AText);
+    Ents[0].Kind := mekBold;
+    Ents[0].URL := '';
+    Ents[0].CustomEmojiId := 0;
+  end else begin
+    SetLength(Ents, 0);
+  end;
+  Result := WrapText(AText, Ents, ACanvas, AAvailWidth, AHeight, Slots, False);
+end;
+
+function ComputePollLayout(ARow: TMsgRow; ACanvas: TCanvas; AWidth: integer): TPollLayout;
+var
+  OldStyle: TFontStyles;
+  OldHeight: integer;
+  I, Y, H, SmallH, LineH, InnerW, OptW, BtnW, BtnX: integer;
+  Voted: boolean;
+begin
+  Result.Width := AWidth;
+  Result.Height := 0;
+  Result.QuestionTop := POLL_PAD;
+  Result.SubtitleTop := POLL_PAD;
+  Result.FooterTop := POLL_PAD;
+  SetLength(Result.QuestionRuns, 0);
+  SetLength(Result.Options, 0);
+
+  Voted := False;
+  for I := 0 to High(ARow.Poll.Options) do begin
+    if ARow.Poll.Options[I].IsChosen or ARow.Poll.Options[I].IsBeingChosen then begin
+      Voted := True;
+      Break;
+    end;
+  end;
+  Result.ShowResults := Voted or ARow.Poll.IsClosed;
+  { Same rule setPollAnswer enforces server-side: a multi-answer poll
+    can always be amended, a single-answer one only while it has no
+    answer yet or explicitly allows revoting. }
+  Result.CanVote := (not ARow.Poll.IsClosed) and
+    (ARow.Poll.AllowsMultiple or ARow.Poll.AllowsRevoting or (not Voted));
+  Result.HasVote := ARow.Poll.AllowsMultiple and Result.CanVote;
+  Result.VoteRect := Rect(0, 0, 0, 0);
+
+  if ARow.Poll.IsClosed then begin
+    Result.Subtitle := 'Final results';
+  end else begin
+    if ARow.Poll.IsQuiz then begin
+      Result.Subtitle := 'Quiz';
+    end else begin
+      Result.Subtitle := 'Poll';
+    end;
+    if ARow.Poll.IsAnonymous then begin
+      Result.Subtitle := 'Anonymous ' + LowerCase(Result.Subtitle);
+    end;
+    if ARow.Poll.AllowsMultiple then begin
+      Result.Subtitle := Result.Subtitle + ', multiple answers';
+    end;
+  end;
+
+  if ARow.Poll.TotalVoters <= 0 then begin
+    if ARow.Poll.IsQuiz then begin
+      Result.Footer := 'No answers yet';
+    end else begin
+      Result.Footer := 'No votes yet';
+    end;
+  end else if ARow.Poll.IsQuiz then begin
+    Result.Footer := utf8string(IntToStr(ARow.Poll.TotalVoters)) + ' answered';
+  end else if ARow.Poll.TotalVoters = 1 then begin
+    Result.Footer := '1 vote';
+  end else begin
+    Result.Footer := utf8string(IntToStr(ARow.Poll.TotalVoters)) + ' votes';
+  end;
+
+  InnerW := AWidth - 2 * POLL_PAD;
+  if InnerW < 1 then begin
+    InnerW := 1;
+  end;
+  Result.TextLeft := POLL_PAD + POLL_MARK_COL_W;
+  Result.TextRight := AWidth - POLL_PAD;
+  OptW := Result.TextRight - Result.TextLeft;
+  if OptW < 1 then begin
+    OptW := 1;
+  end;
+
+  OldStyle := ACanvas.Font.Style;
+  OldHeight := ACanvas.Font.Height;
+  try
+    LineH := ACanvas.TextHeight('Wg');
+
+    Result.QuestionRuns := WrapPlainRuns(ARow.Poll.Question, ACanvas, InnerW, H,
+      True);
+
+    Y := POLL_PAD;
+    Result.QuestionTop := Y;
+    Inc(Y, H + POLL_HEADER_GAP);
+
+    ACanvas.Font.Height := POLL_SMALL_FONT_H;
+    SmallH := ACanvas.TextHeight('Wg');
+    ACanvas.Font.Height := OldHeight;
+
+    Result.SubtitleTop := Y;
+    Inc(Y, SmallH + POLL_HEADER_GAP);
+
+    SetLength(Result.Options, Length(ARow.Poll.Options));
+    for I := 0 to High(ARow.Poll.Options) do begin
+      Result.Options[I].Runs := WrapPlainRuns(ARow.Poll.Options[I].Text,
+        ACanvas, OptW, H);
+      Result.Options[I].RowTop := Y - POLL_OPTION_GAP div 2;
+      Result.Options[I].TextTop := Y;
+      Result.Options[I].MarkCenterY := Y + LineH div 2;
+      Inc(Y, H);
+      Result.Options[I].BarTop := Y + POLL_BAR_GAP;
+      if Result.ShowResults then begin
+        Inc(Y, POLL_BAR_GAP + POLL_BAR_H);
+      end;
+      Result.Options[I].RowBottom := Y + POLL_OPTION_GAP div 2;
+      Inc(Y, POLL_OPTION_GAP);
+    end;
+    if Length(Result.Options) > 0 then begin
+      { The gap after the last option is the header gap, not the
+        between-options one. }
+      Dec(Y, POLL_OPTION_GAP);
+      Inc(Y, POLL_HEADER_GAP);
+    end;
+
+    if Result.HasVote then begin
+      ACanvas.Font.Height := POLL_VOTE_FONT_H;
+      ACanvas.Font.Style := [];
+      BtnW := ACanvas.TextWidth(POLL_VOTE_CAPTION) + 2 * POLL_VOTE_PAD_H;
+      ACanvas.Font.Height := OldHeight;
+      ACanvas.Font.Style := OldStyle;
+      BtnX := (AWidth - BtnW) div 2;
+      if BtnX < POLL_PAD then begin
+        BtnX := POLL_PAD;
+      end;
+      Result.VoteRect := Rect(BtnX, Y, BtnX + BtnW, Y + POLL_VOTE_H);
+      Inc(Y, POLL_VOTE_H + POLL_HEADER_GAP);
+    end;
+
+    Result.FooterTop := Y;
+    Inc(Y, SmallH);
+    Result.Height := Y + POLL_PAD;
+  finally
+    ACanvas.Font.Style := OldStyle;
+    ACanvas.Font.Height := OldHeight;
+  end;
+end;
+
+type
+  TPollContentRenderer = class(TMsgContentRenderer)
+  public
+    function Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer; override;
+    procedure Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
+      ASelStart, ASelEnd: integer; AAccentColor: TColor); override;
+    function WantsWidget: boolean; override;
+  end;
+
+function TPollContentRenderer.Measure(ARow: TMsgRow; const ACtx: TMsgLayoutCtx): integer;
+var
+  L: TPollLayout;
+begin
+  L := ComputePollLayout(ARow, ACtx.Canvas, ACtx.AvailWidth);
+  Result := L.Height;
+end;
+
+procedure TPollContentRenderer.Paint(ARow: TMsgRow; ACanvas: TCanvas; const ARect: TRect;
+  ASelStart, ASelEnd: integer; AAccentColor: TColor);
+begin
+  { Backing for the one frame before framehistory positions the real
+    TPollWidget over it — same as the other widget-backed kinds. The
+    full ARect this time: a poll card spans the whole content column,
+    so unlike a photo or a sticker there is no narrower natural size to
+    clip the fill to. }
+  ACanvas.Brush.Style := bsSolid;
+  ACanvas.Brush.Color := clWindow;
+  ACanvas.FillRect(ARect);
+end;
+
+function TPollContentRenderer.WantsWidget: boolean;
+begin
+  Result := True;
+end;
+
 { ---------------- content with no dedicated renderer: placeholder ---------------- }
 
 type
@@ -1349,6 +1626,7 @@ var
   GDocRenderer:         TDocContentRenderer;
   GPhotoRenderer:       TPhotoContentRenderer;
   GStickerRenderer:     TStickerContentRenderer;
+  GPollRenderer:        TPollContentRenderer;
   GPlaceholderRenderer: TPlaceholderContentRenderer;
 
 function RendererFor(AKind: TMsgContentKind): TMsgContentRenderer;
@@ -1370,6 +1648,7 @@ begin
       content (downloading/playback) is handled by framehistory.pas. }
     mckPhoto, mckAnimation, mckVideo: Result := GPhotoRenderer;
     mckSticker: Result := GStickerRenderer;
+    mckPoll:    Result := GPollRenderer;
   else
     Result := GPlaceholderRenderer;
   end;
@@ -1381,6 +1660,7 @@ initialization
   GDocRenderer := TDocContentRenderer.Create;
   GPhotoRenderer := TPhotoContentRenderer.Create;
   GStickerRenderer := TStickerContentRenderer.Create;
+  GPollRenderer := TPollContentRenderer.Create;
   GPlaceholderRenderer := TPlaceholderContentRenderer.Create;
 
 finalization
@@ -1389,6 +1669,7 @@ finalization
   GDocRenderer.Free;
   GPhotoRenderer.Free;
   GStickerRenderer.Free;
+  GPollRenderer.Free;
   GPlaceholderRenderer.Free;
 
 end.

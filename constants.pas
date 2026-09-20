@@ -59,6 +59,13 @@ const
 
   MSG_PAD_H      = 11;
   MSG_PAD_V      = 6;
+  { The message text font. Named because two places must agree on it:
+    TMsgScroller.SetTextFont (which measures and paints message text)
+    and TPollWidget (a real child control with its own canvas, painting
+    runs that ComputePollLayout measured with the scroller's font —
+    a mismatch there would not just look wrong, it would overflow the
+    height that was reserved for the widget). }
+  MSG_TEXT_FONT_H = -13;
   MSG_GAP        = 16;
   { Message column width cap: on a wide window text is not stretched
     full width (unreadable) but centered in a narrow column. 0 means no
@@ -74,7 +81,56 @@ const
   HEADER_PAD_V   = 6;
   HEADER_BAR_H   = HEADER_H + 2 * HEADER_PAD_V;
   NEAR_TOP_PX    = 400;
-  WHEEL_LINE_PX  = 60;
+  { Pixels per LINE of wheel scrolling, not per notch: how far one
+    notch goes is this times the user's own "lines to scroll" mouse
+    setting (Mouse.WheelScrollLines — see TMsgScroller.WheelNotchPx).
+    That is how the original client answers the same question: Qt hands
+    it wheelScrollLines() * singleStep(), clamped to one page. A flat
+    per-notch constant silently ignored a setting the whole desktop
+    obeys.
+
+    20 is chosen so the Windows default of 3 lines comes out at the 60
+    per notch this used to be hard-coded to — the default feel is
+    unchanged, it just follows the setting now. }
+  WHEEL_LINE_PX  = 20;
+  { Animated (eased) scrolling for the wheel and the arrow/page keys.
+    A wheel notch no longer teleports its whole distance at once: it moves
+    the TARGET, and the view slides towards it a fraction of the
+    remaining distance per tick, so several quick notches add up into
+    one continuous glide instead of a sequence of jumps.
+
+    Direct manipulation is deliberately NOT animated (scrollbar drag)
+    and neither are programmatic jumps (ScrollToBottom/ScrollToMessage/
+    ScrollToUnread/anchor restore) — animating those would feel like
+    lag, not smoothness.
+
+    SMOOTH_SCROLL = False restores the old instant behaviour in one
+    place, the same escape hatch SMOOTH_CORNERS has — this costs a
+    repaint per tick while the glide lasts, and that is exactly the
+    kind of per-frame cost this history has been bitten by before.
+
+    Worth knowing before tuning any of this: the original client does
+    NOT ease a wheel notch at all, it jumps. Animating it is an open,
+    unmerged pull request against lib_ui (desktop-app/lib_ui#366,
+    "Animate a wheel notch instead of jumping to its target"), and the
+    duration it proposes is 260ms — longer than ours. So SMOOTH_SCROLL
+    = False is not a downgrade, it is literally what the original does
+    today. }
+  SMOOTH_SCROLL        = True;
+  { ~60fps. Windows timers round up to the system tick (~15.6ms), so
+    anything below this just lands on the same boundary. }
+  SMOOTH_SCROLL_MS     = 15;
+  { Fraction of the REMAINING distance covered per tick: exponential
+    easing, fast at the start and settling at the end. 0.40 settles a
+    default notch to within SMOOTH_SCROLL_SNAP in about 7 ticks, i.e.
+    ~100ms — roughly the point below which motion stops reading as
+    a delay at all. It was 0.28 (~150ms), which measurably lagged the
+    original's instant jump; this is the knob to turn if the glide
+    still feels heavy (higher = snappier, 1.0 = no easing left). }
+  SMOOTH_SCROLL_FACTOR = 0.40;
+  { Close enough — snap to the target and stop the timer instead of
+    creeping the last pixels one repaint at a time. }
+  SMOOTH_SCROLL_SNAP   = 2;
   LINE_SCROLL_PX = 24;
   { Corner rendering: antialiased (BGRA, composited via a temporary
     TBGRABitmap) or plain GDI Canvas.RoundRect. Radii elsewhere in this
@@ -255,6 +311,15 @@ const
     document not yet downloaded to disk; same ImageList1 as play/pause,
     not a separate list. }
   AUDIO_ICON_DOWNLOAD = 2;
+  { The SAME frame in a second role: the arrow of the "jump to the
+    newest message" button (TMsgScroller.PaintScrollDown). Written as
+    the download frame rather than as another literal 2 for two
+    reasons — the sharing is then visible right here instead of
+    looking like two independent numbers that happen to be equal, and a
+    reordering of the list (this project has inserted a frame into a
+    list before) cannot leave one of them stale. If the two ever need
+    different artwork, add a frame and change this one line. }
+  SCROLL_DOWN_ICON    = AUDIO_ICON_DOWNLOAD;
   { Frames for the built-in viewer (mediaviewer.pas), added to the same
     ImageList1 as play/pause/download: "«" — previous photo, "»" — next
     photo, red cross — close the viewer. }
@@ -577,6 +642,20 @@ const
     archive list AND the header slot icon, which is why it sits next to
     them here. }
   CHATROW_ICON_UNARCHIVE  = 10;
+  { Premium crown, drawn right after the chat-type icon for a private
+    chat whose peer is a Telegram Premium user (TTdChats.IsPremiumUser,
+    tdchats.pas) — both in the chat row and in the chat header bar.
+    It used to be a 16x16 frame in FormMain's own ImageList1, which
+    made it the one badge on that line drawn at a different size from
+    everything around it; now it is an ordinary icons12 frame like the
+    rest. The frame was identified the same way as the ones above and
+    not assumed from its position: the Bitmap blob was unpacked out of
+    framechats.lfm (zlib after the 'Lz' header, 12 frames of 12x12x4)
+    and looked at. Worth knowing for the next one — its alpha channel
+    is opaque everywhere (this list mixes both conventions: frames 0-7
+    and this one are keyed on fuchsia, 8-10 carry real alpha), so an
+    alpha dump says nothing about it and only the colors do. }
+  CHATROW_ICON_PREMIUM    = 11;
   { Native frame size for icons12 — matches the component's own
     Height/Width in the designer. }
   CHATROW_ICON_SIZE = 12;
@@ -590,23 +669,6 @@ const
     No CHATROW_ prefix on purpose: all three surfaces use them. }
   DELETED_ACCOUNT_TITLE = 'Deleted account';
   DELETED_ACCOUNT_ICON  = 0;
-  { Premium crown badge, shown right after the chat-type icon
-    (TypeIconIndex) for a private chat whose peer is a Telegram Premium
-    user (TTdChats.IsPremiumUser, tdchats.pas) — NOT a frame in icons12:
-    it lives in FormMain.ImageList1 (16x16, the main FORM's own icon
-    list, already reused across units the same way framehistory.pas
-    reuses FormMain.Chats.ImageList1 for message-status icons — see that
-    group's own comment below). Index confirmed by unpacking the
-    Bitmap blob from main.lfm and visually inspecting all 11 frames
-    (same method as CHATROW_ICON_*/PLAYBACK_ICON_* above), not guessed:
-    frame 10 is a gold crown, added alongside the two presence icons
-    (PRESENCE_ICON_ONLINE/INVISIBLE = 8/9 in main.pas's
-    StatusBar1DrawPanel). Drawn at its native 16x16 size — larger than
-    CHATROW_ICON_SIZE (12), same as the deliberate "crown reads as a
-    slightly bigger badge" look in the official client, not an
-    oversight. }
-  PREMIUM_CROWN_ICON = 10;
-
   { 6..10 — message status/direction icons in framehistory.pas, the
     same ImageList1 object (via FormMain.Chats.ImageList1) that
     framechats.pas no longer reads by name after the chat-row redesign
@@ -762,11 +824,11 @@ const
     these can ever collide with a real folder. }
   FOLDER_MENU_NEW    = 0;
   FOLDER_MENU_REMOVE = -1;
-  { Frames in framechats' OWN ImageList1 (16x16) — not icons12 (12x12,
-    the chat-type/pin/bell icons the row itself draws) and not
-    FormMain.ImageList1 (where PREMIUM_CROWN_ICON lives). That list had
-    been left in the .lfm unused since the pseudo-rows were redesigned;
-    these two frames, added in the designer, put it back to work. }
+  { Frames in framechats' OWN ImageList1 (16x16) — not icons12
+    (12x12, everything the row itself draws, CHATROW_ICON_* above).
+    That list had been left in the .lfm unused since the pseudo-rows
+    were redesigned; these two frames, added in the designer, put it
+    back to work. }
   FOLDER_MENU_ICON_NEW    = 12;
   FOLDER_MENU_ICON_REMOVE = 13;
 
@@ -914,9 +976,26 @@ const
   { Frames in TFrameHistory.Img48 — the placeholder for a track with no
     cover (headphones) and for a voice note, which never has one
     (microphone). Both frames already carry AUDIO_COVER_RADIUS in their
-    own alpha. }
+    own alpha.
+
+    Its third frame (a 48x48 white card with a down arrow) was the
+    jump-to-newest button until that moved to the 32x32 blue circle in
+    ImageList1 — see SCROLL_DOWN_ICON above. It is unread now, and
+    left alone on purpose: it is a designer resource, and prying one
+    frame out of a .lfm blob from code would be the worst way to remove
+    it. }
   AUDIO_COVER_ICON_AUDIO = 0;
   AUDIO_COVER_ICON_VOICE = 1;
+  { The jump-to-newest button. Its size is its frame's own, taken the
+    same way MVIEW_BTN takes it for the viewer's buttons out of that
+    same list — a separate number here would just be 32 written
+    twice. Nothing is drawn behind the button: the frame carries its
+    own filled circle, exactly as play/pause do. }
+  SCROLL_DOWN_BTN_SIZE   = AUDIO_BUTTON_SIZE;
+  { Its inset from the bottom right corner of the history. Larger than
+    MSG_CORNER_RADIUS on purpose: the history rounds its own corners
+    (PaintOuterCorners), and the button must not sit inside that arc. }
+  SCROLL_DOWN_BTN_MARGIN = 12;
   { Inner padding of TAudioWidget: cover to the left/top/bottom edge,
     and cover to everything right of it. Direct request; it is NOT
     MSG_PAD_H/MSG_PAD_V, which is why it has its own name. }
@@ -935,6 +1014,130 @@ const
     (AUDIO_BUTTON_SIZE) plus top/bottom padding (MSG_PAD_H=11) on each
     side. }
   FILE_WIDGET_H     = AUDIO_BUTTON_SIZE + 2 * MSG_PAD_H;
+
+  { Poll / quiz widget (TPollWidget, framehistory.pas). Unlike every
+    other widget in this app it has NO fixed height at all: the
+    question and every option wrap, so the height comes out of
+    msglayout.ComputePollLayout, and these are the only numbers that
+    feed it.
+
+    The inner padding is MSG_PAD_H on all four sides, written out here
+    rather than referenced so the poll can be retuned without dragging
+    the message text's padding along; it starts equal on purpose. }
+  POLL_PAD            = 11;
+  { Gap between the question and the subtitle, and between the subtitle
+    and the first option. }
+  POLL_HEADER_GAP     = 6;
+  { Gap between two options, and between the last option and the
+    footer. }
+  POLL_OPTION_GAP     = 10;
+  { The left column of an option row: before voting it holds the radio
+    circle, afterwards the right-aligned percentage ("100%" is the
+    widest it gets), so it is sized for the text, not for the circle. }
+  POLL_MARK_COL_W     = 34;
+  { The radio/checkbox itself, centred in that column. }
+  POLL_MARK_SIZE      = 14;
+  { Corner radius of the mark. A single-answer poll takes one answer, so
+    it gets a radio circle — which is just this rounded square with
+    the radius at half the size. A multiple-answer poll gets a checkbox,
+    the same shape the official clients use for the same distinction,
+    and that is what this radius is for. Both are drawn antialiased
+    (cardpaint.PaintRounded with ASmooth=True) rather than through
+    Canvas.Ellipse/Rectangle: at 14px a jagged GDI arc is very visible,
+    and a mark is drawn at most a handful of times per message, not per
+    frame — the cost SMOOTH_CORNERS exists to avoid is not in play
+    here (same reasoning as the reaction pills' AForceSmooth). }
+  POLL_MARK_CHECK_RADIUS = 3;
+  { The Vote button of a multiple-answer poll. Deliberately the same
+    numbers as the chat list's folder chip (CHATROW_FOLDER_*) — that
+    pill is what it was asked to look like — but its own constants,
+    not that one's: the two live in unrelated modules and are tuned
+    separately, the same rule the rest of this file follows. }
+  POLL_VOTE_H         = 18;
+  POLL_VOTE_PAD_H     = 8;
+  POLL_VOTE_RADIUS    = POLL_VOTE_H div 2;
+  POLL_VOTE_FONT_H    = -11;
+  POLL_VOTE_CAPTION   = 'Vote';
+
+  { The centred two-line placeholder painted over an otherwise empty
+    history (TMsgScroller.PaintEmptyState) — "Nothing found" for a
+    filter or a search that matched nothing. Deliberately the same
+    shape as framewelcome's two labels, which is where the look comes
+    from; it is painted on the scroller's own canvas rather than by
+    switching the navigator to that frame, because switching frames
+    would take the chat header away with it — filter row, search box
+    and all — leaving no way to undo the very filter that produced
+    the empty view. }
+  HISTORY_EMPTY_TITLE_FONT_H = -19;
+  HISTORY_EMPTY_HINT_FONT_H  = -13;
+  HISTORY_EMPTY_LINE_GAP     = 4;
+  { Shown while the answer is still on its way: a filter switch empties
+    the list synchronously, well before searchChatMessages comes back,
+    and claiming "nothing found" in that window would be a lie that
+    corrects itself a moment later. }
+  HISTORY_EMPTY_SEARCHING    = 'Searching...';
+  HISTORY_EMPTY_TITLE        = 'Nothing found';
+  HISTORY_EMPTY_HINT_FILTER  = 'No messages of this kind in this chat';
+  { Followed by the query itself, in quotes. }
+  HISTORY_EMPTY_HINT_QUERY   = 'Nothing matches ';
+
+  { "Unread messages" divider (TMsgScroller.PaintUnreadDivider). It is
+    a strip added to the TOP of the first unread row's slot — height
+    reserved in RebuildOffsets, everything that row draws shifted down
+    by RowTopInset. The band itself is shorter than the strip, the
+    remainder separating it from the message block below. }
+  UNREAD_DIVIDER_FONT_H  = -13;
+  UNREAD_DIVIDER_PAD_V   = 6;
+  { Band height follows the caption, not the other way round: the font
+    height IS the glyph height in pixels (negative Height), so this is
+    literally "text plus 6px above and below". }
+  UNREAD_DIVIDER_BAND_H  = -UNREAD_DIVIDER_FONT_H + 2 * UNREAD_DIVIDER_PAD_V;
+  { The strip is the band plus the ordinary gap between messages — the
+    divider has to sit off the block below it by exactly as much as two
+    messages sit off each other, so the number is derived, not repeated. }
+  UNREAD_DIVIDER_H       = UNREAD_DIVIDER_BAND_H + MSG_GAP;
+  { Solid, not a tint of the surface: the point of the divider is to be
+    noticed, and blending it into the background is what made the first
+    version invisible. }
+  UNREAD_DIVIDER_COLOR   = TColor($313131);
+  UNREAD_DIVIDER_TEXT    = clWhite;
+  UNREAD_DIVIDER_CAPTION = 'Unread messages';
+  { How many EXTRA history pages may be fetched while looking for the
+    unread boundary when a chat is opened (see
+    TTdMessages.CheckUnreadBackfill). A cap is needed because a channel
+    can have thousands of unread messages and walking all the way back
+    to the boundary would be a request storm for a marker nobody would
+    scroll to anyway. When it runs out the chat simply opens at the
+    bottom with no divider, which is exactly what it did before. }
+  UNREAD_BACKFILL_PAGES  = 4;
+  { Result bar under an option's text: height, and the gap above it.
+    Its corners are rounded to half its height (a capsule), the same
+    treatment the reaction pills get. }
+  POLL_BAR_H          = 4;
+  POLL_BAR_GAP        = 4;
+  { The card's own rounding, its own knob for the same reason the other
+    widgets each got one (see FORWARD/REPLY/AUDIO/FILE_CORNER_RADIUS). }
+  POLL_CORNER_RADIUS  = 8;
+  { How strongly an option's row is tinted while the mouse is over it,
+    and how strongly the result bar's unfilled part is. Both are
+    blends of the message's own accent color, the same as everything
+    else on the card — a poll has no color of its own (unlike
+    AUDIO_COLOR), by the same reasoning that made blockquotes follow
+    the sender. }
+  POLL_HOVER_OPACITY  = 0.14;
+  POLL_TRACK_OPACITY  = 0.18;
+  { The secondary lines — subtitle, vote count, the percentage in the
+    mark column — are a size down from the message font (which is
+    -13, TMsgScroller.SetTextFont). Named here because ComputePollLayout
+    measures with it and TPollWidget paints with it: two places, one
+    number, or the two would drift and the widget would not fit the
+    height that was reserved for it. }
+  POLL_SMALL_FONT_H   = -11;
+  { Quiz result colors. Fixed, not derived from the sender's accent:
+    "right" and "wrong" are the one thing on a message card that must
+    NOT change meaning with the channel's color. }
+  POLL_CORRECT_COLOR  = TColor($50AF4C);   { RGB(76, 175, 80) }
+  POLL_WRONG_COLOR    = TColor($3643F4);   { RGB(244, 67, 54) }
 
   { Photo preview (TPhotoWidget, framehistory.pas). Portrait
     (height>width): width capped at PHOTO_MAX_WIDTH, height scaled
@@ -1095,7 +1298,15 @@ const
     else with code 400 "Invalid value of parameter from_message_id
     specified" (also confirmed from the log: passing "anchor minus 1"
     instead of "anchor minus this constant" made almost every request
-    fail with that error). }
+    fail with that error).
+
+    Nothing computes with it any more: TTdMessages.LoadOlder walks
+    history back from a REAL message id, which satisfies the rule by
+    construction (see the long comment there for why the arithmetic
+    that needed this constant was wrong in the first place). Kept
+    because the constraint itself still binds anything that ever
+    computes a from_message_id again, and this is where that fact
+    belongs. }
   TD_MESSAGE_ID_STEP = 1048576;
 
   { ================= tdrecv.pas ================= }

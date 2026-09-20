@@ -143,6 +143,19 @@ type
       consistency once something resolves) that calls
       customemoji.AnyPendingWork and invalidates the grid if true. }
     FCustomEmojiTimer: TTimer;
+    { Eased wheel scrolling, the same mechanism (and the same
+      SMOOTH_SCROLL* constants) as the message history's
+      TMsgScroller — deliberately one set of knobs for the whole app
+      rather than a parallel one per list, so the two never drift apart
+      in feel. FScrollTarget is the ABSOLUTE pixel top the glide is
+      heading for; the grid itself holds the current position
+      (GridScrollTop). }
+    FScrollAnim: TTimer;
+    FScrollTarget: Integer;
+    { True only while ScrollAnimTick is driving the grid, so the
+      cancel-on-foreign-movement check in GridTopLeftChanged can tell
+      the glide's own steps from somebody else moving the list. }
+    FAnimating: Boolean;
     { thinscrollbar.pas, replacing Grid's own native one (Grid.
       ScrollBars set to ssNone in Create) — same custom look as
       framehistory.pas's message history, see that unit's own header
@@ -154,15 +167,45 @@ type
       being a separate control. }
     FVScroll: TThinScrollBar;
     procedure CustomEmojiAnimTick(Sender: TObject);
-    { Feeds Grid.RowCount/TopRow/ClientHeight into FVScroll — called
-      whenever any of those could have changed (ModelChanged, Resize,
-      GridTopLeftChanged). Row-index space, not sub-pixel: FixedRows/
-      FixedCols are both 0 and every row shares the same ROW_HEIGHT
-      (Grid.DefaultRowHeight), so TopRow*ROW_HEIGHT is EXACTLY the
-      pixel offset the grid's own native scrollbar would have reported
-      — TCustomGrid's actual precise equivalent (GetPxTopLeft) is
-      PROTECTED, not reachable from here, and isn't needed anyway given
-      the uniform row height. }
+    { The grid's current scroll offset in PIXELS, and the largest it
+      can be. Read straight out of the grid (see TGridAccess) rather
+      than derived from Grid.TopRow: TopRow*ROW_HEIGHT was exact only
+      while every scroll was a whole multiple of a row, which stopped
+      being true the moment the wheel started moving by 60px at a time.
+      The maximum is computed here instead because the grid's own is
+      protected too — FixedRows is 0 and every row shares ROW_HEIGHT
+      (Grid.DefaultRowHeight), so it is just total height minus one
+      viewport. }
+    function GridScrollTop: Integer;
+    function MaxScrollTop: Integer;
+    { Absolute pixel scroll, applied immediately. }
+    procedure ScrollGridTo(APx: Integer);
+    { How far one wheel notch goes, the same answer (and the same
+      reasoning about Mouse.WheelScrollLines and WHEEL_PAGESCROLL) as
+      TMsgScroller.WheelNotchPx. }
+    function WheelNotchPx: Integer;
+    { Moves the TARGET by ADelta and lets ScrollAnimTick walk the grid
+      towards it, so several quick notches add up into one glide. With
+      SMOOTH_SCROLL off it scrolls the whole distance at once — still
+      by pixels, still by a notch's worth rather than the grid's own
+      DefaultRowHeight*WheelScrollLines (three whole cards), which is
+      what made the list look like it scrolled a card at a time. }
+    procedure SmoothScrollBy(ADelta: Integer);
+    procedure StopScrollAnim;
+    procedure ScrollAnimTick(Sender: TObject);
+    { Grid.OnMouseWheel, wired in Create. Always reports the wheel as
+      handled, which is what keeps TCustomGrid's own GridMouseWheel —
+      the DefaultRowHeight*WheelScrollLines jump — from running after
+      it (TControl.DoMouseWheel only falls through to DoMouseWheelUp/
+      Down when the event left Handled False). }
+    procedure GridWheel(Sender: TObject; Shift: TShiftState;
+      WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+    { Feeds the grid's pixel offset, row count and viewport height into
+      FVScroll — called whenever any of those could have changed
+      (ModelChanged, Resize, GridTopLeftChanged) and on every animation
+      tick, since TopLeftChanged only fires when a whole-row boundary
+      is crossed and the thumb would otherwise move in card-sized
+      steps while the view glides smoothly underneath it. }
     procedure SyncVScroll;
     { FVScroll's OnScroll — drives Grid by DISPATCHING the exact same
       LM_VSCROLL message its own (now hidden) native scrollbar used to
@@ -288,6 +331,21 @@ uses
   main;
 
 {$R *.lfm}
+
+type
+  { Everything TCustomGrid knows about its own scrolling in PIXELS is
+    protected: publicly it offers only TopRow, which is exactly the
+    card-at-a-time granularity being replaced here. Declaring a
+    descendant makes those members reachable from this unit — the
+    standard Pascal accessor idiom, not a way around a private
+    interface: they are protected precisely so that a descendant may
+    use them, and nothing here writes any of the grid's state directly.
+
+    This is the same wall the custom scrollbar already ran into
+    (VScrollScroll dispatches a synthetic LM_VSCROLL rather than call
+    TrySmoothScrollBy); that one stays as it is — it works, and
+    rewriting a working path is not part of this. }
+  TGridAccess = class(TDrawGrid);
 
 { Timestamp in the Telegram style: today shows the time, yesterday the
   word "yesterday", this week the weekday name, further back the date. }
@@ -445,7 +503,13 @@ begin
   Grid.FixedRows := 0;
   Grid.RowCount  := 0;
   Grid.DefaultRowHeight := ROW_HEIGHT;
+  { The wheel is handled by GridWheel below, so this no longer decides
+    anything in practice. It stays because of what the DEFAULT is:
+    mwCursor moves the SELECTION, and a selection change in this list
+    opens a chat — if the handler were ever unhooked, the wheel would
+    start opening chats rather than merely scrolling coarsely. }
   Grid.MouseWheelOption := mwGrid;
+  Grid.OnMouseWheel := @GridWheel;
   Grid.FocusRectVisible := False;
   { The grid's own native scrollbar is hidden — FVScroll below replaces
     it. Mouse wheel scrolling (MouseWheelOption above) and keyboard
@@ -472,6 +536,11 @@ begin
   FVScroll.BorderSpacing.Top := THIN_SCROLLBAR_MARGIN;
   FVScroll.BorderSpacing.Bottom := THIN_SCROLLBAR_MARGIN;
   FVScroll.OnScroll := @VScrollScroll;
+
+  FScrollAnim := TTimer.Create(Self);
+  FScrollAnim.Interval := SMOOTH_SCROLL_MS;
+  FScrollAnim.OnTimer := @ScrollAnimTick;
+  FScrollAnim.Enabled := False;
 
   FCustomEmojiTimer := TTimer.Create(Self);
   FCustomEmojiTimer.Interval := 300;
@@ -790,12 +859,170 @@ begin
   end;
 end;
 
+function TFrameChats.GridScrollTop: Integer;
+begin
+  if Grid = nil then begin
+    Result := 0;
+    Exit;
+  end;
+  Result := TGridAccess(Grid).GetPxTopLeft.y;
+end;
+
+function TFrameChats.MaxScrollTop: Integer;
+begin
+  Result := 0;
+  if Grid = nil then begin
+    Exit;
+  end;
+  Result := Grid.RowCount * ROW_HEIGHT - Grid.ClientHeight;
+  if Result < 0 then begin
+    Result := 0;
+  end;
+end;
+
+procedure TFrameChats.ScrollGridTo(APx: Integer);
+begin
+  if Grid = nil then begin
+    Exit;
+  end;
+  { Relative, because that is the only pixel move the grid offers, and
+    it clamps to its own real limits on the way — which is also why
+    ScrollAnimTick checks whether anything actually moved rather than
+    trusting MaxScrollTop's arithmetic to agree with it exactly. }
+  TGridAccess(Grid).TrySmoothScrollBy(0, APx - GridScrollTop);
+end;
+
+function TFrameChats.WheelNotchPx: Integer;
+var
+  Lines, ViewH: Integer;
+begin
+  Lines := Mouse.WheelScrollLines;
+  ViewH := 0;
+  if Grid <> nil then begin
+    ViewH := Grid.ClientHeight;
+  end;
+  { Windows reports "one screen at a time" as WHEEL_PAGESCROLL, too
+    large for the signed Integer LCL returns it in, so it arrives
+    negative; that and the ordinary one-page clamp have the same
+    answer. Floor of one line so a viewport shorter than a line still
+    scrolls by something. }
+  if (Lines <= 0) or (Lines * WHEEL_LINE_PX > ViewH) then begin
+    Result := ViewH;
+    if Result < WHEEL_LINE_PX then begin
+      Result := WHEEL_LINE_PX;
+    end;
+    Exit;
+  end;
+  Result := Lines * WHEEL_LINE_PX;
+end;
+
+procedure TFrameChats.SmoothScrollBy(ADelta: Integer);
+var
+  MaxTop: Integer;
+begin
+  if Grid = nil then begin
+    Exit;
+  end;
+  if not SMOOTH_SCROLL then begin
+    ScrollGridTo(GridScrollTop + ADelta);
+    SyncVScroll;
+    Exit;
+  end;
+  MaxTop := MaxScrollTop;
+  { A glide already under way keeps its target and has this notch added
+    to it; one that has finished starts again from where the view
+    actually is. }
+  if not FScrollAnim.Enabled then begin
+    FScrollTarget := GridScrollTop;
+  end;
+  FScrollTarget := FScrollTarget + ADelta;
+  if FScrollTarget < 0 then begin
+    FScrollTarget := 0;
+  end;
+  if FScrollTarget > MaxTop then begin
+    FScrollTarget := MaxTop;
+  end;
+  if FScrollTarget <> GridScrollTop then begin
+    FScrollAnim.Enabled := True;
+  end;
+end;
+
+procedure TFrameChats.StopScrollAnim;
+begin
+  if (FScrollAnim <> nil) and FScrollAnim.Enabled then begin
+    FScrollAnim.Enabled := False;
+    FScrollTarget := GridScrollTop;
+  end;
+end;
+
+procedure TFrameChats.ScrollAnimTick(Sender: TObject);
+var
+  Cur, Diff, Step, MaxTop: Integer;
+begin
+  if Grid = nil then begin
+    FScrollAnim.Enabled := False;
+    Exit;
+  end;
+  { Re-clamped every tick rather than once when it was set: rows can
+    arrive (LoadMore) or the panel can be resized under a running
+    glide. }
+  MaxTop := MaxScrollTop;
+  if FScrollTarget > MaxTop then begin
+    FScrollTarget := MaxTop;
+  end;
+  if FScrollTarget < 0 then begin
+    FScrollTarget := 0;
+  end;
+
+  Cur := GridScrollTop;
+  Diff := FScrollTarget - Cur;
+  FAnimating := True;
+  try
+    if Abs(Diff) <= SMOOTH_SCROLL_SNAP then begin
+      FScrollAnim.Enabled := False;
+      ScrollGridTo(FScrollTarget);
+      SyncVScroll;
+      Exit;
+    end;
+    Step := Round(Diff * SMOOTH_SCROLL_FACTOR);
+    { Rounding to zero near the end would leave the glide creeping
+      forever; one pixel in the right direction guarantees it reaches
+      the snap window. }
+    if Step = 0 then begin
+      if Diff > 0 then begin
+        Step := 1;
+      end
+      else begin
+        Step := -1;
+      end;
+    end;
+    TGridAccess(Grid).TrySmoothScrollBy(0, Step);
+    { The grid refused to move: it is against one of its own limits,
+      and the rest of the distance is never going to be covered no
+      matter how many more ticks are spent on it. }
+    if GridScrollTop = Cur then begin
+      FScrollAnim.Enabled := False;
+      FScrollTarget := Cur;
+    end;
+    SyncVScroll;
+  finally
+    FAnimating := False;
+  end;
+end;
+
+procedure TFrameChats.GridWheel(Sender: TObject; Shift: TShiftState;
+  WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+begin
+  Handled := True;
+  SmoothScrollBy(-(WheelDelta div 120) * WheelNotchPx);
+end;
+
 procedure TFrameChats.SyncVScroll;
 begin
   if (not FReady) or (Grid = nil) or (FVScroll = nil) then begin
     Exit;
   end;
-  FVScroll.SetParams(Grid.TopRow * ROW_HEIGHT, 0, Grid.RowCount * ROW_HEIGHT, Grid.ClientHeight);
+  FVScroll.SetParams(GridScrollTop, 0, Grid.RowCount * ROW_HEIGHT, Grid.ClientHeight);
 end;
 
 procedure TFrameChats.VScrollScroll(Sender: TObject; ScrollCode: TScrollCode; var ScrollPos: integer);
@@ -806,6 +1033,9 @@ begin
   if Grid = nil then begin
     Exit;
   end;
+  { Direct manipulation wins outright: a glide still running would keep
+    pulling the view away from the thumb the user is holding. }
+  StopScrollAnim;
   case ScrollCode of
     scTrack:    WinCode := SB_THUMBTRACK;
     scPosition: WinCode := SB_THUMBPOSITION;
@@ -835,6 +1065,12 @@ end;
 
 procedure TFrameChats.GridTopLeftChanged(Sender: TObject);
 begin
+  { Something other than the glide moved the list — a selection
+    change, the keyboard, a scroll the model asked for — so the glide
+    has been overtaken and its target is stale. }
+  if not FAnimating then begin
+    StopScrollAnim;
+  end;
   MaybeLoadMore;
   SyncVScroll;
 end;
@@ -1142,8 +1378,7 @@ var
   Card, Header, Content, IconR, AvatarR, MuteR, PinR, ArchiveR: TRect;
   BaseBg, Accent, BodyFill, HeaderFill, BorderCol: TColor;
   TitleRight, PrevRight, W, MuteIdx, PinIdx: Integer;
-  NameLeft, NameEndX, CrownY, StatusSize, StatusX: Integer;
-  CrownIcons: TImageList;
+  NameLeft, NameEndX, StatusSize, StatusX: Integer;
   Sel: Boolean;
   IsSelf: Boolean;
   S:   String;
@@ -1266,19 +1501,14 @@ begin
   DrawIcon12(IconR, TypeIconIndex(R));
 
   { Premium crown — right after the chat-type icon, before the name.
-    FormMain.ImageList1, not icons12: see PREMIUM_CROWN_ICON's own
-    comment (constants.pas) for why it lives there. }
+    An ordinary icons12 frame, so it sits on the same baseline and at
+    the same size as the type icon it follows (IconR), with no
+    centering of its own to keep in step. }
   NameLeft := IconR.Right + MSG_ICON_GAP;
   if FModel.IsPremiumUser(R) then begin
-    CrownIcons := nil;
-    if FormMain <> nil then begin
-      CrownIcons := FormMain.ImageList1;
-    end;
-    if (CrownIcons <> nil) and (PREMIUM_CROWN_ICON < CrownIcons.Count) then begin
-      CrownY := Header.Top + (CHATROW_HEADER_BAR_H - CrownIcons.Height) div 2;
-      CrownIcons.Draw(Cv, NameLeft, CrownY, PREMIUM_CROWN_ICON, True);
-      NameLeft := NameLeft + CrownIcons.Width + MSG_ICON_GAP;
-    end;
+    DrawIcon12(Rect(NameLeft, IconR.Top, NameLeft + CHATROW_ICON_SIZE,
+      IconR.Bottom), CHATROW_ICON_PREMIUM);
+    NameLeft := NameLeft + CHATROW_ICON_SIZE + MSG_ICON_GAP;
   end;
 
   if not IsSelf then begin

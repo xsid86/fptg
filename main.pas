@@ -588,7 +588,8 @@ begin
     just formattedText with an empty entities array, parseTextEntities
     handles that the same as any other, no separate "was anything
     actually formatted" branch needed. }
-  F.Model.SendFormattedText(utf8string(MsgText), FMessageInput.IsHtmlMode);
+  F.Model.SendFormattedText(utf8string(MsgText), FMessageInput.IsHtmlMode,
+    FMessageInput.IsSilent);
   FMessageInput.ClearText;
 end;
 

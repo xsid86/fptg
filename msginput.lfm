@@ -289,8 +289,8 @@ object MessageInputPanel: TMessageInputPanel
     object HtmlModeBox: TToggleBox
       AnchorSideTop.Control = Toolbar
       AnchorSideTop.Side = asrCenter
-      AnchorSideRight.Control = SendBtn
-      Left = 619
+      AnchorSideRight.Control = SilentBox
+      Left = 554
       Height = 24
       Top = 0
       Width = 60
@@ -299,6 +299,23 @@ object MessageInputPanel: TMessageInputPanel
       BorderSpacing.CellAlignVertical = ccaCenter
       Caption = 'HTML'
       TabOrder = 0
+    end
+    object SilentBox: TToggleBox
+      AnchorSideTop.Control = Toolbar
+      AnchorSideTop.Side = asrCenter
+      AnchorSideRight.Control = SendBtn
+      Left = 619
+      Height = 24
+      Top = 0
+      Width = 60
+      Anchors = [akTop, akRight]
+      BorderSpacing.Right = 5
+      BorderSpacing.CellAlignVertical = ccaCenter
+      Caption = 'Silent'
+      Hint = 'Send without a notification'
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 1
     end
     object SendBtn: TBitBtn
       AnchorSideTop.Control = Toolbar
@@ -312,7 +329,7 @@ object MessageInputPanel: TMessageInputPanel
       Anchors = [akTop, akRight]
       BorderSpacing.CellAlignVertical = ccaCenter
       Caption = 'Send'
-      TabOrder = 1
+      TabOrder = 2
       OnClick = SendBtnClick
     end
   end

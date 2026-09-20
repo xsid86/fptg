@@ -10,7 +10,7 @@ uses
 
 type
   TMsgContentKind = (mckText, mckAudio, mckPhoto, mckAnimation, mckSticker,
-    mckVoiceNote, mckFile, mckVideo, mckOther);
+    mckVoiceNote, mckFile, mckVideo, mckPoll, mckOther);
 
   { One media download waiting for a free slot — see
     TTdMessages.RequestFileDownload. }
@@ -105,6 +105,44 @@ type
     IsChosen: boolean;       { True if this account is among the reactors }
   end;
   TMsgReactionArray = array of TMsgReaction;
+
+  { One pollOption. Both the question and every option's text are a
+    formattedText in TDLib, not a plain string — checked against
+    tdlib_raw.log, not assumed; only the .text is kept here, entities
+    inside poll text are not rendered (see TPollWidget). }
+  TPollOption = record
+    Text:          utf8string;
+    VoterCount:    integer;
+    { TDLib computes this itself (0..100) — no need to divide by
+      TotalVoters here, and no rounding of our own to disagree with
+      what the official clients show. }
+    VotePercentage: integer;
+    IsChosen:      boolean;
+    IsBeingChosen: boolean;   { a vote of ours is in flight }
+  end;
+  TPollOptionArray = array of TPollOption;
+
+  { content.poll of a messagePoll. One record rather than a dozen loose
+    TMsgRow fields: unlike the media kinds, none of these are shared
+    with anything else, and ExtractPollMeta fills them as a unit. }
+  TMsgPoll = record
+    Id:             Int64;
+    Question:       utf8string;
+    Options:        TPollOptionArray;
+    TotalVoters:    integer;
+    IsClosed:       boolean;
+    IsAnonymous:    boolean;
+    AllowsMultiple: boolean;
+    AllowsRevoting: boolean;
+    { type is pollTypeRegular or pollTypeQuiz; a quiz carries
+      correct_option_idS — an ARRAY, despite there being at most one
+      (the plural is the actual spelling in the payload, confirmed on a
+      real quiz in tdlib_raw.log). -1 when there is no quiz answer to
+      show: either not a quiz, or not answered yet (TDLib withholds it
+      until then). }
+    IsQuiz:         boolean;
+    CorrectOption:  integer;
+  end;
 
   { TMsgRow
 
@@ -344,6 +382,11 @@ type
       updateMessageInteractionInfo, see TdUpdate. Display only, for
       now: no UI to add/remove a reaction of your own yet. }
     Reactions: TMsgReactionArray;
+    { content.poll — meaningful for Kind=mckPoll only. Refreshed the
+      ordinary way, through ApplyContentUpdate: every vote changes the
+      content object itself, so unlike Reactions this needs no update
+      of its own. }
+    Poll: TMsgPoll;
     { msglayout's layout cache. Kept as an opaque TObject rather than
       TMsgLayout — otherwise tdmessages would need to know about
       msglayout, creating a unit cycle. Freed in the destructor via a
@@ -428,6 +471,22 @@ type
     FChatId:  Int64;
     FLoadingOlder: boolean;
     FOldestLoaded: boolean;
+    { The unread marker for the CURRENTLY open chat: the id of the last
+      message that was already read at the moment the chat was opened.
+      The divider goes before the first message newer than it.
+
+      Frozen on open ON PURPOSE. Scrolling marks messages read within
+      the same second (TMsgScroller.MarkVisibleAsRead), so a marker
+      that followed the live last_read_inbox_message_id would slide
+      down and vanish while the user is still reading — the official
+      clients keep it where it was until the chat is left, and so does
+      this. 0 means "no divider" (the chat had nothing unread). }
+    FUnreadFromId: Int64;
+    { Extra history pages still allowed while looking for the boundary,
+      and whether that search has finished one way or the other (found
+      it, ran out of history, or ran out of pages). }
+    FUnreadBackfill: integer;
+    FUnreadReady: boolean;
     FLoadLimit: integer;
     { How many times in a row getChatHistory has responded without
       moving history further into the past. TDLib's own documentation
@@ -443,10 +502,10 @@ type
       ordinary, unfiltered history; otherwise the SAME FAll/FRows/
       renderer/widget pool is fed by searchChatMessages instead of
       getChatHistory. FSearchNextFrom is TDLib's own
-      next_from_message_id cursor, NOT the "anchor minus
-      TD_MESSAGE_ID_STEP" arithmetic getChatHistory needs (search
-      results aren't a contiguous id range, so that trick has no
-      meaning here); 0 on the first request means "start at the newest
+      next_from_message_id cursor, NOT the "oldest loaded id" anchor
+      getChatHistory walks back with (search results aren't a
+      contiguous id range, so that has no meaning here); 0 on the
+      first request means "start at the newest
       match", 0 coming BACK means there are no more (see SearchDone).
       FSearchSeq invalidates in-flight responses whose results are no
       longer wanted — a chat switch, a different filter, or plain
@@ -542,6 +601,8 @@ type
       .reactions.reactions inside it. }
     procedure ExtractReactions(AInteractionInfo: TJSONObject;
       out AReactions: TMsgReactionArray);
+    procedure ExtractPollMeta(AContent: TJSONObject; const AType: utf8string;
+      out APoll: TMsgPoll);
     procedure ExtractAudioMeta(AContent: TJSONObject; const AType: utf8string;
       out ADuration: integer; out ATitle, APerformer, AFileName: utf8string;
       out ACoverFileId: integer; out ACoverLocalPath: utf8string;
@@ -627,6 +688,7 @@ type
     procedure SearchDone(Sender: TObject; const AResp: TTdResponse);
     procedure HistoryDone(Sender: TObject; const AResp: TTdResponse);
     procedure RetryTick(Sender: TObject);
+    procedure CheckUnreadBackfill;
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
     { Callback for SendFormattedText's own parseTextEntities request —
       see that method's comment for the two-step reason it's needed. }
@@ -656,7 +718,14 @@ type
       link (getMessageLink requires membership in the chat — not the
       case for a forward's source, which is usually not in the chat
       list). }
-    procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0);
+    { AUnreadFrom is the chat's last_read_inbox_message_id, and asks
+      for the history to open at the first unread message with a
+      divider above it; 0 (or a jump target, which wins) opens at the
+      bottom as before. The caller passes it rather than this unit
+      looking it up: the chat list lives in tdchats, whose rows this
+      unit has no instance of. }
+    procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0;
+      AUnreadFrom: Int64 = 0);
     procedure CloseChat;
     { Loads an older page of history — or, while a filter/search is
       active, an older page of MATCHES (see SetSearchFilter). }
@@ -696,8 +765,40 @@ type
       that markup in it is simply formattedText with an empty entities
       array — the same path, no separate plain-text send left in this
       unit. AIsHtml selects which of the two syntaxes AMarkupText is
-      written in. }
-    procedure SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean);
+      written in.
+
+      ASilent sends with messageSendOptions.disable_notification
+      (field checked against td_api.tl, not remembered): the message
+      itself is perfectly ordinary and still counts as unread — only
+      the recipient's alert sound/vibration is suppressed. It has to
+      ride along through the parse step to reach the sendMessage on the
+      far side of it, see ParseEntitiesDone. }
+    procedure SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean;
+      ASilent: boolean);
+    { Casts (or retracts) this account's vote on a poll. AOptionIndex is
+      an index into ARow.Poll.Options.
+
+      setPollAnswer takes the COMPLETE set of chosen options, not a
+      delta, so this works out the new set from what is currently
+      chosen: a multi-answer poll toggles the tapped option, a
+      single-answer one replaces the choice (or clears it, when the
+      tapped option is the one already chosen). Both only when the poll
+      still allows it — a closed poll, or an already-answered poll
+      that does not allow revoting, is ignored here rather than being
+      sent and refused by the server.
+
+      Nothing is written to ARow: the authoritative new counts arrive
+      as updateMessageContent, the same path that already refreshes a
+      poll when somebody else votes. }
+    procedure SetPollAnswer(ARow: TMsgRow; AOptionIndex: integer);
+    { Sends an answer that is already fully decided — the complete set
+      of chosen option indexes, exactly as setPollAnswer wants it. This
+      is what a multiple-answer poll's Vote button submits: there the
+      user ticks first and sends once, so there is nothing to derive
+      from the current state (SetPollAnswer above does that derivation
+      and then ends up here). An empty set is a retraction and is a
+      legitimate thing to send. }
+    procedure SetPollAnswers(ARow: TMsgRow; const AOptionIndexes: array of integer);
     procedure MarkRead(const AMessageIds: array of Int64);
     { Loads (if not already loaded) and prepares for display a batch of
       messages AROUND AMessageId in the CURRENTLY open chat — not to be
@@ -771,6 +872,20 @@ type
     property Rows[AIndex: integer]: TMsgRow read GetRow; default;
     property LoadingOlder: boolean read FLoadingOlder;
     property OldestLoaded: boolean read FOldestLoaded;
+    { The frozen unread marker, 0 when this chat opened with nothing
+      unread. See FUnreadFromId. }
+    property UnreadFromId: Int64 read FUnreadFromId;
+    { True once the boundary search is over — the view waits for this
+      before it positions itself, so it doesn't jump twice while the
+      backfill pages are still arriving. }
+    property UnreadReady: boolean read FUnreadReady;
+    { True when the marker is genuinely INSIDE the loaded range, i.e.
+      the oldest loaded message is at or before it. Only then is "the
+      first row newer than the marker" really the first unread one —
+      otherwise the boundary is somewhere further back than anything
+      loaded, and drawing a divider (or scrolling to it) would put it
+      in the wrong place. }
+    function UnreadCovered: boolean;
     property LoadLimit: integer read FLoadLimit write FLoadLimit;
 
     { Filter/search state — see SetSearchFilter. SearchTotalCount is
@@ -1021,6 +1136,8 @@ begin
     Result := mckFile;
   end else if AType = 'messageVideo' then begin
     Result := mckVideo;
+  end else if AType = 'messagePoll' then begin
+    Result := mckPoll;
   end else begin
     Result := mckOther;
   end;
@@ -1189,13 +1306,17 @@ begin
   FSearchTotal := 0;
   FLoadingOlder := False;
   FOldestLoaded := False;
+  FUnreadFromId := 0;
+  FUnreadBackfill := 0;
+  FUnreadReady := False;
   FNoProgressRetries := 0;
   FRetryTimer.Enabled := False;
   FDirty := False;
   FTimer.Enabled := False;
 end;
 
-procedure TTdMessages.OpenChat(AChatId: Int64; AJumpToMessageId: Int64);
+procedure TTdMessages.OpenChat(AChatId: Int64; AJumpToMessageId: Int64;
+  AUnreadFrom: Int64);
 begin
   if FChatId = AChatId then begin
     { Same chat — usually a no-op, but a quote jump can still point at
@@ -1220,6 +1341,15 @@ begin
   end;
   Clear;
   FChatId := AChatId;
+  { After Clear (which resets these) and before the first load, so the
+    very first HistoryDone already knows whether it is hunting for the
+    boundary. An explicit jump target wins: following a quote is a
+    deliberate destination, the unread marker is only a default one. }
+  if AJumpToMessageId = 0 then begin
+    FUnreadFromId := AUnreadFrom;
+    FUnreadBackfill := UNREAD_BACKFILL_PAGES;
+    FUnreadReady := AUnreadFrom = 0;
+  end;
   if (FChatId <> 0) and (FReq <> nil) then begin
     FReq.SendRequest('openChat', '"chat_id":' + utf8string(IntToStr(FChatId)), @ActionDone);
   end;
@@ -1427,30 +1557,49 @@ begin
     already moved history further by then — precisely because LoadOlder
     was reading a not-yet-rebuilt FRows.
 
-    from_message_id = the anchor MINUS TD_MESSAGE_ID_STEP (not the
-    anchor itself) with offset:0 — not the known boundary itself, but
-    the neighboring "slot" just older than our oldest known message.
-    TDLib's offset:0 "starts exactly at from_message_id"; passing the
-    anchor itself (an already-known, cached message) doesn't move
-    history at all in practice — see the earlier attempt with a
-    negative offset, which didn't get stuck outright but empirically
-    yielded exactly one new message per request, due to a 49/50 window
-    overlap at offset:-(limit-1).
+    from_message_id = the oldest known message id ITSELF, with
+    offset:0. With offset:0 TDLib EXCLUDES from_message_id and returns
+    only messages older than it — measured, not read off the wording
+    of the docs (which say "results from exactly the from_message_id"
+    and could be read either way): across a whole session's
+    tdlib_raw.log, 7 of 7 requests with a non-zero anchor came back
+    WITHOUT that anchor among the messages. So the oldest known id is
+    exactly the right boundary: nothing is skipped, nothing overlaps.
 
-    WARNING (one version of this fix already hit this): the subtraction
-    must be exactly TD_MESSAGE_ID_STEP, NOT an arbitrary unit — the id
-    must stay a multiple of that constant, otherwise TDLib responds
-    with code 400 "Invalid value of parameter from_message_id
-    specified" on EVERY such request, and since the error doesn't move
-    the anchor, the next LoadOlder call recomputes the SAME invalid id
-    and gets the same error — without the guard in HistoryDone (see
-    below), this is a tight infinite request/error loop, which is
-    exactly what happened once. }
+    This used to subtract TD_MESSAGE_ID_STEP first, aiming at the
+    neighbouring id "slot" just older than the oldest known message —
+    on the belief that the anchor was inclusive and would otherwise
+    come back as a duplicate. Combined with the exclusion above, that
+    was an off-by-one that silently DROPPED the message sitting in
+    that slot, whenever one really sat there (i.e. whenever the next
+    message up had no gap before it). The same log shows it happening
+    twice in one session, in two different chats; one of them is how
+    this was noticed — a chat whose first page came back with a single
+    message, making the very next request skip the message right below
+    it. Re-opening the chat "fixed" it only because a from_message_id
+    of 0 has no such boundary to get wrong.
+
+    The old comment claimed passing the anchor itself "doesn't move
+    history at all in practice". That observation was real but
+    mis-attributed: at the time the anchor was read from FRows, i.e.
+    it was a stale id from before the last response (see the paragraph
+    above, and note both fixes landed in the same pass). With the
+    anchor read from FAll there is nothing left for it to describe.
+
+    Whatever is passed here must stay a multiple of
+    TD_MESSAGE_ID_STEP or TDLib answers code 400 "Invalid value of
+    parameter from_message_id specified" on EVERY request — and since
+    an error doesn't move the anchor either, the next LoadOlder
+    recomputes the same invalid id and gets the same error, which
+    without the guard in HistoryDone (see below) is a tight infinite
+    request/error loop, exactly what happened once. A real message id
+    satisfies that by construction; a computed one did not, which is
+    why the constant had to be the unit of that arithmetic. }
   if FAll.Count = 0 then begin
     Anchor := 0;
     Offset := 0;
   end else begin
-    Anchor := FAll.Data[0].Id - TD_MESSAGE_ID_STEP;
+    Anchor := FAll.Data[0].Id;
     Offset := 0;
   end;
 
@@ -1481,7 +1630,7 @@ end;
   genuinely different is paging and the end-of-results signal, and
   neither of getChatHistory's two hard-won workarounds applies:
 
-  - no "anchor minus TD_MESSAGE_ID_STEP" arithmetic — search results
+  - no "walk back from the oldest loaded id" anchor — search results
     are scattered ids, not a contiguous range, and TDLib hands back its
     own cursor (next_from_message_id) for exactly this;
   - no no-progress retry/backoff counter — 0 in that cursor is an
@@ -1677,6 +1826,47 @@ begin
   end else begin
     FNoProgressRetries := 0;
   end;
+
+  CheckUnreadBackfill;
+end;
+
+function TTdMessages.UnreadCovered: boolean;
+begin
+  Result := (FUnreadFromId <> 0) and (FAll.Count > 0)
+    and (FAll.Data[0].Id <= FUnreadFromId);
+end;
+
+{ History is loaded from the newest end only — that is the invariant
+  everything else here depends on (LoadOlder's anchor arithmetic, and
+  FAll being one contiguous range from the newest message backwards).
+  So opening "at the first unread message" is not a jump into the
+  middle of the chat: it is the ordinary newest-first load, repeated
+  until the loaded range reaches back PAST the unread marker, after
+  which the view can position itself on it. That keeps the single
+  paging direction — jumping into the middle instead would leave the
+  newest messages unloaded, with no way to page forward to them.
+
+  The page budget is what stops a channel with thousands of unread
+  messages from turning this into a request storm; when it runs out,
+  the chat just opens at the bottom the way it always did. }
+procedure TTdMessages.CheckUnreadBackfill;
+begin
+  if (FUnreadFromId = 0) or FUnreadReady then begin
+    Exit;
+  end;
+  if UnreadCovered then begin
+    FUnreadReady := True;
+    Exit;
+  end;
+  { Out of history, out of budget, or a retry is already pending for
+    this same anchor (piling another LoadOlder on top of FRetryTimer
+    would just race it). }
+  if FOldestLoaded or (FUnreadBackfill <= 0) or FRetryTimer.Enabled then begin
+    FUnreadReady := True;
+    Exit;
+  end;
+  Dec(FUnreadBackfill);
+  LoadOlder;
 end;
 
 procedure TTdMessages.RetryTick(Sender: TObject);
@@ -1805,6 +1995,187 @@ begin
     Inc(N);
   end;
   SetLength(AReactions, N);
+end;
+
+{ content.poll of a messagePoll — read off a real poll (and a real
+  quiz) in tdlib_raw.log rather than from memory, which is how two
+  things that are easy to get wrong were caught: question and option
+  text are formattedText objects, not strings, and a quiz's answer
+  field is correct_option_idS, an array.
+
+  vote_percentage comes from TDLib, so nothing here divides counts. }
+procedure TTdMessages.ExtractPollMeta(AContent: TJSONObject; const AType: utf8string;
+  out APoll: TMsgPoll);
+var
+  PollObj, TypeObj, Item: TJSONObject;
+  Arr, Correct: TJSONArray;
+  I, N: integer;
+
+  { formattedText -> its plain text. }
+  function TextOf(AOwner: TJSONObject; const AName: string): utf8string;
+  var
+    O: TJSONObject;
+  begin
+    O := JGetObj(AOwner, AName);
+    if O = nil then begin
+      Result := '';
+    end else begin
+      Result := JGetStr(O, 'text');
+    end;
+  end;
+
+begin
+  { Cleared for every message, not just polls: TMsgRow is reused across
+    content updates, and a row that stops being a poll must not keep
+    the old options around. }
+  APoll.Id := 0;
+  APoll.Question := '';
+  SetLength(APoll.Options, 0);
+  APoll.TotalVoters := 0;
+  APoll.IsClosed := False;
+  APoll.IsAnonymous := False;
+  APoll.AllowsMultiple := False;
+  APoll.AllowsRevoting := False;
+  APoll.IsQuiz := False;
+  APoll.CorrectOption := -1;
+
+  if (AContent = nil) or (AType <> 'messagePoll') then begin
+    Exit;
+  end;
+  PollObj := JGetObj(AContent, 'poll');
+  if PollObj = nil then begin
+    Exit;
+  end;
+
+  APoll.Id := JGetInt64(PollObj, 'id');
+  APoll.Question := TextOf(PollObj, 'question');
+  APoll.TotalVoters := JGetInt(PollObj, 'total_voter_count');
+  APoll.IsClosed := JGetBool(PollObj, 'is_closed');
+  APoll.IsAnonymous := JGetBool(PollObj, 'is_anonymous');
+  APoll.AllowsMultiple := JGetBool(PollObj, 'allows_multiple_answers');
+  APoll.AllowsRevoting := JGetBool(PollObj, 'allows_revoting');
+
+  TypeObj := JGetObj(PollObj, 'type');
+  if TypeObj <> nil then begin
+    APoll.IsQuiz := JGetStr(TypeObj, '@type') = 'pollTypeQuiz';
+    if APoll.IsQuiz then begin
+      Correct := JGetArr(TypeObj, 'correct_option_ids');
+      { Empty until the quiz is answered — TDLib withholds the answer
+        on purpose, and -1 is what tells the widget not to mark
+        anything green. }
+      if (Correct <> nil) and (Correct.Count > 0) then begin
+        APoll.CorrectOption := Correct.Integers[0];
+      end;
+    end;
+  end;
+
+  Arr := JGetArr(PollObj, 'options');
+  if Arr = nil then begin
+    Exit;
+  end;
+  SetLength(APoll.Options, Arr.Count);
+  N := 0;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Types[I] <> jtObject then begin
+      Continue;
+    end;
+    Item := TJSONObject(Arr.Items[I]);
+    APoll.Options[N].Text := TextOf(Item, 'text');
+    APoll.Options[N].VoterCount := JGetInt(Item, 'voter_count');
+    APoll.Options[N].VotePercentage := JGetInt(Item, 'vote_percentage');
+    APoll.Options[N].IsChosen := JGetBool(Item, 'is_chosen');
+    APoll.Options[N].IsBeingChosen := JGetBool(Item, 'is_being_chosen');
+    Inc(N);
+  end;
+  SetLength(APoll.Options, N);
+end;
+
+procedure TTdMessages.SetPollAnswer(ARow: TMsgRow; AOptionIndex: integer);
+var
+  I: integer;
+  Chosen: array of integer;
+  AlreadyVoted: boolean;
+
+  procedure AddId(AIdx: integer);
+  begin
+    SetLength(Chosen, Length(Chosen) + 1);
+    Chosen[High(Chosen)] := AIdx;
+  end;
+
+begin
+  if (FReq = nil) or (FChatId = 0) or (ARow = nil) or (ARow.Kind <> mckPoll) then begin
+    Exit;
+  end;
+  if (AOptionIndex < 0) or (AOptionIndex > High(ARow.Poll.Options)) then begin
+    Exit;
+  end;
+  if ARow.Poll.IsClosed then begin
+    Exit;
+  end;
+
+  AlreadyVoted := False;
+  for I := 0 to High(ARow.Poll.Options) do begin
+    if ARow.Poll.Options[I].IsChosen then begin
+      AlreadyVoted := True;
+      Break;
+    end;
+  end;
+
+  SetLength(Chosen, 0);
+  if ARow.Poll.AllowsMultiple then begin
+    { The tapped option is toggled, everything else keeps its state —
+      option_ids is the whole answer, so the untouched ones have to be
+      resent or they would count as retracted. }
+    for I := 0 to High(ARow.Poll.Options) do begin
+      if (I = AOptionIndex) <> ARow.Poll.Options[I].IsChosen then begin
+        AddId(I);
+      end;
+    end;
+    { Un-ticking the last one leaves an empty answer, which is the
+      documented way to retract — but only if the poll allows it. }
+    if (Length(Chosen) = 0) and (not ARow.Poll.AllowsRevoting) then begin
+      Exit;
+    end;
+  end else begin
+    if AlreadyVoted and (not ARow.Poll.AllowsRevoting) then begin
+      Exit;
+    end;
+    { Tapping the option already chosen retracts the vote; tapping a
+      different one moves it. }
+    if not ARow.Poll.Options[AOptionIndex].IsChosen then begin
+      AddId(AOptionIndex);
+    end;
+  end;
+
+  SetPollAnswers(ARow, Chosen);
+end;
+
+procedure TTdMessages.SetPollAnswers(ARow: TMsgRow; const AOptionIndexes: array of integer);
+var
+  I: integer;
+  Ids: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (ARow = nil) or (ARow.Kind <> mckPoll) then begin
+    Exit;
+  end;
+  if ARow.Poll.IsClosed then begin
+    Exit;
+  end;
+  Ids := '';
+  for I := 0 to High(AOptionIndexes) do begin
+    if (AOptionIndexes[I] < 0) or (AOptionIndexes[I] > High(ARow.Poll.Options)) then begin
+      Continue;
+    end;
+    if Ids <> '' then begin
+      Ids := Ids + ',';
+    end;
+    Ids := Ids + utf8string(IntToStr(AOptionIndexes[I]));
+  end;
+  FReq.SendRequest('setPollAnswer',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_id":' + utf8string(IntToStr(ARow.Id)) +
+    ',"option_ids":[' + Ids + ']',
+    @ActionDone);
 end;
 
 { messageAudio.audio — metadata from the file itself (ID3 etc.), which
@@ -2775,6 +3146,7 @@ begin
     R.VideoFileId, R.VideoLocalPath);
   ExtractStickerMeta(ContentObj, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
+  ExtractPollMeta(ContentObj, T, R.Poll);
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -2815,6 +3187,7 @@ begin
     R.VideoFileId, R.VideoLocalPath);
   ExtractStickerMeta(ANewContent, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
+  ExtractPollMeta(ANewContent, T, R.Poll);
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
@@ -3060,7 +3433,8 @@ begin
   Result := utf8string(Res);
 end;
 
-procedure TTdMessages.SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean);
+procedure TTdMessages.SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean;
+  ASilent: boolean);
 var
   ModeObj: TJSONObject;
   TextVal: TJSONString;
@@ -3112,7 +3486,14 @@ begin
     ModeObj.Free;
   end;
 
-  FReq.SendRequest('parseTextEntities', Body, @ParseEntitiesDone);
+  { ASilent belongs to THIS send, but the sendMessage that uses it only
+    happens once the parse comes back — so it travels on the request
+    itself (tdreq's per-request Tag, which exists for exactly this: FPC
+    3.2 has no closures). A field on Self would work until two sends
+    overlapped, and then the second one's flag would decide the first
+    one's message. }
+  FReq.SendRequest('parseTextEntities', Body, @ParseEntitiesDone,
+    PtrInt(Ord(ASilent)));
 end;
 
 procedure TTdMessages.ParseEntitiesDone(Sender: TObject; const AResp: TTdResponse);
@@ -3147,7 +3528,17 @@ begin
     if EntitiesArr <> nil then begin
       Clean.Add('entities', EntitiesArr.Clone as TJSONArray);
     end;
-    Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    Body := '"chat_id":' + utf8string(IntToStr(FChatId));
+    { The silent flag set by the caller of SendFormattedText, carried
+      here on the parse request's Tag (see there). Only sent when it is
+      actually on: everything omitted from messageSendOptions defaults
+      to false/absent anyway, so a normal send stays byte-for-byte the
+      request it has always been. }
+    if AResp.Tag <> 0 then begin
+      Body := Body +
+        ',"options":{"@type":"messageSendOptions","disable_notification":true}';
+    end;
+    Body := Body +
             ',"input_message_content":{"@type":"inputMessageText","text":' +
             utf8string(Clean.AsJSON) + '}';
   finally
@@ -3338,6 +3729,7 @@ begin
     mckSticker:   Result := 'Sticker';
     mckVoiceNote: Result := 'Voice message';
     mckFile:      Result := 'File';
+    mckPoll:      Result := 'Poll';
   else
     Result := 'Message';
   end;
