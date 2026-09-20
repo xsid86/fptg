@@ -1,0 +1,54 @@
+@use "../abstracts" as *;
+
+.composer {
+  @include flex(column, stretch, flex-start, $space-2);
+  padding: $space-3 $space-4;
+  border-top: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+
+.composer__toolbar {
+  @include flex(row, center, flex-start, $space-1);
+  flex-wrap: wrap;
+}
+
+.composer__spacer { flex: 1 1 auto; }
+
+.composer__row {
+  @include flex(row, flex-end, flex-start, $space-2);
+}
+
+.composer__input {
+  flex: 1 1 auto;
+  min-height: $composer-min;
+  max-height: $composer-max;
+  // Grows with its content without a line of JavaScript. Chromium 123+,
+  // which is what this UI runs in; anywhere else the box simply stays
+  // at min-height and scrolls, which is a fine degradation.
+  field-sizing: content;
+  padding: $space-3 $space-4;
+  border-radius: $radius-md;
+  background: var(--c-surface-2);
+  font-size: $fs-base;
+  line-height: $lh-base;
+  resize: none;
+  @include scrollbar(6px);
+  @include focus-ring;
+
+  &::placeholder { color: var(--c-text-faint); }
+}
+
+.composer__send {
+  @include size(36px);
+  @include flex(row, center, center);
+  border-radius: $radius-md;
+  background: var(--c-accent);
+  color: var(--c-accent-text);
+
+  &:hover { background: var(--c-accent-hover); }
+  &[disabled] { opacity: .4; }
+}
+
+// Format buttons are toggles, not actions: they insert markup around
+// the selection and stay lit while that mode is the one being typed in.
+.composer__format.is-active { color: var(--c-accent); background: var(--c-surface-active); }

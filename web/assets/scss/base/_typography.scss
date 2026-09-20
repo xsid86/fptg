@@ -1,0 +1,18 @@
+@use "../abstracts" as *;
+
+body {
+  font-family: $font-ui;
+  font-size: $fs-base;
+  line-height: $lh-base;
+  -webkit-font-smoothing: antialiased;
+}
+
+// Counts, clocks and byte sizes must not change width as they change
+// value, or every row twitches when one of them updates.
+.u-tabular { font-variant-numeric: tabular-nums; }
+
+.u-dim   { color: var(--c-text-dim); }
+.u-faint { color: var(--c-text-faint); }
+.u-mono  { font-family: $font-mono; }
+.u-ellipsis { @include ellipsis; }
+.u-sr-only  { @include visually-hidden; }

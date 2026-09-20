@@ -1,0 +1,15 @@
+@use "../abstracts" as *;
+
+.spinner {
+  @include size(16px);
+  border: 2px solid var(--c-border-strong);
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  animation: spinner-turn .7s linear infinite;
+}
+
+@keyframes spinner-turn { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2s; }
+}

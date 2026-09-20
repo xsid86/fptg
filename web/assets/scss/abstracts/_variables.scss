@@ -1,0 +1,181 @@
+// Single source of truth for every number and colour in the UI.
+//
+// Two kinds of token live here and they are NOT interchangeable:
+//
+//   * SCSS variables ($space-2, $radius-md, ...) for geometry. They are
+//     resolved at build time, can take part in arithmetic, and never
+//     need to change while the app is running.
+//   * The colour MAPS below, which base/_root.scss emits as CSS custom
+//     properties. Colours have to be swappable at run time (light/dark,
+//     and later a user-chosen accent, which the native UI already has
+//     in Settings), and a compiled-away SCSS variable cannot do that.
+//
+// Sizes that must match the native window are marked; those two UIs
+// are meant to look like the same program, not like cousins.
+
+// ---------------------------------------------------------------- type
+$font-ui:   "Segoe UI", system-ui, -apple-system, sans-serif;
+$font-mono: "Cascadia Mono", Consolas, "SF Mono", monospace;
+
+$fs-xs:   11px;
+$fs-sm:   12px;
+$fs-base: 13px;   // native: MSG_TEXT_FONT_H
+$fs-md:   14px;
+$fs-lg:   16px;
+
+$lh-tight: 1.2;
+$lh-base:  1.45;
+
+$fw-regular: 400;
+$fw-medium:  500;
+$fw-bold:    600;
+
+// -------------------------------------------------------------- space
+// A 4px scale. Every margin/padding in the app comes from here, so a
+// change of density is one edit rather than a search.
+$space-0:  0;
+$space-1:  2px;
+$space-2:  4px;    // native: CHATROW_GAP
+$space-3:  6px;    // native: MSG_PAD_V
+$space-4:  8px;
+$space-5:  11px;   // native: MSG_PAD_H
+$space-6:  16px;
+$space-7:  24px;
+$space-8:  32px;
+
+// ------------------------------------------------------------- radius
+$radius-sm: 4px;
+$radius-md: 7px;    // native: MSG_CORNER_RADIUS
+$radius-lg: 10px;
+$radius-pill: 999px;
+
+// -------------------------------------------------------------- sizes
+$avatar-sm: 24px;
+$avatar-md: 32px;   // native: AVATAR_SIZE
+$avatar-lg: 48px;   // native: CHAT_HEADER_AVATAR_SIZE / 64 there, 48 reads better here
+
+$icon-sm: 12px;     // native: icons12
+$icon-md: 16px;
+$icon-lg: 20px;
+
+$sidebar-width:     320px;
+$sidebar-min:       240px;
+$sidebar-max:       480px;
+$header-height:     56px;
+$statusbar-height:  24px;
+$composer-min:      44px;
+$composer-max:      220px;
+$scrollbar-width:   8px;
+$message-max-width: 600px;  // native: MAX_MSG_W
+
+// ------------------------------------------------------------ z-index
+// Named rather than numeric at the call site: "which of 40 and 60 is on
+// top" is a question nobody should have to answer twice.
+$z-base:     0;
+$z-sticky:   10;
+$z-dropdown: 20;
+$z-overlay:  30;
+$z-modal:    40;
+$z-toast:    50;
+
+// -------------------------------------------------------- transitions
+$ease:        cubic-bezier(.4, 0, .2, 1);
+$dur-fast:    .12s;
+$dur-base:    .18s;
+$dur-slow:    .3s;
+
+// --------------------------------------------------------- breakpoints
+$breakpoints: (
+  "sm": 640px,
+  "md": 900px,
+  "lg": 1200px,
+);
+
+// ------------------------------------------------------- accent palette
+// Telegram's accent colours, as a finite set. This is what lets a chat
+// be coloured by adding a class instead of by writing an inline style.
+//
+// Where the numbers come from, so they can be checked rather than
+// trusted:
+//   a0..a6   BUILT_IN_COLORS in constants.pas, converted from TColor
+//            (which is BGR) to RGB.
+//   a7..a20  updateAccentColors, read out of this account's own
+//            tdlib_raw.log. TDLib sends a light and a dark variant for
+//            each, and both are kept: the dark theme gets Telegram's
+//            intended dark accent rather than a light colour on a dark
+//            card.
+//   f0..f7   SENDER_PALETTE in constants.pas - the hashed fallback for
+//            a chat with no accent id, same as the native window uses.
+//
+// A SNAPSHOT, and deliberately so. The native side keeps resolving
+// a7..a20 live from updateAccentColors, so if Telegram ever retunes
+// them the two windows drift by a hue until this map is refreshed. The
+// alternative was writing colours into the DOM per element, which is
+// exactly what this replaces.
+$accent-light: (
+  "a0": #e63c3c, "a1": #e68c1e, "a2": #9650d2, "a3": #3caa5a,
+  "a4": #28a0af, "a5": #3278dc, "a6": #dc5096,
+  "a7": #e15052, "a8": #e0802b, "a9": #a05ff3, "a10": #27a910,
+  "a11": #27acce, "a12": #3391d4, "a13": #dd4371, "a14": #247bed,
+  "a15": #d67722, "a16": #179e42, "a17": #2894af, "a18": #0c9ab3,
+  "a19": #7757d6, "a20": #1585cf,
+  "f0": #b22222, "f1": #228b22, "f2": #1e50a0, "f3": #800080,
+  "f4": #b45a00, "f5": #008080, "f6": #c71585, "f7": #808000,
+);
+
+$accent-dark: (
+  "a0": #e63c3c, "a1": #e68c1e, "a2": #9650d2, "a3": #3caa5a,
+  "a4": #28a0af, "a5": #3278dc, "a6": #dc5096,
+  "a7": #ff9380, "a8": #ecb04e, "a9": #c697ff, "a10": #a7eb6e,
+  "a11": #40d8d0, "a12": #52bfff, "a13": #ff86a6, "a14": #3fa2fe,
+  "a15": #ff905e, "a16": #66d364, "a17": #22bce2, "a18": #22bce2,
+  "a19": #9791ff, "a20": #3da6eb,
+  "f0": #e06666, "f1": #6cc36c, "f2": #6f9fe0, "f3": #c77ac7,
+  "f4": #e6a05a, "f5": #5cc4c4, "f6": #e87ac0, "f7": #c4c46a,
+);
+
+// ------------------------------------------------------------ palette
+// Emitted as custom properties by base/_root.scss. Keep the two maps
+// key-for-key identical: the dark theme is produced by swapping values,
+// never by adding or dropping names.
+$theme-light: (
+  "bg":            #f1f2f3,   // the surface the cards sit on
+  "surface":       #ffffff,
+  "surface-2":     #f7f8f9,
+  "surface-hover": #eef0f2,
+  "surface-active":#e4e8ec,
+  "border":        #dfe3e7,
+  "border-strong": #c6ccd2,
+  "text":          #1a1d21,
+  "text-dim":      #6b7280,
+  "text-faint":    #9aa0a6,
+  "accent":        #2196f3,
+  "accent-hover":  #1e88e5,
+  "accent-text":   #ffffff,
+  "ok":            #4caf50,
+  "warn":          #ffb300,
+  "danger":        #e53935,
+  "unread":        #2196f3,
+  "shadow":        rgba(16, 24, 40, .10),
+);
+
+$theme-dark: (
+  "bg":            #17181b,
+  "surface":       #1f2125,
+  "surface-2":     #24272c,
+  "surface-hover": #2a2e34,
+  "surface-active":#32373e,
+  "border":        #34373c,
+  "border-strong": #454a52,
+  "text":          #e7e9ea,
+  "text-dim":      #9aa0a6,
+  "text-faint":    #6f757c,
+  "accent":        #2196f3,
+  "accent-hover":  #42a5f5,
+  "accent-text":   #ffffff,
+  "ok":            #4caf50,
+  "warn":          #ffb300,
+  "danger":        #ef5350,
+  "unread":        #2196f3,
+  "shadow":        rgba(0, 0, 0, .45),
+);

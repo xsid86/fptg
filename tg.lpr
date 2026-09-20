@@ -51,13 +51,15 @@ uses
   main, splash, login, settings, framesettingsgeneral, framesettingsaudio,
   framesettingsautodownload, framesettingsstorage,
   framelog, framewelcome, framechats, framehistory,
-  mediaviewer, msginput, apisetup, chatheader
+  mediaviewer, msginput, apisetup, chatheader,
+  wsframe, localserver, webapi
   { you can add units after this };
 
 {$R *.res}
 
 var
   WaitIter: integer;
+  ServerPort: word;
 
 begin
   { Defensive, app-wide belt-and-suspenders fix alongside tdrecv's own
@@ -123,7 +125,32 @@ begin
   FormSplash.Show;
   TdApp.Start;
 
+  { The web UI's transport, when asked for on the command line
+    (--server, optionally --server-port=N). Deliberately off by
+    default and deliberately started HERE rather than from a form: it
+    shares nothing with the LCL side, it is being stood up alongside
+    the native UI rather than in place of it, and a normal launch must
+    behave exactly as it always has — no listening socket, no
+    server_url.txt. A refused start (port taken) is not fatal for the
+    same reason: the native UI is still a complete application. }
+  if ServerRequested(ServerPort) then begin
+    if StartLocalServer(ServerPort) then begin
+      { Only once the socket is actually listening: without the server
+        there is nothing for the command bridge to answer on, and its
+        timer would just tick for nothing. }
+      WebApiStart;
+    end;
+  end;
+
   Application.Run;
+
+  { Before the decoder-thread wait below, because this one is quick
+    and its connection threads are holding an object owned by this
+    unit. The server goes first and the bridge second, so that by the
+    time the command queue is freed there are no socket threads left
+    that could still be filling it. }
+  StopLocalServer;
+  WebApiStop;
 
   { The main form has closed and the message loop just returned —
     normal shutdown (the implicit Halt at the end of this block) is

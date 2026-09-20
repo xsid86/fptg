@@ -1,0 +1,20 @@
+@use "../abstracts" as *;
+
+// Outline-only on purpose: a chip sits on a card that is already tinted
+// with the same accent, and a second filled layer of it reads as dirt
+// rather than as a control.
+.chip {
+  @include flex(row, center, center, $space-1);
+  height: 18px;
+  padding: 0 $space-3;
+  border-radius: $radius-pill;
+  border: 1px solid currentColor;
+  font-size: $fs-xs;
+  line-height: 1;
+  color: var(--chip-color, var(--c-text-dim));
+  max-width: 120px;
+
+  > span { @include ellipsis; }
+}
+
+.chip--muted { color: var(--c-text-faint); }

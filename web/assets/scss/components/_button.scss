@@ -1,0 +1,39 @@
+@use "../abstracts" as *;
+
+.btn {
+  @include flex(row, center, center, $space-2);
+  @include focus-ring;
+  padding: $space-2 $space-4;
+  border-radius: $radius-md;
+  font-size: $fs-base;
+  color: var(--c-text);
+  transition: background $dur-fast $ease, color $dur-fast $ease;
+
+  &:hover  { background: var(--c-surface-hover); }
+  &:active { background: var(--c-surface-active); }
+  &[disabled] { opacity: .45; pointer-events: none; }
+}
+
+.btn--primary {
+  background: var(--c-accent);
+  color: var(--c-accent-text);
+  &:hover { background: var(--c-accent-hover); }
+}
+
+.btn--ghost { color: var(--c-text-dim); }
+
+// Icon-only. Square by construction so a row of them cannot end up
+// ragged when one icon is a pixel wider than the next.
+.btn--icon {
+  @include size(28px);
+  padding: 0;
+  border-radius: $radius-sm;
+  color: var(--c-text-dim);
+  &:hover { color: var(--c-text); }
+}
+
+.btn--round { border-radius: $radius-pill; }
+
+.btn--danger { color: var(--c-danger); }
+
+.btn.is-active { color: var(--c-accent); }

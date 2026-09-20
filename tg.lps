@@ -471,6 +471,21 @@
         <UsageCount Value="32"/>
       </Unit>
       <Unit>
+        <Filename Value="wsframe.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="localserver.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="webapi.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="tdsession.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="25"/>

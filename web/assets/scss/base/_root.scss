@@ -1,0 +1,29 @@
+@use "sass:map";
+@use "../abstracts" as *;
+
+// The palette maps become custom properties here, and ONLY here.
+// Everything downstream reads var(--c-*), which is what makes the theme
+// switchable at run time.
+@mixin emit-theme($theme) {
+  @each $name, $value in $theme {
+    --c-#{$name}: #{$value};
+  }
+}
+
+:root {
+  @include emit-theme($theme-light);
+
+  --radius-sm: #{$radius-sm};
+  --radius-md: #{$radius-md};
+  --radius-lg: #{$radius-lg};
+  --sidebar-width: #{$sidebar-width};
+}
+
+// Follow the OS by default...
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { @include emit-theme($theme-dark); }
+}
+
+// ...but let an explicit choice win, in either direction.
+:root[data-theme="dark"]  { @include emit-theme($theme-dark); }
+:root[data-theme="light"] { @include emit-theme($theme-light); }

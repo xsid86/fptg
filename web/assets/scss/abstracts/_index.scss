@@ -1,0 +1,5 @@
+// One entry point so every partial can say
+//   @use "../abstracts" as *;
+// instead of listing variables and mixins separately.
+@forward "variables";
+@forward "mixins";

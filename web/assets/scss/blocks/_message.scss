@@ -1,0 +1,149 @@
+@use "../abstracts" as *;
+
+// One message block, following framehistory.pas rather than inventing
+// a second visual language: a coloured header line (sender, time,
+// delivery mark) over the body, the whole thing tinted with the
+// sender's own accent.
+//
+// --sender-color is set per message from the JS.
+.message {
+  --sender-color: var(--accent-color, var(--c-accent));
+
+  margin-bottom: $space-6;
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--sender-color) 7%, var(--c-surface));
+  border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
+  overflow: hidden;
+}
+
+.message__head {
+  @include flex(row, center, flex-start, $space-2);
+  padding: $space-3 $space-5;
+  background: color-mix(in srgb, var(--sender-color) 14%, var(--c-surface));
+  color: var(--sender-color);
+  font-weight: $fw-bold;
+  font-size: $fs-base;
+}
+
+.message__receipt { @include size($icon-sm); }
+
+.message__sender { @include ellipsis; }
+
+.message__time {
+  color: inherit;
+  opacity: .75;
+  font-weight: $fw-regular;
+  font-variant-numeric: tabular-nums;
+}
+
+.message__state {
+  margin-left: auto;
+  font-size: $fs-xs;
+  color: var(--c-text-faint);
+  font-weight: $fw-regular;
+
+  &.is-failed { color: var(--c-danger); }
+}
+
+.message__body {
+  padding: $space-5;
+  font-size: $fs-base;
+  line-height: $lh-base;
+  overflow-wrap: anywhere;   // a bare URL must not widen the column
+  white-space: pre-wrap;     // TDLib sends real newlines, keep them
+}
+
+.message__body a { text-decoration: underline; }
+
+// ------------------------------------------------------- text styles
+.message__body {
+  b, strong { font-weight: $fw-bold; }
+  i, em     { font-style: italic; }
+  u         { text-decoration: underline; }
+  s         { text-decoration: line-through; }
+
+  code, pre {
+    font-family: $font-mono;
+    font-size: $fs-sm;
+    background: var(--c-surface-2);
+    border-radius: $radius-sm;
+  }
+  code { padding: 1px $space-2; }
+  pre {
+    display: block;
+    margin: $space-3 0;
+    padding: $space-4;
+    overflow-x: auto;
+    @include scrollbar(6px);
+  }
+
+  .spoiler {
+    background: var(--c-text-dim);
+    border-radius: $radius-sm;
+    color: transparent;
+    cursor: pointer;
+    &.is-revealed { background: none; color: inherit; }
+  }
+}
+
+// ------------------------------------------------------- blockquote
+// Matches the native rendering: a tinted band with a bar down the left,
+// one blank line of breathing room either side.
+.message__quote {
+  margin: $space-5 0;
+  padding: $space-3 $space-5;
+  border-left: 2px solid var(--sender-color);
+  background: color-mix(in srgb, var(--sender-color) 20%, transparent);
+  border-radius: 0 $radius-sm $radius-sm 0;
+}
+
+// --------------------------------------------------- reply-to banner
+.message__reply {
+  @include flex(row, center, flex-start, $space-2);
+  margin: 0 $space-5 $space-3;
+  padding: $space-3;
+  border-radius: $radius-sm;
+  background: color-mix(in srgb, var(--sender-color) 12%, transparent);
+  cursor: pointer;
+  font-size: $fs-sm;
+
+  .icon { @include size($icon-sm); color: var(--sender-color); }
+  &:hover { background: color-mix(in srgb, var(--sender-color) 20%, transparent); }
+}
+
+.message__reply-text { @include ellipsis; color: var(--c-text-dim); }
+
+// ------------------------------------------------------- reactions
+// A strip with the same tint as the header, carrying pill-shaped
+// counters — again the native arrangement rather than a new one.
+.message__reactions {
+  @include flex(row, center, flex-start, $space-2);
+  flex-wrap: wrap;
+  padding: $space-3 $space-5;
+  background: color-mix(in srgb, var(--sender-color) 14%, var(--c-surface));
+}
+
+.reaction {
+  @include flex(row, center, center, $space-2);
+  height: 22px;
+  padding: 0 $space-4;
+  border-radius: $radius-pill;
+  background: color-mix(in srgb, var(--sender-color) 25%, var(--c-surface));
+  border: 1px solid transparent;
+  font-size: $fs-sm;
+  font-variant-numeric: tabular-nums;
+
+  &.is-chosen {
+    background: color-mix(in srgb, var(--sender-color) 50%, var(--c-surface));
+    font-weight: $fw-bold;
+    border-color: var(--sender-color);
+  }
+}
+
+.reaction__emoji { @include size(16px); font-size: 14px; line-height: 1; }
+
+// --------------------------------------------------------- outgoing
+// Own messages are not mirrored to the right: this layout is the dense
+// single-column one the native window uses, where the sender colour
+// already tells them apart.
+.message--outgoing { --sender-color: var(--c-accent); }

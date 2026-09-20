@@ -1,0 +1,22 @@
+@use "../abstracts" as *;
+
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  height: 100%;
+  padding: $space-2;
+  @include scroll-area;
+}
+
+.chat-list__empty {
+  color: var(--c-text-faint);
+  padding: $space-7 $space-5;
+  text-align: center;
+}
+
+.chat-list__loading {
+  @include flex(row, center, center, $space-3);
+  color: var(--c-text-dim);
+  padding: $space-6;
+}

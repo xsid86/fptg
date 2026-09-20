@@ -1,0 +1,47 @@
+@use "../abstracts" as *;
+
+.history {
+  height: 100%;
+  padding: $space-6 $space-4;
+  @include scroll-area;
+}
+
+// The column is capped and centred, exactly as MAX_MSG_W does in the
+// native window: long lines are unreadable edge to edge, and a chat is
+// mostly short lines anyway.
+.history__column {
+  max-width: $message-max-width;
+  margin: 0 auto;
+}
+
+.history__loader {
+  @include flex(row, center, center, $space-3);
+  padding: $space-5;
+  color: var(--c-text-dim);
+}
+
+// Full-width strip marking where unread begins. Deliberately not a
+// card: it cuts the history in two and belongs to neither side.
+.history__unread {
+  @include flex(row, center, center);
+  margin: $space-6 0;
+  padding: $space-3;
+  border-radius: $radius-sm;
+  background: var(--c-text);
+  color: var(--c-surface);
+  font-size: $fs-base;
+  font-weight: $fw-medium;
+}
+
+.history__date {
+  @include flex(row, center, center);
+  margin: $space-6 0 $space-4;
+
+  > span {
+    padding: $space-1 $space-4;
+    border-radius: $radius-pill;
+    background: var(--c-surface-2);
+    color: var(--c-text-dim);
+    font-size: $fs-sm;
+  }
+}

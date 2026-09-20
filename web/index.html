@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TG Orchestrator</title>
+<link rel="stylesheet" href="assets/scss/style.css">
+</head>
+<body>
+
+<!--
+  The shell is static markup; JavaScript fills the parts that change and
+  never builds a whole page from scratch. Icons are placeholders here
+  (data-icon) and get swapped for real <use> nodes once the sprite is in
+  the document - see assets/js/util/icons.js for why the sprite is
+  injected rather than referenced across files.
+-->
+<div class="app" data-view="list">
+
+  <aside class="app__sidebar">
+    <div class="sidebar">
+      <div class="sidebar__head">
+        <h1 class="sidebar__title">Chats</h1>
+        <span class="sidebar__spacer"></span>
+        <label class="btn btn--ghost" title="Show archived chats">
+          <input type="checkbox" id="chats-archived">
+          archive
+        </label>
+        <button class="btn btn--icon" id="chats-refresh" type="button" title="Reload">
+          <span class="icon" data-icon="refresh"></span>
+          <span class="u-sr-only">Reload the chat list</span>
+        </button>
+      </div>
+
+      <div class="sidebar__search">
+        <label class="field">
+          <span class="icon icon--sm" data-icon="search"></span>
+          <input class="field__input" id="chats-search" type="search"
+                 placeholder="Filter by name or preview" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="sidebar__body">
+        <div class="chat-list" id="chat-list"></div>
+      </div>
+    </div>
+  </aside>
+
+  <section class="app__workspace">
+    <div class="workspace">
+      <header class="chat-header" id="chat-header" hidden></header>
+
+      <div class="workspace__history history" id="history"></div>
+
+      <div class="composer" id="composer">
+        <div class="composer__toolbar">
+          <button class="btn btn--icon composer__format" type="button" title="Bold" disabled>
+            <span class="icon" data-icon="bold"></span>
+          </button>
+          <button class="btn btn--icon composer__format" type="button" title="Italic" disabled>
+            <span class="icon" data-icon="italic"></span>
+          </button>
+          <button class="btn btn--icon composer__format" type="button" title="Link" disabled>
+            <span class="icon" data-icon="link"></span>
+          </button>
+          <button class="btn btn--icon composer__format" type="button" title="Quote" disabled>
+            <span class="icon" data-icon="reply"></span>
+          </button>
+          <span class="composer__spacer"></span>
+          <button class="btn btn--icon" type="button" title="Attach a file" disabled>
+            <span class="icon" data-icon="clip"></span>
+          </button>
+          <button class="btn btn--icon" type="button" title="Emoji" disabled>
+            <span class="icon" data-icon="smile"></span>
+          </button>
+        </div>
+
+        <div class="composer__row">
+          <textarea class="composer__input" rows="1"
+                    placeholder="Pick a chat to start writing"></textarea>
+          <button class="composer__send" type="button" title="Send">
+            <span class="icon" data-icon="send"></span>
+            <span class="u-sr-only">Send</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="app__status status-bar" id="status-bar">
+    <div class="conn"></div>
+    <span class="status-bar__spacer"></span>
+    <div class="status-bar__counts"></div>
+    <a class="status-bar__item" href="check.html">transport check</a>
+  </footer>
+
+</div>
+
+<script type="module" src="assets/js/main.js"></script>
+</body>
+</html>

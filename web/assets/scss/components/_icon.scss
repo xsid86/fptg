@@ -1,0 +1,14 @@
+@use "../abstracts" as *;
+
+// Every icon is a <use> into the sprite injected by js/util/icons.js.
+// fill:currentColor is the whole point: an icon then inherits the
+// colour of whatever it sits in, including a per-chat accent, with no
+// second copy of the file in another colour.
+.icon {
+  @include size($icon-md);
+  fill: currentColor;
+  pointer-events: none;
+}
+
+.icon--sm { @include size($icon-sm); }
+.icon--lg { @include size($icon-lg); }

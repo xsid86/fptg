@@ -1,0 +1,32 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-text);
+  overflow: hidden;   // the app manages its own scroll regions
+}
+
+h1, h2, h3, h4, p, figure, blockquote { margin: 0; }
+
+ul, ol { margin: 0; padding: 0; list-style: none; }
+
+button, input, textarea, select {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+}
+
+button { cursor: pointer; }
+
+a { color: var(--c-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+img, svg { display: block; }
+
+// Anything the app draws over live pixels (a frame of video, an
+// animated sticker) must not be selectable by a stray drag.
+.is-unselectable { user-select: none; }

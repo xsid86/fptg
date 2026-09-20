@@ -19,7 +19,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="460"/>
+      <BuildNr Value="467"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -67,6 +67,9 @@
       </Item>
       <Item>
         <PackageName Value="LCL"/>
+      </Item>
+      <Item>
+        <PackageName Value="laz_synapse"/>
       </Item>
     </RequiredPackages>
     <Units>
@@ -344,6 +347,18 @@
       </Unit>
       <Unit>
         <Filename Value="tdstorage.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="wsframe.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="localserver.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="webapi.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

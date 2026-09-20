@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TG Orchestrator - transport check</title>
+<link rel="stylesheet" href="assets/scss/style.css">
+</head>
+<body class="page-check">
+
+<!--
+  The diagnostic page, kept because it is what proves the socket itself
+  rather than the app on top of it: echo, a 200 KB frame (the 64-bit
+  length path), and a burst. Its own entry script - it must keep working
+  even when main.js does not.
+-->
+<div class="check__head">
+  <strong>Transport check</strong>
+  <div class="conn" id="conn"></div>
+  <span class="sidebar__spacer" style="flex:1"></span>
+  <span class="u-dim u-tabular">rtt <b id="rtt">-</b> ms</span>
+  <span class="u-dim u-tabular">in <b id="nin">0</b></span>
+  <span class="u-dim u-tabular">bytes <b id="nbytes">0</b></span>
+  <a href="index.html">back to the app</a>
+</div>
+
+<div class="check__log" id="log"></div>
+
+<div class="check__foot">
+  <input class="check__input" id="msg" type="text" placeholder="text to echo back..." autocomplete="off">
+  <button class="btn btn--primary" id="send" type="button">Send</button>
+  <button class="btn" id="big" type="button">Send 200 KB</button>
+  <button class="btn" id="burst" type="button">Burst x50</button>
+  <button class="btn" id="clear" type="button">Clear</button>
+</div>
+
+<script type="module" src="assets/js/check.js"></script>
+</body>
+</html>

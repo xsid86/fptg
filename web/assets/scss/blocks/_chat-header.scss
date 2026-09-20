@@ -1,0 +1,65 @@
+@use "../abstracts" as *;
+
+// The bar above the history. Mirrors chatheader.pas: identity on the
+// left, a search field and a row of filter toggles on the right.
+.chat-header {
+  --chat-color: var(--accent-color, var(--c-accent));
+
+  @include flex(row, center, flex-start, $space-4);
+  padding: $space-3 $space-4;
+  border-bottom: 1px solid var(--c-border);
+  background: color-mix(in srgb, var(--chat-color) 8%, var(--c-surface));
+}
+
+.chat-header__back {
+  display: none;
+  @include respond-to("md") { display: flex; }
+}
+
+.chat-header__avatar { --avatar-color: var(--chat-color); }
+
+.chat-header__identity {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.chat-header__title {
+  @include ellipsis;
+  @include flex(row, center, flex-start, $space-2);
+  font-size: $fs-md;
+  font-weight: $fw-bold;
+  color: var(--chat-color);
+}
+
+.chat-header__subtitle {
+  @include ellipsis;
+  font-size: $fs-sm;
+  color: var(--c-text-dim);
+}
+
+.chat-header__tools {
+  @include flex(column, flex-end, center, $space-3);
+}
+
+.chat-header__search { width: 220px; }
+
+// The filter strip. Each toggle is icon-only and carries its own label
+// for assistive tech; active state is colour, not a box, so the strip
+// stays quiet until something is on.
+.chat-header__filters {
+  @include flex(row, center, flex-end, $space-2);
+  flex-wrap: wrap;
+}
+
+.chat-filter {
+  @include size(20px);
+  @include flex(row, center, center);
+  border-radius: $radius-sm;
+  color: var(--c-text-faint);
+  transition: color $dur-fast $ease, background $dur-fast $ease;
+
+  .icon { @include size($icon-sm); }
+
+  &:hover { color: var(--c-text); background: var(--c-surface-hover); }
+  &.is-active { color: var(--chat-color); }
+}

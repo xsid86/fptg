@@ -6,3 +6,6 @@ sticker_debug*.bmp
 sticker_debug.txt
 sticker_paint_input.bmp
 sticker_paint_result.bmp
+server_url.txt
+web/.idea/
+web/assets/scss/*.css.map

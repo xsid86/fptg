@@ -1,0 +1,30 @@
+@use "../abstracts" as *;
+
+.field {
+  @include flex(row, center, flex-start, $space-2);
+  padding: $space-2 $space-3;
+  border-radius: $radius-pill;
+  background: var(--c-surface-2);
+  border: 1px solid transparent;
+  transition: border-color $dur-fast $ease, background $dur-fast $ease;
+
+  &:focus-within {
+    border-color: var(--c-accent);
+    background: var(--c-surface);
+  }
+
+  .icon { color: var(--c-text-faint); }
+}
+
+.field__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: $fs-base;
+  &::placeholder { color: var(--c-text-faint); }
+  &:focus { outline: none; }
+}
+
+.field__clear {
+  color: var(--c-text-faint);
+  &:hover { color: var(--c-text); }
+}

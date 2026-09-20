@@ -1,0 +1,25 @@
+// The only file compiled directly; everything else is a partial.
+//
+//   sass assets/scss/style.scss assets/scss/style.css
+//
+// The output goes NEXT TO this file rather than into a css/ folder of
+// its own: that is where the IDE's file watcher puts it, and one build
+// artefact in one place beats two conventions that have to be kept in
+// step by hand.
+//
+// Order matters and is not alphabetical: tokens first (nothing can be
+// used before it is defined), then the reset, then progressively more
+// specific layers. Within a layer nothing should depend on the order,
+// and if it ever does, that is a bug in the layer rather than a reason
+// to shuffle this list.
+//
+// @use, not @import: @import is deprecated in Dart Sass, and worse, it
+// dumps everything into one global namespace where a variable silently
+// wins or loses depending on include order.
+
+@use "abstracts";   // no output, just tokens and mixins
+@use "base";
+@use "layout";
+@use "components";
+@use "blocks";
+@use "pages";

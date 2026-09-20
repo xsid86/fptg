@@ -1,0 +1,37 @@
+@use "../abstracts" as *;
+
+// The window: a sidebar, the workspace, and a status strip across the
+// bottom. Grid rather than flex because the status bar spans both
+// columns, which is one rule here and a wrapper element otherwise.
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    "sidebar workspace"
+    "status  status";
+  height: 100vh;
+  gap: $space-2;
+  padding: $space-2;
+
+  @include respond-to("md") {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "sidebar"
+      "status";
+
+    // On a narrow window the two panes become pages rather than
+    // columns; which one is showing is state, not a media query.
+    &[data-view="chat"] {
+      grid-template-areas:
+        "workspace"
+        "status";
+      .app__sidebar { display: none; }
+    }
+    &:not([data-view="chat"]) .app__workspace { display: none; }
+  }
+}
+
+.app__sidebar   { grid-area: sidebar; min-width: 0; }
+.app__workspace { grid-area: workspace; min-width: 0; }
+.app__status    { grid-area: status; }

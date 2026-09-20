@@ -1,0 +1,24 @@
+@use "../abstracts" as *;
+
+.badge {
+  @include flex(row, center, center);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 $space-3;
+  border-radius: $radius-pill;
+  background: var(--c-unread);
+  color: var(--c-accent-text);
+  font-size: $fs-xs;
+  font-weight: $fw-bold;
+  font-variant-numeric: tabular-nums;
+}
+
+// A muted chat still counts, it just stops shouting about it.
+.badge--muted { background: var(--c-text-faint); }
+
+.badge--dot {
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+}

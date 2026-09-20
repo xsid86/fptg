@@ -1246,6 +1246,15 @@ const
   { TColor is $00BBGGRR. The comment on each value gives its RGB and
     name per core.telegram.org/api/colors — not an official hex value
     (none is published). }
+  { Highest accent id Telegram actually hands out. 0..6 are the built-in
+    ones below; 7..20 arrive in updateAccentColors. Counted from this
+    account's own tdlib_raw.log (updateAccentColors defines exactly
+    7..20, and no chat in the log carries anything outside 0..20), not
+    assumed — the web UI turns this range into a fixed set of CSS
+    classes, so an id past the end has to fall back rather than go
+    unstyled. }
+  ACCENT_ID_MAX = 20;
+
   BUILT_IN_COLORS: array[0..6] of TColor = (
     $3C3CE6,  { RGB(230, 60, 60)   red }
     $1E8CE6,  { RGB(230,140, 30)   orange }
@@ -1382,6 +1391,66 @@ const
     directly, on just this one control, without touching either
     frame's overall layout. }
   THIN_SCROLLBAR_MARGIN = 5;
+
+  { ================= localserver.pas / wsframe.pas ================= }
+
+  { The loopback HTTP+WebSocket server that serves the web UI. Only
+    listening at all when the process was started with --server, and
+    only ever on 127.0.0.1. }
+  LOCAL_SERVER_PORT = 7654;
+  { Static files are served out of this directory next to the exe
+    (never out of the project or the TDLib cache — see MapPath, which
+    additionally refuses anything that escapes it). }
+  LOCAL_SERVER_WEB_DIR = 'web';
+  { Where the URL with the run's token is left for the user. This is a
+    GUI process with no console, so there is no other way to hand it
+    over; deleted again on shutdown. }
+  LOCAL_SERVER_URL_FILE = 'server_url.txt';
+  { The cookie the root page is given, so that <img>/<video> URLs the
+    page builds afterwards carry the token without having to append it
+    to every one of them. }
+  LOCAL_SERVER_COOKIE = 'tgsid';
+  { 128 bits, from the OS CSPRNG. This is effectively a session key:
+    anything on this machine that can reach the port can drive the
+    account once it has the token. }
+  LOCAL_SERVER_TOKEN_BYTES = 16;
+
+  { Accept is polled rather than blocked on, so Terminate is noticed
+    within one of these instead of needing the socket pulled out from
+    under a blocked call. }
+  LOCAL_SERVER_ACCEPT_POLL_MS = 200;
+  LOCAL_SERVER_HTTP_TIMEOUT_MS = 15000;
+  { A cap on the request head, because without one a peer can make a
+    connection thread grow a list until the process dies. }
+  LOCAL_SERVER_MAX_HEADER_BYTES = 16384;
+  LOCAL_SERVER_SEND_CHUNK = 65536;
+  { How long shutdown waits for live connections to unwind before
+    giving up on them. Bounded: a stuck connection must not hold
+    application exit. }
+  LOCAL_SERVER_STOP_WAIT_MS = 2000;
+
+  { Same idea as the accept poll, for the WebSocket read loop. }
+  LOCAL_SERVER_WS_POLL_MS = 200;
+  LOCAL_SERVER_WS_READ_TIMEOUT_MS = 15000;
+  { The point past which a peer is told it has gone too far instead of
+    being allowed to make this process allocate whatever it claimed.
+    Generous on purpose: a history page of fifty parsed messages is a
+    genuinely large JSON. }
+  LOCAL_SERVER_WS_MAX_PAYLOAD = 16 * 1024 * 1024;
+  { Server-side keepalive. This is what detects a peer that vanished
+    without a FIN (a sleeping laptop, a killed browser); without it
+    such a connection sits in the read loop forever holding a thread. }
+  LOCAL_SERVER_WS_PING_MS = 20000;
+
+  { A SAFETY NET, not the delivery path (webapi.pas). A socket thread
+    that queues a command also wakes the main thread immediately
+    through TThread.Queue, so this interval only matters if something
+    ever stops that wake-up from arriving — hence a lazy value
+    rather than a frame-sized one. It began life AS the delivery path,
+    at 15 ms, and measured a ~16 ms median round trip on every single
+    command: exactly the kind of tax that is easy to add and hard to
+    remove once things depend on it. }
+  WEBAPI_FALLBACK_TICK_MS = 200;
 
 implementation
 

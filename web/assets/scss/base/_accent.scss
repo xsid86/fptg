@@ -1,0 +1,25 @@
+@use "sass:map";
+@use "../abstracts" as *;
+
+// One class per accent, and nothing else in the app sets a colour on an
+// element directly. A block that wants to be tinted maps --accent-color
+// onto its own semantic name (--chat-color, --sender-color), so the
+// palette stays a single flat list and the blocks stay readable.
+
+@mixin emit-accents($palette) {
+  @each $key, $color in $palette {
+    .accent-#{$key} { --accent-color: #{$color}; }
+  }
+}
+
+@include emit-accents($accent-light);
+
+// Telegram ships a separate dark value for every accent, so the dark
+// theme is not the light palette on a darker card - it is the palette
+// Telegram meant for dark. Same two selectors as base/_root.scss uses,
+// for the same reason: follow the OS unless an explicit choice is made.
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { @include emit-accents($accent-dark); }
+}
+:root[data-theme="dark"] { @include emit-accents($accent-dark); }
+:root[data-theme="light"] { @include emit-accents($accent-light); }

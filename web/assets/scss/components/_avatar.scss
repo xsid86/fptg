@@ -1,0 +1,43 @@
+@use "../abstracts" as *;
+
+// Until the media route exists there is no photo to show, so the avatar
+// is a coloured disc with an initial. The colour is the chat's real
+// accent, resolved server-side (webapi.pas), not a hash invented here —
+// so it matches what the native window draws for the same chat.
+.avatar {
+  @include size($avatar-md);
+  @include flex(row, center, center);
+  position: relative;
+  border-radius: 50%;
+  background: var(--avatar-color, var(--c-accent));
+  color: #fff;
+  font-weight: $fw-bold;
+  font-size: $fs-md;
+  line-height: 1;
+  user-select: none;
+  overflow: hidden;
+}
+
+.avatar--sm { @include size($avatar-sm); font-size: $fs-sm; }
+.avatar--lg { @include size($avatar-lg); font-size: $fs-lg; }
+
+.avatar__img {
+  @include absolute-fill;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+// Small state dot, bottom-right, ringed in the surface colour so it
+// stays legible against any avatar colour underneath.
+.avatar__dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  @include size(10px);
+  border-radius: 50%;
+  border: 2px solid var(--c-surface);
+  background: var(--c-text-faint);
+
+  &.is-online { background: var(--c-ok); }
+}

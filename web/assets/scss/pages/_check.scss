@@ -1,0 +1,48 @@
+@use "../abstracts" as *;
+
+// check.html only: the transport diagnostic. Kept in the same
+// stylesheet so it follows the theme, but scoped to its own page class
+// so none of it can leak into the app.
+.page-check {
+  @include flex(column, stretch, flex-start);
+  height: 100vh;
+  padding: $space-4;
+  gap: $space-4;
+}
+
+.check__head {
+  @include flex(row, center, flex-start, $space-4);
+  flex-wrap: wrap;
+}
+
+.check__log {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: $space-4;
+  border-radius: $radius-md;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  font-family: $font-mono;
+  font-size: $fs-sm;
+  white-space: pre-wrap;
+  @include scroll-area;
+}
+
+.check__line { display: flex; gap: $space-4; }
+.check__ts   { color: var(--c-text-faint); }
+.check__in   { color: var(--c-ok); }
+.check__out  { color: var(--c-accent); }
+.check__err  { color: var(--c-danger); }
+
+.check__foot {
+  @include flex(row, center, flex-start, $space-2);
+  flex-wrap: wrap;
+}
+
+.check__input {
+  flex: 1 1 200px;
+  padding: $space-3 $space-4;
+  border-radius: $radius-md;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+}

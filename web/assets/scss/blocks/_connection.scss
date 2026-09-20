@@ -1,0 +1,19 @@
+@use "../abstracts" as *;
+
+// Connection state. A dot plus a word: the dot is scannable, the word
+// is unambiguous, and colour alone is never the only signal.
+.conn {
+  @include flex(row, center, flex-start, $space-2);
+}
+
+.conn__dot {
+  @include size(8px);
+  border-radius: 50%;
+  background: var(--c-warn);
+  transition: background $dur-base $ease;
+
+  .conn.is-open &   { background: var(--c-ok); }
+  .conn.is-closed & { background: var(--c-danger); }
+}
+
+.conn__label { color: var(--c-text-dim); }

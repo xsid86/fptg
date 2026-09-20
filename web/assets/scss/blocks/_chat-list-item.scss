@@ -1,0 +1,127 @@
+@use "../abstracts" as *;
+
+// One row of the chat list, laid out like the native card it mirrors
+// (framechats.pas): a tinted header strip with the type icon, the name
+// and the row's own action icons, then a content row with the avatar
+// and the last-message preview, with the unread badge at its trailing
+// edge.
+//
+// --chat-color is set per item from the JS, out of the accent colour
+// the server resolved. Everything tinted in here reads from that one
+// property, so a chat's colour is applied once and never re-derived.
+.chat-item {
+  // Set by the .accent-* class the row also carries; the default keeps
+  // the card sane if a chat ever arrives without one.
+  background: var(--c-surface);
+
+  background: color-mix(in srgb, var(--chat-color) 5%, var(--c-surface));
+  border: 1px solid var(--chat-color);
+  border-radius: $radius-md;
+  --chat-color: var(--accent-color, var(--c-accent));
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  transition: all $dur-fast $ease;
+  width: 100%;
+  box-shadow: 0 2px 2px rgba(0, 0, 0, .1);
+  @include focus-ring(var(--chat-color), -2px);
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+
+  // Selected shows through the GAPS around the card rather than by
+  // repainting the card itself — the same decision the native list
+  // makes, and the reason the card keeps its own tint when active.
+  &.is-active {
+    border-color: var(--chat-color);
+  }
+}
+
+// ------------------------------------------------------------ header
+.chat-item__head {
+  @include flex(row, center, flex-start, $space-2);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--chat-color) 16%, var(--c-surface)), color-mix(in srgb, var(--chat-color) 32%, var(--c-surface)));
+  color: var(--chat-color);
+  padding: $space-2 $space-3;
+  //border-bottom: 1px solid var(--chat-color);
+}
+
+.chat-item__kind {
+  @include size($icon-sm);
+}
+
+.chat-item__title {
+  @include ellipsis;
+  flex: 1 1 auto;
+  font-size: $fs-base;
+  font-weight: $fw-bold;
+}
+
+.chat-item__flags {
+  @include flex(row, center, flex-end, $space-1);
+  color: var(--c-text-faint);
+
+  .icon {
+    @include size($icon-sm);
+  }
+}
+
+.chat-item__time {
+  color: var(--c-text-dim);
+  font-size: $fs-xs;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+// ----------------------------------------------------------- content
+.chat-item__body {
+  @include flex(row, center, flex-start, $space-3);
+  padding: $space-3;
+}
+
+.chat-item__avatar {
+  --avatar-color: var(--chat-color);
+}
+
+.chat-item__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.chat-item__preview {
+  @include ellipsis;
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+
+  // "You: " before an outgoing preview, in the chat's own colour.
+  .is-outgoing & > .chat-item__me {
+    color: var(--chat-color);
+  }
+}
+
+.chat-item__me {
+  font-weight: $fw-medium;
+}
+
+.chat-item__meta {
+  @include flex(column, flex-end, center, $space-1);
+  align-self: stretch;
+  justify-content: space-between;
+}
+
+.chat-item__folder {
+  --chip-color: var(--chat-color);
+}
+
+// ------------------------------------------------------------ states
+.chat-item--muted .chat-item__title {
+  color: var(--c-text-dim);
+}
+
+.chat-item--secret {
+  --chat-color: var(--c-ok);
+}
