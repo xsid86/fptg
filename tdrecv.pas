@@ -79,6 +79,12 @@ function TdReceiverExists: boolean;
   irrelevant ones with cheap string checks. }
 function ExtractClientId(const AJson: utf8string): integer;
 
+{ Exported for webapi.pas, which faces the same hazard from the other
+  direction: anything arriving as JSON from outside has to be put
+  through this before GetJSON sees it. See the long comment at the
+  implementation. }
+function PreDecodeUnicodeEscapes(const AJson: utf8string): utf8string;
+
 implementation
 
 var

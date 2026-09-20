@@ -1,0 +1,17 @@
+// A fixed ladder of widths, as classes.
+//
+// This exists because of the standing rule that JavaScript never writes
+// the style attribute. A progress bar and a poll result are the two
+// places where a proportion has to reach the stylesheet, and the honest
+// way to do that without an inline style is a finite set of steps the
+// stylesheet declares up front - the same reasoning that turned the
+// accent palette into .accent-* classes.
+//
+// Five-point steps: 21 rules, and a poll result or a download bar is
+// never read to a finer precision than that anyway. The percentage
+// TEXT next to it stays exact - it is the bar that snaps, not the
+// number.
+
+@for $i from 0 through 20 {
+  .w-#{$i * 5} { width: #{$i * 5%}; }
+}

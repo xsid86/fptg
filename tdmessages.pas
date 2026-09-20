@@ -519,6 +519,13 @@ type
     FSearchSeq:      integer;
 
     FOnChanged: TTdMessagesEvent;
+    { Extra OnChanged subscribers, alongside the single-slot FOnChanged
+      above. The plain event is assigned — whoever assigns last wins —
+      so a second view (the web UI, webapi.pas) could not listen without
+      silently stealing the notification from the first. Additive on
+      purpose: the existing frame keeps using OnChanged exactly as it
+      did, and nothing about it changes. }
+    FChangeListeners: array of TTdMessagesEvent;
     FOnLoadingChanged: TTdMessagesEvent;
     FOnActionError: TTdMessagesErrorEvent;
     FOnJumpReady: TTdMessagesJumpEvent;
@@ -587,6 +594,7 @@ type
       what actually enforces the rate. }
     FByteBudget: Int64;
 
+    procedure NotifyChanged;
     function GetCount: integer;
     function GetRow(AIndex: integer): TMsgRow;
     function Lookup(AId: Int64): TMsgRow;
@@ -861,6 +869,12 @@ type
       Auto download gate" principle as EnsureVideoThumbFile/stickers. }
     procedure EnsureCustomEmojiForRow(ARow: TMsgRow);
 
+    { A second (third, ...) listener for the same signal OnChanged
+      carries. Adding the same method twice is a no-op, so a view that
+      re-binds on every chat switch cannot pile up duplicates. }
+    procedure AddChangeListener(AEvent: TTdMessagesEvent);
+    procedure RemoveChangeListener(AEvent: TTdMessagesEvent);
+
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
     { ITdStateListener }
@@ -939,6 +953,18 @@ function DownloadConcurrency: integer;
 procedure SetDownloadSpeedLimit(AValue: integer);
 function DownloadSpeedLimit: integer;
 
+{ Invisible mode. Set from the presence switch in the status bar
+  (main.pas); read by MarkRead, which refuses to send viewMessages while
+  it is on.
+
+  The gate lives HERE, next to the request it suppresses, rather than in
+  whichever view happened to ask. There are two views now — the native
+  window and the browser — and a check that only one of them performs
+  would mean the account stops leaking read receipts in one window and
+  carries on leaking them in the other. }
+procedure SetPresenceInvisible(AValue: boolean);
+function PresenceInvisible: boolean;
+
 implementation
 
 uses
@@ -947,6 +973,8 @@ uses
 var
   GDownloadConcurrency: integer = DOWNLOAD_CONCURRENCY_DEFAULT;
   GDownloadSpeedLimit: integer = DOWNLOAD_SPEED_DEFAULT_KB;
+  { See SetPresenceInvisible. }
+  GPresenceInvisible: boolean = False;
 
 procedure SetDownloadConcurrency(AValue: integer);
 begin
@@ -962,6 +990,16 @@ end;
 function DownloadConcurrency: integer;
 begin
   Result := GDownloadConcurrency;
+end;
+
+procedure SetPresenceInvisible(AValue: boolean);
+begin
+  GPresenceInvisible := AValue;
+end;
+
+function PresenceInvisible: boolean;
+begin
+  Result := GPresenceInvisible;
 end;
 
 procedure SetDownloadSpeedLimit(AValue: integer);
@@ -1353,9 +1391,7 @@ begin
   if (FChatId <> 0) and (FReq <> nil) then begin
     FReq.SendRequest('openChat', '"chat_id":' + utf8string(IntToStr(FChatId)), @ActionDone);
   end;
-  if Assigned(FOnChanged) then begin
-    FOnChanged(Self);
-  end;
+  NotifyChanged;
   if AChatId <> 0 then begin
     if AJumpToMessageId <> 0 then begin
       JumpTo(AJumpToMessageId);
@@ -1453,8 +1489,73 @@ begin
     FRows.Add(FAll.Data[I]);
   end;
 
+  NotifyChanged;
+end;
+
+{ Fires the single-slot OnChanged and then every extra listener.
+
+  Iterates a COPY: a listener is allowed to remove itself from inside
+  the callback, and mutating the array mid-loop would skip its
+  neighbour. One listener raising must not rob the others of the signal
+  either — a half-delivered change leaves one view showing something
+  the model no longer contains. }
+procedure TTdMessages.NotifyChanged;
+var
+  Snapshot: array of TTdMessagesEvent;
+  I: integer;
+begin
   if Assigned(FOnChanged) then begin
     FOnChanged(Self);
+  end;
+  if Length(FChangeListeners) = 0 then begin
+    Exit;
+  end;
+  SetLength(Snapshot, Length(FChangeListeners));
+  for I := 0 to High(FChangeListeners) do begin
+    Snapshot[I] := FChangeListeners[I];
+  end;
+  for I := 0 to High(Snapshot) do begin
+    try
+      Snapshot[I](Self);
+    except
+      { swallowed on purpose, see above }
+    end;
+  end;
+end;
+
+procedure TTdMessages.AddChangeListener(AEvent: TTdMessagesEvent);
+var
+  I: integer;
+begin
+  if not Assigned(AEvent) then begin
+    Exit;
+  end;
+  for I := 0 to High(FChangeListeners) do begin
+    { Method pointers are two words (code + data); comparing them as
+      TMethod is the way to ask whether it is the same method on the
+      same object. }
+    if (TMethod(FChangeListeners[I]).Code = TMethod(AEvent).Code)
+      and (TMethod(FChangeListeners[I]).Data = TMethod(AEvent).Data) then begin
+      Exit;
+    end;
+  end;
+  SetLength(FChangeListeners, Length(FChangeListeners) + 1);
+  FChangeListeners[High(FChangeListeners)] := AEvent;
+end;
+
+procedure TTdMessages.RemoveChangeListener(AEvent: TTdMessagesEvent);
+var
+  I, J: integer;
+begin
+  for I := 0 to High(FChangeListeners) do begin
+    if (TMethod(FChangeListeners[I]).Code = TMethod(AEvent).Code)
+      and (TMethod(FChangeListeners[I]).Data = TMethod(AEvent).Data) then begin
+      for J := I to High(FChangeListeners) - 1 do begin
+        FChangeListeners[J] := FChangeListeners[J + 1];
+      end;
+      SetLength(FChangeListeners, Length(FChangeListeners) - 1);
+      Exit;
+    end;
   end;
 end;
 
@@ -1474,13 +1575,11 @@ begin
   FFilterType := AFilterType;
   FSearchQuery := AQuery;
 
-  if Assigned(FOnChanged) then begin
-    { Synchronously, before any request goes out — the list is already
-      empty at this point and the view must show that immediately
-      rather than keep the previous filter's results on screen until
-      the response arrives. }
-    FOnChanged(Self);
-  end;
+  { Synchronously, before any request goes out — the list is already
+    empty at this point and the view must show that immediately rather
+    than keep the previous filter's results on screen until the
+    response arrives. }
+  NotifyChanged;
   if FChatId <> 0 then begin
     LoadOlder;
   end;
@@ -3558,6 +3657,11 @@ begin
   if (FReq = nil) or (FChatId = 0) or (Length(AMessageIds) = 0) then begin
     Exit;
   end;
+  { Invisible mode: reading is exactly the signal it is meant to
+    withhold. See SetPresenceInvisible. }
+  if GPresenceInvisible then begin
+    Exit;
+  end;
   Ids := '';
   for I := 0 to High(AMessageIds) do begin
     if Ids <> '' then begin
@@ -3614,9 +3718,7 @@ begin
       TFrameHistory.UpdateSearchStatus, which watches for exactly this
       "the model dropped the filter by itself" edge. }
     Clear;
-    if Assigned(FOnChanged) then begin
-      FOnChanged(Self);
-    end;
+    NotifyChanged;
   end;
   { offset:-(N) means "N more messages NEWER than from_message_id"
     (official docs.core.telegram.org/tdlib, getChatHistory.offset), in

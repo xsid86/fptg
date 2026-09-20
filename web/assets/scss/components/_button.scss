@@ -37,3 +37,17 @@
 .btn--danger { color: var(--c-danger); }
 
 .btn.is-active { color: var(--c-accent); }
+
+// A checkbox wearing a button's clothes - the HTML/Markdown and silent
+// toggles in the composer, matching the native TToggleBox pair.
+.btn--toggle {
+  gap: $space-2;
+  cursor: pointer;
+
+  input { margin: 0; }
+  &:has(input:checked) {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+    color: var(--c-accent-text);
+  }
+}

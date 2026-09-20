@@ -52,7 +52,7 @@ uses
   framesettingsautodownload, framesettingsstorage,
   framelog, framewelcome, framechats, framehistory,
   mediaviewer, msginput, apisetup, chatheader,
-  wsframe, localserver, webapi
+  wsframe, webfiles, localserver, webapi
   { you can add units after this };
 
 {$R *.res}
@@ -125,21 +125,26 @@ begin
   FormSplash.Show;
   TdApp.Start;
 
-  { The web UI's transport, when asked for on the command line
-    (--server, optionally --server-port=N). Deliberately off by
-    default and deliberately started HERE rather than from a form: it
-    shares nothing with the LCL side, it is being stood up alongside
-    the native UI rather than in place of it, and a normal launch must
-    behave exactly as it always has — no listening socket, no
-    server_url.txt. A refused start (port taken) is not fatal for the
-    same reason: the native UI is still a complete application. }
-  if ServerRequested(ServerPort) then begin
-    if StartLocalServer(ServerPort) then begin
-      { Only once the socket is actually listening: without the server
-        there is nothing for the command bridge to answer on, and its
-        timer would just tick for nothing. }
-      WebApiStart;
-    end;
+  { The web UI's transport, on for every launch. It used to need
+    --server, which meant remembering a flag to get at the interface
+    the app is being moved to — the wrong default once the web UI is
+    the point rather than an experiment. --server-port=N still
+    overrides the port.
+
+    Started HERE rather than from a form because it shares nothing
+    with the LCL side; it stands alongside the native UI, not inside
+    it. A refused start (port already taken) is still not fatal for
+    the same reason: the native window is a complete application on
+    its own, and Tools -> Open web interface is where the user is
+    told about it — that menu item is the only place this failure
+    would otherwise surface, a GUI process having no console to
+    complain to. }
+  ServerPort := ConfiguredServerPort;
+  if StartLocalServer(ServerPort) then begin
+    { Only once the socket is actually listening: without the server
+      there is nothing for the command bridge to answer on, and its
+      timer would just tick for nothing. }
+    WebApiStart;
   end;
 
   Application.Run;

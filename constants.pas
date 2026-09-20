@@ -1394,9 +1394,9 @@ const
 
   { ================= localserver.pas / wsframe.pas ================= }
 
-  { The loopback HTTP+WebSocket server that serves the web UI. Only
-    listening at all when the process was started with --server, and
-    only ever on 127.0.0.1. }
+  { The loopback HTTP+WebSocket server that serves the web UI. Runs
+    on every launch, and only ever on 127.0.0.1; --server-port=N on
+    the command line overrides this default. }
   LOCAL_SERVER_PORT = 7654;
   { Static files are served out of this directory next to the exe
     (never out of the project or the TDLib cache — see MapPath, which

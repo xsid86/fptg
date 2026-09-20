@@ -10,13 +10,9 @@ unit webapi;
   threaded and lives on the main thread behind its own coalescing
   timers. A socket thread must never touch it. So SocketMessage (which
   runs on the socket thread) does nothing but copy the text into a
-  queue, and a timer on the main thread drains that queue and does the
-  actual work. A TTimer rather than TThread.Synchronize/Queue on
-  purpose: this project has already been bitten by a decoder thread
-  blocked inside its own Synchronize while the main thread waited on
-  it, and a plain queue has no such failure mode. The cost is up to one
-  tick of added latency, which against a transport measured at 0.024 ms
-  is invisible.
+  queue, and the main thread drains that queue and does the actual
+  work. TThread.Queue wakes it immediately; a 200 ms timer is kept
+  only as a safety net.
 
   WHAT GOES OVER THE WIRE IS THIS PROJECT'S OWN VIEW MODEL, NOT TDLib.
   It would be less code today to forward TDLib's JSON straight to the
@@ -24,6 +20,15 @@ unit webapi;
   FAll, the download queue and its rate limit, the dedup rules — all of
   that was expensive to get right and it lives in tdmessages/tdchats.
   Proxying TDLib would mean writing it a second time in JavaScript.
+
+  THE WEB UI AND THE NATIVE WINDOW SHARE ONE MODEL. TdMsgList and
+  TdChatList are the same instances the frames use, deliberately: that
+  is the end state (the native UI is to be reduced to a tray icon), and
+  in the meantime it is what makes side-by-side comparison meaningful —
+  both windows show the same chat, from the same rows, and any
+  difference is a difference in rendering rather than in data. The
+  visible consequence while both exist: opening a chat in the browser
+  switches the native window to it too.
 
   Protocol, all of it JSON objects (spelled out in words rather than
   in braces: a literal brace inside a brace comment opens a nested one
@@ -34,13 +39,19 @@ unit webapi;
     server -> client   id, ok false, error        — a refusal
     server -> client   event and data             — unsolicited
 
-  A note on parsing, for when this grows: fpjson's \uXXXX handling is
-  broken in two ways this project has already diagnosed the hard way
-  (see tdrecv.pas's PreDecodeUnicodeEscapes). It does not bite here
-  because JSON.stringify emits non-ASCII as raw UTF-8 rather than as
-  escapes, and because the commands this unit accepts are ASCII names
-  and numbers. The moment the page starts sending message TEXT, that
-  input needs the same hardening tdrecv already applies. }
+  Events are SIGNALS, not payloads: "the chat list changed", "the open
+  chat's messages changed". The page then asks for what it wants, and
+  throttles itself. That is on purpose — a model change fires for every
+  download-progress tick, and pushing a full history on each of those
+  would be pure waste when the page may not even be showing that part.
+
+  On parsing: fpjson's \uXXXX handling is broken in two ways this
+  project diagnosed the hard way (see tdrecv.PreDecodeUnicodeEscapes).
+  In practice JSON.stringify emits non-ASCII as raw UTF-8 rather than
+  as escapes, so it would not bite — but this unit now accepts message
+  TEXT from the page, which is exactly the case the old comment here
+  said would need the same hardening. It gets it: every incoming frame
+  goes through the same decoder before GetJSON sees it. }
 
 interface
 
@@ -50,8 +61,9 @@ procedure WebApiStop;
 implementation
 
 uses
-  Classes, SysUtils, SyncObjs, ExtCtrls, fpjson, jsonparser,
-  constants, tdchats, tdcore, localserver;
+  Classes, SysUtils, SyncObjs, ExtCtrls, base64, fpjson, jsonparser,
+  constants, tdchats, tdmessages, tdusers, tdcore, tdrecv, localserver,
+  webfiles;
 
 type
   TWebReq = class
@@ -65,10 +77,19 @@ type
     FTimer: TTimer;
     FLock:  SyncObjs.TCriticalSection;
     FQueue: TFPList;
+    { The model objects this instance is currently subscribed to. They
+      belong to the active account and are replaced when the account
+      changes, so they are re-checked on every tick rather than bound
+      once at start-up (at start-up there may be no account at all). }
+    FBoundChats: TTdChats;
+    FBoundMsgs:  TTdMessages;
     procedure Tick(Sender: TObject);
-    { The same work, callable as a TThreadMethod — that is what
-      TThread.Queue needs, and it takes no parameters. }
     procedure Drain;
+    procedure EnsureBindings;
+    procedure DropBindings;
+    procedure ChatsChanged(Sender: TObject);
+    procedure MessagesChanged(Sender: TObject);
+    procedure PushEvent(const AName: utf8string; AData: TJSONObject);
     { NOT "Dispatch": TObject already has one (message dispatch), and
       a method of that name here hides it — the same family as
       TThread.Start, TControl.Text and TComponent.Name elsewhere in
@@ -77,6 +98,18 @@ type
     procedure Reply(AConnId: Int64; AReqId: integer; AResult: TJSONData);
     procedure Fail(AConnId: Int64; AReqId: integer; const AError: utf8string);
     function  CmdChatsList(AArgs: TJSONObject): TJSONData;
+    function  CmdChatsAvatars(AArgs: TJSONObject): TJSONData;
+    function  CmdChatsMore(AArgs: TJSONObject): TJSONData;
+    function  CmdChatOpen(AArgs: TJSONObject): TJSONData;
+    function  CmdChatClose: TJSONData;
+    function  CmdChatAction(AArgs: TJSONObject): TJSONData;
+    function  CmdMessagesList: TJSONData;
+    function  CmdMessagesOlder: TJSONData;
+    function  CmdMessagesRead(AArgs: TJSONObject): TJSONData;
+    function  CmdMessageSend(AArgs: TJSONObject): TJSONData;
+    function  CmdPollVote(AArgs: TJSONObject): TJSONData;
+    function  CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
+    function  CmdSearchSet(AArgs: TJSONObject): TJSONData;
   public
     constructor Create;
     destructor Destroy; override;
@@ -92,8 +125,8 @@ var
 
 { A key into the web UI's palette, NOT a colour.
     'a<id>' — Telegram's own accent id, 0..ACCENT_ID_MAX.
-    'f<n>'  — the hashed fallback, for a chat with no accent id (or one
-              past the range this build knows about), matching what
+    'f<n>'  — the hashed fallback, for a subject with no accent id (or
+              one past the range this build knows about), matching what
               framechats.ChatAccentColor falls back to.
 
   A key rather than '#rrggbb' because the page styles a chat by adding
@@ -103,13 +136,18 @@ var
   time. The stylesheet holds the matching hex values (and Telegram's
   separate dark-theme values, which a single colour sent from here
   could not express at all). }
+function AccentKeyFor(AAccentColorId: integer; AHashId: Int64): utf8string;
+begin
+  if (AAccentColorId >= 0) and (AAccentColorId <= ACCENT_ID_MAX) then begin
+    Result := 'a' + utf8string(IntToStr(AAccentColorId));
+  end else begin
+    Result := 'f' + utf8string(IntToStr(Abs(AHashId) mod Length(SENDER_PALETTE)));
+  end;
+end;
+
 function AccentKey(ARow: TChatRow): utf8string;
 begin
-  if (ARow.AccentColorId >= 0) and (ARow.AccentColorId <= ACCENT_ID_MAX) then begin
-    Result := 'a' + utf8string(IntToStr(ARow.AccentColorId));
-  end else begin
-    Result := 'f' + utf8string(IntToStr(Abs(ARow.Id) mod Length(SENDER_PALETTE)));
-  end;
+  Result := AccentKeyFor(ARow.AccentColorId, ARow.Id);
 end;
 
 function ChatKindStr(AChats: TTdChats; ARow: TChatRow): utf8string;
@@ -129,6 +167,28 @@ begin
     ckSecret:                   Result := 'secret';
   else
     Result := 'other';
+  end;
+end;
+
+{ Registers a downloaded file and returns its URL, or '' when there is
+  nothing on disk yet. Publishing happens here, while serialising, so
+  the page can never be handed a URL for a file the HTTP side does not
+  know how to resolve. }
+function FileUrl(AFileId: integer; const APath: utf8string): utf8string;
+begin
+  Result := WebFilePublish(AFileId, APath);
+end;
+
+{ A tiny JPEG that arrives inside the message itself, with no download
+  — the blurred placeholder. Sent inline as a data URI because that is
+  what it is for: something to show in the same frame the message
+  appears in, before any request could possibly come back. }
+function ThumbDataUri(const ABytes: RawByteString): utf8string;
+begin
+  if ABytes = '' then begin
+    Result := '';
+  end else begin
+    Result := 'data:image/jpeg;base64,' + utf8string(EncodeStringBase64(string(ABytes)));
   end;
 end;
 
@@ -163,6 +223,378 @@ begin
   Result.Add('archived', ARow.InArchive);
   Result.Add('outgoing', ARow.LastIsOutgoing);
   Result.Add('folder',   string(Folder));
+  Result.Add('premium',  AChats.IsPremiumUser(ARow));
+  Result.Add('deleted',  AChats.IsDeletedUser(ARow));
+  { Whether this account may write here at all — a channel it only
+    reads says no, and the native window hides its composer for exactly
+    this. }
+  Result.Add('canSend',  ARow.CanSendBasicMessages);
+  { The avatar, if it is already on disk. NOT requested here: chats.list
+    serialises the WHOLE list, and asking for a hundred downloads
+    because someone opened the app is precisely what the native window
+    avoids by only calling EnsureAvatar for rows that are on screen.
+    The page asks for the ones it can see, through chats.avatars.
+    The minithumbnail rides along free — it arrives inside the chat
+    object itself, with no download at all. }
+  Result.Add('avatar',   string(FileUrl(ARow.PhotoFileId, ARow.PhotoPath)));
+  Result.Add('avatarThumb', string(ThumbDataUri(ARow.Minithumb)));
+end;
+
+{ ------------------------------------------------------------------ }
+{ message view model                                                 }
+{ ------------------------------------------------------------------ }
+
+function ContentKindStr(AKind: TMsgContentKind): utf8string;
+begin
+  case AKind of
+    mckText:      Result := 'text';
+    mckAudio:     Result := 'audio';
+    mckPhoto:     Result := 'photo';
+    mckAnimation: Result := 'animation';
+    mckSticker:   Result := 'sticker';
+    mckVoiceNote: Result := 'voice';
+    mckFile:      Result := 'file';
+    mckVideo:     Result := 'video';
+    mckPoll:      Result := 'poll';
+  else
+    Result := 'other';
+  end;
+end;
+
+function EntityKindStr(AKind: TMsgEntityKind): utf8string;
+begin
+  case AKind of
+    mekBold:          Result := 'bold';
+    mekItalic:        Result := 'italic';
+    mekUrl:           Result := 'url';
+    mekTextUrl:       Result := 'textUrl';
+    mekCode:          Result := 'code';
+    mekPre:           Result := 'pre';
+    mekStrikethrough: Result := 'strike';
+    mekUnderline:     Result := 'underline';
+    mekCustomEmoji:   Result := 'customEmoji';
+    mekBlockQuote:    Result := 'quote';
+  else
+    Result := '';
+  end;
+end;
+
+function ReceiptStr(AReceipt: TChatReceipt): utf8string;
+begin
+  case AReceipt of
+    crPending: Result := 'pending';
+    crFailed:  Result := 'failed';
+    crSent:    Result := 'sent';
+    crRead:    Result := 'read';
+  else
+    Result := 'none';
+  end;
+end;
+
+function ForwardKindStr(AKind: TMsgForwardKind): utf8string;
+begin
+  case AKind of
+    mfoUser:       Result := 'user';
+    mfoChat:       Result := 'chat';
+    mfoChannel:    Result := 'channel';
+    mfoHiddenUser: Result := 'hidden';
+  else
+    Result := '';
+  end;
+end;
+
+function StickerFormatStr(AFormat: TStickerFormat): utf8string;
+begin
+  case AFormat of
+    sfTgs:  Result := 'tgs';
+    sfWebm: Result := 'webm';
+  else
+    Result := 'webp';
+  end;
+end;
+
+{ Name to show for a sender, given either a user id or a chat id — the
+  same two sources framehistory.ResolveDisplayName consults, in the
+  same order. A deliberate second implementation rather than a shared
+  one: that method is private to a frame, and reaching into the LCL
+  half of the program from here would undo the whole point of this
+  unit being able to run without a window. }
+procedure ResolveSubject(AUserId, AChatId: Int64;
+  out AName: utf8string; out AColor: utf8string);
+var
+  Users: TTdUsers;
+  Chats: TTdChats;
+  CRow: TChatRow;
+begin
+  AName := '';
+  AColor := AccentKeyFor(-1, AUserId + AChatId);
+  if AUserId <> 0 then begin
+    Users := TdUserList;
+    if Users <> nil then begin
+      AName := Users.DisplayName(AUserId);
+      AColor := AccentKeyFor(Users.AccentColorId(AUserId), AUserId);
+    end;
+    Exit;
+  end;
+  if AChatId <> 0 then begin
+    Chats := TdChatList;
+    if Chats <> nil then begin
+      CRow := Chats.Lookup(AChatId);
+      if CRow <> nil then begin
+        AName := CRow.Title;
+        AColor := AccentKey(CRow);
+      end;
+    end;
+  end;
+end;
+
+function EntitiesJson(const AEntities: TMsgEntityArray): TJSONArray;
+var
+  I: integer;
+  O: TJSONObject;
+  Kind: utf8string;
+begin
+  Result := TJSONArray.Create;
+  for I := 0 to High(AEntities) do begin
+    Kind := EntityKindStr(AEntities[I].Kind);
+    if Kind = '' then begin
+      Continue;
+    end;
+    O := TJSONObject.Create;
+    { Byte offsets into the text, the same convention the rest of this
+      project uses for utf8string. The page works on the same bytes:
+      it decodes the text into a byte array once and slices it, rather
+      than trusting JavaScript's UTF-16 string indexing, which would
+      land every entity in the wrong place on any non-Latin text. }
+    O.Add('start', AEntities[I].ByteStart);
+    O.Add('len',   AEntities[I].ByteLen);
+    O.Add('kind',  string(Kind));
+    if AEntities[I].URL <> '' then begin
+      O.Add('url', string(AEntities[I].URL));
+    end;
+    if AEntities[I].CustomEmojiId <> 0 then begin
+      O.Add('customEmojiId', AEntities[I].CustomEmojiId);
+    end;
+    Result.Add(O);
+  end;
+end;
+
+function ReactionsJson(const AReactions: TMsgReactionArray): TJSONArray;
+var
+  I: integer;
+  O: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  for I := 0 to High(AReactions) do begin
+    O := TJSONObject.Create;
+    case AReactions[I].Kind of
+      rcEmoji: begin
+        O.Add('kind', 'emoji');
+        O.Add('emoji', string(AReactions[I].Emoji));
+      end;
+      rcCustomEmoji: begin
+        O.Add('kind', 'custom');
+        O.Add('customEmojiId', AReactions[I].CustomEmojiId);
+      end;
+    else
+      O.Add('kind', 'paid');
+    end;
+    O.Add('count',  AReactions[I].TotalCount);
+    O.Add('chosen', AReactions[I].IsChosen);
+    Result.Add(O);
+  end;
+end;
+
+function PollJson(const APoll: TMsgPoll): TJSONObject;
+var
+  Arr: TJSONArray;
+  O: TJSONObject;
+  I: integer;
+begin
+  Arr := TJSONArray.Create;
+  for I := 0 to High(APoll.Options) do begin
+    O := TJSONObject.Create;
+    O.Add('text',       string(APoll.Options[I].Text));
+    O.Add('voters',     APoll.Options[I].VoterCount);
+    O.Add('percentage', APoll.Options[I].VotePercentage);
+    O.Add('chosen',     APoll.Options[I].IsChosen);
+    O.Add('pending',    APoll.Options[I].IsBeingChosen);
+    Arr.Add(O);
+  end;
+
+  Result := TJSONObject.Create;
+  Result.Add('question',       string(APoll.Question));
+  Result.Add('options',        Arr);
+  Result.Add('totalVoters',    APoll.TotalVoters);
+  Result.Add('closed',         APoll.IsClosed);
+  Result.Add('anonymous',      APoll.IsAnonymous);
+  Result.Add('multiple',       APoll.AllowsMultiple);
+  Result.Add('revoting',       APoll.AllowsRevoting);
+  Result.Add('quiz',           APoll.IsQuiz);
+  Result.Add('correctOption',  APoll.CorrectOption);
+end;
+
+{ The kind-specific half of a message.
+
+  Cheap, always-wanted files (a video's preview frame, a sticker, an
+  album cover) are requested right here, unconditionally — exactly what
+  the native window does in its layout pass, and for the same reason:
+  they are tens of KB, and they are the placeholder the user is looking
+  at while everything else loads. The expensive ones (the photo itself,
+  the video, the track, a document) are NOT: the page asks for those
+  with media.ensure when it decides to, which is the web equivalent of
+  the native "first click downloads". }
+function MediaJson(AMsgs: TTdMessages; ARow: TMsgRow): TJSONObject;
+begin
+  Result := nil;
+  case ARow.Kind of
+    mckPhoto: begin
+      Result := TJSONObject.Create;
+      Result.Add('w', ARow.PhotoWidth);
+      Result.Add('h', ARow.PhotoHeight);
+      Result.Add('thumb', string(ThumbDataUri(ARow.PhotoMinithumb)));
+      Result.Add('url', string(FileUrl(ARow.PhotoFileId, ARow.PhotoLocalPath)));
+      Result.Add('fullUrl', string(FileUrl(ARow.PhotoBestFileId, ARow.PhotoBestLocalPath)));
+      Result.Add('fullW', ARow.PhotoBestWidth);
+      Result.Add('fullH', ARow.PhotoBestHeight);
+      Result.Add('got', ARow.PhotoDownloadedSize);
+      Result.Add('total', ARow.PhotoTotalSize);
+    end;
+    mckVideo: begin
+      AMsgs.EnsureVideoThumbFile(ARow);
+      Result := TJSONObject.Create;
+      Result.Add('w', ARow.VideoWidth);
+      Result.Add('h', ARow.VideoHeight);
+      { The preview box follows the THUMBNAIL's size, not the video's:
+        the still shown in the list is only ever that big, and sizing
+        the box to a 1080p source would just blur it on the way down.
+        Same decision as framehistory.LayoutVideoWidgets. }
+      Result.Add('thumbW', ARow.VideoThumbWidth);
+      Result.Add('thumbH', ARow.VideoThumbHeight);
+      Result.Add('duration', ARow.VideoDuration);
+      Result.Add('thumbUrl',
+        string(FileUrl(ARow.VideoThumbFileId, ARow.VideoThumbLocalPath)));
+      Result.Add('url', string(FileUrl(ARow.VideoFileId, ARow.VideoLocalPath)));
+      Result.Add('got', ARow.VideoDownloadedSize);
+      Result.Add('total', ARow.VideoTotalSize);
+    end;
+    mckAnimation: begin
+      Result := TJSONObject.Create;
+      Result.Add('w', ARow.AnimWidth);
+      Result.Add('h', ARow.AnimHeight);
+      Result.Add('duration', ARow.AnimDuration);
+      Result.Add('thumb', string(ThumbDataUri(ARow.AnimMinithumb)));
+      Result.Add('url', string(FileUrl(ARow.AnimFileId, ARow.AnimLocalPath)));
+      Result.Add('autoplay', ARow.AnimAutoPlay);
+    end;
+    mckAudio: begin
+      AMsgs.EnsureAudioCoverFile(ARow);
+      Result := TJSONObject.Create;
+      Result.Add('title', string(ARow.AudioTitle));
+      Result.Add('performer', string(ARow.AudioPerformer));
+      Result.Add('fileName', string(ARow.AudioFileName));
+      Result.Add('duration', ARow.AudioDuration);
+      Result.Add('coverUrl',
+        string(FileUrl(ARow.AudioCoverFileId, ARow.AudioCoverLocalPath)));
+      Result.Add('url', string(FileUrl(ARow.AudioFileId, ARow.AudioLocalPath)));
+    end;
+    mckVoiceNote: begin
+      Result := TJSONObject.Create;
+      Result.Add('duration', ARow.VoiceDuration);
+      Result.Add('url', string(FileUrl(ARow.VoiceFileId, ARow.VoiceLocalPath)));
+    end;
+    mckFile: begin
+      Result := TJSONObject.Create;
+      Result.Add('fileName', string(ARow.DocFileName));
+      Result.Add('size', ARow.DocFileSize);
+      Result.Add('url', string(FileUrl(ARow.DocFileId, ARow.DocLocalPath)));
+    end;
+    mckSticker: begin
+      AMsgs.EnsureStickerFile(ARow);
+      Result := TJSONObject.Create;
+      Result.Add('format', string(StickerFormatStr(ARow.StickerFormat)));
+      Result.Add('w', ARow.StickerWidth);
+      Result.Add('h', ARow.StickerHeight);
+      Result.Add('url', string(FileUrl(ARow.StickerFileId, ARow.StickerLocalPath)));
+    end;
+  end;
+end;
+
+function MsgToJson(AMsgs: TTdMessages; ARow: TMsgRow; ALastReadOutbox: Int64): TJSONObject;
+var
+  Name, Color, PreviewText: utf8string;
+  RUser, RChat: Int64;
+  Sub: TJSONObject;
+  Media: TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.Add('id',       ARow.Id);
+  Result.Add('date',     ARow.Date);
+  Result.Add('editDate', ARow.EditDate);
+  Result.Add('outgoing', ARow.IsOutgoing);
+  Result.Add('kind',     string(ContentKindStr(ARow.Kind)));
+  Result.Add('text',     string(ARow.PlainText));
+  Result.Add('entities', EntitiesJson(ARow.Entities));
+  Result.Add('receipt',  string(ReceiptStr(MessageReceipt(ARow, ALastReadOutbox))));
+
+  ResolveSubject(ARow.SenderUserId, ARow.SenderChatId, Name, Color);
+  Result.Add('senderId',    ARow.SenderUserId + ARow.SenderChatId);
+  Result.Add('senderName',  string(Name));
+  Result.Add('senderColor', string(Color));
+
+  { A reply quote. ReplyPreview answers False when the quoted message
+    is not loaded yet — it starts a getRepliedMessage of its own and
+    the answer arrives through the ordinary change signal, so sending
+    the ids alone now and the text later is correct rather than lossy. }
+  if ARow.ReplyMessageId <> 0 then begin
+    Sub := TJSONObject.Create;
+    Sub.Add('id', ARow.ReplyMessageId);
+    if AMsgs.ReplyPreview(ARow.ReplyChatId, ARow.ReplyMessageId,
+      RUser, RChat, PreviewText) then begin
+      ResolveSubject(RUser, RChat, Name, Color);
+      Sub.Add('name',  string(Name));
+      Sub.Add('color', string(Color));
+      Sub.Add('text',  string(PreviewText));
+    end;
+    Result.Add('reply', Sub);
+  end;
+
+  if ARow.ForwardKind <> mfoNone then begin
+    Sub := TJSONObject.Create;
+    Sub.Add('kind', string(ForwardKindStr(ARow.ForwardKind)));
+    Sub.Add('date', ARow.ForwardDate);
+    if ARow.ForwardKind = mfoHiddenUser then begin
+      Sub.Add('name', string(ARow.ForwardSenderName));
+      Sub.Add('color', string(AccentKeyFor(-1, 0)));
+    end else begin
+      ResolveSubject(ARow.ForwardUserId, ARow.ForwardChatId, Name, Color);
+      if (Name = '') and (ARow.ForwardSenderName <> '') then begin
+        Name := ARow.ForwardSenderName;
+      end;
+      Sub.Add('name',  string(Name));
+      Sub.Add('color', string(Color));
+    end;
+    { Only a channel forward carries the source message's id, so only
+      it can offer "go to the original" — the other origins withhold
+      it by design (privacy), see TMsgForwardKind. }
+    if ARow.ForwardKind = mfoChannel then begin
+      Sub.Add('chatId',    ARow.ForwardChatId);
+      Sub.Add('messageId', ARow.ForwardMessageId);
+    end;
+    Result.Add('forward', Sub);
+  end;
+
+  if Length(ARow.Reactions) > 0 then begin
+    Result.Add('reactions', ReactionsJson(ARow.Reactions));
+  end;
+  if ARow.Kind = mckPoll then begin
+    Result.Add('poll', PollJson(ARow.Poll));
+  end;
+
+  Media := MediaJson(AMsgs, ARow);
+  if Media <> nil then begin
+    Result.Add('media', Media);
+  end;
 end;
 
 { ------------------------------------------------------------------ }
@@ -186,6 +618,7 @@ var
 begin
   FTimer.Enabled := False;
   FTimer.Free;
+  DropBindings;
   { A queued Drain still pointing at this object would run against
     freed memory. }
   TThread.RemoveQueuedEvents(@Drain);
@@ -201,6 +634,87 @@ begin
   FQueue.Free;
   FLock.Free;
   inherited Destroy;
+end;
+
+{ Subscribes to whichever models the active account currently has.
+  Re-checked on every tick rather than bound once: at start-up there is
+  no account yet, and switching accounts replaces both objects. }
+procedure TWebApi.EnsureBindings;
+var
+  Chats: TTdChats;
+  Msgs: TTdMessages;
+begin
+  Chats := TdChatList;
+  if Chats <> FBoundChats then begin
+    { The previous object is NOT unsubscribed from here. It belongs to
+      an account that has just been switched away from or removed, and
+      may already be gone; calling a method on it to tidy up would be
+      the very use-after-free this is trying to avoid. Its listener
+      list dies with it. }
+    FBoundChats := Chats;
+    if Chats <> nil then begin
+      Chats.AddChangeListener(@ChatsChanged);
+    end;
+  end;
+
+  Msgs := TdMsgList;
+  if Msgs <> FBoundMsgs then begin
+    FBoundMsgs := Msgs;
+    if Msgs <> nil then begin
+      Msgs.AddChangeListener(@MessagesChanged);
+    end;
+  end;
+end;
+
+{ Unsubscribes, but only from objects that are still the current ones.
+  Anything else is either already freed or about to be, and reaching
+  into it would be worse than leaving a listener on a dying object. }
+procedure TWebApi.DropBindings;
+begin
+  if (FBoundChats <> nil) and (FBoundChats = TdChatList) then begin
+    FBoundChats.RemoveChangeListener(@ChatsChanged);
+  end;
+  FBoundChats := nil;
+  if (FBoundMsgs <> nil) and (FBoundMsgs = TdMsgList) then begin
+    FBoundMsgs.RemoveChangeListener(@MessagesChanged);
+  end;
+  FBoundMsgs := nil;
+end;
+
+procedure TWebApi.PushEvent(const AName: utf8string; AData: TJSONObject);
+var
+  O: TJSONObject;
+begin
+  O := TJSONObject.Create;
+  try
+    O.Add('event', string(AName));
+    if AData <> nil then begin
+      O.Add('data', AData);
+    end;
+    WebBroadcast(utf8string(O.AsJSON));
+  finally
+    O.Free;
+  end;
+end;
+
+procedure TWebApi.ChatsChanged(Sender: TObject);
+begin
+  PushEvent('chats', nil);
+end;
+
+procedure TWebApi.MessagesChanged(Sender: TObject);
+var
+  D: TJSONObject;
+  M: TTdMessages;
+begin
+  D := TJSONObject.Create;
+  M := TdMsgList;
+  if M <> nil then begin
+    D.Add('chatId', M.ChatId);
+  end else begin
+    D.Add('chatId', 0);
+  end;
+  PushEvent('messages', D);
 end;
 
 procedure TWebApi.Enqueue(AConnId: Int64; const AText: utf8string);
@@ -231,6 +745,7 @@ end;
 
 procedure TWebApi.Tick(Sender: TObject);
 begin
+  EnsureBindings;
   Drain;
 end;
 
@@ -313,6 +828,26 @@ begin
   end;
 end;
 
+{ ------------------------------------------------------------------ }
+{ commands                                                           }
+{ ------------------------------------------------------------------ }
+
+function RequireChats: TTdChats;
+begin
+  Result := TdChatList;
+  if Result = nil then begin
+    raise Exception.Create('no active account');
+  end;
+end;
+
+function RequireMsgs: TTdMessages;
+begin
+  Result := TdMsgList;
+  if Result = nil then begin
+    raise Exception.Create('no active account');
+  end;
+end;
+
 function TWebApi.CmdChatsList(AArgs: TJSONObject): TJSONData;
 var
   Chats: TTdChats;
@@ -321,10 +856,7 @@ var
   I, N, Limit: integer;
   Archived: boolean;
 begin
-  Chats := TdChatList;
-  if Chats = nil then begin
-    raise Exception.Create('no active account');
-  end;
+  Chats := RequireChats;
 
   Archived := False;
   Limit := 0;
@@ -363,6 +895,317 @@ begin
   Result := Res;
 end;
 
+{ Avatars for the rows the page currently shows. The web equivalent of
+  framechats calling EnsureAvatar from its cell painter: bounded by
+  what is on screen, rather than by how many chats exist. }
+function TWebApi.CmdChatsAvatars(AArgs: TJSONObject): TJSONData;
+var
+  Chats: TTdChats;
+  Arr: TJSONArray;
+  CRow: TChatRow;
+  I: integer;
+begin
+  Chats := RequireChats;
+  if AArgs = nil then begin
+    Exit(nil);
+  end;
+  Arr := TJSONArray(AArgs.Find('ids', jtArray));
+  if Arr = nil then begin
+    Exit(nil);
+  end;
+  for I := 0 to Arr.Count - 1 do begin
+    CRow := Chats.Lookup(Arr.Int64s[I]);
+    if CRow <> nil then begin
+      Chats.EnsureAvatar(CRow);
+    end;
+  end;
+  Result := nil;
+end;
+
+function TWebApi.CmdChatsMore(AArgs: TJSONObject): TJSONData;
+var
+  Chats: TTdChats;
+  Archived: boolean;
+begin
+  Chats := RequireChats;
+  Archived := (AArgs <> nil) and AArgs.Get('archived', False);
+  if Archived then begin
+    Chats.LoadMoreArchive;
+  end else begin
+    Chats.LoadMore;
+  end;
+  Result := nil;
+end;
+
+function TWebApi.CmdChatOpen(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Chats: TTdChats;
+  ChatId, JumpTo, UnreadFrom: Int64;
+  CRow: TChatRow;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('chat.open needs an id');
+  end;
+  Msgs := RequireMsgs;
+  Chats := RequireChats;
+  ChatId := AArgs.Get('id', Int64(0));
+  JumpTo := AArgs.Get('jumpTo', Int64(0));
+
+  { The unread marker comes from the chat row, not from the history
+    model: TTdMessages has no chat list of its own to look it up in.
+    Same split as TFrameHistory.OpenChat. }
+  UnreadFrom := 0;
+  CRow := Chats.Lookup(ChatId);
+  if CRow <> nil then begin
+    UnreadFrom := CRow.LastReadInbox;
+  end;
+
+  Msgs.OpenChat(ChatId, JumpTo, UnreadFrom);
+  Result := CmdMessagesList;
+end;
+
+function TWebApi.CmdChatClose: TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  Msgs.CloseChat;
+  Result := nil;
+end;
+
+function TWebApi.CmdChatAction(AArgs: TJSONObject): TJSONData;
+var
+  Chats: TTdChats;
+  CRow: TChatRow;
+  Action: utf8string;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('chat.action needs an id and an action');
+  end;
+  Chats := RequireChats;
+  CRow := Chats.Lookup(AArgs.Get('id', Int64(0)));
+  if CRow = nil then begin
+    raise Exception.Create('no such chat');
+  end;
+  Action := utf8string(AArgs.Get('action', ''));
+
+  if Action = 'mute' then begin
+    Chats.SetMuted(CRow, True);
+  end else if Action = 'unmute' then begin
+    Chats.SetMuted(CRow, False);
+  end else if Action = 'pin' then begin
+    Chats.SetPinned(CRow, True);
+  end else if Action = 'unpin' then begin
+    Chats.SetPinned(CRow, False);
+  end else if Action = 'archive' then begin
+    Chats.SetArchived(CRow, True);
+  end else if Action = 'unarchive' then begin
+    Chats.SetArchived(CRow, False);
+  end else if Action = 'read' then begin
+    Chats.MarkAsRead(CRow);
+  end else if Action = 'unread' then begin
+    Chats.MarkAsUnread(CRow);
+  end else begin
+    raise Exception.Create('unknown chat action: ' + Action);
+  end;
+  Result := nil;
+end;
+
+function TWebApi.CmdMessagesList: TJSONData;
+var
+  Msgs: TTdMessages;
+  Chats: TTdChats;
+  CRow: TChatRow;
+  Arr: TJSONArray;
+  Res: TJSONObject;
+  I: integer;
+  LastReadOutbox: Int64;
+begin
+  Msgs := RequireMsgs;
+
+  LastReadOutbox := 0;
+  Chats := TdChatList;
+  if (Chats <> nil) and (Msgs.ChatId <> 0) then begin
+    CRow := Chats.Lookup(Msgs.ChatId);
+    if CRow <> nil then begin
+      LastReadOutbox := CRow.LastReadOutbox;
+    end;
+  end;
+
+  Arr := TJSONArray.Create;
+  try
+    for I := 0 to Msgs.Count - 1 do begin
+      { Custom emoji used in the text, fetched the same way the native
+        window does it for visible rows: unconditionally, no
+        auto-download gate. Idempotent, so calling it on every
+        serialisation costs nothing after the first. }
+      Msgs.EnsureCustomEmojiForRow(Msgs.Rows[I]);
+      Arr.Add(MsgToJson(Msgs, Msgs.Rows[I], LastReadOutbox));
+    end;
+  except
+    Arr.Free;
+    raise;
+  end;
+
+  Res := TJSONObject.Create;
+  Res.Add('chatId',       Msgs.ChatId);
+  Res.Add('unreadFrom',   Msgs.UnreadFromId);
+  Res.Add('unreadReady',  Msgs.UnreadReady);
+  Res.Add('unreadCovered', Msgs.UnreadCovered);
+  Res.Add('loadingOlder', Msgs.LoadingOlder);
+  Res.Add('oldestLoaded', Msgs.OldestLoaded);
+  Res.Add('searchActive', Msgs.SearchActive);
+  Res.Add('searchFilter', string(Msgs.SearchFilter));
+  Res.Add('searchQuery',  string(Msgs.SearchQuery));
+  Res.Add('searchTotal',  Msgs.SearchTotalCount);
+  Res.Add('items',        Arr);
+  Result := Res;
+end;
+
+function TWebApi.CmdMessagesOlder: TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  Msgs.LoadOlder;
+  Result := nil;
+end;
+
+function TWebApi.CmdMessagesRead(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Arr: TJSONArray;
+  Ids: array of Int64;
+  I: integer;
+begin
+  Msgs := RequireMsgs;
+  if AArgs = nil then begin
+    Exit(nil);
+  end;
+  Arr := TJSONArray(AArgs.Find('ids', jtArray));
+  if (Arr = nil) or (Arr.Count = 0) then begin
+    Exit(nil);
+  end;
+  SetLength(Ids, Arr.Count);
+  for I := 0 to Arr.Count - 1 do begin
+    Ids[I] := Arr.Int64s[I];
+  end;
+  Msgs.MarkRead(Ids);
+  Result := nil;
+end;
+
+function TWebApi.CmdMessageSend(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Text: utf8string;
+begin
+  Msgs := RequireMsgs;
+  if Msgs.ChatId = 0 then begin
+    raise Exception.Create('no chat is open');
+  end;
+  if AArgs = nil then begin
+    raise Exception.Create('message.send needs text');
+  end;
+  Text := utf8string(AArgs.Get('text', ''));
+  if Trim(Text) = '' then begin
+    raise Exception.Create('empty message');
+  end;
+  Msgs.SendFormattedText(Text, AArgs.Get('html', False),
+    AArgs.Get('silent', False));
+  Result := nil;
+end;
+
+function TWebApi.CmdPollVote(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Idx, I: integer;
+  Arr: TJSONArray;
+  Options: array of integer;
+  Row: TMsgRow;
+begin
+  Msgs := RequireMsgs;
+  if AArgs = nil then begin
+    raise Exception.Create('poll.vote needs a message id');
+  end;
+  Idx := Msgs.IndexOfId(AArgs.Get('id', Int64(0)));
+  if Idx < 0 then begin
+    raise Exception.Create('message not loaded');
+  end;
+  Row := Msgs.Rows[Idx];
+
+  Arr := TJSONArray(AArgs.Find('options', jtArray));
+  if Arr = nil then begin
+    { A single tapped option — let the model work out the resulting
+      set, exactly as the native widget's click does. }
+    Msgs.SetPollAnswer(Row, AArgs.Get('option', -1));
+  end else begin
+    SetLength(Options, Arr.Count);
+    for I := 0 to Arr.Count - 1 do begin
+      Options[I] := Arr.Integers[I];
+    end;
+    Msgs.SetPollAnswers(Row, Options);
+  end;
+  Result := nil;
+end;
+
+function TWebApi.CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Idx: integer;
+  Row: TMsgRow;
+  What: utf8string;
+begin
+  Msgs := RequireMsgs;
+  if AArgs = nil then begin
+    raise Exception.Create('media.ensure needs a message id');
+  end;
+  Idx := Msgs.IndexOfId(AArgs.Get('id', Int64(0)));
+  if Idx < 0 then begin
+    raise Exception.Create('message not loaded');
+  end;
+  Row := Msgs.Rows[Idx];
+  What := utf8string(AArgs.Get('what', ''));
+
+  { 'preview' is what a row asks for when it scrolls into view;
+    'full' is the deliberate one (open it, save it). Keeping them apart
+    is the same split the native window makes between the medium photo
+    layer it shows inline and the original it opens. }
+  if What = 'full' then begin
+    case Row.Kind of
+      mckPhoto: Msgs.EnsurePhotoBestFile(Row);
+      mckVideo: Msgs.EnsureVideoFile(Row);
+      mckAudio, mckVoiceNote: Msgs.EnsurePlayableFile(Row);
+      mckFile:  Msgs.EnsureDocFile(Row);
+      mckAnimation: Msgs.EnsureAnimFile(Row);
+    end;
+  end else begin
+    case Row.Kind of
+      mckPhoto: Msgs.EnsurePhotoFile(Row);
+      mckVideo: Msgs.EnsureVideoThumbFile(Row);
+      mckAudio: Msgs.EnsureAudioCoverFile(Row);
+      mckVoiceNote: Msgs.EnsureVoiceFile(Row);
+      mckAnimation: Msgs.EnsureAnimFile(Row);
+      mckSticker: Msgs.EnsureStickerFile(Row);
+    end;
+  end;
+  Result := nil;
+end;
+
+function TWebApi.CmdSearchSet(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  if AArgs = nil then begin
+    Msgs.SetSearchFilter('', '');
+  end else begin
+    Msgs.SetSearchFilter(utf8string(AArgs.Get('filter', '')),
+      utf8string(AArgs.Get('query', '')));
+  end;
+  Result := CmdMessagesList;
+end;
+
 procedure TWebApi.RunCommand(AConnId: Int64; const AText: utf8string);
 var
   D: TJSONData;
@@ -373,7 +1216,13 @@ begin
   D := nil;
   try
     try
-      D := GetJSON(string(AText));
+      { Through the same decoder the receive thread uses. The page's
+        JSON.stringify emits raw UTF-8 rather than \uXXXX escapes, so
+        this is belt-and-braces today — but message text now travels
+        this way, and a single mangled surrogate pair here would land
+        entities on the wrong letters exactly as it did on the way in
+        (see tdrecv.PreDecodeUnicodeEscapes). }
+      D := GetJSON(string(PreDecodeUnicodeEscapes(AText)));
     except
       on E: Exception do begin
         Fail(AConnId, 0, 'malformed json');
@@ -390,6 +1239,11 @@ begin
     Cmd := utf8string(Obj.Get('cmd', ''));
     Args := TJSONObject(Obj.Find('args', jtObject));
 
+    { Bound to whatever the active account has before anything runs:
+      the first command can easily arrive before the fallback tick
+      that would otherwise do it. }
+    EnsureBindings;
+
     { The handlers are wrapped HERE, where the request id is known.
       Letting an exception travel up to the drain loop instead loses
       it, and the answer comes back tagged id 0 — which the page
@@ -404,6 +1258,30 @@ begin
         Reply(AConnId, ReqId, TJSONString.Create('pong'));
       end else if Cmd = 'chats.list' then begin
         Reply(AConnId, ReqId, CmdChatsList(Args));
+      end else if Cmd = 'chats.avatars' then begin
+        Reply(AConnId, ReqId, CmdChatsAvatars(Args));
+      end else if Cmd = 'chats.more' then begin
+        Reply(AConnId, ReqId, CmdChatsMore(Args));
+      end else if Cmd = 'chat.open' then begin
+        Reply(AConnId, ReqId, CmdChatOpen(Args));
+      end else if Cmd = 'chat.close' then begin
+        Reply(AConnId, ReqId, CmdChatClose);
+      end else if Cmd = 'chat.action' then begin
+        Reply(AConnId, ReqId, CmdChatAction(Args));
+      end else if Cmd = 'messages.list' then begin
+        Reply(AConnId, ReqId, CmdMessagesList);
+      end else if Cmd = 'messages.older' then begin
+        Reply(AConnId, ReqId, CmdMessagesOlder);
+      end else if Cmd = 'messages.read' then begin
+        Reply(AConnId, ReqId, CmdMessagesRead(Args));
+      end else if Cmd = 'message.send' then begin
+        Reply(AConnId, ReqId, CmdMessageSend(Args));
+      end else if Cmd = 'poll.vote' then begin
+        Reply(AConnId, ReqId, CmdPollVote(Args));
+      end else if Cmd = 'media.ensure' then begin
+        Reply(AConnId, ReqId, CmdMediaEnsure(Args));
+      end else if Cmd = 'search.set' then begin
+        Reply(AConnId, ReqId, CmdSearchSet(Args));
       end else begin
         Fail(AConnId, ReqId, 'unknown command: ' + Cmd);
       end;
@@ -447,6 +1325,7 @@ begin
     the object is free to go. }
   SetWebMessageHandler(nil);
   FreeAndNil(GApi);
+  WebFilesClear;
 end;
 
 end.

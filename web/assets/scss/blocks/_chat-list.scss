@@ -7,6 +7,14 @@
   height: 100%;
   padding: $space-2;
   @include scroll-area;
+
+  // A flex item's default flex-shrink is 1, and in a column that is
+  // capped to the viewport it means the cards squash to fit rather
+  // than overflow - 77px rows measured at 19.7px, with scrollHeight
+  // equal to clientHeight, i.e. a scroll container with nothing to
+  // scroll. On the children rather than on .chat-item so a row type
+  // added later cannot quietly bring the bug back.
+  > * { flex-shrink: 0; }
 }
 
 .chat-list__empty {

@@ -7,73 +7,98 @@
 //
 // --sender-color is set per message from the JS.
 .message {
-  --sender-color: var(--accent-color, var(--c-accent));
-
-  margin-bottom: $space-6;
-  border-radius: $radius-md;
   background: color-mix(in srgb, var(--sender-color) 7%, var(--c-surface));
   border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
+  border-radius: $radius-md;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+  --sender-color: var(--accent-color, var(--c-accent));
+  margin-bottom: $space-6;
   overflow: hidden;
 }
 
 .message__head {
   @include flex(row, center, flex-start, $space-2);
-  padding: $space-3 $space-5;
   background: color-mix(in srgb, var(--sender-color) 14%, var(--c-surface));
   color: var(--sender-color);
-  font-weight: $fw-bold;
   font-size: $fs-base;
+  font-weight: $fw-bold;
+  padding: $space-3 $space-5;
 }
 
-.message__receipt { @include size($icon-sm); }
+.message__receipt {
+  @include size($icon-sm);
+}
 
-.message__sender { @include ellipsis; }
+.message__sender {
+  @include ellipsis;
+}
 
 .message__time {
   color: inherit;
-  opacity: .75;
-  font-weight: $fw-regular;
   font-variant-numeric: tabular-nums;
+  font-weight: $fw-regular;
+  opacity: .75;
 }
 
 .message__state {
-  margin-left: auto;
-  font-size: $fs-xs;
   color: var(--c-text-faint);
+  font-size: $fs-xs;
   font-weight: $fw-regular;
+  margin-left: auto;
 
-  &.is-failed { color: var(--c-danger); }
+  &.is-failed {
+    color: var(--c-danger);
+  }
 }
 
 .message__body {
-  padding: $space-5;
   font-size: $fs-base;
   line-height: $lh-base;
-  overflow-wrap: anywhere;   // a bare URL must not widen the column
-  white-space: pre-wrap;     // TDLib sends real newlines, keep them
+  overflow-wrap: anywhere; // a bare URL must not widen the column
+  padding: $space-5;
+  white-space: pre-wrap; // TDLib sends real newlines, keep them
 }
 
-.message__body a { text-decoration: underline; }
+.message__body a {
+  text-decoration: underline;
+}
 
 // ------------------------------------------------------- text styles
 .message__body {
-  b, strong { font-weight: $fw-bold; }
-  i, em     { font-style: italic; }
-  u         { text-decoration: underline; }
-  s         { text-decoration: line-through; }
+  b, strong {
+    font-weight: $fw-bold;
+  }
+
+  i, em {
+    font-style: italic;
+  }
+
+  u {
+    text-decoration: underline;
+  }
+
+  s {
+    text-decoration: line-through;
+  }
 
   code, pre {
+    //background: var(--c-surface-2);
+    border-radius: $radius-sm;
     font-family: $font-mono;
     font-size: $fs-sm;
-    background: var(--c-surface-2);
-    border-radius: $radius-sm;
   }
-  code { padding: 1px $space-2; }
+
+  code {
+    padding: 1px $space-2;
+  }
+
   pre {
     display: block;
-    margin: $space-3 0;
-    padding: $space-4;
+    margin: 0;
     overflow-x: auto;
+    padding: $space-4;
+    background: color-mix(in srgb, var(--sender-color) 20%, transparent);
+    color: var(--sender-color);
     @include scrollbar(6px);
   }
 
@@ -82,7 +107,11 @@
     border-radius: $radius-sm;
     color: transparent;
     cursor: pointer;
-    &.is-revealed { background: none; color: inherit; }
+
+    &.is-revealed {
+      background: none;
+      color: inherit;
+    }
   }
 }
 
@@ -90,60 +119,135 @@
 // Matches the native rendering: a tinted band with a bar down the left,
 // one blank line of breathing room either side.
 .message__quote {
-  margin: $space-5 0;
-  padding: $space-3 $space-5;
-  border-left: 2px solid var(--sender-color);
   background: color-mix(in srgb, var(--sender-color) 20%, transparent);
-  border-radius: 0 $radius-sm $radius-sm 0;
+  border-left: 3px solid var(--sender-color);
+  border-radius: $radius-sm;
+  margin: 0;
+  padding: $space-3 $space-5;
 }
 
 // --------------------------------------------------- reply-to banner
 .message__reply {
   @include flex(row, center, flex-start, $space-2);
-  margin: 0 $space-5 $space-3;
-  padding: $space-3;
-  border-radius: $radius-sm;
   background: color-mix(in srgb, var(--sender-color) 12%, transparent);
+  border-radius: $radius-sm;
   cursor: pointer;
   font-size: $fs-sm;
+  margin: 0 $space-5 $space-3;
+  padding: $space-3;
 
-  .icon { @include size($icon-sm); color: var(--sender-color); }
-  &:hover { background: color-mix(in srgb, var(--sender-color) 20%, transparent); }
+  .icon {
+    @include size($icon-sm);
+    color: var(--sender-color);
+  }
+
+  &:hover {
+    background: color-mix(in srgb, var(--sender-color) 20%, transparent);
+  }
 }
 
-.message__reply-text { @include ellipsis; color: var(--c-text-dim); }
+.message__reply-text {
+  @include ellipsis;
+  color: var(--c-text-dim);
+}
 
 // ------------------------------------------------------- reactions
 // A strip with the same tint as the header, carrying pill-shaped
 // counters — again the native arrangement rather than a new one.
 .message__reactions {
   @include flex(row, center, flex-start, $space-2);
+  background: color-mix(in srgb, var(--sender-color) 14%, var(--c-surface));
   flex-wrap: wrap;
   padding: $space-3 $space-5;
-  background: color-mix(in srgb, var(--sender-color) 14%, var(--c-surface));
 }
 
 .reaction {
   @include flex(row, center, center, $space-2);
-  height: 22px;
-  padding: 0 $space-4;
-  border-radius: $radius-pill;
   background: color-mix(in srgb, var(--sender-color) 25%, var(--c-surface));
   border: 1px solid transparent;
+  border-radius: $radius-pill;
   font-size: $fs-sm;
   font-variant-numeric: tabular-nums;
+  height: 22px;
+  padding: 0 $space-4;
 
   &.is-chosen {
     background: color-mix(in srgb, var(--sender-color) 50%, var(--c-surface));
-    font-weight: $fw-bold;
     border-color: var(--sender-color);
+    font-weight: $fw-bold;
   }
 }
 
-.reaction__emoji { @include size(16px); font-size: 14px; line-height: 1; }
+.reaction__emoji {
+  @include size(16px);
+  font-size: 14px;
+  line-height: 1;
+}
 
 // --------------------------------------------------------- outgoing
 // Own messages are not mirrored to the right: this layout is the dense
 // single-column one the native window uses, where the sender colour
 // already tells them apart.
-.message--outgoing { --sender-color: var(--c-accent); }
+.message--outgoing {
+  --sender-color: var(--c-accent);
+}
+
+// ------------------------------------------------- forwarded-from card
+// A nested block of the same "header over content" shape as the message
+// itself, in the SOURCE's colour rather than the sender's - two
+// independently tinted areas of one card, exactly as the native
+// PaintForwardCard arranges them.
+.message__forward {
+  background: color-mix(in srgb, var(--source-color) 14%, transparent);
+
+  border: 0;
+  border-inline-start: 2px solid var(--source-color);
+  border-radius: 0 $radius-sm $radius-sm 0;
+  --source-color: var(--accent-color, var(--sender-color));
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  font: inherit;
+  gap: 1px;
+  margin: 0 $space-5 $space-3;
+  padding: $space-3 $space-5;
+  text-align: start;
+  width: calc(100% - #{$space-5} * 2);
+}
+
+button.message__forward {
+  cursor: pointer;
+}
+
+button.message__forward:hover {
+  background: color-mix(in srgb, var(--source-color) 24%, transparent);
+}
+
+.message__forward-label {
+  color: var(--c-text-dim);
+  font-size: $fs-xs;
+}
+
+.message__forward-name {
+  @include ellipsis;
+  color: var(--source-color);
+  font-size: $fs-sm;
+  font-weight: $fw-medium;
+}
+
+.message__reply {
+  border: 0;
+
+  border-inline-start: 2px solid var(--source-color);
+  --source-color: var(--accent-color, var(--sender-color));
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  width: calc(100% - #{$space-5} * 2);
+}
+
+.message__reply-name {
+  color: var(--source-color);
+  flex: 0 0 auto;
+  font-weight: $fw-medium;
+}

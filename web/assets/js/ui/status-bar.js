@@ -32,11 +32,27 @@ function renderCounts() {
   );
 }
 
+let errorTimer = null;
+
+function showError(message) {
+  let slot = qs('.status-bar__error', conn.parentElement);
+  if (!slot) {
+    slot = el('span', { class: 'status-bar__error' });
+    conn.after(slot);
+  }
+  slot.textContent = message;
+  // Cleared after a while rather than left standing: a stale failure
+  // next to a working connection reads as a current one.
+  clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => { slot.textContent = ''; }, 6000);
+}
+
 export function mountStatusBar(node) {
   conn = qs('.conn', node);
   counts = qs('.status-bar__counts', node);
   on('net:status', renderStatus);
   on('store:chats', renderCounts);
+  on('ui:error', showError);
   renderStatus('connecting');
   renderCounts();
 }

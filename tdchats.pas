@@ -216,6 +216,9 @@ type
     FArchiveLoading: boolean;
     FArchiveAllLoaded: boolean;
     FOnChanged: TTdChatsEvent;
+    { See the same field in tdmessages.pas: a second view needs the
+      change signal without taking it away from the first. }
+    FChangeListeners: array of TTdChatsEvent;
     FOnLoadingChanged: TTdChatsEvent;
     FOnActionError: TTdChatsErrorEvent;
     { custom_emoji_ids with a getCustomEmojiStickers request in flight —
@@ -235,6 +238,7 @@ type
       TFolderOp. }
     FFolderOps: array of TFolderOp;
 
+    procedure NotifyChanged;
     function GetCount: integer;
     function GetRow(AIndex: integer): TChatRow;
     function Obtain(AId: Int64): TChatRow;
@@ -398,6 +402,10 @@ type
     { The user's chat folders, in their own tab order. }
     property FolderCount: integer read GetFolderCount;
     property Folders[AIndex: integer]: TChatFolder read GetFolder;
+
+    { See TTdMessages.AddChangeListener. }
+    procedure AddChangeListener(AEvent: TTdChatsEvent);
+    procedure RemoveChangeListener(AEvent: TTdChatsEvent);
 
     property Session: ITdSession read FSession;
     property OnChanged: TTdChatsEvent read FOnChanged write FOnChanged;
@@ -993,8 +1001,63 @@ begin
   FRows.Sort(@CompareRows);
   RebuildArchive;
 
+  NotifyChanged;
+end;
+
+{ See TTdMessages.NotifyChanged — same contract, same reasons. }
+procedure TTdChats.NotifyChanged;
+var
+  Snapshot: array of TTdChatsEvent;
+  I: integer;
+begin
   if Assigned(FOnChanged) then begin
     FOnChanged(Self);
+  end;
+  if Length(FChangeListeners) = 0 then begin
+    Exit;
+  end;
+  SetLength(Snapshot, Length(FChangeListeners));
+  for I := 0 to High(FChangeListeners) do begin
+    Snapshot[I] := FChangeListeners[I];
+  end;
+  for I := 0 to High(Snapshot) do begin
+    try
+      Snapshot[I](Self);
+    except
+    end;
+  end;
+end;
+
+procedure TTdChats.AddChangeListener(AEvent: TTdChatsEvent);
+var
+  I: integer;
+begin
+  if not Assigned(AEvent) then begin
+    Exit;
+  end;
+  for I := 0 to High(FChangeListeners) do begin
+    if (TMethod(FChangeListeners[I]).Code = TMethod(AEvent).Code)
+      and (TMethod(FChangeListeners[I]).Data = TMethod(AEvent).Data) then begin
+      Exit;
+    end;
+  end;
+  SetLength(FChangeListeners, Length(FChangeListeners) + 1);
+  FChangeListeners[High(FChangeListeners)] := AEvent;
+end;
+
+procedure TTdChats.RemoveChangeListener(AEvent: TTdChatsEvent);
+var
+  I, J: integer;
+begin
+  for I := 0 to High(FChangeListeners) do begin
+    if (TMethod(FChangeListeners[I]).Code = TMethod(AEvent).Code)
+      and (TMethod(FChangeListeners[I]).Data = TMethod(AEvent).Data) then begin
+      for J := I to High(FChangeListeners) - 1 do begin
+        FChangeListeners[J] := FChangeListeners[J + 1];
+      end;
+      SetLength(FChangeListeners, Length(FChangeListeners) - 1);
+      Exit;
+    end;
   end;
 end;
 

@@ -1,39 +1,298 @@
 import { el, clear } from '../core/dom.js';
-import { on } from '../core/bus.js';
+import { on, emit } from '../core/bus.js';
 import { icon } from '../util/icons.js';
+import { dateLabel } from '../util/format.js';
+import { renderMessage } from './message.js';
 
-// The message history. There is no history command on the server yet,
-// so this renders the two states it genuinely has - nothing selected,
-// and selected but not yet loadable - rather than pretending to show
-// messages. The markup and the styling for a message block are in place
-// (see blocks/_message.scss) and this is where they get used once
-// history.load exists.
+// The message history.
+//
+// THE RULE THAT SHAPES THIS FILE: it does not re-render. A model change
+// fires for every download-progress tick, so a full rebuild twenty
+// times a second would throw away the scroll position, restart every
+// <video>, and reset the play head of whatever <audio> was running.
+// Instead each message keeps its node, and a node is rebuilt only when
+// that message's own data actually changed.
 
 let root = null;
+let column = null;
+let scrollBtn = null;
 
-function placeholder(title, note) {
-  return el('div', { class: 'workspace__empty' },
-    icon('chat', 'icon--lg'),
-    el('div', { textContent: title }),
-    note ? el('div', { class: 'u-faint', textContent: note }) : null,
-  );
-}
+// id -> { node, hash }. Cleared when the chat changes.
+const nodes = new Map();
+let chatId = null;
+let atBottom = true;
+let wantScroll = null;          // 'bottom' | 'unread' | null
+let readTimer = null;
+let lastState = null;
+// items.length at which a fill request was last sent - see maybeFill.
+let fillAskedAt = -1;
+const pendingRead = new Set();
+const seenMedia = new Set();
 
-function render(chat) {
-  if (!root) return;
-  clear(root);
-  if (!chat) {
-    root.append(placeholder('Pick a chat on the left', 'Its messages will show up here.'));
-    return;
-  }
-  root.append(placeholder(
-    chat.title || '(no title)',
-    'The history command is not implemented on the server yet.',
-  ));
-}
+const READ_DEBOUNCE_MS = 500;   // same wait the native scroller uses
 
+// ---------------------------------------------------------- mounting
 export function mountHistory(node) {
   root = node;
-  on('store:active', render);
-  render(null);
+  column = el('div', { class: 'history__column' });
+  root.append(column);
+
+  scrollBtn = el('button', {
+    class: 'history__to-bottom',
+    type: 'button',
+    title: 'Go to the newest message',
+    hidden: true,
+    onclick: () => scrollToBottom(),
+  }, icon('chevron-down'));
+  root.parentElement.append(scrollBtn);
+
+  root.addEventListener('scroll', onScroll, { passive: true });
+  // A wider window can leave a history that used to fill the screen
+  // too short again. The native frame checks the same thing from its
+  // own Resize for the same reason.
+  window.addEventListener('resize', () => maybeFill(lastState));
+  on('store:messages', render);
+  on('store:active', (chat) => {
+    if (!chat) renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
+  });
+  renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
+}
+
+function renderEmpty(title, note) {
+  nodes.clear();
+  clear(column);
+  column.append(el('div', { class: 'workspace__empty' },
+    icon('chat', 'icon--lg'),
+    el('div', { textContent: title }),
+    note ? el('div', { class: 'u-faint', textContent: note }) : null));
+  if (scrollBtn) scrollBtn.hidden = true;
+}
+
+// ----------------------------------------------------------- render
+function render(state) {
+  if (!state) return;
+
+  lastState = state;
+
+  if (state.chatId !== chatId) {
+    chatId = state.chatId;
+    fillAskedAt = -1;
+    nodes.clear();
+    seenMedia.clear();
+    pendingRead.clear();
+    clear(column);
+    // A freshly opened chat starts where the native window starts it:
+    // at the first unread message when there is one, at the bottom
+    // otherwise. The decision waits for unreadReady - until the
+    // backfill search is over the boundary is not known yet, and
+    // jumping twice looks like a glitch.
+    wantScroll = 'pending';
+    atBottom = true;
+  }
+
+  if (!state.items.length) {
+    if (state.searchActive) {
+      renderEmpty(
+        state.searchQuery ? `Nothing matches "${state.searchQuery}"` : 'Nothing found',
+        'No messages of this kind in this chat.',
+      );
+    } else if (state.loadingOlder) {
+      renderEmpty('Loading…', null);
+    } else {
+      renderEmpty('No messages here yet', null);
+    }
+    return;
+  }
+
+  // Anchor: remember the distance from the bottom, because prepending
+  // older pages changes scrollHeight and would otherwise slide the
+  // reader up the page.
+  const keepFromBottom = root.scrollHeight - root.scrollTop;
+
+  const desired = [];
+  let lastDay = null;
+  let dividerPlaced = false;
+
+  for (const msg of state.items) {
+    const day = dateLabel(msg.date);
+    if (day !== lastDay) {
+      desired.push(separator(`day:${day}`, () =>
+        el('div', { class: 'history__date' }, el('span', { textContent: day }))));
+      lastDay = day;
+    }
+
+    if (!dividerPlaced && state.unreadCovered && state.unreadFrom
+        && !msg.outgoing && msg.id > state.unreadFrom) {
+      desired.push(separator('unread', () =>
+        el('div', { class: 'history__unread', textContent: 'Unread messages' })));
+      dividerPlaced = true;
+    }
+
+    desired.push(messageNode(msg));
+  }
+
+  if (state.loadingOlder) {
+    desired.unshift(separator('loading', () =>
+      el('div', { class: 'history__loader' }, 'Loading older messages…')));
+  }
+
+  reconcile(column, desired);
+
+  if (wantScroll === 'pending' && state.unreadReady) {
+    wantScroll = (state.unreadCovered && state.unreadFrom && dividerPlaced)
+      ? 'unread' : 'bottom';
+  }
+  applyScroll(keepFromBottom);
+  requestVisibleMedia(state.items);
+  maybeFill(state);
+}
+
+/**
+ * Keeps asking for older pages while the history is too short to fill
+ * the screen - the web half of TFrameHistory.MaybeLoadMore, and needed
+ * for the same reason: getChatHistory routinely answers with fewer
+ * messages than asked for ("fewer messages may be returned even if the
+ * end has not been reached"), and on a cold cache that can be a single
+ * message. Without this the user sees one message, nothing to scroll,
+ * and therefore no near-the-top trigger to ever ask for more.
+ *
+ * The guard is the item count rather than a retry counter: a request
+ * that brought nothing new leaves the count where it was, and asking
+ * again at the same count could only bring nothing new again. A page
+ * that did arrive changes it, which is exactly when another ask is
+ * worth making. The model refuses a redundant LoadOlder anyway, so
+ * this is about not filling the wire, not about correctness.
+ */
+function maybeFill(state) {
+  if (!state || !state.items.length) return;
+  if (state.loadingOlder || state.oldestLoaded) return;
+  if (root.scrollHeight > root.clientHeight) {
+    fillAskedAt = -1;
+    return;
+  }
+  if (state.items.length === fillAskedAt) return;
+  fillAskedAt = state.items.length;
+  emit('ui:load-older');
+}
+
+/**
+ * A message's node, rebuilt only when its own payload changed.
+ * The hash is the payload itself: cheap enough at these sizes, and it
+ * cannot disagree with what is on screen the way a hand-picked list of
+ * fields eventually would.
+ */
+function messageNode(msg) {
+  const hash = JSON.stringify(msg);
+  const known = nodes.get(msg.id);
+  if (known && known.hash === hash) return known.node;
+
+  const node = renderMessage(msg);
+  if (known) known.node.replaceWith(node);
+  nodes.set(msg.id, { node, hash });
+  return node;
+}
+
+const separators = new Map();
+function separator(key, build) {
+  if (!separators.has(key)) separators.set(key, build());
+  return separators.get(key);
+}
+
+/**
+ * Walks the wanted order against what is there, moving as little as
+ * possible. Rebuilding the child list into a fragment and swapping it
+ * in would be shorter and would also re-insert every node - which
+ * restarts media elements, the very thing this file exists to avoid.
+ */
+function reconcile(parent, desired) {
+  let i = 0;
+  for (const node of desired) {
+    const current = parent.childNodes[i];
+    if (current !== node) parent.insertBefore(node, current ?? null);
+    i += 1;
+  }
+  while (parent.childNodes.length > desired.length) {
+    parent.lastChild.remove();
+  }
+}
+
+// ----------------------------------------------------------- scroll
+function applyScroll(keepFromBottom) {
+  if (wantScroll === 'unread') {
+    const divider = separators.get('unread');
+    if (divider?.isConnected) {
+      root.scrollTop = divider.offsetTop - root.offsetTop;
+      wantScroll = null;
+      return;
+    }
+  }
+  if (wantScroll === 'bottom') {
+    scrollToBottom();
+    wantScroll = null;
+    return;
+  }
+  if (wantScroll === 'pending') return;
+
+  if (atBottom) scrollToBottom();
+  else root.scrollTop = root.scrollHeight - keepFromBottom;
+}
+
+function scrollToBottom() {
+  root.scrollTop = root.scrollHeight;
+  atBottom = true;
+  if (scrollBtn) scrollBtn.hidden = true;
+}
+
+function onScroll() {
+  const distance = root.scrollHeight - root.scrollTop - root.clientHeight;
+  atBottom = distance < 40;
+  if (scrollBtn) scrollBtn.hidden = atBottom;
+
+  // Near the top: ask for another page. The model ignores the request
+  // when it is already loading or the history is exhausted, so there is
+  // no need to track either of those here.
+  if (root.scrollTop < 400) emit('ui:load-older');
+
+  collectRead();
+}
+
+// ------------------------------------------------------- read marks
+/**
+ * Marks what is actually on screen as read, once the scrolling stops.
+ * Debounced for the same reason the native scroller debounces it: a
+ * flick of the wheel would otherwise fire a request per frame.
+ */
+function collectRead() {
+  const top = root.scrollTop;
+  const bottom = top + root.clientHeight;
+  for (const [id, entry] of nodes) {
+    const node = entry.node;
+    if (!node.isConnected) continue;
+    if (node.classList.contains('message--outgoing')) continue;
+    const y = node.offsetTop - root.offsetTop;
+    if (y + node.offsetHeight >= top && y <= bottom) pendingRead.add(id);
+  }
+  clearTimeout(readTimer);
+  readTimer = setTimeout(() => {
+    if (!pendingRead.size) return;
+    emit('ui:mark-read', [...pendingRead]);
+    pendingRead.clear();
+  }, READ_DEBOUNCE_MS);
+}
+
+/**
+ * Pulls in the previews for rows that are on screen - the web half of
+ * what the native window does from its layout pass. Asked once per
+ * message: the model is idempotent about it, but a request per render
+ * would still be noise on the wire.
+ */
+function requestVisibleMedia(items) {
+  for (const msg of items) {
+    if (seenMedia.has(msg.id)) continue;
+    if (!msg.media) continue;
+    if (msg.kind === 'photo' && !msg.media.url) {
+      seenMedia.add(msg.id);
+      emit('ui:ensure-media', { id: msg.id, what: 'preview' });
+    }
+  }
 }

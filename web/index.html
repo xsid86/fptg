@@ -54,25 +54,43 @@
 
       <div class="composer" id="composer">
         <div class="composer__toolbar">
-          <button class="btn btn--icon composer__format" type="button" title="Bold" disabled>
+          <button class="btn btn--icon composer__format" type="button" title="Bold"
+                  data-fmt="bold" disabled>
             <span class="icon" data-icon="bold"></span>
           </button>
-          <button class="btn btn--icon composer__format" type="button" title="Italic" disabled>
+          <button class="btn btn--icon composer__format" type="button" title="Italic"
+                  data-fmt="italic" disabled>
             <span class="icon" data-icon="italic"></span>
           </button>
-          <button class="btn btn--icon composer__format" type="button" title="Link" disabled>
-            <span class="icon" data-icon="link"></span>
-          </button>
-          <button class="btn btn--icon composer__format" type="button" title="Quote" disabled>
+          <button class="btn composer__format" type="button" title="Underline"
+                  data-fmt="underline" disabled>U</button>
+          <button class="btn composer__format" type="button" title="Strikethrough"
+                  data-fmt="strike" disabled>S</button>
+          <button class="btn composer__format" type="button" title="Monospace"
+                  data-fmt="mono" disabled>Mono</button>
+          <button class="btn composer__format" type="button" title="Code block"
+                  data-fmt="code" disabled>Code</button>
+          <button class="btn composer__format" type="button" title="Spoiler"
+                  data-fmt="spoiler" disabled>Spoiler</button>
+          <button class="btn btn--icon composer__format" type="button" title="Quote"
+                  data-fmt="quote" disabled>
             <span class="icon" data-icon="reply"></span>
           </button>
+          <button class="btn btn--icon composer__format" type="button" title="Link"
+                  data-fmt="link" disabled>
+            <span class="icon" data-icon="link"></span>
+          </button>
+          <button class="btn composer__format" type="button" title="Strip formatting"
+                  data-fmt="clear" disabled>Clear</button>
+
           <span class="composer__spacer"></span>
-          <button class="btn btn--icon" type="button" title="Attach a file" disabled>
-            <span class="icon" data-icon="clip"></span>
-          </button>
-          <button class="btn btn--icon" type="button" title="Emoji" disabled>
-            <span class="icon" data-icon="smile"></span>
-          </button>
+
+          <label class="btn btn--toggle" title="Write in HTML instead of MarkdownV2">
+            <input type="checkbox" id="composer-html"> HTML
+          </label>
+          <label class="btn btn--toggle" title="Send without a notification">
+            <input type="checkbox" id="composer-silent"> Silent
+          </label>
         </div>
 
         <div class="composer__row">

@@ -46,3 +46,26 @@ export function dateLabel(unix) {
   if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
 }
+
+/** Bytes as a person reads them - the size under a file's name. */
+export function fileSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+/**
+ * A track or clip length. Hours only appear when there are any: the
+ * native window made the same call, because "00:00:04" for a four
+ * second voice note reads as broken rather than precise.
+ */
+export function duration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const pad = (v) => String(v).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}

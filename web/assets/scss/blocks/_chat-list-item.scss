@@ -125,3 +125,22 @@
 .chat-item--secret {
   --chat-color: var(--c-ok);
 }
+
+// The per-row controls (mute, pin, archive). Real buttons nested in a
+// card that is itself only role="button" - see the note in
+// ui/chat-list.js for why the card gave up its own tag.
+.chat-item__action {
+  @include flex(row, center, center);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-text-faint);
+  cursor: pointer;
+
+  &:hover { color: var(--chat-color); }
+}
+
+// The blurred stand-in until the real photo lands.
+.avatar__img.is-blur { filter: blur(4px); transform: scale(1.1); }
+
+.chat-item__avatar.is-deleted { background: var(--c-text-faint); }

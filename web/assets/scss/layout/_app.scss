@@ -32,6 +32,14 @@
   }
 }
 
-.app__sidebar   { grid-area: sidebar; min-width: 0; }
-.app__workspace { grid-area: workspace; min-width: 0; }
+// The min-height:0 is not decoration and not a duplicate of the
+// min-width next to it. A grid item's default min-height:auto is a
+// CONTENT-based minimum, so the 1fr row above grows to however tall
+// the chat list or the history happens to be - 2022px for 25 chats in
+// a 720px window, measured - and the height:100% chain below it
+// inherits that grown height instead of the viewport. Everything then
+// fits by definition and neither pane can ever scroll. The min-width
+// is the same rule on the other axis, for ellipsised titles.
+.app__sidebar   { grid-area: sidebar; min-width: 0; min-height: 0; }
+.app__workspace { grid-area: workspace; min-width: 0; min-height: 0; }
 .app__status    { grid-area: status; }

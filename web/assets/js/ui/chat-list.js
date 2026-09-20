@@ -1,5 +1,5 @@
 import { el, clear } from '../core/dom.js';
-import { on } from '../core/bus.js';
+import { on, emit } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
 import { listTime, countLabel, initial } from '../util/format.js';
@@ -9,16 +9,40 @@ import { listTime, countLabel, initial } from '../util/format.js';
 
 let root = null;
 
+/**
+ * The card is a div with a button role, not a <button>.
+ *
+ * It has to be: the mute/pin/archive controls inside it are real
+ * buttons, and a button inside a button is invalid markup that browsers
+ * resolve by dropping one of them. The native row solves the same
+ * problem by hit-testing rectangles inside one painted row; here the
+ * inner controls stay real controls and the card gives up its tag.
+ */
 function chatItem(chat) {
-  const flags = [];
-  if (chat.pinned) flags.push(icon('pin', 'icon--sm'));
-  if (chat.muted) flags.push(icon('bell-off', 'icon--sm'));
-  if (chat.archived) flags.push(icon('archive', 'icon--sm'));
+  const actions = [];
+  const action = (name, label, act) => el('button', {
+    class: 'chat-item__action',
+    type: 'button',
+    title: label,
+    onclick: (event) => {
+      event.stopPropagation();
+      emit('ui:chat-action', { id: chat.id, action: act });
+    },
+  }, icon(name, 'icon--sm'));
+
+  if (chat.pinned) actions.push(action('pin', 'Unpin', 'unpin'));
+  actions.push(chat.muted
+    ? action('bell-off', 'Unmute', 'unmute')
+    : action('bell', 'Mute', 'mute'));
+  actions.push(chat.archived
+    ? action('archive-out', 'Move to the main list', 'unarchive')
+    : action('archive', 'Archive', 'archive'));
 
   const head = el('div', { class: 'chat-item__head' },
     icon(kindIcon(chat.kind), 'chat-item__kind'),
+    chat.premium ? icon('crown', 'chat-item__kind') : null,
     el('span', { class: 'chat-item__title', textContent: chat.title || '(no title)' }),
-    el('span', { class: 'chat-item__flags' }, flags),
+    el('span', { class: 'chat-item__flags' }, actions),
     el('span', { class: 'chat-item__time u-tabular', textContent: listTime(chat.date) }),
   );
 
@@ -39,12 +63,13 @@ function chatItem(chat) {
   }
 
   const body = el('div', { class: 'chat-item__body' },
-    el('span', { class: 'avatar chat-item__avatar', textContent: initial(chat.title) }),
+    avatar(chat),
     el('span', { class: 'chat-item__text' }, preview),
     meta,
   );
 
-  const item = el('button', {
+  const open = () => setActiveChat(chat.id);
+  return el('div', {
     class: [
       'chat-item',
       // The accent is a class out of the fixed palette (chat.color is a
@@ -56,12 +81,32 @@ function chatItem(chat) {
       chat.kind === 'secret' ? 'chat-item--secret' : '',
       chat.id === store.activeChatId ? 'is-active' : '',
     ].filter(Boolean).join(' '),
-    type: 'button',
+    role: 'button',
+    tabIndex: 0,
     dataset: { chatId: String(chat.id) },
-    onclick: () => setActiveChat(chat.id),
+    onclick: open,
+    onkeydown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        open();
+      }
+    },
   }, head, body);
+}
 
-  return item;
+/** Real photo when it is on disk, the inline blur while it is not. */
+function avatar(chat) {
+  const box = el('span', {
+    class: `avatar chat-item__avatar${chat.deleted ? ' is-deleted' : ''}`,
+  });
+  if (chat.avatar) {
+    box.append(el('img', { class: 'avatar__img', src: chat.avatar, alt: '' }));
+  } else if (chat.avatarThumb) {
+    box.append(el('img', { class: 'avatar__img is-blur', src: chat.avatarThumb, alt: '' }));
+  } else {
+    box.textContent = chat.deleted ? '×' : initial(chat.title);
+  }
+  return box;
 }
 
 function render() {

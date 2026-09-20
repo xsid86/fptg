@@ -45,3 +45,24 @@
     font-size: $fs-sm;
   }
 }
+
+// The "jump to the newest message" button. Floats over the history in
+// the bottom corner and only exists while the bottom is off screen -
+// the same rule the native scroller applies.
+.history__to-bottom {
+  position: absolute;
+  inset-inline-end: $space-6;
+  inset-block-end: $space-6;
+  @include flex(row, center, center);
+  @include size(36px);
+  border: 1px solid var(--c-border);
+  border-radius: 50%;
+  background: var(--c-surface);
+  color: var(--c-text-dim);
+  cursor: pointer;
+  box-shadow: 0 2px 8px var(--c-shadow);
+  z-index: 2;
+
+  &:hover { color: var(--c-accent); }
+  &[hidden] { display: none; }
+}

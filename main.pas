@@ -35,6 +35,10 @@ type
     MenuItem7:  TMenuItem;
     MenuItem8:  TMenuItem;
     MenuItem9:  TMenuItem;
+    { Tools -> Open web interface. The web UI's URL carries a
+      per-run token, so it cannot just be typed from memory; this
+      opens the current one. }
+    MenuItemWebUi: TMenuItem;
     pnlLeft:    TPanel;
     splLeft:    TSplitter;
     pnlWork:    TPanel;
@@ -64,6 +68,7 @@ type
     procedure welcomeScreen(Sender: TObject);
     procedure menuQuitClick(Sender: TObject);
     procedure SettingsMenuClick(Sender: TObject);
+    procedure MenuItemWebUiClick(Sender: TObject);
     procedure FormResize(Sender: TObject);
     { Click on the presence panel (Panels[0], now first — see main.lfm)
       pops up PresenceMenu at
@@ -330,7 +335,7 @@ implementation
   FormMain.AudioDeviceName/SetAudioDeviceName), which would create a
   cycle if used from the interface. }
 uses
-  login, settings;
+  login, settings, LCLIntf, localserver;
 
 {$R *.lfm}
 
@@ -724,6 +729,10 @@ procedure TFormMain.ApplyPresence;
 var
   ValStr: utf8string;
 begin
+  { Before the early exit below: this flag is ours, not TDLib's, and it
+    has to be right even when there is no client to tell about the
+    presence itself. }
+  SetPresenceInvisible(FInvisible);
   if TdRequests = nil then begin
     Exit;
   end;
@@ -1028,6 +1037,33 @@ begin
   finally
     Dlg.Free;
   end;
+end;
+
+{ ---------------- web interface ---------------- }
+
+procedure TFormMain.MenuItemWebUiClick(Sender: TObject);
+var
+  Url: string;
+begin
+  Url := LocalServerUrl;
+  if Url = '' then begin
+    { The server is started for every launch but a refused start is not
+      fatal (see tg.lpr), and this is the only place the user could
+      find that out: a GUI process has no console to have complained
+      on, and the URL file is not written either when nothing is
+      listening. }
+    MessageDlg('Web interface',
+      'The local server is not running — port '
+      + IntToStr(ConfiguredServerPort)
+      + ' could not be opened.' + LineEnding
+      + 'Start the application with --server-port=N to use another one.',
+      mtWarning, [mbOK], 0);
+    Exit;
+  end;
+  { Opens in the default browser. The URL already carries this run's
+    token, so the page is authorised on arrival — it is the same
+    string server_url.txt holds. }
+  OpenURL(Url);
 end;
 
 procedure TFormMain.SetCloseToTray(AValue: boolean);

@@ -102,6 +102,10 @@ object FormMain: TFormMain
         ShortCut = 49235
         OnClick = SettingsMenuClick
       end
+      object MenuItemWebUi: TMenuItem
+        Caption = 'Open web interface'
+        OnClick = MenuItemWebUiClick
+      end
     end
     object MenuItem10: TMenuItem
       Caption = 'Account'

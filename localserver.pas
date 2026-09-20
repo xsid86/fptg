@@ -3,11 +3,10 @@ unit localserver;
 {$mode objfpc}{$H+}
 
 { A loopback HTTP + WebSocket server living inside this very exe,
-  started only when the process is launched with --server. Nothing in
-  the existing UI knows it exists and it touches no model: this is the
-  transport half of the "web UI alongside the native one" plan, stood
-  up on its own so it can be proven in a browser before anything is
-  ported onto it.
+  started on every launch (tg.lpr). The existing UI knows of it only
+  through the one menu item that opens its URL, and it touches no
+  model itself: this is the transport half of the "web UI alongside
+  the native one" plan, standing on its own.
 
   WHY BOTH PROTOCOLS, and not just the WebSocket: media has to be
   ordinary HTTP with Range support, because <video>/<audio> seek by
@@ -35,14 +34,18 @@ unit localserver;
   callers, the Origin check stops a page that somehow learned the
   token from using it.
 
-  The token is written to server_url.txt next to the exe: this is a
-  GUI process with no console, and the URL has to reach the user
-  somehow. That file is a local secret for the length of one run. }
+  The token is written to server_url.txt next to the exe, and the
+  main window's Tools menu opens the same URL directly. The file is
+  kept even though the menu item exists: it is how anything OTHER than
+  this process (a script, a second browser, a phone on the same
+  machine) can find the address. Either way it is a local secret for
+  the length of one run. }
 
 interface
 
 uses
-  Classes, SysUtils, SyncObjs, blcksock, synsock, constants, wsframe;
+  Classes, SysUtils, SyncObjs, blcksock, synsock, constants, wsframe,
+  webfiles;
 
 type
   TLocalServer = class;
@@ -80,6 +83,8 @@ type
     procedure SendSimple(ACode: integer; const AReason, ABody: string;
       const AExtraHeaders: string = '');
     procedure ServeFile;
+    procedure ServeMedia;
+    procedure ServeFileFrom(const AFileName, AContentType: string);
     procedure IsWebSocketRequest(out AIsWs: boolean);
     procedure ServeWebSocket;
     procedure DispatchOrEcho(AOpcode: TWsOpcode; const APayload: RawByteString);
@@ -117,9 +122,11 @@ type
     property Bound: boolean read FBound;
   end;
 
-{ True when the command line asked for the server; APort carries the
-  port to use (LOCAL_SERVER_PORT unless --server-port=N overrode it). }
-function ServerRequested(out APort: word): boolean;
+{ The port to serve on: LOCAL_SERVER_PORT unless --server-port=N
+  overrode it on the command line. There is no flag for whether to
+  serve at all any more — the server is part of every launch, see
+  tg.lpr. }
+function ConfiguredServerPort: word;
 
 { Binds and starts. False means the port was taken or the socket could
   not be created — the caller decides whether that is fatal. }
@@ -539,7 +546,54 @@ begin
   FSock.SendString(H + CRLF + ABody);
 end;
 
+{ A file out of the web root — the pages, scripts and styles this
+  project ships. }
 procedure TServerConn.ServeFile;
+var
+  Fn: string;
+begin
+  if not MapPath(Fn) then begin
+    SendSimple(404, 'Not Found', 'not found');
+    Exit;
+  end;
+  ServeFileFrom(Fn, ContentTypeFor(Fn));
+end;
+
+{ /media/<file_id> — a file out of TDLib's cache: a photo, a video, a
+  track, a sticker. The URL carries no path, only TDLib's own integer
+  file id, and the only paths that can come back from webfiles are ones
+  the model itself published — so there is nothing here for a
+  traversal attempt to work with, and MapPath's containment check has
+  no equivalent to do.
+
+  Note what this does NOT do: ask the model anything. This runs on a
+  socket thread, and the model is the main thread's. The lookup is a
+  lock-protected integer-to-path map and nothing more. }
+procedure TServerConn.ServeMedia;
+var
+  Ids, Fn: string;
+  FileId, Err: integer;
+begin
+  Ids := Copy(FPath, Length('/media/') + 1, MaxInt);
+  Val(Ids, FileId, Err);
+  if (Err <> 0) or (FileId = 0) then begin
+    SendSimple(404, 'Not Found', 'not found');
+    Exit;
+  end;
+  if not WebFileResolve(FileId, Fn) then begin
+    { Known id, nothing on disk yet: the download has not finished, or
+      this build never saw the file. Either way there is nothing to
+      send, and the page retries when the model says the file landed. }
+    SendSimple(404, 'Not Found', 'not downloaded');
+    Exit;
+  end;
+  ServeFileFrom(Fn, MediaContentType(Fn));
+end;
+
+{ The shared body: range handling, headers, and the send loop. Both
+  routes above resolve a path their own way and then end up here, so
+  there is one implementation of Range rather than two that drift. }
+procedure TServerConn.ServeFileFrom(const AFileName, AContentType: string);
 var
   Fn, Hdr, Ct: string;
   FS: TFileStream;
@@ -552,10 +606,8 @@ var
   Want, Got: integer;
   Partial: boolean;
 begin
-  if not MapPath(Fn) then begin
-    SendSimple(404, 'Not Found', 'not found');
-    Exit;
-  end;
+  Fn := AFileName;
+  Ct := AContentType;
   if not FileExists(Fn) then begin
     SendSimple(404, 'Not Found', 'not found');
     Exit;
@@ -589,8 +641,6 @@ begin
     end else begin
       Left := RFinish - RStart + 1;
     end;
-    Ct := ContentTypeFor(Fn);
-
     if Partial then begin
       Hdr := 'HTTP/1.1 206 Partial Content' + CRLF
            + 'Content-Range: bytes ' + IntToStr(RStart) + '-' + IntToStr(RFinish)
@@ -854,6 +904,8 @@ begin
       IsWebSocketRequest(IsWs);
       if IsWs then begin
         ServeWebSocket;
+      end else if Copy(FPath, 1, Length('/media/')) = '/media/' then begin
+        ServeMedia;
       end else begin
         ServeFile;
       end;
@@ -925,22 +977,17 @@ end;
 { module entry points                                                }
 { ------------------------------------------------------------------ }
 
-function ServerRequested(out APort: word): boolean;
+function ConfiguredServerPort: word;
 var
   I, V: integer;
   S: string;
 begin
-  Result := False;
-  APort := LOCAL_SERVER_PORT;
+  Result := LOCAL_SERVER_PORT;
   for I := 1 to ParamCount do begin
     S := ParamStr(I);
-    if S = '--server' then begin
-      Result := True;
-    end else if Copy(S, 1, 14) = '--server-port=' then begin
+    if Copy(S, 1, 14) = '--server-port=' then begin
       if TryStrToInt(Copy(S, 15, MaxInt), V) and (V > 0) and (V <= 65535) then begin
-        APort := word(V);
-        { Naming a port implies wanting the server. }
-        Result := True;
+        Result := word(V);
       end;
     end;
   end;
