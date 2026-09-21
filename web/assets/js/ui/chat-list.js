@@ -19,7 +19,6 @@ let root = null;
  * inner controls stay real controls and the card gives up its tag.
  */
 function chatItem(chat) {
-  const actions = [];
   const action = (name, label, act) => el('button', {
     class: 'chat-item__action',
     type: 'button',
@@ -30,42 +29,65 @@ function chatItem(chat) {
     },
   }, icon(name, 'icon--sm'));
 
-  if (chat.pinned) actions.push(action('pin', 'Unpin', 'unpin'));
-  actions.push(chat.muted
-    ? action('bell-off', 'Unmute', 'unmute')
-    : action('bell', 'Mute', 'mute'));
-  actions.push(chat.archived
-    ? action('archive-out', 'Move to the main list', 'unarchive')
-    : action('archive', 'Archive', 'archive'));
+  // Saved Messages drops mute and archive for the same reason the
+  // native card drops them: you cannot mute yourself, and offering to
+  // file your own notes away from a one-pixel icon is not worth it.
+  const isSelf = chat.kind === 'self';
+  const actions = [];
+  if (!isSelf) {
+    actions.push(chat.archived
+      ? action('archive-out', 'Move to the main list', 'unarchive')
+      : action('archive', 'Archive', 'archive'));
+  }
+  // Pinning always addresses the main list - toggleChatIsPinned has no
+  // other list to aim at - so a chat sitting in the archive has no pin
+  // to toggle, and the slot is left out rather than shown dead.
+  if (!chat.archived) {
+    actions.push(chat.pinned
+      ? action('pin-off', 'Unpin', 'unpin')
+      : action('pin', 'Pin', 'pin'));
+  }
+  if (!isSelf) {
+    actions.push(chat.muted
+      ? action('bell-off', 'Unmute', 'unmute')
+      : action('bell', 'Mute', 'mute'));
+  }
 
+  // Header order, the same one the native card paints: chat type,
+  // premium mark, name, read receipt, time, then archive / pin / mute.
   const head = el('div', { class: 'chat-item__head' },
     icon(kindIcon(chat.kind), 'chat-item__kind'),
-    chat.premium ? icon('crown', 'chat-item__kind') : null,
+    chat.premium ? icon('crown', 'chat-item__premium') : null,
     el('span', { class: 'chat-item__title', textContent: chat.title || '(no title)' }),
-    el('span', { class: 'chat-item__flags' }, actions),
+    receipt(chat),
     el('span', { class: 'chat-item__time u-tabular', textContent: listTime(chat.date) }),
+    el('span', { class: 'chat-item__flags' }, actions),
   );
 
-  const preview = el('span', { class: 'chat-item__preview' });
+  const preview = el('div', { class: 'chat-item__preview' });
   if (chat.outgoing) preview.append(el('span', { class: 'chat-item__me', textContent: 'You: ' }));
   preview.append(document.createTextNode(chat.preview || ''));
 
-  const meta = el('div', { class: 'chat-item__meta' });
-  if (chat.folder) {
-    meta.append(el('span', { class: 'chip chat-item__folder' },
-      el('span', { textContent: chat.folder })));
-  }
-  if (chat.unread > 0) {
-    meta.append(el('span', {
-      class: `badge${chat.muted ? ' badge--muted' : ''}`,
-      textContent: countLabel(chat.unread),
-    }));
-  }
+  // The second line is always emitted, even with neither a folder nor
+  // an unread count: it is what keeps every card the same height,
+  // which is how the native row gets its constant height too (its
+  // content box is sized from the avatar, not from what is in it).
+  const meta = el('div', { class: 'chat-item__meta' },
+    chat.folder
+      ? el('span', { class: 'chip chat-item__folder' },
+          el('span', { textContent: chat.folder }))
+      : null,
+    chat.unread > 0
+      ? el('span', {
+          class: `badge${chat.muted ? ' badge--muted' : ''}`,
+          textContent: countLabel(chat.unread),
+        })
+      : null,
+  );
 
   const body = el('div', { class: 'chat-item__body' },
     avatar(chat),
-    el('span', { class: 'chat-item__text' }, preview),
-    meta,
+    el('div', { class: 'chat-item__text' }, preview, meta),
   );
 
   const open = () => setActiveChat(chat.id);
@@ -92,6 +114,28 @@ function chatItem(chat) {
       }
     },
   }, head, body);
+}
+
+/**
+ * The delivery tick for the row's own last message. Outgoing only -
+ * the server sends '' for anything else, and then the slot is simply
+ * absent rather than reserved and blank.
+ */
+const RECEIPTS = {
+  pending: ['clock', 'Sending'],
+  failed: ['alert', 'Failed to send'],
+  sent: ['check', 'Sent'],
+  read: ['check-double', 'Read'],
+};
+
+function receipt(chat) {
+  const spec = RECEIPTS[chat.receipt];
+  if (!spec) return null;
+  const [name, label] = spec;
+  return el('span', {
+    class: `chat-item__receipt is-${chat.receipt}`,
+    title: label,
+  }, icon(name, 'icon--sm'));
 }
 
 /** Real photo when it is on disk, the inline blur while it is not. */

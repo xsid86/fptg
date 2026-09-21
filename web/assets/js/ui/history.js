@@ -1,5 +1,6 @@
 import { el, clear } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
+import { onActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
 import { dateLabel } from '../util/format.js';
 import { renderMessage } from './message.js';
@@ -52,7 +53,7 @@ export function mountHistory(node) {
   // own Resize for the same reason.
   window.addEventListener('resize', () => maybeFill(lastState));
   on('store:messages', render);
-  on('store:active', (chat) => {
+  onActiveChat((chat) => {
     if (!chat) renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
   });
   renderEmpty('Pick a chat on the left', 'Its messages will show up here.');

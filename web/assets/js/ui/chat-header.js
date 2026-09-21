@@ -1,5 +1,5 @@
 import { el, clear } from '../core/dom.js';
-import { on } from '../core/bus.js';
+import { onActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
 import { initial } from '../util/format.js';
 
@@ -83,6 +83,6 @@ function subtitle(chat) {
 
 export function mountChatHeader(node) {
   root = node;
-  on('store:active', render);
+  onActiveChat(render);
   render(null);
 }

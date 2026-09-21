@@ -2,8 +2,8 @@
 
 .badge {
   @include flex(row, center, center);
-  min-width: 18px;
-  height: 18px;
+  min-width: $badge-h;
+  height: $badge-h;
   padding: 0 $space-3;
   border-radius: $radius-pill;
   background: var(--c-unread);

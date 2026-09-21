@@ -1,12 +1,15 @@
 @use "../abstracts" as *;
 
-// Every icon is a <use> into the sprite injected by js/util/icons.js.
-// fill:currentColor is the whole point: an icon then inherits the
-// colour of whatever it sits in, including a per-chat accent, with no
-// second copy of the file in another colour.
+// Every icon is a <use> into the sheet injected by js/util/icons.js,
+// with a viewBox that windows onto that icon's cell in the grid.
+//
+// No paint here on purpose. The sheet's groups carry their own
+// stroke="currentColor" (they have to: <use> clones the group, so
+// anything declared on the sheet root would not travel with it), which
+// means an icon still takes the colour of whatever it sits in,
+// including a per-chat accent, with no second copy of the file.
 .icon {
   @include size($icon-md);
-  fill: currentColor;
   pointer-events: none;
 }
 

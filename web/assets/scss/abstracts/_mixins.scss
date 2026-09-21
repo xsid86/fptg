@@ -126,3 +126,7 @@
     pointer-events: none;
   }
 }
+
+@mixin transition(){
+  transition: all .25s ease-in-out;
+}

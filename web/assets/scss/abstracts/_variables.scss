@@ -45,7 +45,7 @@ $space-8:  32px;
 
 // ------------------------------------------------------------- radius
 $radius-sm: 4px;
-$radius-md: 7px;    // native: MSG_CORNER_RADIUS
+$radius-md: 8px;    // native: MSG_CORNER_RADIUS
 $radius-lg: 10px;
 $radius-pill: 999px;
 
@@ -54,8 +54,10 @@ $avatar-sm: 24px;
 $avatar-md: 32px;   // native: AVATAR_SIZE
 $avatar-lg: 48px;   // native: CHAT_HEADER_AVATAR_SIZE / 64 there, 48 reads better here
 
-$icon-sm: 12px;     // native: icons12
-$icon-md: 16px;
+$badge-h: 18px;     // native: BADGE_H
+
+$icon-sm: 16px;     // native: icons12
+$icon-md: 18px;
 $icon-lg: 20px;
 
 $sidebar-width:     320px;
@@ -157,10 +159,12 @@ $theme-light: (
   "danger":        #e53935,
   "unread":        #2196f3,
   "shadow":        rgba(16, 24, 40, .10),
+  "dark":          #131313,
+  "light":         #f1f2f3
 );
 
 $theme-dark: (
-  "bg":            #17181b,
+  "bg":            #131313,
   "surface":       #1f2125,
   "surface-2":     #24272c,
   "surface-hover": #2a2e34,
@@ -178,4 +182,6 @@ $theme-dark: (
   "danger":        #ef5350,
   "unread":        #2196f3,
   "shadow":        rgba(0, 0, 0, .45),
+  "dark":          #131313,
+  "light":         #f1f2f3
 );

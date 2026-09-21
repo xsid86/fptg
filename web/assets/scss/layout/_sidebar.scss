@@ -5,7 +5,6 @@
   @include card($radius-lg);
   height: 100%;
   min-height: 0;
-  border: 1px solid var(--c-border);
   overflow: hidden;
 }
 

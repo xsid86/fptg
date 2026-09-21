@@ -1,5 +1,6 @@
 import { qs, qsa } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
+import { onActiveChat } from '../core/store.js';
 
 // The message box, and the same formatting toolbar msginput.pas has.
 //
@@ -184,6 +185,6 @@ export function mountComposer(node) {
     btn.addEventListener('click', () => applyFormat(btn.dataset.fmt));
   }
 
-  on('store:active', updateEnabled);
+  onActiveChat(updateEnabled);
   updateEnabled(null);
 }

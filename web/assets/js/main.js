@@ -1,7 +1,7 @@
 import { qs } from './core/dom.js';
 import { on, emit } from './core/bus.js';
 import { connect, call } from './core/net.js';
-import { store, setChats, setArchived, setActiveChat, setMessages } from './core/store.js';
+import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat } from './core/store.js';
 import { loadIcons, hydrateIcons } from './util/icons.js';
 import { mountChatList, showListLoading, showListError } from './ui/chat-list.js';
 import { mountChatHeader } from './ui/chat-header.js';
@@ -69,6 +69,10 @@ const refreshMessages = throttle(loadMessages, 150);
 
 // ---------------------------------------------------------- actions
 function wireActions() {
+  // Opening a chat is a real state change on the SHARED model - it
+  // tells TDLib which chat is on screen and reloads the history, which
+  // the native window sees too. So it hangs off 'store:active' alone,
+  // the event that fires only when the user really picked another chat.
   on('store:active', async (chat) => {
     if (!chat) return;
     try {
@@ -162,7 +166,7 @@ function wireSidebar() {
 
 function wireResponsive() {
   const app = qs('.app');
-  on('store:active', (chat) => {
+  onActiveChat((chat) => {
     app.dataset.view = chat ? 'chat' : 'list';
   });
   document.addEventListener('click', (event) => {

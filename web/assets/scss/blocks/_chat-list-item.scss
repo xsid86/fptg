@@ -12,46 +12,77 @@
 .chat-item {
   // Set by the .accent-* class the row also carries; the default keeps
   // the card sane if a chat ever arrives without one.
-  background: var(--c-surface);
 
-  background: color-mix(in srgb, var(--chat-color) 5%, var(--c-surface));
-  border: 1px solid var(--chat-color);
+
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--chat-color) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chat-color) 0%, transparent);
   border-radius: $radius-md;
+  box-shadow: 0 2px 2px rgba(0, 0, 0, .1), inset 0 0 2rem color-mix(in srgb, var(--chat-color) 50%, transparent);
   --chat-color: var(--accent-color, var(--c-accent));
+  cursor: pointer;
   display: flex;
   flex-direction: column;
   margin-bottom: 0;
   overflow: hidden;
   padding: 0;
   text-align: left;
-  transition: all $dur-fast $ease;
   width: 100%;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, .1);
   @include focus-ring(var(--chat-color), -2px);
+  @include transition;
 
   &:hover {
-    background: var(--c-surface-hover);
+    border: 1px solid color-mix(in srgb, var(--chat-color) 100%, transparent);
   }
 
   // Selected shows through the GAPS around the card rather than by
   // repainting the card itself — the same decision the native list
   // makes, and the reason the card keeps its own tint when active.
   &.is-active {
-    border-color: var(--chat-color);
+    border: 1px solid color-mix(in srgb, var(--chat-color) 100%, transparent);
   }
 }
 
 // ------------------------------------------------------------ header
 .chat-item__head {
   @include flex(row, center, flex-start, $space-2);
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--chat-color) 16%, var(--c-surface)), color-mix(in srgb, var(--chat-color) 32%, var(--c-surface)));
-  color: var(--chat-color);
+  background: color-mix(in srgb, var(--chat-color) 10%, transparent);
+  color: #fff; //color-mix(in srgb, var(--chat-color) 100%, #000);
   padding: $space-2 $space-3;
   //border-bottom: 1px solid var(--chat-color);
 }
 
-.chat-item__kind {
+.chat-item__kind,
+.chat-item__premium {
   @include size($icon-sm);
+  fill: var(--chat-color);
+
+}
+
+// The premium crown keeps its own colour rather than the chat accent:
+// it says something about the account, not about this conversation.
+.chat-item__premium {
+  color: var(--c-warn);
+}
+
+// Delivery state of our own last message, between the name and the
+// time. Failed is the one state that has to carry colour - a tick the
+// user must act on cannot look like the three that need nothing.
+.chat-item__receipt {
+  @include flex(row, center, center);
+  color: var(--chat-color);
+
+  .icon {
+    @include size($icon-sm);
+  }
+
+  &.is-pending {
+    color: var(--c-text-faint);
+  }
+
+  &.is-failed {
+    color: var(--c-danger);
+  }
 }
 
 .chat-item__title {
@@ -71,7 +102,7 @@
 }
 
 .chat-item__time {
-  color: var(--c-text-dim);
+  color: #fff;
   font-size: $fs-xs;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -79,22 +110,42 @@
 
 // ----------------------------------------------------------- content
 .chat-item__body {
-  @include flex(row, center, flex-start, $space-3);
+  @include flex(row, stretch, flex-start, $space-3);
   padding: $space-3;
 }
 
 .chat-item__avatar {
+  align-self: stretch;
+
+  // The disc spans both text rows rather than carrying a size of its
+  // own. aspect-ratio rather than a number, because the height of the
+  // two rows follows the font: pinning the avatar to a measured 40px
+  // would be one more thing to keep in sync by hand, and it would go
+  // out of sync the first time the preview's type size moves.
+  aspect-ratio: 1;
   --avatar-color: var(--chat-color);
+  flex: 0 0 auto;
+  font-size: $fs-lg;
+  height: 48px;
+  width: 48px;
 }
 
+// Two rows beside the avatar: the preview, then the folder chip and
+// the unread count. Both sit flush with the avatar's edges and the
+// avatar sets the height, so a card with no folder and no unread count
+// is exactly as tall as one with both (native: CHATROW_LINE_INSET 0,
+// CHATROW_CONTENT_H derived from AVATAR_SIZE).
 .chat-item__text {
+  @include flex(column, stretch, space-between, $space-1);
   flex: 1 1 auto;
+  min-height: $avatar-md;
   min-width: 0;
 }
 
 .chat-item__preview {
   @include ellipsis;
-  color: var(--c-text-dim);
+  //color: var(--c-text-dim);
+  color: #fff;
   font-size: $fs-sm;
 
   // "You: " before an outgoing preview, in the chat's own colour.
@@ -107,19 +158,30 @@
   font-weight: $fw-medium;
 }
 
+// Folder chip on the left, unread count hard against the right edge.
+// The badge is pushed there by an auto margin rather than by
+// space-between, because a row that has ONLY a badge would put its
+// single child at the start - the unread count would end up hugging
+// the avatar instead of the trailing edge.
 .chat-item__meta {
-  @include flex(column, flex-end, center, $space-1);
-  align-self: stretch;
-  justify-content: space-between;
+  @include flex(row, center, flex-start, $space-2);
+  min-height: $badge-h;
+
+  .badge {
+    margin-left: auto;
+  }
 }
 
 .chat-item__folder {
-  --chip-color: var(--chat-color);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--chat-color) 100%, black), color-mix(in srgb, var(--chat-color) 65%, black));
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .2);
+  color: var(--c-accent-text);
 }
 
 // ------------------------------------------------------------ states
 .chat-item--muted .chat-item__title {
-  color: var(--c-text-dim);
+  //color: var(--c-text-dim);
 }
 
 .chat-item--secret {
@@ -131,16 +193,26 @@
 // ui/chat-list.js for why the card gave up its own tag.
 .chat-item__action {
   @include flex(row, center, center);
-  padding: 0;
-  border: 0;
   background: none;
-  color: var(--c-text-faint);
+  border: 0;
+  color: var(--c-accent-text);
   cursor: pointer;
+  padding: 0;
+  @include transition;
 
-  &:hover { color: var(--chat-color); }
+  &:hover,
+  &:active,
+  &:focus {
+    color: var(--chat-color);
+  }
 }
 
 // The blurred stand-in until the real photo lands.
-.avatar__img.is-blur { filter: blur(4px); transform: scale(1.1); }
+.avatar__img.is-blur {
+  filter: blur(4px);
+  transform: scale(1.1);
+}
 
-.chat-item__avatar.is-deleted { background: var(--c-text-faint); }
+.chat-item__avatar.is-deleted {
+  background: var(--c-text-faint);
+}

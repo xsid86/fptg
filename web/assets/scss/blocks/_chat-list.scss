@@ -3,9 +3,12 @@
 .chat-list {
   display: flex;
   flex-direction: column;
-  gap: .25rem;
+  gap: .5rem;
   height: 100%;
-  padding: $space-2;
+  padding: .5rem;
+  background-image: url(../img/bg.jpg);
+  background-position: center;
+  background-size: cover;
   @include scroll-area;
 
   // A flex item's default flex-shrink is 1, and in a column that is

@@ -93,12 +93,12 @@
   }
 
   pre {
+    background: color-mix(in srgb, var(--sender-color) 20%, transparent);
+    color: var(--sender-color);
     display: block;
     margin: 0;
     overflow-x: auto;
     padding: $space-4;
-    background: color-mix(in srgb, var(--sender-color) 20%, transparent);
-    color: var(--sender-color);
     @include scrollbar(6px);
   }
 
@@ -202,17 +202,18 @@
 
   border: 0;
   border-inline-start: 2px solid var(--source-color);
-  border-radius: 0 $radius-sm $radius-sm 0;
+  border-radius: $radius-sm;
   --source-color: var(--accent-color, var(--sender-color));
   color: inherit;
   display: flex;
   flex-direction: column;
   font: inherit;
   gap: 1px;
-  margin: 0 $space-5 $space-3;
+  margin: $space-5 $space-5 0 $space-5;
   padding: $space-3 $space-5;
   text-align: start;
   width: calc(100% - #{$space-5} * 2);
+  @include transition;
 }
 
 button.message__forward {
@@ -237,13 +238,14 @@ button.message__forward:hover {
 
 .message__reply {
   border: 0;
-
+  @include transition;
   border-inline-start: 2px solid var(--source-color);
   --source-color: var(--accent-color, var(--sender-color));
   color: inherit;
   font: inherit;
   text-align: start;
   width: calc(100% - #{$space-5} * 2);
+  margin-top: $space-5;
 }
 
 .message__reply-name {

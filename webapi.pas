@@ -150,6 +150,22 @@ begin
   Result := AccentKeyFor(ARow.AccentColorId, ARow.Id);
 end;
 
+{ The delivery state of the row's own last message, for the tick the
+  card shows next to the time. '' for anything incoming or unsent -
+  tdchats.ChatReceipt already answers crNone there, and the page skips
+  the icon entirely rather than drawing a blank slot. }
+function ReceiptStr(ARow: TChatRow): utf8string;
+begin
+  case ChatReceipt(ARow) of
+    crPending: Result := 'pending';
+    crFailed:  Result := 'failed';
+    crSent:    Result := 'sent';
+    crRead:    Result := 'read';
+  else
+    Result := '';
+  end;
+end;
+
 function ChatKindStr(AChats: TTdChats; ARow: TChatRow): utf8string;
 begin
   if AChats.IsSelfChat(ARow) then begin
@@ -222,6 +238,7 @@ begin
   Result.Add('pinned',   ARow.IsPinned);
   Result.Add('archived', ARow.InArchive);
   Result.Add('outgoing', ARow.LastIsOutgoing);
+  Result.Add('receipt',  string(ReceiptStr(ARow)));
   Result.Add('folder',   string(Folder));
   Result.Add('premium',  AChats.IsPremiumUser(ARow));
   Result.Add('deleted',  AChats.IsDeletedUser(ARow));
@@ -361,12 +378,20 @@ begin
       Continue;
     end;
     O := TJSONObject.Create;
-    { Byte offsets into the text, the same convention the rest of this
-      project uses for utf8string. The page works on the same bytes:
-      it decodes the text into a byte array once and slices it, rather
+    { Byte offsets into the text. The page works on the same bytes: it
+      decodes the text into a byte array once and slices it, rather
       than trusting JavaScript's UTF-16 string indexing, which would
-      land every entity in the wrong place on any non-Latin text. }
-    O.Add('start', AEntities[I].ByteStart);
+      land every entity in the wrong place on any non-Latin text.
+
+      The -1 is the whole point of this line, not a fudge: ByteStart is
+      a Pascal string index, so it counts from ONE (see
+      Utf16RangeToByteRange, which walks I := 1..N), and every native
+      reader tests it that way. A JS typed array counts from zero.
+      Without the shift every entity started one byte late and ran one
+      byte past its end - the visible symptom being that the first
+      character of a bold/underlined/quoted run stayed unformatted.
+      Length needs no adjustment: it is a distance, not a position. }
+    O.Add('start', AEntities[I].ByteStart - 1);
     O.Add('len',   AEntities[I].ByteLen);
     O.Add('kind',  string(Kind));
     if AEntities[I].URL <> '' then begin

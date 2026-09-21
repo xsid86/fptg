@@ -1353,7 +1353,11 @@ var
 begin
   if ABold then begin
     SetLength(Ents, 1);
-    Ents[0].ByteStart := 0;
+    { ONE, not zero: ByteStart is a Pascal string index (see
+      tdmessages.Utf16RangeToByteRange) and StyleAt tests APos against
+      it over a 1..N loop. At zero the span ended one byte short and
+      the question's last character came out unbolded. }
+    Ents[0].ByteStart := 1;
     Ents[0].ByteLen := Length(AText);
     Ents[0].Kind := mekBold;
     Ents[0].URL := '';

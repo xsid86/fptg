@@ -1,198 +1,1541 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!--
-  GUI icon sprite. Original glyphs drawn for this project on a 16x16
-  grid, deliberately plain geometry so they stay legible at the 12px
-  the chat list uses.
+  GUI icon sheet - EDIT THIS FILE DIRECTLY, in Inkscape or any vector
+  editor. It is laid out as a grid on purpose: every icon is its own
+  group in its own 24x24 cell, so they can be selected and reworked one
+  at a time. (It used to be 40 stacked <symbol>s, which an editor draws
+  on top of each other in one heap - unusable.)
 
   These are UI icons only. Anything that comes out of Telegram (avatars,
-  photos, stickers, custom emoji) is media and is served from the TDLib
-  cache instead - it never belongs in here.
+  photos, stickers, custom emoji) is media, served from the TDLib cache;
+  it never belongs in here.
 
-  No fill is set on the paths: every icon inherits currentColor from
-  whatever it sits in, which is what lets one file serve the per-chat
-  accent colours without a second copy in another tint.
+  HOW A PAGE USES A CELL
+  js/util/icons.js injects this file once, reads each cell's origin off
+  its rect[data-cell], and emits
+      <svg class="icon" viewBox="<cell x> <cell y> 24 24"><use href="#i-pin"/></svg>
+  so the host viewBox is a window onto that one cell. That is why the
+  cell rect matters: it is the machine-readable box, and it is read
+  through the group's transform, so an icon keeps working whether you
+  drag its group (Inkscape writes a transform) or your Inkscape stores
+  transforms "optimized" (it bakes them into the path data and moves the
+  rect instead). Either way the rect lands where the artwork does.
 
-  Used through <svg class="icon"><use href="#i-pin"></use></svg>. The
-  sprite is fetched once and injected into the document by
-  js/util/icons.js, so <use> resolves against the same document and the
-  glyphs remain styleable.
+  RULES WHEN EDITING
+  - Keep the rect[data-cell] inside its group, matching the artwork.
+  - Keep the group id (i-<name>); that name is what the code asks for.
+  - Draw inside 2..22 of the cell, stroke 2, round caps and joins.
+  - Stroke presets sit on each <g>, not on the root: <use> clones only
+    the group, so anything set on the root would not travel with it.
+  - Colour is currentColor, so an icon takes the colour of whatever it
+    sits in (hover, a chat accent, a tinted header). Paste in a glyph
+    from an icon set and its editor will have baked its own swatch in,
+    usually as style="fill:#..."; the loader rewrites that to
+    currentColor on the way in, so it works either way. Icons are
+    monochrome by construction - a two-tone glyph would be flattened.
+  - The pale boxes and the captions are guides. The loader drops the
+    captions and clears the box stroke before anything references a
+    cell, so they never show up in the app.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
 
-  <!-- ==================== chat kinds ==================== -->
-  <symbol id="i-person" viewBox="0 0 16 16">
-    <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8 9.4c-3 0-5.5 1.5-5.5 3.3V15h11v-2.3c0-1.8-2.5-3.3-5.5-3.3z"/>
-  </symbol>
-
-  <symbol id="i-group" viewBox="0 0 16 16">
-    <path d="M5.8 8a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2zM5.8 9.2C3.4 9.2 1 10.4 1 12v2h9.6v-2c0-1.6-2.4-2.8-4.8-2.8z"/>
-    <path d="M11.6 8.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4zM11.6 9.4c-.5 0-1 .05-1.4.15.9.7 1.4 1.6 1.4 2.45V14H15v-2c0-1.4-1.7-2.6-3.4-2.6z"/>
-  </symbol>
-
-  <symbol id="i-channel" viewBox="0 0 16 16">
-    <path d="M12.5 1.5v13L6 11.2V4.8zM2 5h3v6H2zM4 11.4h2L7 15H5z"/>
-  </symbol>
-
-  <symbol id="i-bot" viewBox="0 0 16 16">
-    <path d="M7.2 1.4h1.6v2.2H7.2z"/>
-    <path d="M8 0a1.1 1.1 0 1 1 0 2.2A1.1 1.1 0 0 1 8 0z"/>
-    <path fill-rule="evenodd" d="M3.4 4h9.2A1.4 1.4 0 0 1 14 5.4v6.2a1.4 1.4 0 0 1-1.4 1.4H3.4A1.4 1.4 0 0 1 2 11.6V5.4A1.4 1.4 0 0 1 3.4 4zm2.2 3a1.1 1.1 0 1 0 0 2.2A1.1 1.1 0 0 0 5.6 7zm4.8 0a1.1 1.1 0 1 0 0 2.2A1.1 1.1 0 0 0 10.4 7z"/>
-  </symbol>
-
-  <symbol id="i-lock" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M8 1a3.2 3.2 0 0 0-3.2 3.2V6H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-.8V4.2A3.2 3.2 0 0 0 8 1zm0 1.6a1.6 1.6 0 0 1 1.6 1.6V6H6.4V4.2A1.6 1.6 0 0 1 8 2.6z"/>
-  </symbol>
-
-  <symbol id="i-bookmark" viewBox="0 0 16 16">
-    <path d="M4 1h8v14l-4-3.2L4 15z"/>
-  </symbol>
-
-  <!-- ==================== row flags ==================== -->
-  <symbol id="i-pin" viewBox="0 0 16 16">
-    <path d="M5 3.4h6L9.4 5l.9 4H5.7l.9-4z"/>
-    <path d="M7.3 9h1.4v6H7.3z"/>
-  </symbol>
-
-  <symbol id="i-bell" viewBox="0 0 16 16">
-    <path d="M8 1.2A3.6 3.6 0 0 0 4.4 4.8v3L2.8 10.6h10.4L11.6 7.8v-3A3.6 3.6 0 0 0 8 1.2z"/>
-    <path d="M6.4 11.8h3.2a1.6 1.6 0 0 1-3.2 0z"/>
-  </symbol>
-
-  <symbol id="i-bell-off" viewBox="0 0 16 16">
-    <path d="M8 1.2A3.6 3.6 0 0 0 4.4 4.8v3L2.8 10.6h10.4L11.6 7.8v-3A3.6 3.6 0 0 0 8 1.2z"/>
-    <path d="M6.4 11.8h3.2a1.6 1.6 0 0 1-3.2 0z"/>
-    <path d="M2.4 1.3 15 13.9l-1.1 1.1L1.3 2.4z"/>
-  </symbol>
-
-  <symbol id="i-archive" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M1.5 2h13v3.2h-13zM2.8 6.4h10.4V14H2.8zm3.4 2h3.6V10H6.2z"/>
-  </symbol>
-
-  <symbol id="i-archive-out" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M1.5 2h13v3.2h-13zM2.8 6.4h10.4V14H2.8zm3.4 2h3.6V10H6.2z"/>
-    <path d="M2.4 1.3 15 13.9l-1.1 1.1L1.3 2.4z"/>
-  </symbol>
-
-  <symbol id="i-folder" viewBox="0 0 16 16">
-    <path d="M1.5 2.8h4.2l1.3 1.6h7.5V13.2h-13z"/>
-  </symbol>
-
-  <symbol id="i-crown" viewBox="0 0 16 16">
-    <path d="M1 4.6 4.3 8 8 2.6 11.7 8 15 4.6v8.8H1z"/>
-  </symbol>
-
-  <!-- ==================== delivery marks ==================== -->
-  <symbol id="i-check" viewBox="0 0 16 16">
-    <path d="M6.2 12.4 1.8 8l1.3-1.3 3.1 3.1 6.7-6.7L14.2 4.4z"/>
-  </symbol>
-
-  <symbol id="i-check-double" viewBox="0 0 16 16">
-    <path d="M4.4 12 .6 8.2l1.2-1.2 2.6 2.6 5.8-5.8L11.4 5z"/>
-    <path d="M8.2 12 7 10.8l1.2-1.2 1.2 1.2z"/>
-    <path d="M11 9.2 9.8 8l4.4-4.4 1.2 1.2z"/>
-  </symbol>
-
-  <symbol id="i-clock" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.8a5.2 5.2 0 1 1 0 10.4A5.2 5.2 0 0 1 8 2.8z"/>
-    <path d="M7.2 4.4h1.5v4.3H7.2z"/>
-    <path d="M7.9 7.3h3.3v1.5H7.9z"/>
-  </symbol>
-
-  <symbol id="i-alert" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M8 1.2 15.6 14.6H.4zM7.2 6h1.6v4.2H7.2zm0 5.2h1.6v1.6H7.2z"/>
-  </symbol>
-
-  <!-- ==================== content kinds / filters ==================== -->
-  <symbol id="i-image" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M1.4 2.4h13.2v11.2H1.4zm1.6 1.6v6.3l2.9-2.9 2.3 2.3 2.6-2.6 2.2 2.2V4zM5.3 4.9a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6z"/>
-  </symbol>
-
-  <symbol id="i-video" viewBox="0 0 16 16">
-    <path d="M1.4 3.4h9.2v9.2H1.4zM11.6 7l3-2.4v6.8L11.6 9z"/>
-  </symbol>
-
-  <symbol id="i-gif" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M1.4 2.4h13.2v11.2H1.4zm5 2.7v5.8L11 8z"/>
-  </symbol>
-
-  <symbol id="i-audio" viewBox="0 0 16 16">
-    <path d="M13.4 1.4 5.4 3.3v7.9a2.4 2.4 0 1 0 1.6 2.3V5.2l4.8-1.1v4.4a2.4 2.4 0 1 0 1.6 2.3z"/>
-  </symbol>
-
-  <symbol id="i-mic" viewBox="0 0 16 16">
-    <path d="M8 1a2.4 2.4 0 0 1 2.4 2.4v4.2a2.4 2.4 0 0 1-4.8 0V3.4A2.4 2.4 0 0 1 8 1z"/>
-    <path d="M3.4 7v.6a4.6 4.6 0 0 0 9.2 0V7h1.6v.6a6.2 6.2 0 0 1-5.4 6.1V16H7.2v-2.3A6.2 6.2 0 0 1 1.8 7.6V7z"/>
-  </symbol>
-
-  <symbol id="i-file" viewBox="0 0 16 16">
-    <path d="M3 1h5.6L13 5.4V15H3z"/>
-    <path opacity=".5" d="M8.6 1 13 5.4H8.6z"/>
-  </symbol>
-
-  <symbol id="i-link" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M6.4 9.6a3.6 3.6 0 0 1 0-5.1l2.5-2.5a3.6 3.6 0 0 1 5.1 5.1l-1.4 1.4-1.2-1.2 1.4-1.4a1.9 1.9 0 0 0-2.7-2.7L7.6 5.7a1.9 1.9 0 0 0 0 2.7zM9.6 6.4a3.6 3.6 0 0 1 0 5.1l-2.5 2.5a3.6 3.6 0 0 1-5.1-5.1l1.4-1.4 1.2 1.2-1.4 1.4a1.9 1.9 0 0 0 2.7 2.7l2.5-2.5a1.9 1.9 0 0 0 0-2.7z"/>
-  </symbol>
-
-  <symbol id="i-poll" viewBox="0 0 16 16">
-    <path d="M1.6 11.4h3V15h-3zM6.5 6.4h3V15h-3zM11.4 1.4h3V15h-3z"/>
-  </symbol>
-
-  <symbol id="i-gift" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M1.6 6.8h12.8V15H1.6zM.8 3.6h14.4v2.6H.8zM7.2 1h1.6v14H7.2z"/>
-  </symbol>
-
-  <!-- ==================== actions ==================== -->
-  <symbol id="i-search" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M6.8 1a5.8 5.8 0 1 0 3.4 10.5l3.4 3.4 1.3-1.3-3.4-3.4A5.8 5.8 0 0 0 6.8 1zm0 1.8a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/>
-  </symbol>
-
-  <symbol id="i-close" viewBox="0 0 16 16">
-    <path d="M12.8 2 14 3.2 9.2 8 14 12.8 12.8 14 8 9.2 3.2 14 2 12.8 6.8 8 2 3.2 3.2 2 8 6.8z"/>
-  </symbol>
-
-  <symbol id="i-send" viewBox="0 0 16 16">
-    <path d="M15 8 1 1.4l2.5 5.4L10 8l-6.5 1.2L1 14.6z"/>
-  </symbol>
-
-  <symbol id="i-clip" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M10.7 2.3a3 3 0 0 1 4.2 4.2l-7.4 7.4a4 4 0 0 1-5.7-5.7l6.7-6.7 1.2 1.2-6.7 6.7a2.3 2.3 0 0 0 3.3 3.3l7.4-7.4a1.3 1.3 0 0 0-1.8-1.8l-6.6 6.6a.6.6 0 0 0 .8.8l6-6 1.2 1.2-6 6a2.3 2.3 0 0 1-3.2-3.2z"/>
-  </symbol>
-
-  <symbol id="i-smile" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm0 1.8a6.2 6.2 0 1 1 0 12.4A6.2 6.2 0 0 1 8 1.8zM5.6 5.4a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2zm4.8 0a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2zM4.4 9.4h7.2a3.6 3.6 0 0 1-7.2 0z"/>
-  </symbol>
-
-  <symbol id="i-reply" viewBox="0 0 16 16">
-    <path d="M6.4 3.2 1 8l5.4 4.8V9.9c3.3 0 5.7.9 7.6 3.1-.8-3.9-3-7.1-7.6-7.6z"/>
-  </symbol>
-
-  <symbol id="i-chevron-left" viewBox="0 0 16 16">
-    <path d="M10.6 2 12 3.4 7.4 8l4.6 4.6L10.6 14 4.6 8z"/>
-  </symbol>
-
-  <symbol id="i-chevron-down" viewBox="0 0 16 16">
-    <path d="M2 5.4 3.4 4 8 8.6 12.6 4 14 5.4 8 11.4z"/>
-  </symbol>
-
-  <symbol id="i-dots" viewBox="0 0 16 16">
-    <path d="M3 6.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zM8 6.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zM13 6.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z"/>
-  </symbol>
-
-  <symbol id="i-refresh" viewBox="0 0 16 16">
-    <path d="M8 2.6A5.4 5.4 0 0 0 2.7 8.8H1A7 7 0 0 1 13 4.5V2h1.6v5.2H9.4V5.6h2.8A5.4 5.4 0 0 0 8 2.6z"/>
-    <path d="M8 13.4a5.4 5.4 0 0 0 5.3-6.2H15A7 7 0 0 1 3 11.5V14H1.4V8.8h5.2v1.6H3.8A5.4 5.4 0 0 0 8 13.4z"/>
-  </symbol>
-
-  <symbol id="i-chat" viewBox="0 0 16 16">
-    <path d="M1.4 1.8h13.2v9.4H5.8L2.6 14v-2.8H1.4z"/>
-  </symbol>
-
-  <symbol id="i-bold" viewBox="0 0 16 16">
-    <path fill-rule="evenodd" d="M3.4 1.6h5.2a3.5 3.5 0 0 1 2.3 6.1 3.7 3.7 0 0 1-1.7 6.7H3.4zm2.4 2.2v3.1h2.6a1.55 1.55 0 0 0 0-3.1zm0 5.3v3.1h3.2a1.55 1.55 0 0 0 0-3.1z"/>
-  </symbol>
-
-  <symbol id="i-italic" viewBox="0 0 16 16">
-    <path d="M6.4 1.6h7v2h-2.4l-3 8.8H10.4v2h-7v-2h2.4l3-8.8H6.4z"/>
-  </symbol>
-
+<svg
+   width="336"
+   height="256"
+   viewBox="0 0 336 256"
+   version="1.1"
+   id="svg87"
+   sodipodi:docname="icons.svg"
+   inkscape:version="1.4 (86a8ad7, 2024-10-11)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs87" />
+  <sodipodi:namedview
+     id="namedview87"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showguides="true"
+     inkscape:zoom="6.4765625"
+     inkscape:cx="49.486128"
+     inkscape:cy="162.04584"
+     inkscape:window-width="1920"
+     inkscape:window-height="1009"
+     inkscape:window-x="-8"
+     inkscape:window-y="-8"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="i-video">
+    <sodipodi:guide
+       position="28,236.5"
+       orientation="0,-1"
+       id="guide87"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="26.093861,219"
+       orientation="0,-1"
+       id="guide88"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="40.25,192.25"
+       orientation="0,-1"
+       id="guide89"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="-21.100121,188.5"
+       orientation="0,-1"
+       id="guide90"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="-21.100121,171"
+       orientation="0,-1"
+       id="guide91"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="-13.688782,92.5"
+       orientation="0,-1"
+       id="guide3"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="-13.688782,75"
+       orientation="0,-1"
+       id="guide4"
+       inkscape:locked="false" />
+  </sodipodi:namedview>
+  <g
+     id="i-person">
+    <rect
+       data-cell="box"
+       x="16"
+       y="16"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect1"
+       style="stroke-linecap:round;stroke-linejoin:round" />
+    <text
+       data-guide="label"
+       x="28"
+       y="48"
+       font-family="sans-serif"
+       font-size="5px"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text1"
+       style="stroke-width:2;stroke-linecap:round;stroke-linejoin:round">person</text>
+    <path
+       d="m 28,27.83334 c 2.302081,0 4.166663,-1.864596 4.166663,-4.166678 C 32.166663,21.364581 30.302081,19.5 28,19.5 c -2.302081,0 -4.166662,1.864581 -4.166662,4.166662 0,2.302082 1.864581,4.166678 4.166662,4.166678 z m -1.031246,1.944439 c -3.420141,0 -6.190975,2.770833 -6.190975,6.190975 C 20.777779,36.53819 21.23959,37 21.809025,37 h 12.38195 c 0.56945,0 1.031246,-0.46181 1.031246,-1.031246 0,-3.420142 -2.770833,-6.190975 -6.190975,-6.190975 z"
+       id="path1-2"
+       style="fill:currentColor;fill-opacity:1;stroke:none;stroke-width:0.0347222;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1" />
+  </g>
+  <g
+     id="i-group"
+     transform="translate(56,16)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect2" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text2">group</text>
+    <path
+       d="m 60.112667,23.47887 c 0,-2.179573 1.764086,-3.943658 3.943675,-3.943658 2.179573,0 3.943658,1.764085 3.943658,3.943658 0,2.179589 -1.764085,3.943674 -3.943658,3.943674 -2.179589,0 -3.943675,-1.764085 -3.943675,-3.943674 z m -2.253516,11.830989 c 0,-3.422537 2.774655,-6.197174 6.197191,-6.197174 3.422537,0 6.197174,2.774637 6.197174,6.197174 v 0.211268 C 70.253516,36.33804 69.591556,37 68.774643,37 h -9.436618 c -0.816896,0 -1.478874,-0.66196 -1.478874,-1.478873 z M 73.070425,21.225353 c 1.866203,0 3.380283,1.51408 3.380283,3.380283 0,1.866204 -1.51408,3.380283 -3.380283,3.380283 -1.866204,0 -3.380283,-1.514079 -3.380283,-3.380283 0,-1.866203 1.514079,-3.380283 3.380283,-3.380283 z m 0,8.450707 c 2.799296,0 5.070424,2.271127 5.070424,5.070424 v 0.788738 C 78.140849,36.345071 77.485919,37 76.676054,37 h -5.098582 c 0.232394,-0.440129 0.366186,-0.943656 0.366186,-1.478873 v -0.211268 c 0,-1.81337 -0.612676,-3.482385 -1.637325,-4.81337 0.795787,-0.517606 1.746491,-0.820429 2.764092,-0.820429 z"
+       id="path1-6"
+       style="stroke-width:0.0352112;stroke:none;fill:currentColor;fill-opacity:1"
+       transform="translate(-56,-16)" />
+  </g>
+  <g
+     id="i-channel"
+     transform="translate(96,16)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect6" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text6">channel</text>
+    <path
+       d="m 3.2694871,4.7666996 c 0,-0.689856 0.5573562,-1.2472119 1.2472128,-1.2472119 8.9565741,0 16.2138131,7.2572383 16.2138131,16.2138123 0,0.689856 -0.557356,1.247212 -1.247213,1.247212 -0.68987,0 -1.247226,-0.557356 -1.247226,-1.247212 0,-7.576848 -6.142527,-13.719374 -13.7193741,-13.719374 -0.6898566,0 -1.2472128,-0.5573559 -1.2472128,-1.2472264 z m 0,13.7193744 c 0,-1.375827 1.1185978,-2.494424 2.4944388,-2.494424 1.375827,0 2.494424,1.118597 2.494424,2.494424 0,1.375841 -1.118597,2.494438 -2.494424,2.494438 -1.375841,0 -2.4944388,-1.118597 -2.4944388,-2.494438 z M 4.5166999,8.5083498 c 6.2010051,0 11.2249501,5.0239442 11.2249501,11.2249502 0,0.689856 -0.557356,1.247212 -1.247212,1.247212 -0.689871,0 -1.247226,-0.557356 -1.247226,-1.247212 0,-4.821279 -3.9092321,-8.730512 -8.7305121,-8.730512 -0.6898566,0 -1.2472128,-0.557356 -1.2472128,-1.2472263 0,-0.689856 0.5573562,-1.2472119 1.2472128,-1.2472119 z"
+       id="path1-7"
+       style="stroke-width:0.0389755;stroke:none;fill:currentColor;fill-opacity:1" />
+  </g>
+  <g
+     id="i-bot"
+     transform="translate(136,16)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect8" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text8">bot</text>
+    <path
+       d="M 13.091618,4.6086744 C 13.091618,4.0048825 12.60381,3.5170565 12,3.5170565 c -0.603792,0 -1.091618,0.487826 -1.091618,1.0916179 V 6.7919105 H 7.6335279 c -1.8079923,0 -3.274854,1.4668616 -3.274854,3.2748535 v 7.641326 c 0,1.807992 1.4668617,3.274853 3.274854,3.274853 h 8.7329441 c 1.807992,0 3.274854,-1.466861 3.274854,-3.274853 v -7.641326 c 0,-1.8079919 -1.466862,-3.2748535 -3.274854,-3.2748535 H 13.091618 Z M 6.5419099,17.162281 c 0,-0.453695 0.3650188,-0.818713 0.8187135,-0.818713 h 1.0916179 c 0.4537128,0 0.8187135,0.365018 0.8187135,0.818713 0,0.453713 -0.3650007,0.818713 -0.8187135,0.818713 H 7.3606234 c -0.4536947,0 -0.8187135,-0.365 -0.8187135,-0.818713 z m 4.0935671,0 c 0,-0.453695 0.365019,-0.818713 0.818714,-0.818713 h 1.091618 c 0.453713,0 0.818714,0.365018 0.818714,0.818713 0,0.453713 -0.365001,0.818713 -0.818714,0.818713 h -1.091618 c -0.453695,0 -0.818714,-0.365 -0.818714,-0.818713 z m 4.093568,0 c 0,-0.453695 0.365019,-0.818713 0.818714,-0.818713 h 1.091618 c 0.453712,0 0.818713,0.365018 0.818713,0.818713 0,0.453713 -0.365001,0.818713 -0.818713,0.818713 h -1.091618 c -0.453695,0 -0.818714,-0.365 -0.818714,-0.818713 z M 8.7251458,10.612574 c 0.9040053,0 1.6374282,0.73344 1.6374282,1.637426 0,0.904005 -0.7334229,1.637427 -1.6374282,1.637427 -0.903987,0 -1.6374269,-0.733422 -1.6374269,-1.637427 0,-0.903986 0.7334399,-1.637426 1.6374269,-1.637426 z M 13.637426,12.25 c 0,-0.903986 0.733441,-1.637426 1.637428,-1.637426 0.904005,0 1.637426,0.73344 1.637426,1.637426 0,0.904005 -0.733421,1.637427 -1.637426,1.637427 -0.903987,0 -1.637428,-0.733422 -1.637428,-1.637427 z m -10.37037,0 c 0,-0.603792 -0.4878077,-1.091617 -1.091618,-1.091617 -0.6037921,0 -1.0916179,0.487825 -1.0916179,1.091617 v 3.274854 c 0,0.603811 0.4878258,1.091618 1.0916179,1.091618 0.6038103,0 1.091618,-0.487807 1.091618,-1.091618 z m 18.557506,-1.091617 c -0.603793,0 -1.091619,0.487825 -1.091619,1.091617 v 3.274854 c 0,0.603811 0.487826,1.091618 1.091619,1.091618 0.60381,0 1.091618,-0.487807 1.091618,-1.091618 V 12.25 c 0,-0.603792 -0.487808,-1.091617 -1.091618,-1.091617 z"
+       id="path1-9"
+       style="stroke-width:0.0341131;stroke:none;fill:currentColor;fill-opacity:1" />
+  </g>
+  <g
+     id="i-lock"
+     transform="translate(176,16)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect12" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text12">lock</text>
+    <path
+       d="M6.5 10.5h11a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2Z"
+       id="path13" />
+    <path
+       d="M8 10.5V8a4 4 0 0 1 8 0v2.5"
+       id="path14" />
+  </g>
+  <g
+     id="i-bookmark"
+     transform="translate(216,16)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect14" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text14">bookmark</text>
+    <path
+       d="M 7.624599,3.5 C 6.417945,3.5 5.436898,4.4810469 5.436898,5.6877006 V 19.907754 c 0,0.393102 0.211934,0.758858 0.553762,0.950282 0.341828,0.191424 0.762277,0.188007 1.100687,-0.01367 L 12,17.901225 l 4.905235,2.943141 c 0.338409,0.201679 0.758858,0.208514 1.100686,0.01367 0.341828,-0.19484 0.557181,-0.55718 0.557181,-0.950282 V 5.6877006 C 18.563102,4.4810469 17.582055,3.5 16.375401,3.5 Z"
+       id="path1-32"
+       style="fill:currentColor;fill-opacity:1;stroke:none;stroke-width:0.0683654" />
+  </g>
+  <g
+     id="i-chat"
+     transform="translate(256,16)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect15" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text15">chat</text>
+    <path
+       d="M6.5 4.5h11A2.5 2.5 0 0 1 20 7v6.5a2.5 2.5 0 0 1-2.5 2.5H9l-5 4.5V7a2.5 2.5 0 0 1 2.5-2.5Z"
+       id="path16" />
+  </g>
+  <g
+     id="i-crown"
+     transform="translate(296,16)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect16" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text16">crown</text>
+    <path
+       d="M 13.012732,6.3842592 C 13.385416,6.0885416 13.62037,5.630787 13.62037,5.1203703 13.62037,4.2251157 12.895255,3.5 12,3.5 c -0.895255,0 -1.62037,0.7251157 -1.62037,1.6203703 0,0.5104167 0.239004,0.9681713 0.607638,1.2638889 L 8.2164349,10.743055 c -0.405092,0.635997 -1.26794,0.793982 -1.871528,0.340278 L 3.9346065,9.2806714 C 4.1168979,9.021412 4.2222219,8.7013889 4.2222219,8.361111 c 0,-0.8952545 -0.7251155,-1.6203703 -1.6203699,-1.6203703 -0.8952549,0 -1.62037095,0.7251158 -1.62037095,1.6203703 0,0.8831021 0.70891225,1.6041667 1.58796315,1.6203704 l 1.320602,8.8107636 C 4.0804399,20.060186 5.1701399,21 6.4542819,21 H 17.545718 c 1.284142,0 2.373842,-0.939814 2.564236,-2.207755 l 1.320602,-8.8107636 c 0.879051,-0.016203 1.587963,-0.7372683 1.587963,-1.6203704 0,-0.8952545 -0.725116,-1.6203703 -1.620371,-1.6203703 -0.895255,0 -1.62037,0.7251158 -1.62037,1.6203703 0,0.3402779 0.105323,0.660301 0.287616,0.9195604 l -2.40625,1.8067136 c -0.603589,0.453703 -1.466436,0.295717 -1.871528,-0.340278 z"
+       id="path1-21"
+       style="fill:currentColor;fill-opacity:1;stroke:none;stroke-width:0.0810188" />
+  </g>
+  <g
+     id="i-pin"
+     transform="translate(16,64)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect17" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text17">pin</text>
+    <path
+       d="M 6.8513682,4.5294083 C 6.8513682,3.9600167 7.3113849,3.5 7.8807766,3.5 h 8.2352964 c 0.569391,0 1.029423,0.4600167 1.029423,1.0294083 0,0.5693917 -0.460032,1.0294084 -1.029423,1.0294084 h -0.948982 l 0.331333,4.3138812 c 1.193485,0.6819891 2.116728,1.8143411 2.515626,3.2072691 l 0.122207,0.431069 c 0.09012,0.312039 0.02566,0.643372 -0.167285,0.903948 -0.19301,0.260575 -0.501841,0.408551 -0.82352,0.408551 H 6.8513245 c -0.3216938,0 -0.6273021,-0.1512 -0.8203125,-0.408551 C 5.8380015,14.157631 5.7736599,13.823075 5.8637412,13.511036 l 0.119,-0.431069 C 6.381639,11.687039 7.301687,10.554687 8.4983659,9.8726979 L 8.8297141,5.5588167 H 7.8807182 C 7.3113266,5.5588167 6.8513099,5.0988 6.8513099,4.5294083 Z M 10.969016,16.367648 h 2.058831 v 3.602943 C 13.027847,20.539984 12.567816,21 11.998424,21 11.429033,21 10.969016,20.539984 10.969016,19.970591 Z"
+       id="path1-0"
+       style="fill:currentColor;fill-opacity:1;stroke:none;stroke-width:0.0321691" />
+  </g>
+  <g
+     id="i-pin-off"
+     transform="translate(56,64)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect19" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text19">pin-off</text>
+    <path
+       d="m 4.865323,3.7733101 c -0.3024104,-0.30239 -0.7913931,-0.3023915 -1.0905505,-1.4e-6 -0.299172,0.30239 -0.3023958,0.791361 -0.00292,1.0937495 L 19.135037,20.229973 c 0.302396,0.302392 0.791393,0.302393 1.090565,10e-7 0.299172,-0.302386 0.302381,-0.791362 0,-1.090535 l -4.312897,-4.315913 h 0.971517 c 0.32171,0 0.627301,-0.151195 0.820306,-0.408547 0.193034,-0.257354 0.257379,-0.591912 0.167302,-0.903951 l -0.119033,-0.431066 c -0.398862,-1.392924 -1.31893,-2.525277 -2.515604,-3.2072623 l -0.331337,-4.3138771 0.948996,1.4e-6 c 0.569388,0 1.029385,-0.4600194 1.029385,-1.0294134 C 16.884237,3.960018 16.42424,3.5 15.854852,3.5 l -8.2353199,7.3e-6 c -0.2380365,0 -0.4535793,0.08042 -0.6273,0.2123175 L 8.5878259,5.3111352 8.4334188,7.3410047 Z M 11.550576,14.823534 7.2881657,10.564343 c -0.7302429,0.659466 -1.280332,1.524816 -1.566638,2.518843 L 5.5991398,13.51425 c -0.090149,0.312041 -0.025819,0.643383 0.1672732,0.903954 0.1930198,0.26057 0.5018488,0.40533 0.8235436,0.40533 z m -0.842843,5.147057 c 0,0.569396 0.460026,1.029409 1.029415,1.029409 0.569402,0 1.0294,-0.460016 1.0294,-1.029409 V 16.36765 l -2.058815,2e-6 z"
+       id="path1-27"
+       style="fill:currentColor;fill-opacity:1;stroke:none;stroke-width:1;stroke-opacity:1;stroke-dasharray:none"
+       sodipodi:nodetypes="csccsccssccccsssscccccccccscsssccs" />
+  </g>
+  <g
+     id="i-bell"
+     transform="translate(96,64)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect22" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text22">bell</text>
+    <path
+       d="m 12.001703,3.5170566 c -0.603796,0 -1.091618,0.4878164 -1.091618,1.091618 V 4.7178364 C 8.4198306,5.2227097 6.5436129,7.4264128 6.5436129,10.066765 v 0.740253 c 0,1.640838 -0.5594542,3.233918 -1.5828461,4.516569 l -0.3343087,0.416178 c -0.1739763,0.214912 -0.2660812,0.480995 -0.2660812,0.757311 0,0.668616 0.5423973,1.211013 1.2110134,1.211013 H 18.428611 c 0.668609,0 1.211012,-0.542397 1.211012,-1.211013 0,-0.276316 -0.09213,-0.542399 -0.266093,-0.757311 l -0.334297,-0.416178 c -1.019979,-1.282651 -1.57944,-2.875731 -1.57944,-4.516569 v -0.740253 c 0,-2.6403522 -1.876215,-4.8440553 -4.366472,-5.3489286 V 4.6086746 c 0,-0.6038016 -0.487822,-1.091618 -1.091618,-1.091618 z M 9.886693,19.345516 c 0.242202,0.941521 1.098437,1.637427 2.11501,1.637427 1.016573,0 1.872809,-0.695906 2.115017,-1.637427 z"
+       id="path1"
+       style="fill:currentColor;fill-opacity:1;stroke-width:0.0341131;stroke:none" />
+  </g>
+  <g
+     id="i-bell-off"
+     transform="translate(136,64)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect24" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text24">bell-off</text>
+    <path
+       d="m 4.6834803,3.7574186 c -0.3206344,-0.3206358 -0.8391084,-0.3206358 -1.1563361,0 -0.3172307,0.3206359 -0.3206374,0.839107 -0.00335,1.1597429 L 19.316962,20.715347 c 0.320637,0.320635 0.839106,0.320635 1.156337,0 0.317213,-0.320636 0.320635,-0.839106 0,-1.156335 L 18.61159,17.698145 c 0.586691,-0.08188 1.040348,-0.5901 1.040348,-1.200667 0,-0.276291 -0.09204,-0.542364 -0.266058,-0.757244 L 19.051638,15.324078 C 18.031741,14.04155 17.472332,12.448604 17.472332,10.807907 v -0.740182 c 0,-2.6401217 -1.876049,-4.8436346 -4.366088,-5.3484643 V 4.6100346 c 0,-0.6037561 -0.487781,-1.0915219 -1.091519,-1.0915219 -0.603757,0 -1.091522,0.4877658 -1.091522,1.0915219 V 4.7192607 C 9.6065468,4.9853169 8.4604454,5.7289202 7.6759168,6.7556276 Z m 1.8734878,7.0470824 c 0,1.640697 -0.5593934,3.233627 -1.5826957,4.51617 L 4.6399792,15.73681 c -0.1705365,0.214898 -0.2660562,0.480955 -0.2660562,0.757245 0,0.668571 0.5423469,1.210918 1.2109188,1.210918 H 13.610945 L 6.5535628,10.647589 v 0.153441 z m 5.4576239,10.178444 c 1.016473,0 1.872644,-0.695838 2.114823,-1.637277 H 9.8997688 c 0.2421812,0.941439 1.0983352,1.637277 2.1148232,1.637277 z"
+       id="path1-3"
+       style="fill:currentColor;fill-opacity:1;stroke-width:0.0341099;stroke:none"
+       sodipodi:nodetypes="cscccccsccsscsssccccccssccccsccs" />
+  </g>
+  <g
+     id="i-archive"
+     transform="translate(176,64)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect27" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text27">archive</text>
+    <path
+       d="m 2.0000001,4.75 c 0,-0.6914 0.5586,-1.25 1.25,-1.25 H 20.75 C 21.4414,3.5 22,4.0586 22,4.75 V 6 c 0,0.6914 -0.5586,1.25 -1.25,1.25 H 3.2500001 c -0.6914,0 -1.25,-0.5586 -1.25,-1.25 z m 1.25,4.375 H 20.75 V 18.5 c 0,1.3789 -1.1211,2.5 -2.5,2.5 H 5.7500001 c -1.3789,0 -2.5,-1.1211 -2.5,-2.5 z m 5.9374995,2.5 c -0.5195333,0 -0.9375,0.417967 -0.9375,0.9375 0,0.519533 0.4179667,0.9375 0.9375,0.9375 H 14.8125 c 0.519533,0 0.9375,-0.417967 0.9375,-0.9375 0,-0.519533 -0.417967,-0.9375 -0.9375,-0.9375 z"
+       id="path1-5"
+       style="fill:currentColor;fill-opacity:1;stroke:none;stroke-width:0.0390625" />
+  </g>
+  <g
+     id="i-archive-out"
+     transform="translate(216,64)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect30" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text30">archive-out</text>
+    <path
+       id="path1-5-8"
+       style="fill:currentColor;fill-opacity:1;stroke:none;stroke-width:0.0353796"
+       d="m 4.0513087,3.5 c -0.2043145,0 -0.4083284,0.0794 -0.5631155,0.2358641 -0.2864335,0.289516 -0.3052874,0.7412143 -0.061894,1.0554924 -0.003,0.00196 -0.00602,0.00377 -0.00902,0.0059 l 0.056003,0.056018 c 0.0046,0.00467 0.00752,0.010115 0.012074,0.014794 l 3.1134068,3.1104589 1.6982223,1.6982219 2.2642977,2.2642967 1.698221,1.698221 7.126057,7.126045 c 0.312925,0.312923 0.816656,0.312923 1.12626,0 0.30959,-0.312915 0.312911,-0.819608 0,-1.129199 l -0.719396,-0.719385 c 0.08286,-0.235136 0.132687,-0.485588 0.132687,-0.748868 V 9.6767368 H 10.55834 L 8.8601163,7.9785148 H 19.925097 c 0.626215,0 1.132149,-0.5059343 1.132149,-1.132148 v -1.132148 c 0,-0.6262137 -0.505934,-1.1321481 -1.132149,-1.1321481 H 5.4636556 L 4.6173822,3.7358641 C 4.4609197,3.5794043 4.2556242,3.5 4.0513087,3.5 Z M 2.9427541,6.5927686 V 6.846323 c 0,0.6262137 0.5059348,1.132148 1.132149,1.132148 h 0.2564994 z m 1.132149,3.0839245 v 8.4911109 c 0,1.248894 1.0154004,2.264294 2.2642958,2.264294 H 16.808624 L 10.003931,13.639211 H 9.4526058 c -0.4705505,0 -0.8491112,-0.37856 -0.8491112,-0.849111 0,-0.157494 0.046794,-0.301366 0.120913,-0.427505 L 6.0325978,9.6766931 Z m 8.7476099,2.2642959 h 1.72476 c 0.470549,0 0.84911,0.37856 0.84911,0.849111 0,0.470551 -0.378561,0.849111 -0.84911,0.849111 h -0.02657 z"
+       inkscape:export-filename="unarchive.png"
+       inkscape:export-xdpi="96"
+       inkscape:export-ydpi="96" />
+  </g>
+  <g
+     id="i-folder"
+     transform="translate(256,64)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect33" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text33">folder</text>
+    <path
+       d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"
+       id="path34" />
+  </g>
+  <g
+     id="i-gift"
+     transform="translate(296,64)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect34" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text34">gift</text>
+    <path
+       d="M4 9.5h16a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"
+       id="path35" />
+    <path
+       d="M5 13.5V19a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5.5"
+       id="path36" />
+    <path
+       d="M12 9.5V21"
+       id="path37" />
+    <path
+       d="M12 9.5V6.7a2.6 2.6 0 1 0-2.6 2.8H12"
+       id="path38" />
+    <path
+       d="M12 6.7a2.6 2.6 0 1 1 2.6 2.8H12"
+       id="path39" />
+  </g>
+  <g
+     id="i-check"
+     transform="translate(16,112)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect39" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text39">check</text>
+    <path
+       d="M4.5 12.5 9.5 17.5 19.5 7"
+       id="path40" />
+  </g>
+  <g
+     id="i-check-double"
+     transform="translate(56,112)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect40" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text40">check-double</text>
+    <path
+       d="M2 12.5 6 16.5 14.5 7.5"
+       id="path41" />
+    <path
+       d="M9.5 13.5 12 16.5 21 6.5"
+       id="path42" />
+  </g>
+  <g
+     id="i-clock"
+     transform="translate(96,112)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect42" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text42">clock</text>
+    <path
+       d="M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17Z"
+       id="path43" />
+    <path
+       d="M12 7v5.3l3.3 2"
+       id="path44" />
+  </g>
+  <g
+     id="i-alert"
+     transform="translate(136,112)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect44" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text44">alert</text>
+    <path
+       d="M12 4.5 21.5 20.5H2.5Z"
+       id="path45" />
+    <path
+       d="M12 10.5v4"
+       id="path46" />
+    <path
+       fill="currentColor"
+       stroke="none"
+       d="M12 16.5a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2Z"
+       id="path47" />
+  </g>
+  <g
+     id="i-refresh"
+     transform="translate(176,112)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect47" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text47">refresh</text>
+    <path
+       d="M20 12a8 8 0 1 1-2.6-5.9"
+       id="path48" />
+    <path
+       d="M20 4v5h-5"
+       id="path49" />
+  </g>
+  <g
+     id="i-search"
+     transform="translate(216,112)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect49" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text49">search</text>
+    <path
+       d="M10.5 4a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13Z"
+       id="path50" />
+    <path
+       d="M15.3 15.3 20.5 20.5"
+       id="path51" />
+  </g>
+  <g
+     id="i-close"
+     transform="translate(256,112)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect51" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text51">close</text>
+    <path
+       d="M6 6 18 18M18 6 6 18"
+       id="path52" />
+  </g>
+  <g
+     id="i-dots"
+     transform="translate(296,112)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect52" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text52">dots</text>
+    <path
+       fill="currentColor"
+       stroke="none"
+       d="M5.5 10.4a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2Z"
+       id="path53" />
+    <path
+       fill="currentColor"
+       stroke="none"
+       d="M12 10.4a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2Z"
+       id="path54" />
+    <path
+       fill="currentColor"
+       stroke="none"
+       d="M18.5 10.4a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2Z"
+       id="path55" />
+  </g>
+  <g
+     id="i-image"
+     transform="translate(16,160)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect55" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text55">image</text>
+    <path
+       d="M5.5 4.5h13A2.5 2.5 0 0 1 21 7v10a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17V7a2.5 2.5 0 0 1 2.5-2.5Z"
+       id="path56" />
+    <path
+       d="M8.7 8.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6Z"
+       id="path57" />
+    <path
+       d="M3.5 17.5 8.5 12.5l3.5 3.5 3-3 5.5 5.5"
+       id="path58" />
+  </g>
+  <g
+     id="i-video"
+     transform="translate(56,160)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect58" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text58">video</text>
+    <path
+       d="m 3.4496671,4.3685926 c -1.4510765,0 -2.6308601,1.1797837 -2.6308601,2.6308602 V 17.522931 c 0,1.451096 1.1797836,2.630879 2.6308601,2.630879 H 13.973144 c 1.451096,0 2.63088,-1.179783 2.63088,-2.630879 V 6.9994528 c 0,-1.4510765 -1.179784,-2.6308602 -2.63088,-2.6308602 z M 18.57717,15.549786 l 3.021399,2.417113 c 0.172564,0.139765 0.386404,0.213749 0.608389,0.213749 0.538504,0 0.974235,-0.435733 0.974235,-0.974239 V 7.3159924 c 0,-0.5385048 -0.435731,-0.9742547 -0.974235,-0.9742547 -0.221985,0 -0.435751,0.073982 -0.608389,0.2137659 L 18.57717,8.9726167 Z"
+       id="path1-279"
+       style="fill:currentColor;fill-opacity:1;stroke:none;stroke-width:0.0347222;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1" />
+  </g>
+  <g
+     id="i-gif"
+     transform="translate(96,160)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect60" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text60">gif</text>
+    <path
+       d="M5.5 4.5h13A2.5 2.5 0 0 1 21 7v10a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17V7a2.5 2.5 0 0 1 2.5-2.5Z"
+       id="path61" />
+    <path
+       d="M10 9.3 15.5 12 10 14.7Z"
+       id="path62" />
+  </g>
+  <g
+     id="i-audio"
+     transform="translate(136,160)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect62" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text62">audio</text>
+    <path
+       d="M9.5 18.5V6.2l10-2v12.3"
+       id="path63" />
+    <path
+       d="M7 16a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z"
+       id="path64" />
+    <path
+       d="M17 14a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z"
+       id="path65" />
+  </g>
+  <g
+     id="i-mic"
+     transform="translate(176,160)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect65" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text65">mic</text>
+    <path
+       d="M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"
+       id="path66" />
+    <path
+       d="M5.5 11a6.5 6.5 0 0 0 13 0"
+       id="path67" />
+    <path
+       d="M12 17.5V21"
+       id="path68" />
+  </g>
+  <g
+     id="i-file"
+     transform="translate(216,160)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect68" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text68">file</text>
+    <path
+       d="M6 3h7.5L19.5 9v10a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
+       id="path69" />
+    <path
+       d="M13.5 3v6h6"
+       id="path70" />
+  </g>
+  <g
+     id="i-link"
+     transform="translate(256,160)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect70" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text70">link</text>
+    <path
+       d="M9.5 13.5a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7"
+       id="path71" />
+    <path
+       d="M14.5 10.5a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"
+       id="path72" />
+  </g>
+  <g
+     id="i-poll"
+     transform="translate(296,160)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect72" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text72">poll</text>
+    <path
+       d="M6 20V10.5M12 20V4M18 20v-6"
+       id="path73" />
+  </g>
+  <g
+     id="i-send"
+     transform="translate(16,208)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect73" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text73">send</text>
+    <path
+       d="M21 3 14.5 21l-4-8-8-4Z"
+       id="path74" />
+    <path
+       d="M21 3 10.5 13.5"
+       id="path75" />
+  </g>
+  <g
+     id="i-clip"
+     transform="translate(56,208)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect75" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text75">clip</text>
+    <path
+       d="M19 11.4 11.4 19a5 5 0 0 1-7.1-7.1l8-8a3.5 3.5 0 0 1 5 5l-7.9 7.9a1.8 1.8 0 0 1-2.5-2.5l7-7"
+       id="path76" />
+  </g>
+  <g
+     id="i-smile"
+     transform="translate(96,208)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect76" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text76">smile</text>
+    <path
+       d="M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17Z"
+       id="path77" />
+    <path
+       d="M8.5 14a4.5 4.5 0 0 0 7 0"
+       id="path78" />
+    <path
+       fill="currentColor"
+       stroke="none"
+       d="M9.3 8.8a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2Z"
+       id="path79" />
+    <path
+       fill="currentColor"
+       stroke="none"
+       d="M14.7 8.8a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2Z"
+       id="path80" />
+  </g>
+  <g
+     id="i-reply"
+     transform="translate(136,208)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect80" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text80">reply</text>
+    <path
+       d="M9 7 4 12l5 5"
+       id="path81" />
+    <path
+       d="M4 12h9a7 7 0 0 1 7 7v1"
+       id="path82" />
+  </g>
+  <g
+     id="i-chevron-left"
+     transform="translate(176,208)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect82" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text82">chevron-left</text>
+    <path
+       d="M15 5 8 12l7 7"
+       id="path83" />
+  </g>
+  <g
+     id="i-chevron-down"
+     transform="translate(216,208)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect83" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text83">chevron-down</text>
+    <path
+       d="M5 9 12 16l7-7"
+       id="path84" />
+  </g>
+  <g
+     id="i-bold"
+     transform="translate(256,208)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect84" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text84">bold</text>
+    <path
+       d="M6.5 4.5h7a3.8 3.8 0 0 1 0 7.5h-7Z"
+       id="path85" />
+    <path
+       d="M6.5 12h8a3.8 3.8 0 0 1 0 7.5h-8Z"
+       id="path86" />
+  </g>
+  <g
+     id="i-italic"
+     transform="translate(296,208)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect86" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text86">italic</text>
+    <path
+       d="M10 4.5h5.5M8.5 19.5H14M14 4.5 10.5 19.5"
+       id="path87" />
+  </g>
 </svg>

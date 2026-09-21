@@ -8,133 +8,196 @@
   margin-bottom: $space-4;
   max-width: 100%;
 
-  &:last-child { margin-bottom: 0; }
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.media__wrapper {
+  display: flex;
+  margin-bottom: $space-5;
 }
 
 // ------------------------------------------------------------ image
 .media--photo,
 .media--video,
 .media--gif {
-  position: relative;
-  display: inline-block;
-  border-radius: $radius-md;
-  overflow: hidden;
   background: var(--c-surface-2);
-  line-height: 0;                 // no baseline gap under the image
+  border-radius: $radius-md;
+  display: inline-block;
+  line-height: 0; // no baseline gap under the image
+  overflow: hidden;
+  position: relative;
 
-  &.is-clickable { cursor: zoom-in; }
+  &.is-clickable {
+    cursor: zoom-in;
+  }
 }
 
 .media__img,
 .media__video {
-  display: block;
-  max-width: 100%;
-  // native: PHOTO_MAX_WIDTH / PHOTO_MAX_HEIGHT
-  max-height: 300px;
-  width: auto;
-  height: auto;
   border-radius: $radius-md;
+  display: block;
+  // native: PHOTO_MAX_WIDTH / PHOTO_MAX_HEIGHT
+  height: auto;
+  max-height: 300px;
+  max-width: 100%;
+  width: auto;
 }
 
 // The tiny JPEG that rides inside the message. It is ~40px wide, so
 // without the blur it reads as a broken image rather than a
 // placeholder - the native side blurs it twice for the same reason.
 .media__img.is-placeholder {
-  min-width: 160px;
-  min-height: 90px;
   filter: blur(8px);
-  transform: scale(1.06);         // hides the soft edge the blur leaves
+  min-height: 90px;
+  min-width: 160px;
+  transform: scale(1.06); // hides the soft edge the blur leaves
 }
 
 // A button laid over the preview, for the click that starts a download.
 .media__action {
   @include flex(row, center, center, $space-2);
-  padding: $space-2 $space-4;
-  border: 1px solid var(--c-border);
-  border-radius: $radius-pill;
-  background: var(--c-surface);
-  color: var(--c-text);
-  font-size: $fs-sm;
-  line-height: normal;
+  background: rgba(0, 0, 0, .1);
+  border: none;
+  border-radius: 0;
+  color: var(--c-accent-text);
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font-size: $fs-sm;
+  gap: 1rem;
+  height: 100%;
+  inset: 0;
+  line-height: normal;
+  padding: $space-2 $space-4;
+  position: absolute;
   text-decoration: none;
+  transform: none;
+  width: 100%;
+  @include transition;
 
-  &:hover { background: var(--c-surface-hover); }
+  &:hover {
+    background: rgba(0, 0, 0, .2);
+  }
 
   .media--photo &,
   .media--video &,
   .media--gif & {
-    position: absolute;
     inset-block-end: $space-4;
     inset-inline-start: 50%;
+    position: absolute;
     transform: translateX(-50%);
+  }
+
+  .icon {
+    @include size(72px);
+    background: color-mix(in srgb, var(--c-dark) 20%, transparent);
+    padding: $space-5;
+    border-radius: $radius-md;
+    backdrop-filter: blur(10px);
+  }
+
+  span {
+    background: color-mix(in srgb, var(--c-dark) 20%, transparent);
+    border-radius: $radius-sm;
+    backdrop-filter: blur(10px);
+    color: var(--c-light);
+    padding: $space-1 $space-4;
+
+    &:last-child {
+      position: absolute;
+      right: $space-2;
+      top: $space-2;
+    }
   }
 }
 
 .media__progress {
-  position: absolute;
-  inset-inline: 0;
-  inset-block-end: 0;
-  height: 3px;
   background: color-mix(in srgb, var(--c-text) 20%, transparent);
+  height: 3px;
+  inset-block-end: 0;
+  inset-inline: 0;
+  position: absolute;
 }
 
 .media__progress-fill {
+  background: var(--c-accent);
   display: block;
   height: 100%;
-  background: var(--c-accent);
 }
 
 // ------------------------------------------------- audio / voice / file
 .media--audio,
 .media--file {
   @include flex(row, center, flex-start, $space-4);
-  padding: $space-3;
-  border-radius: $radius-md;
   background: color-mix(in srgb, var(--sender-color) 12%, var(--c-surface));
   border: 1px solid color-mix(in srgb, var(--sender-color) 25%, transparent);
+  border-radius: $radius-md;
+  padding: $space-3;
 }
 
 .media__cover {
   @include flex(row, center, center);
-  @include size(48px);            // native: AUDIO_COVER_SIZE
-  flex: 0 0 auto;
-  border-radius: $radius-md;
+  @include size(80px); // native: AUDIO_COVER_SIZE
   background: var(--c-surface-2);
+  border-radius: $radius-md;
   color: var(--sender-color);
+  flex: 0 0 auto;
   overflow: hidden;
 
-  img { @include size(100%); object-fit: cover; }
-  .icon { @include size($icon-lg); }
+  img {
+    @include size(100%);
+    object-fit: cover;
+  }
+
+  .icon {
+    @include size($icon-lg);
+  }
 }
 
 .media__meta {
-  min-width: 0;
   flex: 1 1 auto;
+  min-width: 0;
 
-  audio { display: block; width: 100%; margin-top: $space-2; height: 32px; }
+  audio {
+    display: block;
+    height: 32px;
+    margin-top: $space-2;
+    width: 100%;
+  }
 }
 
-.media__title { @include ellipsis; font-weight: $fw-medium; }
-.media__sub   { @include ellipsis; color: var(--c-text-dim); font-size: $fs-sm; }
+.media__title {
+  @include ellipsis;
+  font-weight: $fw-medium;
+}
+
+.media__sub {
+  @include ellipsis;
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
 
 // --------------------------------------------------------- sticker
 // No card, no tint and no border - a sticker sits straight on the
 // background, the way the native widget draws it.
-.media--sticker { line-height: 0; }
+.media--sticker {
+  line-height: 0;
+}
 
 .media__sticker {
   display: block;
   // native: STICKER_MAX_SIZE
-  max-width: 170px;
   max-height: 170px;
+  max-width: 170px;
 }
 
 .media__sticker-wait {
   @include flex(row, center, center);
   @include size(170px);
-  border-radius: $radius-md;
   background: var(--c-surface-2);
+  border-radius: $radius-md;
   color: var(--c-text-faint);
   font-size: $fs-sm;
   line-height: normal;
