@@ -7,6 +7,7 @@ body {
   background: var(--c-bg);
   color: var(--c-text);
   overflow: hidden;   // the app manages its own scroll regions
+  background-image: url(../img/bg.jpg);
 }
 
 h1, h2, h3, h4, p, figure, blockquote { margin: 0; }

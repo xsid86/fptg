@@ -9,6 +9,7 @@ import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory } from './ui/history.js';
 import { mountComposer } from './ui/composer.js';
 import { mountStatusBar } from './ui/status-bar.js';
+import { mountThemeToggle } from './ui/theme.js';
 
 // Entry point: wire the shell that index.html already contains, open
 // the socket, and translate between what the UI asks for and what the
@@ -248,6 +249,7 @@ async function boot() {
   mountHistory(qs('#history'));
   mountComposer(qs('#composer'));
   mountStatusBar(qs('#status-bar'));
+  mountThemeToggle(qs('#theme-toggle'));
 
   wireSidebar();
   wireResponsive();

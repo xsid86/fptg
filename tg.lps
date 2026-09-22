@@ -522,6 +522,16 @@
         <IsPartOfProject Value="True"/>
         <UsageCount Value="43"/>
       </Unit>
+      <Unit>
+        <Filename Value="webview2.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="webui.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
     </Units>
     <JumpHistory HistoryIndex="-1"/>
     <RunParams>

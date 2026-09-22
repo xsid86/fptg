@@ -10,27 +10,27 @@
 // native window: long lines are unreadable edge to edge, and a chat is
 // mostly short lines anyway.
 .history__column {
-  max-width: $message-max-width;
   margin: 0 auto;
+  max-width: $message-max-width;
 }
 
 .history__loader {
   @include flex(row, center, center, $space-3);
-  padding: $space-5;
   color: var(--c-text-dim);
+  padding: $space-5;
 }
 
 // Full-width strip marking where unread begins. Deliberately not a
 // card: it cuts the history in two and belongs to neither side.
 .history__unread {
   @include flex(row, center, center);
-  margin: $space-6 0;
-  padding: $space-3;
-  border-radius: $radius-sm;
   background: var(--c-text);
+  border-radius: $radius-sm;
   color: var(--c-surface);
   font-size: $fs-base;
   font-weight: $fw-medium;
+  margin: $space-6 0;
+  padding: $space-3;
 }
 
 .history__date {
@@ -38,11 +38,11 @@
   margin: $space-6 0 $space-4;
 
   > span {
-    padding: $space-1 $space-4;
-    border-radius: $radius-pill;
     background: var(--c-surface-2);
+    border-radius: $radius-pill;
     color: var(--c-text-dim);
     font-size: $fs-sm;
+    padding: $space-1 $space-4;
   }
 }
 
@@ -50,19 +50,28 @@
 // the bottom corner and only exists while the bottom is off screen -
 // the same rule the native scroller applies.
 .history__to-bottom {
-  position: absolute;
-  inset-inline-end: $space-6;
-  inset-block-end: $space-6;
-  @include flex(row, center, center);
-  @include size(36px);
+  background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: 50%;
-  background: var(--c-surface);
+  @include flex(row, center, center);
+  @include size(36px);
+  box-shadow: 0 2px 8px var(--c-shadow);
   color: var(--c-text-dim);
   cursor: pointer;
-  box-shadow: 0 2px 8px var(--c-shadow);
+  inset-block-end: $space-6;
+  inset-inline-end: $space-6;
+  position: absolute;
   z-index: 2;
+  @include transition;
+  opacity: 1;
+  pointer-events: all;
 
-  &:hover { color: var(--c-accent); }
-  &[hidden] { display: none; }
+  &:hover {
+    color: var(--c-accent);
+  }
+
+  &[hidden] {
+    opacity: 0;
+    pointer-events: none;
+  }
 }

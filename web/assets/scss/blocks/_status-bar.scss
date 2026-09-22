@@ -2,8 +2,8 @@
 
 .status-bar {
   @include flex(row, center, flex-start, $space-4);
-  height: $statusbar-height;
-  padding: 0 $space-4;
+  @include card($radius-lg);
+  padding: $space-4;
   font-size: $fs-xs;
   color: var(--c-text-dim);
 }
@@ -14,4 +14,18 @@
   @include flex(row, center, flex-start, $space-2);
   font-variant-numeric: tabular-nums;
   .icon { @include size($icon-sm); }
+}
+// The theme switch. It sits at the right-hand end of the status bar,
+// which is where it belongs: a setting that is always reachable but
+// never in the way of the chat.
+.status-bar__theme {
+  @include flex(row, center, center, 0);
+  padding: 0 $space-2;
+  border: 0;
+  background: none;
+  color: var(--c-text-dim);
+  cursor: pointer;
+
+  &:hover { color: var(--c-text); }
+  &:focus-visible { @include focus-ring(var(--c-accent), -2px); }
 }

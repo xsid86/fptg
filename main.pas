@@ -9,7 +9,7 @@ uses
   Graphics, Menus, ComCtrls, Math, BGRABitmap, BGRABitmapTypes, avatarcache,
   tdauth, tdcore, tdreq, tdchats, tdsupergroups, uiframe, framelog, framewelcome,
   framechats, framehistory, mediaviewer, msginput, tdmessages, tdstorage,
-  constants;
+  constants, webui;
 
 type
 
@@ -1060,10 +1060,20 @@ begin
       mtWarning, [mbOK], 0);
     Exit;
   end;
-  { Opens in the default browser. The URL already carries this run's
-    token, so the page is authorised on arrival — it is the same
-    string server_url.txt holds. }
-  OpenURL(Url);
+  { The URL already carries this run's token, so the page is authorised
+    on arrival — it is the same string server_url.txt holds.
+
+    Shown in an embedded Edge (WebView2) rather than handed to the
+    default browser. The fallback below is not politeness: without the
+    runtime there would otherwise be no way in at all. }
+  if not ShowWebUi(Url) then begin
+    MessageDlg('Web interface',
+      'The Microsoft Edge WebView2 Runtime was not found, so the web '
+      + 'interface cannot be shown in its own window.' + LineEnding
+      + 'Opening it in the default browser instead.',
+      mtInformation, [mbOK], 0);
+    OpenURL(Url);
+  end;
 end;
 
 procedure TFormMain.SetCloseToTray(AValue: boolean);

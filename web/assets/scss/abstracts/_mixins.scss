@@ -68,8 +68,10 @@
 }
 
 @mixin card($radius: v.$radius-md, $bg: var(--c-surface)) {
-  background: $bg;
+  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
+  backdrop-filter: blur(10px);
   border-radius: $radius;
+  border: 1px solid color-mix(in srgb, var(--c-border) 75%, transparent);
 }
 
 // Thin overlay scrollbar. Chromium only (this UI runs in a WebView),

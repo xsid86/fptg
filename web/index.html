@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TG Orchestrator</title>
 <link rel="stylesheet" href="assets/scss/style.css">
+<script>
+  // Runs before the first paint on purpose. The modules below are
+  // deferred, so letting them do this would show the wrong theme for a
+  // frame and then swap it. It sets an ATTRIBUTE, not a style - the
+  // rule in core/dom.js is about the style attribute, and the whole
+  // palette hangs off [data-theme] in scss/base/_root.scss.
+  // No stored choice means no attribute, which is what lets the OS
+  // preference keep deciding.
+  try {
+    var t = localStorage.getItem('theme');
+    if (t === 'dark' || t === 'light') { document.documentElement.dataset.theme = t; }
+  } catch (e) { /* storage blocked: the OS preference still applies */ }
+</script>
 </head>
 <body>
 
@@ -110,6 +123,7 @@
     <span class="status-bar__spacer"></span>
     <div class="status-bar__counts"></div>
     <a class="status-bar__item" href="check.html">transport check</a>
+    <button class="status-bar__theme" type="button" id="theme-toggle"></button>
   </footer>
 
 </div>

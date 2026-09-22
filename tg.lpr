@@ -10,7 +10,7 @@ uses
     запуску: то $FFFFFFFFFFFFFFFF, то $B8, то разные файлы/буферы).
     Диагностика заняла несколько заходов (heaptrc — ни разу не поймал
     ничего, потому что сам FPC-шный менеджер памяти, не тонкая
-    обёртка над Windows HeapAlloc; Page Heap через Image File
+    обёртка над Windows HeapAlloc, webview2, webui; Page Heap через Image File
     Execution Options/GlobalFlag в реестре — ТОЖЕ ничего не поймал,
     по той же причине: он инструментирует только HeapAlloc, а
     встроенный менеджер FPC берёт у Windows несколько больших кусков
