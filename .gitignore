@@ -9,3 +9,6 @@ sticker_paint_result.bmp
 server_url.txt
 web/.idea/
 web/assets/scss/*.css.map
+
+# Build output: rebuilt by lazbuild, 50 MB per copy in history.
+tg.exe
