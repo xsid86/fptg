@@ -157,6 +157,7 @@ function progress(m) {
 }
 
 function renderPhoto(msg, m) {
+    const boxWrapper = el('div', {class: 'media__wrapper'});
     const box = el('div', {class: 'media media--photo'});
     const img = el('img', {
         class: m.url ? 'media__img' : 'media__img is-placeholder',
@@ -176,7 +177,8 @@ function renderPhoto(msg, m) {
     }
     const p = progress(m);
     if (p) box.append(p);
-    return box;
+    boxWrapper.append(box);
+    return boxWrapper;
 }
 
 function renderVideo(msg, m) {

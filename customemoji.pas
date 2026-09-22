@@ -139,7 +139,7 @@ type
     StaticSnapshotSize: integer;
     { cmfTgs/cmfWebm only — a live decoder thread, created lazily at the
       first requested size and kept running for the rest of the session
-      (no eviction on scroll-out, see CLAUDE.md — custom emoji are rare
+      (no eviction on scroll-out, see docs/journal/ — custom emoji are rare
       enough in practice that this is an accepted v1 simplification,
       the same tradeoff already made for the cache itself never
       shrinking). Exactly one of Player/VideoPlayer is ever assigned,

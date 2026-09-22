@@ -3,6 +3,7 @@ import { on, emit } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
 import { listTime, countLabel, initial } from '../util/format.js';
+import { closeMenu } from '../util/menu.js';
 
 // Renders the chat list and nothing else. It reports a click through
 // the store and never touches the header or the history directly.
@@ -72,11 +73,26 @@ function chatItem(chat) {
   // an unread count: it is what keeps every card the same height,
   // which is how the native row gets its constant height too (its
   // content box is sized from the avatar, not from what is in it).
+  // The folder button is always here, with or without a folder: it is
+  // the only way to assign one, so leaving it off the chats that have
+  // none would hide it from exactly the rows that need it. The native
+  // row paints a "no folder" chip for the same reason.
+  //
+  // Opening the menu needs the account's folder list, which is a round
+  // trip - so the click is reported and main.js does the asking, the
+  // same division every other action in this file follows.
+  const folder = el('button', {
+    class: `chip chat-item__folder${chat.folder ? '' : ' chat-item__folder--none'}`,
+    type: 'button',
+    title: chat.folder ? `Folder: ${chat.folder}` : 'Put this chat in a folder',
+    onclick: (event) => {
+      event.stopPropagation();
+      emit('ui:folder-menu', { id: chat.id, anchor: event.currentTarget });
+    },
+  }, el('span', { textContent: chat.folder || 'no folder' }));
+
   const meta = el('div', { class: 'chat-item__meta' },
-    chat.folder
-      ? el('span', { class: 'chip chat-item__folder' },
-          el('span', { textContent: chat.folder }))
-      : null,
+    folder,
     chat.unread > 0
       ? el('span', {
           class: `badge${chat.muted ? ' badge--muted' : ''}`,
@@ -153,8 +169,50 @@ function avatar(chat) {
   return box;
 }
 
+// Which row the viewport is resting on, so a rebuild can put it back.
+//
+// A row rather than a pixel offset, and that is not belt-and-braces: the
+// list is sorted by date, so a message arriving in a chat further down
+// moves that chat to the top and shifts everything below it. Restoring
+// scrollTop alone would then hold the pixel and slide the content. The
+// native list anchors the same way and for the same reason (TMsgScroller
+// keeps FRowIds alongside its offsets).
+function scrollAnchor() {
+  const edge = root.getBoundingClientRect().top;
+  for (const node of root.children) {
+    if (!node.dataset.chatId) continue;
+    const box = node.getBoundingClientRect();
+    if (box.bottom > edge) return { id: node.dataset.chatId, offset: box.top - edge };
+  }
+  return null;
+}
+
+function restoreScroll(anchor) {
+  if (!anchor) return;
+  const node = root.querySelector(`.chat-item[data-chat-id="${anchor.id}"]`);
+  // The anchor chat can be gone (left, or filtered out of this list).
+  // Nothing sensible to line up with, so leave the list where a fresh
+  // render puts it.
+  if (!node) return;
+  root.scrollTop +=
+    node.getBoundingClientRect().top - root.getBoundingClientRect().top - anchor.offset;
+}
+
+// The list this position belongs to. Moving between the main list and
+// the archive is the one case where the old position means nothing.
+let lastArchived = null;
+
 function render() {
   if (!root) return;
+  // The list is rebuilt wholesale, so an open menu would be left
+  // pointing at a detached button - and the list rebuilds on any
+  // incoming message, not just on something the user did.
+  closeMenu();
+  // Clearing the container resets its scrollTop, which threw the list
+  // back to the top on every refresh - including the one that follows
+  // changing a chat's folder.
+  const keep = lastArchived === store.archived ? scrollAnchor() : null;
+  lastArchived = store.archived;
   clear(root);
   const chats = store.chats;
   if (!chats.length) {
@@ -164,6 +222,7 @@ function render() {
   const fragment = document.createDocumentFragment();
   for (const chat of chats) fragment.append(chatItem(chat));
   root.append(fragment);
+  restoreScroll(keep);
 }
 
 export function mountChatList(node) {

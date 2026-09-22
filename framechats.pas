@@ -489,7 +489,7 @@ begin
     not: that made the first card sit 5+3=8px down, visibly below the
     header card, and the theory was chasing a symptom that had a
     completely different cause — the remainder version had been wiped
-    from this file by the IDE before it ever ran (see CLAUDE.md), so
+    from this file by the IDE before it ever ran (see docs/journal/), so
     "it didn't work" was never about the arithmetic.
 
     Max() rather than a plain subtraction, in case the row inset is

@@ -34,7 +34,7 @@ const
 
   { Avatar size in the chat list's content area, beside the last-message
     preview (moved there from the header during the card redesign — see
-    CLAUDE.md). The archive/all-chats pseudo-row uses its own, larger
+    docs/journal/). The archive/all-chats pseudo-row uses its own, larger
     BIG_AVATAR_SIZE (framechats.pas group below), independent of this
     value. Sole real reader: TAvatarCache.Render (avatarcache.pas).
     24->32 by direct request — CHATROW_CONTENT_H (below) is derived

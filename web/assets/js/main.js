@@ -3,6 +3,7 @@ import { on, emit } from './core/bus.js';
 import { connect, call } from './core/net.js';
 import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat } from './core/store.js';
 import { loadIcons, hydrateIcons } from './util/icons.js';
+import { openMenu } from './util/menu.js';
 import { mountChatList, showListLoading, showListError } from './ui/chat-list.js';
 import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory } from './ui/history.js';
@@ -14,6 +15,11 @@ import { mountStatusBar } from './ui/status-bar.js';
 // protocol calls it. Nothing below main.js knows a command name.
 
 const listNode = qs('#chat-list');
+
+// chatFolderName allows 1..12 CHARACTERS (not bytes - a Cyrillic name
+// is two bytes per character). Mirrors CHATROW_FOLDER_NAME_MAX; the
+// server checks it too, this is only what the prompt says out loud.
+const FOLDER_NAME_MAX = 12;
 
 /**
  * Trailing throttle. The server's events are signals, not payloads, and
@@ -37,6 +43,63 @@ function throttle(fn, ms) {
 
 function report(err) {
   emit('ui:error', err instanceof Error ? err.message : String(err));
+}
+
+// --------------------------------------------------- folder menu
+/**
+ * The menu behind a row's folder chip: the account's folders with the
+ * current one marked, then the two actions.
+ *
+ * The same shape as the native menu, including the deliberate bits:
+ * "Remove from folder" is DISABLED rather than dropped when the chat is
+ * in none, so the menu keeps the same shape wherever it opens and the
+ * item the user is reaching for does not move from row to row. Folders
+ * carry no icons because TDLib describes a folder's icon by name only -
+ * see CmdChatsFolders in webapi.pas.
+ */
+async function showFolderMenu(id, anchor) {
+  let folders;
+  try {
+    folders = await call('chats.folders');
+  } catch (error) {
+    report(error);
+    return;
+  }
+
+  // Read the current folder off the row we already have rather than
+  // asking again: 0 means "in no folder", the same convention the
+  // server uses in both directions.
+  const chat = store.chats.find((row) => row.id === id);
+  const current = chat?.folderId ?? 0;
+
+  const move = (folderId) => call('chat.folder.set', { id, folderId }).catch(report);
+
+  const items = folders.map((folder) => ({
+    label: folder.title,
+    checked: folder.id === current,
+    onSelect: () => move(folder.id),
+  }));
+  if (items.length) items.push('-');
+
+  items.push({
+    label: 'Remove from folder',
+    disabled: current === 0,
+    onSelect: () => move(0),
+  });
+  items.push({
+    label: 'New folder',
+    // prompt() rather than a dialog of our own: this is the one place
+    // in the app that needs a line of text back, and the native window
+    // asks with InputQuery for the same reason. The server checks the
+    // length too - this is a courtesy, not the guard.
+    onSelect: () => {
+      const title = prompt(`New folder name (up to ${FOLDER_NAME_MAX} characters):`, '');
+      if (title === null) return;
+      call('chat.folder.create', { id, title }).catch(report);
+    },
+  });
+
+  openMenu(anchor, items);
 }
 
 // --------------------------------------------------------- fetching
@@ -135,6 +198,8 @@ function wireActions() {
   on('ui:chat-action', ({ id, action }) => {
     call('chat.action', { id, action }).catch(report);
   });
+
+  on('ui:folder-menu', ({ id, anchor }) => showFolderMenu(id, anchor));
 
   on('ui:search', ({ filter, query }) => {
     call('search.set', { filter, query }).then(setMessages).catch(report);

@@ -103,6 +103,9 @@ type
     function  CmdChatOpen(AArgs: TJSONObject): TJSONData;
     function  CmdChatClose: TJSONData;
     function  CmdChatAction(AArgs: TJSONObject): TJSONData;
+    function  CmdChatsFolders: TJSONData;
+    function  CmdChatFolderSet(AArgs: TJSONObject): TJSONData;
+    function  CmdChatFolderCreate(AArgs: TJSONObject): TJSONData;
     function  CmdMessagesList: TJSONData;
     function  CmdMessagesOlder: TJSONData;
     function  CmdMessagesRead(AArgs: TJSONObject): TJSONData;
@@ -240,6 +243,10 @@ begin
   Result.Add('outgoing', ARow.LastIsOutgoing);
   Result.Add('receipt',  string(ReceiptStr(ARow)));
   Result.Add('folder',   string(Folder));
+  { The id alongside the title so the page's folder menu can mark
+    the current entry without matching on a display string. 0 = the
+    chat is in no folder, the same convention RowFolderId uses. }
+  Result.Add('folderId', FolderId);
   Result.Add('premium',  AChats.IsPremiumUser(ARow));
   Result.Add('deleted',  AChats.IsDeletedUser(ARow));
   { Whether this account may write here at all — a channel it only
@@ -1037,6 +1044,123 @@ begin
   Result := nil;
 end;
 
+{ The account's chat folders, in the order TDLib lists them - which is
+  the order the user arranged their own folder tabs in.
+
+  A command of its own rather than a field folded into chats.list: this
+  is one short answer for the whole account, not a property of a row,
+  and the page needs it only when a folder menu is actually opened.
+
+  The folders carry no icon here, and cannot: TDLib describes a folder's
+  icon by NAME only (chatFolderIcon is a string out of a fixed set -
+  "Work", "Airplane", "Custom"...), never a picture, so showing them
+  would mean shipping one icon per name. Same reason the native menu
+  shows none. }
+function TWebApi.CmdChatsFolders: TJSONData;
+var
+  Chats: TTdChats;
+  Arr: TJSONArray;
+  O: TJSONObject;
+  I: integer;
+  F: TChatFolder;
+begin
+  Chats := RequireChats;
+  Arr := TJSONArray.Create;
+  for I := 0 to Chats.FolderCount - 1 do begin
+    F := Chats.Folders[I];
+    O := TJSONObject.Create;
+    { TDLib never assigns 0 as a folder id, which is what leaves 0 free
+      to mean "no folder" in both directions of this protocol. }
+    O.Add('id',    F.Id);
+    O.Add('title', string(F.Title));
+    Arr.Add(O);
+  end;
+  Result := Arr;
+end;
+
+{ Moves the chat into AFolderId, or - for 0 - takes it out of every
+  folder it is in. One command for both because 0 is the same "no
+  folder" the row already reports: the page can send back the id it was
+  handed without a separate command for the empty case.
+
+  Caveat inherited from the model, not introduced here: a chat a folder
+  includes BY RULE (include_groups and the like) stays in it. TDLib has
+  no removeChatFromList at all, and writing the chat into
+  excluded_chat_ids to force it out would override the user's own filter
+  far more durably than "it lives in another folder now" asks for. }
+function TWebApi.CmdChatFolderSet(AArgs: TJSONObject): TJSONData;
+var
+  Chats: TTdChats;
+  CRow: TChatRow;
+  FolderId: integer;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('chat.folder.set needs an id and a folderId');
+  end;
+  Chats := RequireChats;
+  CRow := Chats.Lookup(AArgs.Get('id', Int64(0)));
+  if CRow = nil then begin
+    raise Exception.Create('no such chat');
+  end;
+  FolderId := AArgs.Get('folderId', 0);
+  if FolderId = 0 then begin
+    Chats.RemoveChatFromFolders(CRow);
+  end else begin
+    Chats.MoveChatToFolder(CRow, FolderId);
+  end;
+  { Nothing to return: the row updates itself when TDLib reports the new
+    positions, and that arrives as the usual chats-changed event. }
+  Result := nil;
+end;
+
+{ Creates a folder holding just this chat, taking it out of its current
+  ones the way chat.folder.set would.
+
+  The length limit is checked HERE rather than left to TDLib, and it is
+  counted in CHARACTERS: chatFolderName allows 1..12 characters, while a
+  Cyrillic name is two bytes per character - so Length() on the
+  utf8string would reject valid names and let through invalid ones.
+  Counting out continuation bytes (10xxxxxx) is all that takes, which is
+  also what the native window does rather than pull in LazUTF8 for one
+  call. }
+function TWebApi.CmdChatFolderCreate(AArgs: TJSONObject): TJSONData;
+var
+  Chats: TTdChats;
+  CRow: TChatRow;
+  Title: utf8string;
+  I, Chars: integer;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('chat.folder.create needs an id and a title');
+  end;
+  Chats := RequireChats;
+  CRow := Chats.Lookup(AArgs.Get('id', Int64(0)));
+  if CRow = nil then begin
+    raise Exception.Create('no such chat');
+  end;
+
+  Title := utf8string(Trim(string(AArgs.Get('title', ''))));
+  if Title = '' then begin
+    raise Exception.Create('a folder needs a name');
+  end;
+  Chars := 0;
+  for I := 1 to Length(Title) do begin
+    if (Ord(Title[I]) and $C0) <> $80 then begin
+      Inc(Chars);
+    end;
+  end;
+  if Chars > CHATROW_FOLDER_NAME_MAX then begin
+    raise Exception.Create('a folder name is at most '
+      + utf8string(IntToStr(CHATROW_FOLDER_NAME_MAX)) + ' characters');
+  end;
+
+  Chats.CreateFolderWithChat(Title, CRow);
+  { Again nothing to return: TDLib answers with a fresh
+    updateChatFolders, and the page picks the new folder up with the
+    next chats.folders. }
+  Result := nil;
+end;
+
 function TWebApi.CmdMessagesList: TJSONData;
 var
   Msgs: TTdMessages;
@@ -1293,6 +1417,12 @@ begin
         Reply(AConnId, ReqId, CmdChatClose);
       end else if Cmd = 'chat.action' then begin
         Reply(AConnId, ReqId, CmdChatAction(Args));
+      end else if Cmd = 'chats.folders' then begin
+        Reply(AConnId, ReqId, CmdChatsFolders);
+      end else if Cmd = 'chat.folder.set' then begin
+        Reply(AConnId, ReqId, CmdChatFolderSet(Args));
+      end else if Cmd = 'chat.folder.create' then begin
+        Reply(AConnId, ReqId, CmdChatFolderCreate(Args));
       end else if Cmd = 'messages.list' then begin
         Reply(AConnId, ReqId, CmdMessagesList);
       end else if Cmd = 'messages.older' then begin

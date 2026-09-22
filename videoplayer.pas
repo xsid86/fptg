@@ -467,7 +467,7 @@ begin
             two real problems with that, found by elimination after a
             heap-corruption crash kept surfacing elsewhere in the
             process (FreeMem in lottieplayer.pas) with every other
-            explanation already ruled out (see CLAUDE.md — RenderBuf's
+            explanation already ruled out (see docs/journal/ — RenderBuf's
             own tail was checked with a canary and confirmed clean):
             (1) avcodec_send_packet's own documented contract requires
             the input buffer to carry AV_INPUT_BUFFER_PADDING_SIZE

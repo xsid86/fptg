@@ -384,7 +384,7 @@ begin
     two separate file opens in quick succession, and a transient lock
     on the second one (antivirus/indexer grabbing the file right after
     the first rewrite — the same class of one-off lock this project has
-    hit before on other files, see CLAUDE.md) surfaced as a scary
+    hit before on other files, see docs/journal/) surfaced as a scary
     "file is in use, Abort will kill the program" dialog the very first
     time this method ran, api_hash never making it to disk even though
     api_id already had. Same pattern SaveAccounts already uses, just

@@ -1,0 +1,98 @@
+@use "../abstracts" as *;
+
+// The popup menu (util/menu.js). Placement is CSS-only, on purpose:
+// nothing in this app writes coordinates from JavaScript.
+//
+// Base rules describe a menu the UA has already put in the top layer
+// and centred (its default popover styling). The @supports block below
+// pins it to its anchor where anchor positioning exists.
+.menu {
+  @include flex(column, stretch, flex-start, 0);
+  @include card($radius-md, var(--c-dark));
+  //box-shadow: inset 0 0 $space-5 rgba(255, 255, 255, .5), 0 8px 24px rgba(0, 0, 0, .18);
+  border: 1px solid color-mix(in srgb, var(--c-light) 25%, var(--c-dark));
+  //border: 1px solid var(--c-border);
+  max-width: 280px;
+  //padding: $space-1 0;
+  min-width: 200px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.menu__item {
+  @include flex(row, center, flex-start, $space-2);
+  @include transition;
+  background: none;
+  border: 0;
+  color: var(--c-light);
+  cursor: pointer;
+  font: inherit;
+  font-size: $fs-sm;
+  padding: $space-2 $space-3;
+  text-align: left;
+
+  &:hover:not(:disabled),
+  &:active:not(:disabled) {
+    background: color-mix(in srgb, var(--c-light) 30%, var(--c-dark));
+  }
+
+  &:disabled {
+    color: var(--c-text-faint);
+    cursor: default;
+  }
+
+  &:focus-visible {
+    @include focus-ring(var(--c-accent), -2px);
+  }
+}
+
+.menu__label {
+  @include ellipsis;
+}
+
+// The check column is always present, even on unmarked items, so the
+// labels line up instead of shifting when one entry gains a mark.
+.menu__mark {
+  @include size(14px);
+  border: 2px solid transparent;
+  border-radius: $radius-pill;
+  flex: 0 0 auto;
+}
+
+.menu__item.is-checked .menu__mark {
+  background: radial-gradient(circle at center, var(--c-accent) 0 3px, transparent 3px);
+  border-color: var(--c-accent);
+}
+
+.menu__sep {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--c-light) 25%, var(--c-dark));
+  height: 0;
+  margin: $space-1 0;
+}
+
+// ------------------------------------------------------- anchoring
+// Chromium only at the time of writing. Without it the menu keeps the
+// UA's centred position, which is still usable - so this is additive
+// and never a prerequisite.
+@supports (anchor-name: --probe) {
+  .is-menu-anchor {
+    anchor-name: --menu-anchor;
+  }
+
+  .menu {
+    position-anchor: --menu-anchor;
+    // The UA popover style is `inset: 0; margin: auto`, which stretches
+    // the menu across whatever containing block it is given and so wins
+    // over position-area entirely. Releasing the insets is what lets the
+    // area do the placing.
+    inset: auto;
+    position-area: block-end span-inline-end;
+    margin: $space-1 0 0 0;
+    // Flip above / to the other side rather than hang off the viewport
+    // when the anchor sits near an edge.
+    position-try-fallbacks: flip-block, flip-inline;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+}

@@ -21,7 +21,7 @@ unit emojiassets;
   own actual (waved+shadowed) flag glyphs, an accepted simplification,
   not a claim of pixel-fidelity. Packed via a one-off Python script
   (dev-time tool, not committed — same as the original Twemoji packer
-  never was, see CLAUDE.md).
+  never was, see docs/journal/).
 
   The packer deliberately EXCLUDES a bare, single-codepoint entry for
   any codepoint in Unicode's own Emoji_Component set (emoji-data.txt,

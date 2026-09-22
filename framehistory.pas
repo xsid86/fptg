@@ -881,7 +881,7 @@ type
     ForwardMetrics/ContentRect elsewhere in this file. CountColor isn't
     stored: the count is always clWindowText now, chosen or not (only
     the pill's own fill opacity marks a reaction as mine — see
-    CLAUDE.md, "там где есть мои реакции цвет текста тоже черный должен
+    docs/journal/, "там где есть мои реакции цвет текста тоже черный должен
     быть"). }
   TReactionSlot = record
     PillRect: TRect;
