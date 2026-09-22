@@ -1,3 +1,4 @@
+@use "sass:math";
 @use "../abstracts" as *;
 
 // Media inside a message block. The sizes follow framehistory.pas
@@ -38,11 +39,110 @@
 .media__video {
   border-radius: $radius-md;
   display: block;
-  // native: PHOTO_MAX_WIDTH / PHOTO_MAX_HEIGHT
   height: auto;
-  max-height: 300px;
-  max-width: 100%;
+  // The ceiling from abstracts/_variables.scss. min() keeps a picture
+  // inside a column narrower than the cap instead of overflowing it.
+  max-height: $media-max-height;
+  max-width: min($media-max-width, 100%);
   width: auto;
+}
+
+// A box that knows the shape of what is in it.
+//
+// WHY THIS EXISTS, because the plain version looks like it should be
+// enough: a cap written as `max-width: min(420px, 100%)` on the picture
+// does cap the picture - and leaves the box around it 576 wide, with
+// the rest showing as a grey margin down the right-hand side. The
+// percentage cannot be resolved while the box is being sized from its
+// own contents, so it drops out and the box asks for the full 1920 of
+// the original. Measured, not deduced: box 576x236 around a 420x236
+// photo.
+//
+// With the ratio on the BOX there is nothing to resolve. The box asks
+// for min(cap, column), the ratio gives its height, and a portrait is
+// shrunk by the cap on the other axis - CSS transfers max-height
+// through the ratio into a max-width, which is exactly the "fits in a
+// 420 square" rule the native window applies by arithmetic.
+//
+// The ratio itself arrives as a class off the ladder below, because
+// nothing here writes the style attribute; ui/message.js picks the rung.
+.media--sized {
+  max-height: $media-max-height;
+  max-width: min($media-max-width, 100%);
+  width: fit-content;
+}
+
+// :not(:fullscreen) is not decoration. A rule that sizes a <video> in
+// the page also applies to it on the whole screen, and this one is two
+// classes deep - it outranks `video:fullscreen` below and would crop a
+// fullscreen video to fill. That is the second time the same collision
+// happened here (see blocks/_album.scss), so it is now stated at every
+// rule that sizes a video rather than answered with a more specific
+// exception each time. On an <img> the clause simply always matches.
+.media--sized .media__img:not(:fullscreen),
+.media--sized .media__video:not(:fullscreen) {
+  height: 100%;
+  max-height: none;
+  max-width: none;
+  object-fit: cover;  // absorbs the rung's rounding, a percent or two
+  width: 100%;
+}
+
+// The rungs: hundredths of a ratio, 0.40 through 4.00. Media shaped
+// past either end is cropped to the nearest rung rather than allowed to
+// drive the layout - a 5:1 panorama in a chat column is a strip either
+// way, and the original client crops those too.
+@for $i from 8 through 80 {
+  $ar: $i * 5;
+  .media--ar-#{$ar} { aspect-ratio: math.div($ar, 100); }
+}
+
+// Fullscreen belongs to the VIDEO, not to the box it came from. The
+// page's own sizing is kept away from it by the :not(:fullscreen)
+// clauses on the rules that would otherwise reach it; what is left is
+// stated here once. contain is the default for <video>, but saying it
+// outright is what makes this readable next to the album's cover.
+video:fullscreen {
+  height: 100%;
+  max-height: none;
+  max-width: none;
+  object-fit: contain;
+  width: 100%;
+}
+
+// A frame that stands in for a video: the play badge says the click
+// does something, the corner says how long it runs. Both are used where
+// there is no <video> to show its own controls - inside an album.
+.media__play {
+  @include flex(row, center, center);
+  @include size(48px);
+  background: color-mix(in srgb, var(--c-dark) 35%, transparent);
+  backdrop-filter: blur(6px);
+  border-radius: 50%;
+  color: var(--c-light);
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  pointer-events: none; // the click belongs to the cell underneath
+  position: absolute;
+  transform: translate(-50%, -50%);
+
+  .icon {
+    @include size(22px);
+  }
+}
+
+.media__badge {
+  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
+  backdrop-filter: blur(6px);
+  border-radius: $radius-sm;
+  color: var(--c-light);
+  font-size: $fs-sm;
+  inset-block-start: $space-2;
+  inset-inline-end: $space-2;
+  line-height: normal;
+  padding: 0 $space-2;
+  pointer-events: none;
+  position: absolute;
 }
 
 // The tiny JPEG that rides inside the message. It is ~40px wide, so

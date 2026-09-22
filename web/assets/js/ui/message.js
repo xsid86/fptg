@@ -82,12 +82,26 @@ export function renderAlbum(msgs) {
     if (lead.reply) card.append(renderReply(lead));
     if (lead.forward) card.append(renderForward(lead));
 
-    const grid = el('div', {
-        class: 'album',
-        dataset: {shape: albumShape(msgs.length)},
-    });
-    for (const m of msgs) {
-        grid.append(el('div', {class: 'album__cell'}, renderMedia(m)));
+    const grid = el('div', {class: 'album'});
+    let at = 0;
+    for (const count of albumRowCounts(msgs.length)) {
+        const run = msgs.slice(at, at + count);
+        at += count;
+        // The cells' own grow factors, added up: that sum IS the row's
+        // aspect ratio, so the row is exactly as tall as those widths
+        // are honest. Rounded the same way on both sides, or the cells
+        // would not fill the height they were given.
+        const ars = run.map(cellAspect);
+        const sum = ars.reduce((a, b) => a + b, 0);
+        const row = el('div', {
+            class: `album__row album__row--ar-${clamp(Math.round(sum / 10), 10, 60)}`,
+        });
+        run.forEach((m, k) => {
+            row.append(el('div', {
+                class: `album__cell album__cell--ar-${ars[k]}`,
+            }, renderMedia(m, msgs)));
+        });
+        grid.append(row);
     }
 
     const body = el('div', {class: 'message__body'});
@@ -104,20 +118,51 @@ export function renderAlbum(msgs) {
     return card;
 }
 
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
 /**
- * Which grid shape suits this many items.
+ * How many items each row of an album holds.
  *
- * An approximation of the client's layout, not a copy of it: the real
- * one weighs each picture's aspect ratio. This only counts, which gets
- * the common shapes right - notably a short leading row when the count
- * leaves two over, which is what makes 5 read as 2+3 and 8 as 2+3+3.
+ * Rows of three, with the two awkward remainders spent where they show
+ * least: two left over become a short leading row (5 reads as 2+3, 8 as
+ * 2+3+3), one left over turns the last four into 2+2 rather than
+ * leaving a single cell stretched across the width. That is the
+ * client's arrangement for the common counts; what it also weighs, and
+ * this does not, is which pictures happen to be portrait.
  */
-function albumShape(n) {
-    if (n === 2) return 'pair';
-    if (n === 4) return 'quad';
-    if (n >= 5 && n % 3 === 2) return 'lead2';
-    if (n >= 5 && n % 3 === 1) return 'tail1';
-    return 'rows3';
+function albumRowCounts(n) {
+    if (n <= 3) return [n];
+    if (n === 4) return [2, 2];
+    if (n === 5) return [2, 3];
+
+    const rows = [];
+    let left = n;
+    if (left % 3 === 2) {
+        rows.push(2);
+        left -= 2;
+    }
+    while (left > 4) {
+        rows.push(3);
+        left -= 3;
+    }
+    if (left === 4) rows.push(2, 2);
+    else if (left > 0) rows.push(left);
+    return rows;
+}
+
+/**
+ * A cell's aspect ratio in hundredths, on the ladder blocks/_album.scss
+ * generates - the width of that cell within its row.
+ *
+ * Clamped, because the ladder ends somewhere and because one panorama
+ * should not flatten a whole row: past the ends the picture is cropped
+ * instead. Media that never reported a size reads as square, which is
+ * the least wrong guess for a thumbnail that has not arrived.
+ */
+function cellAspect(msg) {
+    const m = msg.media ?? {};
+    const ar = m.w > 0 && m.h > 0 ? m.w / m.h : 1;
+    return clamp(Math.round(ar * 20) * 5, 70, 170);
 }
 
 // ------------------------------------------------------------- head
@@ -183,15 +228,20 @@ function renderForward(msg) {
 }
 
 // ----------------------------------------------------------- media
-function renderMedia(msg) {
+/**
+ * `group` is the album this message belongs to, when it does: a click
+ * has to open the gallery on the right slide, and only the caller knows
+ * what the run was.
+ */
+function renderMedia(msg, group) {
     const m = msg.media;
     if (!m) return null;
 
     switch (msg.kind) {
         case 'photo':
-            return renderPhoto(msg, m);
+            return renderPhoto(msg, m, group);
         case 'video':
-            return renderVideo(msg, m);
+            return group ? renderVideoCell(msg, m, group) : renderVideo(msg, m);
         case 'animation':
             return renderAnimation(msg, m);
         case 'audio':
@@ -207,6 +257,22 @@ function renderMedia(msg) {
     }
 }
 
+/**
+ * The classes for one media box: the block, and - when the size is
+ * known - the rung of the ratio ladder that gives the box the shape of
+ * what is inside it.
+ *
+ * Without the ratio the box is sized by the original's width and ends
+ * up wider than the capped picture, which is what used to show as a
+ * grey margin beside every landscape photo. See .media--sized in
+ * blocks/_media.scss for why the cap alone cannot fix that.
+ */
+function sizedBox(kind, m) {
+    const base = `media media--${kind}`;
+    if (!(m.w > 0 && m.h > 0)) return base;
+    return `${base} media--sized media--ar-${clamp(Math.round((m.w / m.h) * 20) * 5, 40, 400)}`;
+}
+
 function ensure(msg, what) {
     emit('ui:ensure-media', {id: msg.id, what});
 }
@@ -219,9 +285,9 @@ function progress(m) {
     return bar;
 }
 
-function renderPhoto(msg, m) {
+function renderPhoto(msg, m, group) {
     const boxWrapper = el('div', {class: 'media__wrapper'});
-    const box = el('div', {class: 'media media--photo'});
+    const box = el('div', {class: sizedBox('photo', m)});
     const img = el('img', {
         class: m.url ? 'media__img' : 'media__img is-placeholder',
         src: m.url || m.thumb || '',
@@ -231,7 +297,7 @@ function renderPhoto(msg, m) {
     box.append(img);
     if (m.url) {
         box.classList.add('is-clickable');
-        box.addEventListener('click', () => emit('ui:view', {msg, kind: 'photo'}));
+        box.addEventListener('click', () => emit('ui:view', {msg, group}));
     } else {
         box.append(el('button', {
             class: 'media__action', type: 'button',
@@ -246,7 +312,7 @@ function renderPhoto(msg, m) {
 
 function renderVideo(msg, m) {
     const boxWrapper = el('div', {class: 'media__wrapper'});
-    const box = el('div', {class: 'media media--video'});
+    const box = el('div', {class: sizedBox('video', m)});
     if (m.url) {
         box.append(el('video', {
             class: 'media__video',
@@ -277,8 +343,41 @@ function renderVideo(msg, m) {
     return boxWrapper;
 }
 
+/**
+ * A video inside an album: a still frame with a play badge, never a
+ * player.
+ *
+ * Six <video controls> in one bubble is what the grid used to be - six
+ * scrubbers, each one letterboxed inside its cell. The original client
+ * shows a frame and opens the viewer on click, and so does this; the
+ * viewer is also the only place where a video gets the whole window
+ * instead of a sixth of a bubble.
+ */
+function renderVideoCell(msg, m, group) {
+    const box = el('div', {class: `${sizedBox('video', m)} is-clickable`});
+    box.append(el('img', {
+        class: m.thumbUrl ? 'media__img' : 'media__img is-placeholder',
+        src: m.thumbUrl || m.thumb || '',
+        alt: '',
+        loading: 'lazy',
+    }));
+    box.append(el('span', {class: 'media__play'}, icon('play')));
+    if (m.duration) {
+        box.append(el('span', {class: 'media__badge', textContent: duration(m.duration)}));
+    }
+    // Downloaded: the viewer plays it. Not yet: the same click starts
+    // the download, which is the only thing that could happen next.
+    box.addEventListener('click', () => {
+        if (m.url) emit('ui:view', {msg, group});
+        else ensure(msg, 'full');
+    });
+    const p = progress(m);
+    if (p) box.append(p);
+    return box;
+}
+
 function renderAnimation(msg, m) {
-    const box = el('div', {class: 'media media--gif'});
+    const box = el('div', {class: sizedBox('gif', m)});
     if (m.url) {
         // Telegram "GIFs" are silent MP4s, which is why this is a <video>
         // and not an <img> - same fact the native side relies on.

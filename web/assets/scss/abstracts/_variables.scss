@@ -70,6 +70,14 @@ $composer-max:      220px;
 $scrollbar-width:   8px;
 $message-max-width: 600px;  // native: MAX_MSG_W
 
+// How big a single photo or video preview is allowed to get in the
+// history. NOT the native window's 220: that number is right for a
+// column half this wide, and at 600 it reads as a thumbnail rather
+// than a picture. Both axes, so a portrait shot is capped by its
+// height the way a landscape one is by its width.
+$media-max-width:  420px;
+$media-max-height: 420px;
+
 // ------------------------------------------------------------ z-index
 // Named rather than numeric at the call site: "which of 40 and 60 is on
 // top" is a question nobody should have to answer twice.

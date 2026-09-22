@@ -1,0 +1,91 @@
+@use "../abstracts" as *;
+
+// What we add to PhotoSwipe, and nothing it already does. The vendored
+// stylesheet is loaded first (see index.html) and is left untouched, so
+// updating the library is a file copy.
+//
+// Two additions, both of them things PhotoSwipe deliberately leaves to
+// the host: a slide that holds a video, and the thumbnail strip. See
+// ui/viewer.js for the JavaScript half.
+
+// Keep in sync with THUMBS_HEIGHT in ui/viewer.js: that constant is
+// what the viewer reserves at the bottom of the picture area, and if
+// the two drift apart the strip covers the bottom of every picture.
+$viewer-thumbs-height: 92px;
+$viewer-thumb-size: 64px;
+
+// PhotoSwipe has already fitted the box to the slide, so contain here
+// only makes it exact - and undoes, inside the viewer, the cover an
+// album cell puts on its video.
+.pswp__video-box {
+  @include flex(row, center, center);
+}
+
+.pswp__video {
+  display: block;
+  height: 100%;
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.pswp__thumbs {
+  @include flex(row, center, center, $space-2);
+  background: color-mix(in srgb, var(--c-dark) 55%, transparent);
+  backdrop-filter: blur(8px);
+  height: $viewer-thumbs-height;
+  inset-block-end: 0;
+  inset-inline: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: $space-3;
+  position: absolute;
+  @include scrollbar(6px);
+}
+
+.pswp__thumb {
+  @include size($viewer-thumb-size);
+  background: var(--c-surface-2);
+  border: 2px solid transparent;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  opacity: .55;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  @include transition;
+  @include focus-ring;
+
+  &:hover {
+    opacity: .85;
+  }
+
+  &.is-active {
+    border-color: var(--c-accent);
+    opacity: 1;
+  }
+}
+
+.pswp__thumb-img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.pswp__thumb-play {
+  @include flex(row, center, center);
+  @include size(24px);
+  background: color-mix(in srgb, var(--c-dark) 40%, transparent);
+  border-radius: 50%;
+  color: var(--c-light);
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  position: absolute;
+  transform: translate(-50%, -50%);
+
+  .icon {
+    @include size(12px);
+  }
+}

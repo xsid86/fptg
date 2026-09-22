@@ -1,61 +1,112 @@
+@use "sass:math";
 @use "../abstracts" as *;
 
 // An album: the several messages Telegram sent together, drawn as one
-// grid inside one bubble.
+// bubble.
 //
-// Six columns rather than three, because that is what lets a row hold
-// either three cells (span 2) or two (span 3) without a second grid.
-// The shapes come from ui/message.js and only count the items; the
-// original client also weighs each picture's aspect ratio, so this is a
-// close relative of its layout, not a copy.
+// The first version was a six-column grid of squares, and it read as
+// crooked for the reason the original client does not do that: photos
+// are not square. A vertical shot lost its top and bottom, a 16:9 video
+// sat in a square cell with the rest of it grey.
+//
+// So: justified rows, the way every photo grid that looks right is
+// built. ui/message.js decides HOW MANY items go in each row; the
+// widths inside a row come out of the aspect ratios, which is what
+// keeps every picture in a row exactly as tall as its neighbours:
+//
+//   * a cell is flex-basis 0 with flex-grow = its aspect ratio, so the
+//     row's width is shared out in proportion to how wide each picture
+//     wants to be;
+//   * the row's own height comes from aspect-ratio = the sum of those
+//     grow factors, which is the height at which those widths are
+//     honest;
+//   * cells stretch to that height, so they all match to the pixel.
+//
+// Both numbers arrive as CLASSES off a ladder, never as an inline
+// style - see the note at the bottom of core/dom.js. A ladder is why
+// they are quantised; the leftovers are absorbed by object-fit: cover,
+// which is cropping of a percent or two, not of a composition.
+
+$album-gap: 2px;
+$album-row-max-height: 330px;
+
+// The ends of the cell ladder, in hundredths. They are deliberately
+// TIGHT - much tighter than the range real photos cover - because what
+// makes a row look wrong is not a cropped picture but a lopsided one:
+// a 16:9 video beside a 9:16 phone shot, honestly justified, comes out
+// 440 wide beside 134, which is a picture beside a stripe. Clamped to
+// these, the widest cell in a row can be about 2.4x the narrowest and
+// the rest is taken by cropping, which is what the original client
+// does with a portrait in a grid too.
+$album-ar-min: 70;
+$album-ar-max: 170;
+$album-ar-step: 5;
+
+// And of the row ladder, in tenths - two narrow cells at one end, three
+// wide ones at the other.
+$album-row-min: 10;
+$album-row-max: 60;
+
 .album {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 2px;
+  @include flex(column, stretch, flex-start, $album-gap);
+  border-radius: $radius-md;
+  overflow: hidden; // the outer corners are the bubble's, not each cell's
+}
+
+.album__row {
+  display: flex;
+  gap: $album-gap;
+  // Tall rows are capped rather than allowed to grow: two portraits
+  // side by side would otherwise be half a screen high. Past the cap
+  // the cells simply crop.
+  max-height: $album-row-max-height;
+  min-height: 0;
 }
 
 .album__cell {
-  grid-column: span 2;        // three per row, the default shape
-  aspect-ratio: 1;
+  flex-basis: 0;
+  min-width: 0;   // or a wide cell refuses to shrink
   overflow: hidden;
-  min-width: 0;               // or a wide cell refuses to shrink
+  position: relative;
   background: var(--c-surface-2);
 }
 
-// Two side by side, and 2x2.
-.album[data-shape="pair"] > .album__cell,
-.album[data-shape="quad"] > .album__cell { grid-column: span 3; }
+@for $i from math.div($album-ar-min, $album-ar-step) through math.div($album-ar-max, $album-ar-step) {
+  $ar: $i * $album-ar-step;
+  .album__cell--ar-#{$ar} { flex-grow: math.div($ar, 100); }
+}
 
-// A short leading row when the count leaves two over: 5 reads as 2+3,
-// 8 as 2+3+3 - which is how the client lays those out.
-.album[data-shape="lead2"] > .album__cell:nth-child(-n + 2) { grid-column: span 3; }
-
-// One left over at the end: give it the full width instead of leaving a
-// lone square next to two gaps.
-.album[data-shape="tail1"] > .album__cell:last-child {
-  grid-column: span 6;
-  aspect-ratio: 2.4;
+@for $ar from $album-row-min through $album-row-max {
+  .album__row--ar-#{$ar} { aspect-ratio: math.div($ar, 10); }
 }
 
 // The per-kind renderers size themselves to the media. Inside a cell
 // they fill it instead, and the picture is cropped rather than
-// letterboxed - an album reads as a grid only if the cells line up.
+// letterboxed - a row reads as one band only if its cells line up.
 .album__cell > *,
 .album__cell .media,
 .album__cell .media__wrapper {
   width: 100%;
   height: 100%;
   max-width: none;
+  max-height: none;  // the single-message cap, off again inside a cell
   margin: 0;
 }
 
-.album__cell img,
-.album__cell video {
+// See the note in blocks/_media.scss: a rule that sizes a video must
+// say it does not mean the fullscreen one, or it wins on specificity
+// and crops it to fill the screen.
+.album__cell img:not(:fullscreen),
+.album__cell video:not(:fullscreen) {
   display: block;
   width: 100%;
   height: 100%;
+  // The single-message cap has no business here: the cell already says
+  // how big this is, and leaving the cap on is what used to leave grey
+  // margins inside the taller cells.
+  max-width: none;
+  max-height: none;
   object-fit: cover;
+  border-radius: 0;
 }
 
-// Corners belong to the bubble, not to every cell.
-.album__cell { border-radius: 0; }

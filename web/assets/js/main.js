@@ -10,6 +10,7 @@ import { mountHistory } from './ui/history.js';
 import { mountComposer } from './ui/composer.js';
 import { mountStatusBar } from './ui/status-bar.js';
 import { mountThemeToggle } from './ui/theme.js';
+import { openViewer } from './ui/viewer.js';
 
 // Entry point: wire the shell that index.html already contains, open
 // the socket, and translate between what the UI asks for and what the
@@ -176,10 +177,23 @@ function wireActions() {
   // original is not downloaded yet the click asks for it and the image
   // opens on the next one, which is the native "two clicks" rule
   // rather than a surprise download-then-open.
-  on('ui:view', ({ msg }) => {
-    const full = msg.media?.fullUrl;
-    if (full) window.open(full, '_blank', 'noopener');
-    else call('media.ensure', { id: msg.id, what: 'full' }).catch(report);
+  on('ui:view', ({ msg, group }) => {
+    // An album opens as a gallery on the picture that was clicked; a
+    // lone photo is a gallery of one.
+    const list = group?.length ? group : [msg];
+    const start = Math.max(0, list.indexOf(msg));
+    openViewer(list, start);
+
+    // The viewer shows whatever was already to hand, which for a photo
+    // that has not been downloaded is the inline preview. Asking for the
+    // originals here means the next open is sharp - and it is the only
+    // thing that ever requests them, since nothing else needs the full
+    // file.
+    for (const m of list) {
+      if (m.kind === 'photo' && !m.media?.fullUrl) {
+        call('media.ensure', { id: m.id, what: 'full' }).catch(report);
+      }
+    }
   });
 
   on('ui:jump', (messageId) => {

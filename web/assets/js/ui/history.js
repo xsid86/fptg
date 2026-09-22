@@ -215,7 +215,7 @@ function albumNode(group) {
 
   const node = renderAlbum(group);
   if (known) known.node.replaceWith(node);
-  nodes.set(key, { node, hash });
+  nodes.set(key, { node, hash, ids: group.map((m) => m.id) });
   return node;
 }
 
@@ -226,7 +226,7 @@ function messageNode(msg) {
 
   const node = renderMessage(msg);
   if (known) known.node.replaceWith(node);
-  nodes.set(msg.id, { node, hash });
+  nodes.set(msg.id, { node, hash, ids: [msg.id] });
   return node;
 }
 
@@ -303,12 +303,16 @@ function onScroll() {
 function collectRead() {
   const top = root.scrollTop;
   const bottom = top + root.clientHeight;
-  for (const [id, entry] of nodes) {
+  // Whatever the map is keyed by, what goes out are the MESSAGE ids the
+  // node stands for - one for a message, all of them for an album.
+  for (const entry of nodes.values()) {
     const node = entry.node;
     if (!node.isConnected) continue;
     if (node.classList.contains('message--outgoing')) continue;
     const y = node.offsetTop - root.offsetTop;
-    if (y + node.offsetHeight >= top && y <= bottom) pendingRead.add(id);
+    if (y + node.offsetHeight >= top && y <= bottom) {
+      for (const id of entry.ids) pendingRead.add(id);
+    }
   }
   clearTimeout(readTimer);
   readTimer = setTimeout(() => {
