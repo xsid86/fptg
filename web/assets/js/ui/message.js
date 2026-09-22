@@ -57,6 +57,69 @@ export function renderMessage(msg) {
     return card;
 }
 
+/**
+ * An album: several messages Telegram sent together, drawn as one
+ * bubble with a grid, the way the original client does.
+ *
+ * The per-kind renderers are reused unchanged, so every cell keeps the
+ * click, the download and the progress bar it already had - that is
+ * most of the reason to build it this way rather than to draw a
+ * special-case grid of bare <img>.
+ */
+export function renderAlbum(msgs) {
+    const lead = msgs[0];
+    const card = el('article', {
+        class: [
+            'message',
+            'message--album',
+            `accent-${lead.senderColor}`,
+            lead.outgoing ? 'message--outgoing' : '',
+        ].filter(Boolean).join(' '),
+        dataset: {messageId: String(lead.id), albumId: lead.albumId},
+    });
+
+    card.append(renderHead(lead));
+    if (lead.reply) card.append(renderReply(lead));
+    if (lead.forward) card.append(renderForward(lead));
+
+    const grid = el('div', {
+        class: 'album',
+        dataset: {shape: albumShape(msgs.length)},
+    });
+    for (const m of msgs) {
+        grid.append(el('div', {class: 'album__cell'}, renderMedia(m)));
+    }
+
+    const body = el('div', {class: 'message__body'});
+    body.append(grid);
+    // Telegram allows exactly one caption per album, on whichever
+    // message happened to carry it - so it is looked for rather than
+    // taken from the first.
+    const captioned = msgs.find((m) => m.text);
+    if (captioned) body.append(renderRichText(captioned.text, captioned.entities ?? []));
+    card.append(body);
+
+    const reacted = msgs.find((m) => m.reactions?.length);
+    if (reacted) card.append(renderReactions(reacted));
+    return card;
+}
+
+/**
+ * Which grid shape suits this many items.
+ *
+ * An approximation of the client's layout, not a copy of it: the real
+ * one weighs each picture's aspect ratio. This only counts, which gets
+ * the common shapes right - notably a short leading row when the count
+ * leaves two over, which is what makes 5 read as 2+3 and 8 as 2+3+3.
+ */
+function albumShape(n) {
+    if (n === 2) return 'pair';
+    if (n === 4) return 'quad';
+    if (n >= 5 && n % 3 === 2) return 'lead2';
+    if (n >= 5 && n % 3 === 1) return 'tail1';
+    return 'rows3';
+}
+
 // ------------------------------------------------------------- head
 function renderHead(msg) {
     const head = el('header', {class: 'message__head'});

@@ -15,8 +15,8 @@
 
 
   backdrop-filter: blur(10px);
-  background: color-mix(in srgb, var(--chat-color) 20%, transparent);
-  border: 1px solid color-mix(in srgb, var(--chat-color) 0%, transparent);
+  background: color-mix(in srgb, var(--chat-color) 20%, var(--c-bg));
+  border: 1px solid color-mix(in srgb, var(--chat-color) 50%, transparent);
   border-radius: $radius-md;
   box-shadow: 0 2px 2px rgba(0, 0, 0, .1), inset 0 0 2rem color-mix(in srgb, var(--chat-color) 50%, transparent);
   --chat-color: var(--accent-color, var(--c-accent));
@@ -47,7 +47,7 @@
 .chat-item__head {
   @include flex(row, center, flex-start, $space-2);
   background: color-mix(in srgb, var(--chat-color) 10%, transparent);
-  color: #fff; //color-mix(in srgb, var(--chat-color) 100%, #000);
+  color: var(--c-text); //color-mix(in srgb, var(--chat-color) 100%, #000);
   padding: $space-2 $space-3;
   //border-bottom: 1px solid var(--chat-color);
 }
@@ -94,7 +94,7 @@
 
 .chat-item__flags {
   @include flex(row, center, flex-end, $space-1);
-  color: var(--c-text-faint);
+  color: var(--c-text);
 
   .icon {
     @include size($icon-sm);
@@ -102,7 +102,7 @@
 }
 
 .chat-item__time {
-  color: #fff;
+  color: var(--c-text);
   font-size: $fs-xs;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -145,7 +145,7 @@
 .chat-item__preview {
   @include ellipsis;
   //color: var(--c-text-dim);
-  color: #fff;
+  color: var(--c-text);
   font-size: $fs-sm;
 
   // "You: " before an outgoing preview, in the chat's own colour.
@@ -217,7 +217,7 @@
   @include flex(row, center, center);
   background: none;
   border: 0;
-  color: var(--c-accent-text);
+  color: var(--c-text);
   cursor: pointer;
   padding: 0;
   @include transition;

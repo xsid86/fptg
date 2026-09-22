@@ -1,0 +1,61 @@
+@use "../abstracts" as *;
+
+// An album: the several messages Telegram sent together, drawn as one
+// grid inside one bubble.
+//
+// Six columns rather than three, because that is what lets a row hold
+// either three cells (span 2) or two (span 3) without a second grid.
+// The shapes come from ui/message.js and only count the items; the
+// original client also weighs each picture's aspect ratio, so this is a
+// close relative of its layout, not a copy.
+.album {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+}
+
+.album__cell {
+  grid-column: span 2;        // three per row, the default shape
+  aspect-ratio: 1;
+  overflow: hidden;
+  min-width: 0;               // or a wide cell refuses to shrink
+  background: var(--c-surface-2);
+}
+
+// Two side by side, and 2x2.
+.album[data-shape="pair"] > .album__cell,
+.album[data-shape="quad"] > .album__cell { grid-column: span 3; }
+
+// A short leading row when the count leaves two over: 5 reads as 2+3,
+// 8 as 2+3+3 - which is how the client lays those out.
+.album[data-shape="lead2"] > .album__cell:nth-child(-n + 2) { grid-column: span 3; }
+
+// One left over at the end: give it the full width instead of leaving a
+// lone square next to two gaps.
+.album[data-shape="tail1"] > .album__cell:last-child {
+  grid-column: span 6;
+  aspect-ratio: 2.4;
+}
+
+// The per-kind renderers size themselves to the media. Inside a cell
+// they fill it instead, and the picture is cropped rather than
+// letterboxed - an album reads as a grid only if the cells line up.
+.album__cell > *,
+.album__cell .media,
+.album__cell .media__wrapper {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.album__cell img,
+.album__cell video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+// Corners belong to the bubble, not to every cell.
+.album__cell { border-radius: 0; }

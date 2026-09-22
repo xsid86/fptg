@@ -3,7 +3,7 @@ import { on, emit } from '../core/bus.js';
 import { onActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
 import { dateLabel } from '../util/format.js';
-import { renderMessage } from './message.js';
+import { renderMessage, renderAlbum } from './message.js';
 
 // The message history.
 //
@@ -114,7 +114,10 @@ function render(state) {
   let lastDay = null;
   let dividerPlaced = false;
 
-  for (const msg of state.items) {
+  // Indexed rather than for..of because an album swallows the messages
+  // that follow it, and the loop has to be able to skip them.
+  for (let i = 0; i < state.items.length; i += 1) {
+    const msg = state.items[i];
     const day = dateLabel(msg.date);
     if (day !== lastDay) {
       desired.push(separator(`day:${day}`, () =>
@@ -127,6 +130,22 @@ function render(state) {
       desired.push(separator('unread', () =>
         el('div', { class: 'history__unread', textContent: 'Unread messages' })));
       dividerPlaced = true;
+    }
+
+    // Messages of one album arrive as ordinary separate messages that
+    // only share media_album_id, so the run has to be gathered here.
+    // A run of one is left alone: a single photo is just a photo.
+    if (msg.albumId) {
+      let last = i;
+      while (last + 1 < state.items.length
+             && state.items[last + 1].albumId === msg.albumId) {
+        last += 1;
+      }
+      if (last > i) {
+        desired.push(albumNode(state.items.slice(i, last + 1)));
+        i = last;
+        continue;
+      }
     }
 
     desired.push(messageNode(msg));
@@ -182,6 +201,24 @@ function maybeFill(state) {
  * cannot disagree with what is on screen the way a hand-picked list of
  * fields eventually would.
  */
+/**
+ * Same caching as messageNode, keyed by the album instead of by one
+ * message: the node is rebuilt only when something in the GROUP
+ * changed, so a download finishing in one cell does not throw away the
+ * others.
+ */
+function albumNode(group) {
+  const key = `album:${group[0].albumId}`;
+  const hash = JSON.stringify(group);
+  const known = nodes.get(key);
+  if (known && known.hash === hash) return known.node;
+
+  const node = renderAlbum(group);
+  if (known) known.node.replaceWith(node);
+  nodes.set(key, { node, hash });
+  return node;
+}
+
 function messageNode(msg) {
   const hash = JSON.stringify(msg);
   const known = nodes.get(msg.id);

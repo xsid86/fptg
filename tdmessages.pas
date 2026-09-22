@@ -159,6 +159,11 @@ type
     SenderChatId:    Int64;   { 0 if the sender is a user }
     Date, EditDate:  Int64;
     IsOutgoing:      boolean;
+    { media_album_id: messages sent together as one album share it, and
+      it is 0 for everything else. Telegram gives no other way to tell
+      an album apart - the messages are ordinary separate messages that
+      merely arrived together, so the id is the only thing tying them. }
+    AlbumId:         Int64;
     Kind:            TMsgContentKind;
     ContentRaw:      utf8string;
     PlainText:       utf8string;
@@ -3131,6 +3136,7 @@ begin
   R.Date := JGetInt64(AMsg, 'date');
   R.EditDate := JGetInt64(AMsg, 'edit_date');
   R.IsOutgoing := JGetBool(AMsg, 'is_outgoing');
+  R.AlbumId := JGetInt64(AMsg, 'media_album_id');
 
   SenderObj := JGetObj(AMsg, 'sender_id');
   SenderType := JGetStr(SenderObj, '@type');

@@ -62,6 +62,7 @@
         <EditorIndex Value="19"/>
         <UsageCount Value="162"/>
         <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -226,7 +227,7 @@
         <IsVisibleTab Value="True"/>
         <EditorIndex Value="27"/>
         <TopLine Value="431"/>
-        <CursorPos X="34" Y="449"/>
+        <CursorPos X="34" Y="462"/>
         <UsageCount Value="148"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
@@ -352,6 +353,7 @@
         <TopLine Value="3664"/>
         <UsageCount Value="111"/>
         <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="mediaviewer.pas"/>

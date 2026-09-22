@@ -10,7 +10,7 @@
 
 .sidebar__head {
   @include flex(row, center, flex-start, $space-2);
-  background: color-mix(in srgb, var(--c-bg) 50%, transparent);
+  background: color-mix(in srgb, var(--c-bg) 70%, transparent);
   border: none;
   padding: $space-3 $space-4;
 }

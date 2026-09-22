@@ -485,11 +485,18 @@ html, body {
 }
 
 body {
-  margin: 0;
   background: var(--c-bg);
+  background-position: center;
+  background-size: cover;
   color: var(--c-text);
+  margin: 0;
   overflow: hidden;
+}
+body[data-scheme=dark] {
   background-image: url(../img/bg.jpg);
+}
+body[data-scheme=light] {
+  background-image: url(../img/bg-light.jpg);
 }
 
 h1, h2, h3, h4, p, figure, blockquote {
@@ -497,16 +504,16 @@ h1, h2, h3, h4, p, figure, blockquote {
 }
 
 ul, ol {
+  list-style: none;
   margin: 0;
   padding: 0;
-  list-style: none;
 }
 
 button, input, textarea, select {
-  font: inherit;
-  color: inherit;
   background: none;
   border: none;
+  color: inherit;
+  font: inherit;
 }
 
 button {
@@ -725,9 +732,9 @@ body {
   align-items: stretch;
   justify-content: flex-start;
   background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(15px);
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-border) 70%, transparent);
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -739,7 +746,7 @@ body {
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
-  background: color-mix(in srgb, var(--c-bg) 50%, transparent);
+  background: color-mix(in srgb, var(--c-bg) 70%, transparent);
   border: none;
   padding: 6px 8px;
 }
@@ -773,9 +780,9 @@ body {
   align-items: stretch;
   justify-content: flex-start;
   background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(15px);
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-border) 70%, transparent);
   height: 100%;
   min-height: 0;
   border: 1px solid var(--c-border);
@@ -1057,9 +1064,9 @@ body {
   align-items: stretch;
   justify-content: flex-start;
   background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(15px);
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-border) 70%, transparent);
   border: 1px solid color-mix(in srgb, var(--c-light) 25%, var(--c-dark));
   max-width: 280px;
   min-width: 200px;
@@ -1209,8 +1216,8 @@ body {
 
 .chat-item {
   backdrop-filter: blur(10px);
-  background: color-mix(in srgb, var(--chat-color) 20%, transparent);
-  border: 1px solid color-mix(in srgb, var(--chat-color) 0%, transparent);
+  background: color-mix(in srgb, var(--chat-color) 20%, var(--c-bg));
+  border: 1px solid color-mix(in srgb, var(--chat-color) 50%, transparent);
   border-radius: 8px;
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.1), inset 0 0 2rem color-mix(in srgb, var(--chat-color) 50%, transparent);
   --chat-color: var(--accent-color, var(--c-accent));
@@ -1245,7 +1252,7 @@ body {
   justify-content: flex-start;
   gap: 4px;
   background: color-mix(in srgb, var(--chat-color) 10%, transparent);
-  color: #fff;
+  color: var(--c-text);
   padding: 4px 6px;
 }
 
@@ -1296,7 +1303,7 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  color: var(--c-text-faint);
+  color: var(--c-text);
 }
 .chat-item__flags .icon {
   width: 16px;
@@ -1305,7 +1312,7 @@ body {
 }
 
 .chat-item__time {
-  color: #fff;
+  color: var(--c-text);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1346,7 +1353,7 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #fff;
+  color: var(--c-text);
   font-size: 12px;
 }
 .is-outgoing .chat-item__preview > .chat-item__me {
@@ -1409,7 +1416,7 @@ body {
   justify-content: center;
   background: none;
   border: 0;
-  color: var(--c-accent-text);
+  color: var(--c-text);
   cursor: pointer;
   padding: 0;
   transition: all 0.25s ease-in-out;
@@ -1436,7 +1443,17 @@ body {
   gap: 8px;
   border-bottom: 1px solid var(--c-border);
   --chat-color: var(--accent-color, var(--c-accent));
+  opacity: 1;
   padding: 6px 8px;
+  pointer-events: all;
+  transition: all 0.25s ease-in-out;
+}
+.chat-header[hidden] {
+  opacity: 0;
+  pointer-events: none;
+  padding: 0;
+  margin: 0;
+  border-width: 0;
 }
 
 .chat-header__back {
@@ -1558,6 +1575,10 @@ body {
   max-width: 600px;
 }
 
+.history__column > :last-child {
+  margin-bottom: 0;
+}
+
 .history__loader {
   display: flex;
   flex-direction: row;
@@ -1573,9 +1594,10 @@ body {
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  background: var(--c-text);
-  border-radius: 4px;
-  color: var(--c-surface);
+  background: color-mix(in srgb, var(--c-bg) 50%, transparent);
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--c-text) 15%, transparent);
+  color: var(--c-text);
   font-size: 13px;
   font-weight: 500;
   margin: 16px 0;
@@ -1613,11 +1635,11 @@ body {
   cursor: pointer;
   inset-block-end: 16px;
   inset-inline-end: 16px;
-  position: absolute;
-  z-index: 2;
-  transition: all 0.25s ease-in-out;
   opacity: 1;
   pointer-events: all;
+  transition: all 0.25s ease-in-out;
+  position: absolute;
+  z-index: 2;
 }
 .history__to-bottom:hover {
   color: var(--c-accent);
@@ -1888,6 +1910,55 @@ button.message__forward:hover {
   color: var(--source-color);
   flex: 0 0 auto;
   font-weight: 500;
+}
+
+.album {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+}
+
+.album__cell {
+  grid-column: span 2;
+  aspect-ratio: 1;
+  overflow: hidden;
+  min-width: 0;
+  background: var(--c-surface-2);
+}
+
+.album[data-shape=pair] > .album__cell,
+.album[data-shape=quad] > .album__cell {
+  grid-column: span 3;
+}
+
+.album[data-shape=lead2] > .album__cell:nth-child(-n+2) {
+  grid-column: span 3;
+}
+
+.album[data-shape=tail1] > .album__cell:last-child {
+  grid-column: span 6;
+  aspect-ratio: 2.4;
+}
+
+.album__cell > *,
+.album__cell .media,
+.album__cell .media__wrapper {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.album__cell img,
+.album__cell video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.album__cell {
+  border-radius: 0;
 }
 
 .media {
@@ -2306,9 +2377,9 @@ button.message__forward:hover {
   justify-content: flex-start;
   gap: 8px;
   background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(15px);
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-border) 70%, transparent);
   padding: 8px;
   font-size: 11px;
   color: var(--c-text-dim);

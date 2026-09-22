@@ -34,8 +34,13 @@ function effective() {
 }
 
 function render() {
-  if (!button) return;
   const now = effective();
+  // The RESOLVED theme, mirrored onto <body> so stylesheets have
+  // something that is always there to match on - data-theme on <html>
+  // is the choice, and is absent while the OS is deciding. index.html
+  // sets this before the first paint; this keeps it true afterwards.
+  document.body.dataset.scheme = now;
+  if (!button) return;
   const next = now === 'dark' ? 'light' : 'dark';
   // The icon shows what the click WILL DO, not what is on - the same
   // rule the chat list follows for archive and pin, where the state is

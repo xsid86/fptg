@@ -564,6 +564,16 @@ begin
   Result.Add('date',     ARow.Date);
   Result.Add('editDate', ARow.EditDate);
   Result.Add('outgoing', ARow.IsOutgoing);
+  { A STRING, not a number, and that is not cosmetic: album ids are full
+    64-bit values (7822163933024890355 was in the log), well past the
+    2^53 a JSON number survives in JavaScript. The page only ever
+    compares them for equality, so text loses nothing. '' means "not
+    part of an album" - cleaner on the page than the 0 TDLib sends. }
+  if ARow.AlbumId <> 0 then begin
+    Result.Add('albumId', string(IntToStr(ARow.AlbumId)));
+  end else begin
+    Result.Add('albumId', '');
+  end;
   Result.Add('kind',     string(ContentKindStr(ARow.Kind)));
   Result.Add('text',     string(ARow.PlainText));
   Result.Add('entities', EntitiesJson(ARow.Entities));

@@ -14,6 +14,16 @@
   max-width: $message-max-width;
 }
 
+// The container's padding already leaves one gap under the column, and
+// the last bubble's own margin-bottom was adding a second one - so the
+// space below the newest message came out at twice the space between
+// messages. Dropped on whatever ends up last, not on .message
+// specifically, so a divider or a loader in that position behaves the
+// same.
+.history__column > :last-child {
+  margin-bottom: 0;
+}
+
 .history__loader {
   @include flex(row, center, center, $space-3);
   color: var(--c-text-dim);
@@ -24,9 +34,10 @@
 // card: it cuts the history in two and belongs to neither side.
 .history__unread {
   @include flex(row, center, center);
-  background: var(--c-text);
-  border-radius: $radius-sm;
-  color: var(--c-surface);
+  background: color-mix(in srgb, var(--c-bg) 50%, transparent);
+  border-radius: $radius-md;
+  border: 1px solid color-mix(in srgb, var(--c-text) 15%, transparent);
+  color: var(--c-text);
   font-size: $fs-base;
   font-weight: $fw-medium;
   margin: $space-6 0;
@@ -60,11 +71,11 @@
   cursor: pointer;
   inset-block-end: $space-6;
   inset-inline-end: $space-6;
-  position: absolute;
-  z-index: 2;
-  @include transition;
   opacity: 1;
   pointer-events: all;
+  @include transition;
+  position: absolute;
+  z-index: 2;
 
   &:hover {
     color: var(--c-accent);

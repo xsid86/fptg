@@ -4,6 +4,14 @@
 // The palette maps become custom properties here, and ONLY here.
 // Everything downstream reads var(--c-*), which is what makes the theme
 // switchable at run time.
+// TWO ATTRIBUTES, AND THEY DO NOT MEAN THE SAME THING:
+//   <html data-theme>  - the user's CHOICE. Absent means "not chosen",
+//                        which is what leaves the OS in charge below.
+//   <body data-scheme> - the RESOLVED theme, always "light" or "dark".
+//                        Match on this one for anything that has to be
+//                        right in both, e.g. the background image:
+//                            body[data-scheme="dark"] { ... }
+//
 @mixin emit-theme($theme) {
   @each $name, $value in $theme {
     --c-#{$name}: #{$value};

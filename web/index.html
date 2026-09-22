@@ -20,6 +20,27 @@
 </script>
 </head>
 <body>
+<script>
+  // Sits here, not in <head>, because a script in the head cannot reach
+  // an element that has not been parsed yet - and not in a module,
+  // because those are deferred and would paint one background before
+  // swapping to the other.
+  //
+  // data-scheme on <body> is the RESOLVED theme and is always either
+  // "light" or "dark". That is the difference from data-theme on <html>,
+  // which is the CHOICE and is absent when there is none - which is
+  // exactly when a selector written against it would silently fail to
+  // match. Style the background off this one:
+  //     body[data-scheme="dark"] { background-image: url(...); }
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('theme'); } catch (e) { /* blocked */ }
+    if (t !== 'dark' && t !== 'light') {
+      t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    document.body.dataset.scheme = t;
+  })();
+</script>
 
 <!--
   The shell is static markup; JavaScript fills the parts that change and

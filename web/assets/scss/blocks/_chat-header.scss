@@ -8,7 +8,18 @@
   @include flex(row, center, flex-start, $space-4);
   border-bottom: 1px solid var(--c-border);
   --chat-color: var(--accent-color, var(--c-accent));
+  opacity: 1;
   padding: $space-3 $space-4;
+  pointer-events: all;
+  @include transition;
+
+  &[hidden] {
+    opacity: 0;
+    pointer-events: none;
+    padding: 0;
+    margin: 0;
+    border-width: 0;
+  }
 }
 
 .chat-header__back {
