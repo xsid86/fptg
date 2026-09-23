@@ -79,7 +79,40 @@ type
       args: ICoreWebView2NewWindowRequestedEventArgs): HRESULT; stdcall;
   end;
 
-  { --- ICoreWebView2: slots 0..41, need 0, 2 and 41 --- }
+  { --- ICoreWebView2AcceleratorKeyPressedEventArgs: slots 0..5 --- }
+  ICoreWebView2AcceleratorKeyPressedEventArgs = interface(IUnknown)
+    ['{9F760F8A-FB79-42BE-9990-7B56900FA9C7}']
+    function get_KeyEventKind(out kind: DWORD): HRESULT; stdcall;             { 0 }
+    function get_VirtualKey(out key: DWORD): HRESULT; stdcall;                { 1 }
+    function get_KeyEventLParam(a: Pointer): HRESULT; stdcall;                { 2  slot only }
+    function get_PhysicalKeyStatus(a: Pointer): HRESULT; stdcall;             { 3  slot only }
+    function get_Handled(a: Pointer): HRESULT; stdcall;                       { 4  slot only }
+    function put_Handled(handled: BOOL): HRESULT; stdcall;                    { 5 }
+  end;
+
+  { Keys the page does not get to see first. The runtime calls this for
+    anything it considers an accelerator - Ctrl or Alt held, or a key
+    that maps to no character, which is what F11 is. Without it the key
+    never reaches this side at all: the focus belongs to the runtime's
+    own child window, so the LCL form's OnKeyDown never fires. }
+  ICoreWebView2AcceleratorKeyPressedEventHandler = interface(IUnknown)
+    ['{B29C7E28-FA79-41A8-8E44-65811C76DCB2}']
+    function Invoke(sender: ICoreWebView2Controller;
+      args: ICoreWebView2AcceleratorKeyPressedEventArgs): HRESULT; stdcall;
+  end;
+
+  { The page put an element into fullscreen (a video's own button, or
+    requestFullscreen from script). The runtime grows that element to
+    the WebView's bounds and no further - the window is the host's to
+    deal with, which is the whole point of the event. It carries no
+    arguments; the state is read back with
+    get_ContainsFullScreenElement. }
+  ICoreWebView2ContainsFullScreenElementChangedEventHandler = interface(IUnknown)
+    ['{E45D98B1-AFEF-45BE-8BAF-6C7728867F73}']
+    function Invoke(sender: ICoreWebView2; args: IUnknown): HRESULT; stdcall;
+  end;
+
+  { --- ICoreWebView2: slots 0..51, need 0, 2, 41, 49 and 51 --- }
   ICoreWebView2 = interface(IUnknown)
     ['{76ECEACB-0462-4D94-AC83-423A6793775E}']
     function get_Settings(out settings: ICoreWebView2Settings): HRESULT; stdcall; { 0 }
@@ -126,9 +159,21 @@ type
     function add_NewWindowRequested(
       handler: ICoreWebView2NewWindowRequestedEventHandler;
       out token: TEventToken): HRESULT; stdcall;                              { 41 }
+    function remove_NewWindowRequested(a: Pointer): HRESULT; stdcall;         { 42 slot only }
+    function add_DocumentTitleChanged(a, b: Pointer): HRESULT; stdcall;       { 43 slot only }
+    function remove_DocumentTitleChanged(a: Pointer): HRESULT; stdcall;       { 44 slot only }
+    function get_DocumentTitle(a: Pointer): HRESULT; stdcall;                 { 45 slot only }
+    function AddHostObjectToScript(a, b: Pointer): HRESULT; stdcall;          { 46 slot only }
+    function RemoveHostObjectFromScript(a: Pointer): HRESULT; stdcall;        { 47 slot only }
+    function OpenDevToolsWindow: HRESULT; stdcall;                            { 48 slot only }
+    function add_ContainsFullScreenElementChanged(
+      handler: ICoreWebView2ContainsFullScreenElementChangedEventHandler;
+      out token: TEventToken): HRESULT; stdcall;                              { 49 }
+    function remove_ContainsFullScreenElementChanged(a: Pointer): HRESULT; stdcall; { 50 slot only }
+    function get_ContainsFullScreenElement(out value: BOOL): HRESULT; stdcall;      { 51 }
   end;
 
-  { --- ICoreWebView2Controller: slots 0..22, need 1, 3, 21 and 22 --- }
+  { --- ICoreWebView2Controller: slots 0..22, need 1, 3, 9, 16, 21 and 22 --- }
   ICoreWebView2Controller = interface(IUnknown)
     ['{4D00C0D1-9434-4EB6-8078-8697A560334F}']
     function get_IsVisible(v: Pointer): HRESULT; stdcall;                     { 0  slot only }
@@ -143,14 +188,16 @@ type
     function add_ZoomFactorChanged(a, b: Pointer): HRESULT; stdcall;          { 6  slot only }
     function remove_ZoomFactorChanged(a: Pointer): HRESULT; stdcall;          { 7  slot only }
     function SetBoundsAndZoomFactor(a: TRect; b: Double): HRESULT; stdcall;   { 8  slot only }
-    function MoveFocus(a: Integer): HRESULT; stdcall;                         { 9  slot only }
+    function MoveFocus(reason: Integer): HRESULT; stdcall;                    { 9 }
     function add_MoveFocusRequested(a, b: Pointer): HRESULT; stdcall;         { 10 slot only }
     function remove_MoveFocusRequested(a: Pointer): HRESULT; stdcall;         { 11 slot only }
     function add_GotFocus(a, b: Pointer): HRESULT; stdcall;                   { 12 slot only }
     function remove_GotFocus(a: Pointer): HRESULT; stdcall;                   { 13 slot only }
     function add_LostFocus(a, b: Pointer): HRESULT; stdcall;                  { 14 slot only }
     function remove_LostFocus(a: Pointer): HRESULT; stdcall;                  { 15 slot only }
-    function add_AcceleratorKeyPressed(a, b: Pointer): HRESULT; stdcall;      { 16 slot only }
+    function add_AcceleratorKeyPressed(
+      handler: ICoreWebView2AcceleratorKeyPressedEventHandler;
+      out token: TEventToken): HRESULT; stdcall;                              { 16 }
     function remove_AcceleratorKeyPressed(a: Pointer): HRESULT; stdcall;      { 17 slot only }
     function get_ParentWindow(a: Pointer): HRESULT; stdcall;                  { 18 slot only }
     function put_ParentWindow(a: HWND): HRESULT; stdcall;                     { 19 slot only }
@@ -186,6 +233,10 @@ type
 type
   TWebView2NavigateEvent = procedure(Sender: TObject; const AUri: utf8string) of object;
   TWebView2ErrorEvent = procedure(Sender: TObject; const AMessage: string) of object;
+  { AHandled left False lets the key through to the page as usual. }
+  TWebView2KeyEvent = procedure(Sender: TObject; AVirtualKey: word;
+    var AHandled: boolean) of object;
+  TWebView2StateEvent = procedure(Sender: TObject; AActive: boolean) of object;
 
   { Hosts one WebView2 inside an existing window handle.
 
@@ -203,9 +254,13 @@ type
     FReady: boolean;
     FOnExternalUri: TWebView2NavigateEvent;
     FOnUnavailable: TWebView2ErrorEvent;
+    FOnAcceleratorKey: TWebView2KeyEvent;
+    FOnFullScreenElement: TWebView2StateEvent;
     procedure EnvironmentReady(AResult: HRESULT; AEnv: ICoreWebView2Environment);
     procedure ControllerReady(AResult: HRESULT; ACtrl: ICoreWebView2Controller);
     function ExternalUriRequested(const AUri: UnicodeString): boolean;
+    function AcceleratorKey(AVirtualKey: word): boolean;
+    procedure FullScreenElementChanged;
     procedure ReportUnavailable(const AMessage: string);
   public
     constructor Create(AHost: HWND);
@@ -215,6 +270,9 @@ type
     property Ready: boolean read FReady;
     procedure Navigate(const AUrl: utf8string);
     procedure SetBounds(const ARect: TRect);
+    { Keyboard focus to the page. Without it the runtime sees no keys at
+      all, and AcceleratorKeyPressed never fires. }
+    procedure Focus;
     { A link the page asked to open in a new window. Not handled here:
       the host decides, and in this app it hands it to the system
       browser - a stranger's link must never open inside a shell with
@@ -223,6 +281,13 @@ type
     { The runtime is missing or refused to start. Reported rather than
       left as an empty window. }
     property OnUnavailable: TWebView2ErrorEvent read FOnUnavailable write FOnUnavailable;
+    { A key the runtime treats as an accelerator. What any of them MEANS
+      is the host's business - this only carries it across. }
+    property OnAcceleratorKey: TWebView2KeyEvent read FOnAcceleratorKey write FOnAcceleratorKey;
+    { The page entered or left element fullscreen. The runtime has
+      already sized the element to the view; whether the WINDOW follows
+      is the host's decision. }
+    property OnFullScreenElement: TWebView2StateEvent read FOnFullScreenElement write FOnFullScreenElement;
   end;
 
 { True when a WebView2 runtime is installed. Checked before building a
@@ -233,6 +298,12 @@ implementation
 
 const
   WEBVIEW2_LOADER = 'WebView2Loader.dll';
+
+  { COREWEBVIEW2_KEY_EVENT_KIND and COREWEBVIEW2_MOVE_FOCUS_REASON,
+    only the members this unit reads. Values from the header. }
+  KEY_EVENT_KIND_KEY_DOWN = 0;
+  KEY_EVENT_KIND_SYSTEM_KEY_DOWN = 2;
+  MOVE_FOCUS_REASON_PROGRAMMATIC = 0;
 
 function CreateCoreWebView2EnvironmentWithOptions(
   browserExecutableFolder, userDataFolder: PWideChar;
@@ -295,6 +366,25 @@ type
       args: ICoreWebView2NewWindowRequestedEventArgs): HRESULT; stdcall;
   end;
 
+  TAccelHandler = class(TInterfacedObject,
+    ICoreWebView2AcceleratorKeyPressedEventHandler)
+  private
+    FOwner: TWebView2;
+  public
+    constructor Create(AOwner: TWebView2);
+    function Invoke(sender: ICoreWebView2Controller;
+      args: ICoreWebView2AcceleratorKeyPressedEventArgs): HRESULT; stdcall;
+  end;
+
+  TFullScreenHandler = class(TInterfacedObject,
+    ICoreWebView2ContainsFullScreenElementChangedEventHandler)
+  private
+    FOwner: TWebView2;
+  public
+    constructor Create(AOwner: TWebView2);
+    function Invoke(sender: ICoreWebView2; args: IUnknown): HRESULT; stdcall;
+  end;
+
 constructor TEnvHandler.Create(AOwner: TWebView2);
 begin
   inherited Create;
@@ -353,6 +443,54 @@ begin
     its own on top of ours. }
   if FOwner.ExternalUriRequested(S) then begin
     args.put_Handled(True);
+  end;
+end;
+
+constructor TAccelHandler.Create(AOwner: TWebView2);
+begin
+  inherited Create;
+  FOwner := AOwner;
+end;
+
+function TAccelHandler.Invoke(sender: ICoreWebView2Controller;
+  args: ICoreWebView2AcceleratorKeyPressedEventArgs): HRESULT; stdcall;
+var
+  Kind, Key: DWORD;
+begin
+  Result := S_OK;
+  if (FOwner = nil) or (args = nil) then begin
+    Exit;
+  end;
+  Kind := 0;
+  Key := 0;
+  if Failed(args.get_KeyEventKind(Kind)) or Failed(args.get_VirtualKey(Key)) then begin
+    Exit;
+  end;
+  { Down only. The runtime reports the release as well, and acting on
+    both would toggle twice on one press. }
+  if (Kind <> KEY_EVENT_KIND_KEY_DOWN)
+     and (Kind <> KEY_EVENT_KIND_SYSTEM_KEY_DOWN) then begin
+    Exit;
+  end;
+  if FOwner.AcceleratorKey(word(Key)) then begin
+    { Handled means the page never sees it, which is what we want for a
+      key the shell has just acted on. }
+    args.put_Handled(True);
+  end;
+end;
+
+constructor TFullScreenHandler.Create(AOwner: TWebView2);
+begin
+  inherited Create;
+  FOwner := AOwner;
+end;
+
+function TFullScreenHandler.Invoke(sender: ICoreWebView2;
+  args: IUnknown): HRESULT; stdcall;
+begin
+  Result := S_OK;
+  if FOwner <> nil then begin
+    FOwner.FullScreenElementChanged;
   end;
 end;
 
@@ -455,6 +593,8 @@ begin
   end;
 
   FWebView.add_NewWindowRequested(TNewWindowHandler.Create(Self), Token);
+  FWebView.add_ContainsFullScreenElementChanged(TFullScreenHandler.Create(Self), Token);
+  FController.add_AcceleratorKeyPressed(TAccelHandler.Create(Self), Token);
 
   Windows.GetClientRect(FHost, @R);
   FController.put_Bounds(R);
@@ -465,6 +605,12 @@ begin
     FWebView.Navigate(PWideChar(FPendingUrl));
     FPendingUrl := '';
   end;
+  { The page takes the keyboard as soon as it exists. Nothing else in
+    this window can want it - the whole client area is the runtime's
+    child - and without focus the runtime reports no keys at all, so
+    F11 would do nothing until the first click. MoveFocus stays inside
+    this window, so it cannot steal focus from another one. }
+  FController.MoveFocus(MOVE_FOCUS_REASON_PROGRAMMATIC);
 end;
 
 function TWebView2.ExternalUriRequested(const AUri: UnicodeString): boolean;
@@ -473,6 +619,27 @@ begin
   if (AUri <> '') and Assigned(FOnExternalUri) then begin
     FOnExternalUri(Self, utf8string(AUri));
     Result := True;
+  end;
+end;
+
+function TWebView2.AcceleratorKey(AVirtualKey: word): boolean;
+begin
+  Result := False;
+  if Assigned(FOnAcceleratorKey) then begin
+    FOnAcceleratorKey(Self, AVirtualKey, Result);
+  end;
+end;
+
+procedure TWebView2.FullScreenElementChanged;
+var
+  Active: BOOL;
+begin
+  if (FWebView = nil) or not Assigned(FOnFullScreenElement) then begin
+    Exit;
+  end;
+  Active := False;
+  if Succeeded(FWebView.get_ContainsFullScreenElement(Active)) then begin
+    FOnFullScreenElement(Self, Active);
   end;
 end;
 
@@ -491,6 +658,13 @@ procedure TWebView2.SetBounds(const ARect: TRect);
 begin
   if FController <> nil then begin
     FController.put_Bounds(ARect);
+  end;
+end;
+
+procedure TWebView2.Focus;
+begin
+  if FController <> nil then begin
+    FController.MoveFocus(MOVE_FOCUS_REASON_PROGRAMMATIC);
   end;
 end;
 

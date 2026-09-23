@@ -62,7 +62,6 @@
         <EditorIndex Value="19"/>
         <UsageCount Value="162"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -352,7 +351,6 @@
         <TopLine Value="3664"/>
         <UsageCount Value="111"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="mediaviewer.pas"/>
@@ -539,12 +537,7 @@
         <UsageCount Value="20"/>
       </Unit>
     </Units>
-    <JumpHistory>
-      <Position>
-        <Filename Value="framechats.pas"/>
-        <Caret Line="462" Column="34" TopLine="431"/>
-      </Position>
-    </JumpHistory>
+    <JumpHistory HistoryIndex="-1"/>
     <RunParams>
       <FormatVersion Value="2"/>
       <Modes ActiveMode=""/>
