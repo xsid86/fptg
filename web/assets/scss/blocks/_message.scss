@@ -127,9 +127,18 @@
 }
 
 // --------------------------------------------------- reply-to banner
+// --source-color, not --sender-color: the box belongs to the person
+// being QUOTED, not to whoever is quoting them. That is what the
+// native PaintReplyBox does - it resolves the accent of the quoted
+// message's sender and paints the whole box with it - and it is why
+// the banner carries its own accent- class. The name already used it;
+// the tint and the icon were still taking the card's colour, so a
+// quote of an orange contact inside a blue message came out half and
+// half. (The rule that DEFINES --source-color for this block is the
+// second .message__reply below, beside the forward card's.)
 .message__reply {
   @include flex(row, center, flex-start, $space-2);
-  background: color-mix(in srgb, var(--sender-color) 12%, transparent);
+  background: color-mix(in srgb, var(--source-color) 12%, transparent);
   border-radius: $radius-sm;
   cursor: pointer;
   font-size: $fs-sm;
@@ -138,11 +147,11 @@
 
   .icon {
     @include size($icon-sm);
-    color: var(--sender-color);
+    color: var(--source-color);
   }
 
   &:hover {
-    background: color-mix(in srgb, var(--sender-color) 20%, transparent);
+    background: color-mix(in srgb, var(--source-color) 20%, transparent);
   }
 }
 
@@ -188,9 +197,16 @@
 // Own messages are not mirrored to the right: this layout is the dense
 // single-column one the native window uses, where the sender colour
 // already tells them apart.
-.message--outgoing {
-  --sender-color: var(--c-accent);
-}
+//
+// AND THEY WEAR THEIR OWN COLOUR. This block used to pin
+// --sender-color to the app's accent, which threw away the one thing
+// Telegram had actually said about the account: measured on a live
+// one, the card carried --accent-color #28a0af (accent id 4, what the
+// server sent) and painted itself #2196f3. The native window has no
+// outgoing branch at all - SenderColor(row) is ResolveAccentColor of
+// the sender, whoever that is - so this had nothing to match either.
+// The class stays: the page uses it to skip own messages when marking
+// things read.
 
 // ------------------------------------------------- forwarded-from card
 // A nested block of the same "header over content" shape as the message
@@ -243,13 +259,33 @@ button.message__forward:hover {
   --source-color: var(--accent-color, var(--sender-color));
   color: inherit;
   font: inherit;
+  margin-top: $space-5;
   text-align: start;
   width: calc(100% - #{$space-5} * 2);
-  margin-top: $space-5;
 }
 
 .message__reply-name {
   color: var(--source-color);
   flex: 0 0 auto;
   font-weight: $fw-medium;
+}
+
+.message:has(.media--sticker),
+.message:has(.media--gif) {
+  background: none;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+  padding: 0;
+
+  .message__head {
+    border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
+    border-radius: $radius-md;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+    margin-bottom: $space-6;
+  }
+
+  .message__body {
+    padding: 0;
+  }
 }

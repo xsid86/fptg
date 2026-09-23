@@ -85,7 +85,13 @@
     <div class="workspace">
       <header class="chat-header" id="chat-header" hidden></header>
 
-      <div class="workspace__history history" id="history"></div>
+      <!-- The scroller and the box it sits in are two elements on
+           purpose: the "jump to the newest" button is positioned
+           against the box, and a button placed in the scroller itself
+           would scroll away with the messages. -->
+      <div class="workspace__history">
+        <div class="history" id="history"></div>
+      </div>
 
       <div class="composer" id="composer">
         <div class="composer__toolbar">

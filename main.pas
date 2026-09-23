@@ -168,13 +168,6 @@ type
       window, where there's nothing useful to keep alive in the tray
       for). FormCloseQuery checks this before honoring FCloseToTray. }
     FQuitRequested: boolean;
-    { FAutoDownload[media][chat] — a cache of the grid from
-      config.ini/[autodownload] (see framesettingsautodownload.pas),
-      same principle as FAudioDeviceName: the single in-memory source
-      of truth for the session, config.ini is persistence only. Indices
-      are positions in AUTODL_MEDIA_KINDS/AUTODL_CHAT_KINDS
-      (constants.pas). }
-    FAutoDownload: array[0..High(AUTODL_MEDIA_KINDS)] of array[0..High(AUTODL_CHAT_KINDS)] of boolean;
     function  AccountGlyph(AAcc: TTdAccount; AActive, ANeedLogin: boolean): TBitmap;
     procedure RebuildAccountsMenu;
     procedure AccountItemClick(Sender: TObject);
@@ -308,19 +301,14 @@ type
       settings dialog), same global-FormMain access pattern already
       used by framehistory.pas for Chats/Nav. }
     procedure SetAudioDeviceName(const AName: string);
-    { Reads config.ini/[autodownload] into FAutoDownload — called at
-      startup (FormCreate) and again from
-      TFrameSettingsAutoDownload.SaveSettings after saving (the same
-      reuse pattern as SetAudioDeviceName: a single write refreshing
-      the single source of truth). }
+    { Both of these now only forward to autodownload.pas, which owns the
+      grid. They stay here because the settings window and the history
+      already call them through FormMain — and because the WEB SERVER
+      needs the same answers, and webapi.pas cannot use main.pas: it
+      sits below the UI. That was the whole bug: the page ignored these
+      settings and made every file a click while the native window
+      downloaded it by itself. }
     procedure LoadAutoDownloadSettings;
-    { Whether auto-download is enabled for a (media type, chat type)
-      pair — keys are the same strings as AUTODL_MEDIA_KINDS/
-      AUTODL_CHAT_KINDS (constants.pas), e.g. ('images','private'). An
-      unknown key returns False rather than raising — the caller
-      (framehistory.pas) has no way to tell an unrecognized chat type
-      apart from a legitimate "off", and treating it as off is correct
-      either way. }
     function AutoDownloadEnabled(const AMediaKind, AChatKind: string): boolean;
   end;
 
@@ -335,7 +323,7 @@ implementation
   FormMain.AudioDeviceName/SetAudioDeviceName), which would create a
   cycle if used from the interface. }
 uses
-  login, settings, LCLIntf, localserver;
+  login, settings, LCLIntf, localserver, autodownload;
 
 {$R *.lfm}
 
@@ -1342,61 +1330,14 @@ end;
 
 { ---------------- auto-download ---------------- }
 
-function AutoDownloadMediaIndex(const AKind: string): integer;
-var
-  I: integer;
-begin
-  Result := -1;
-  for I := 0 to High(AUTODL_MEDIA_KINDS) do begin
-    if AUTODL_MEDIA_KINDS[I] = AKind then begin
-      Result := I;
-      Exit;
-    end;
-  end;
-end;
-
-function AutoDownloadChatIndex(const AKind: string): integer;
-var
-  I: integer;
-begin
-  Result := -1;
-  for I := 0 to High(AUTODL_CHAT_KINDS) do begin
-    if AUTODL_CHAT_KINDS[I] = AKind then begin
-      Result := I;
-      Exit;
-    end;
-  end;
-end;
-
 procedure TFormMain.LoadAutoDownloadSettings;
-var
-  M, C: integer;
 begin
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      for M := 0 to High(AUTODL_MEDIA_KINDS) do begin
-        for C := 0 to High(AUTODL_CHAT_KINDS) do begin
-          FAutoDownload[M][C] := ReadBool('autodownload',
-            AUTODL_MEDIA_KINDS[M] + '.' + AUTODL_CHAT_KINDS[C], False);
-        end;
-      end;
-    finally
-      Free;
-    end;
-  end;
+  ReloadAutoDownload;
 end;
 
 function TFormMain.AutoDownloadEnabled(const AMediaKind, AChatKind: string): boolean;
-var
-  M, C: integer;
 begin
-  Result := False;
-  M := AutoDownloadMediaIndex(AMediaKind);
-  C := AutoDownloadChatIndex(AChatKind);
-  if (M < 0) or (C < 0) then begin
-    Exit;
-  end;
-  Result := FAutoDownload[M][C];
+  Result := autodownload.AutoDownloadEnabled(AMediaKind, AChatKind);
 end;
 
 procedure TFormMain.AddAccountClick(Sender: TObject);

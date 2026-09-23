@@ -1,8 +1,9 @@
-import {el} from '../core/dom.js';
+import {el, clear} from '../core/dom.js';
 import {emit} from '../core/bus.js';
 import {icon} from '../util/icons.js';
+import {playSticker} from './sticker.js';
 import {renderRichText} from '../util/entities.js';
-import {clockTime, fileSize, duration} from '../util/format.js';
+import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -285,6 +286,24 @@ function progress(m) {
     return bar;
 }
 
+/**
+ * The affordance over a picture that is not downloaded yet.
+ *
+ * One centred button with a download arrow, which is what the native
+ * widgets draw (AUDIO_ICON_DOWNLOAD over the preview). It replaced a
+ * full-size translucent panel with a 72px icon and a caption - that
+ * was the web's own invention, and at four cards a screen it read as a
+ * fog over the history rather than as a button.
+ */
+function overlay(name, onclick) {
+    return el('button', {
+        class: 'media__overlay',
+        type: 'button',
+        title: 'Download',
+        onclick,
+    }, icon(name));
+}
+
 function renderPhoto(msg, m, group) {
     const boxWrapper = el('div', {class: 'media__wrapper'});
     const box = el('div', {class: sizedBox('photo', m)});
@@ -299,10 +318,8 @@ function renderPhoto(msg, m, group) {
         box.classList.add('is-clickable');
         box.addEventListener('click', () => emit('ui:view', {msg, group}));
     } else {
-        box.append(el('button', {
-            class: 'media__action', type: 'button',
-            onclick: () => ensure(msg, 'preview'),
-        }, icon('image'), 'Load photo'));
+        box.classList.add('is-pending');
+        box.append(overlay('download', () => ensure(msg, 'preview')));
     }
     const p = progress(m);
     if (p) box.append(p);
@@ -328,14 +345,11 @@ function renderVideo(msg, m) {
             alt: '',
             loading: 'lazy',
         }));
-        let button = el('button', {
-            class: 'media__action',
-            type: 'button', onclick: () => ensure(msg, 'full'),
-        }, icon('video'));
-        let button_text = el('span');
-        button_text.innerText = duration(m.duration);
-        button.append(button_text);
-        box.append(button);
+        box.classList.add('is-pending');
+        box.append(overlay('download', () => ensure(msg, 'full')));
+        if (m.duration) {
+            box.append(el('span', {class: 'media__badge', textContent: duration(m.duration)}));
+        }
     }
     const p = progress(m);
     if (p) box.append(p);
@@ -344,8 +358,7 @@ function renderVideo(msg, m) {
 }
 
 /**
- * A video inside an album: a still frame with a play badge, never a
- * player.
+ * A video inside an album: a still frame with a badge, never a player.
  *
  * Six <video controls> in one bubble is what the grid used to be - six
  * scrubbers, each one letterboxed inside its cell. The original client
@@ -361,12 +374,12 @@ function renderVideoCell(msg, m, group) {
         alt: '',
         loading: 'lazy',
     }));
-    box.append(el('span', {class: 'media__play'}, icon('play')));
+    // The badge says what the click will do: play what is here, or
+    // fetch what is not.
+    box.append(el('span', {class: 'media__play'}, icon(m.url ? 'play' : 'download')));
     if (m.duration) {
         box.append(el('span', {class: 'media__badge', textContent: duration(m.duration)}));
     }
-    // Downloaded: the viewer plays it. Not yet: the same click starts
-    // the download, which is the only thing that could happen next.
     box.addEventListener('click', () => {
         if (m.url) emit('ui:view', {msg, group});
         else ensure(msg, 'full');
@@ -388,78 +401,165 @@ function renderAnimation(msg, m) {
         }));
     } else {
         box.append(el('img', {
-            class: 'media__img is-placeholder', src: m.thumb || '', alt: '', loading: 'lazy',
+            class: m.thumb ? 'media__img' : 'media__img is-placeholder',
+            src: m.thumb || '', alt: '', loading: 'lazy',
         }));
-        box.append(el('button', {
-            class: 'media__action', type: 'button',
-            onclick: () => ensure(msg, 'full'),
-        }, icon('gif'), 'Load GIF'));
+        box.classList.add('is-pending');
+        box.append(overlay('download', () => ensure(msg, 'full')));
+        box.append(el('span', {class: 'media__badge', textContent: 'GIF'}));
     }
+    const p = progress(m);
+    if (p) box.append(p);
+    return box;
+}
+
+// ------------------------------------------------- audio and voice
+// One player at a time, the way the native window does it: TMsgScroller
+// keeps a single TAudioPlayer for the whole history, so a second track
+// starting stops the first.
+let playing = null;
+
+/**
+ * The card an audio message and a voice note share, following
+ * TAudioWidget: a 48px cover, a play/pause button, the title, a
+ * progress bar, and the two times - elapsed on the left, what is left
+ * as a negative on the right.
+ *
+ * The <audio> element does the playing but is never shown. Its default
+ * controls look nothing like the native widget, and they were also the
+ * thing dropping a raw player into the middle of a filtered history.
+ *
+ * The bar is a <progress> ON PURPOSE: its position is an ATTRIBUTE, so
+ * it can move smoothly without anything writing the style attribute -
+ * the class ladder that covers the rest of the app only steps in fives.
+ */
+function audioCard(msg, m, coverIcon, title) {
+    const box = el('div', {class: 'media media--audio'});
+
+    const cover = el('div', {class: 'audio__cover'});
+    if (m.coverUrl) cover.append(el('img', {src: m.coverUrl, alt: ''}));
+    else cover.append(icon(coverIcon));
+    box.append(cover);
+
+    const glyph = el('span', {class: 'audio__glyph'});
+    const setGlyph = (name) => {
+        clear(glyph);
+        glyph.append(icon(name));
+    };
+    const button = el('button', {class: 'audio__play', type: 'button'}, glyph);
+    box.append(button);
+
+    const total = Number(m.duration) || 0;
+    const track = el('progress', {class: 'audio__track', max: 1, value: 0});
+    const elapsed = el('span', {textContent: signedDuration(0)});
+    const remaining = el('span', {textContent: signedDuration(-total)});
+    box.append(el('div', {class: 'audio__body'},
+        el('div', {class: 'audio__title', textContent: title}),
+        track,
+        el('div', {class: 'audio__times'}, elapsed, remaining)));
+
+    const p = progress(m);
+    if (p) box.append(p);
+
+    if (!m.url) {
+        setGlyph('download');
+        button.title = 'Download';
+        track.classList.add('is-idle');
+        button.addEventListener('click', () => ensure(msg, 'full'));
+        return box;
+    }
+
+    setGlyph('play');
+    button.title = 'Play';
+    const sound = el('audio', {src: m.url, preload: 'none', hidden: true});
+    box.append(sound);
+
+    // The file's own duration once it is known: TDLib's is rounded to
+    // whole seconds, and seeking off a rounded length drifts.
+    const length = () => (sound.duration > 0 && Number.isFinite(sound.duration)
+        ? sound.duration : total);
+
+    button.addEventListener('click', () => {
+        if (!sound.paused) {
+            sound.pause();
+            return;
+        }
+        if (playing && playing !== sound) playing.pause();
+        playing = sound;
+        sound.play().catch(() => {});
+    });
+    sound.addEventListener('play', () => {
+        setGlyph('pause');
+        button.title = 'Pause';
+    });
+    sound.addEventListener('pause', () => {
+        setGlyph('play');
+        button.title = 'Play';
+    });
+    sound.addEventListener('timeupdate', () => {
+        const len = length();
+        track.value = len > 0 ? Math.min(1, sound.currentTime / len) : 0;
+        elapsed.textContent = signedDuration(sound.currentTime);
+        remaining.textContent = signedDuration(sound.currentTime - len);
+    });
+    sound.addEventListener('ended', () => {
+        track.value = 0;
+        elapsed.textContent = signedDuration(0);
+        remaining.textContent = signedDuration(-length());
+    });
+    track.addEventListener('click', (e) => {
+        const len = length();
+        if (len <= 0) return;
+        const box = track.getBoundingClientRect();
+        const at = (e.clientX - box.left) / box.width;
+        sound.currentTime = Math.min(len, Math.max(0, at * len));
+    });
+
     return box;
 }
 
 function renderAudio(msg, m) {
-    const box = el('div', {class: 'media media--audio'});
-    const cover = el('div', {class: 'media__cover'});
-    if (m.coverUrl) cover.append(el('img', {src: m.coverUrl, alt: ''}));
-    else cover.append(icon('audio'));
-    box.append(cover);
-
-    const meta = el('div', {class: 'media__meta'});
-    meta.append(el('div', {
-        class: 'media__title',
-        textContent: m.title || m.fileName || 'Audio',
-    }));
-    meta.append(el('div', {
-        class: 'media__sub',
-        textContent: [m.performer, duration(m.duration)].filter(Boolean).join(' · '),
-    }));
-    if (m.url) meta.append(el('audio', {controls: true, src: m.url, preload: 'none'}));
-    else {
-        meta.append(el('button', {
-            class: 'media__action', type: 'button',
-            onclick: () => ensure(msg, 'full'),
-        }, 'Load track'));
-    }
-    box.append(meta);
-    return box;
+    // Performer and title joined, whichever one exists, the file name
+    // when there is no metadata at all - TAudioWidget.Paint's own rule.
+    const title = [m.performer, m.title].filter(Boolean).join(' - ')
+        || m.fileName || 'Audio';
+    return audioCard(msg, m, 'audio', title);
 }
 
 function renderVoice(msg, m) {
-    const box = el('div', {class: 'media media--audio'});
-    box.append(el('div', {class: 'media__cover'}, icon('mic')));
-    const meta = el('div', {class: 'media__meta'});
-    meta.append(el('div', {class: 'media__title', textContent: 'Voice message'}));
-    meta.append(el('div', {class: 'media__sub', textContent: duration(m.duration)}));
-    if (m.url) meta.append(el('audio', {controls: true, src: m.url, preload: 'none'}));
-    else {
-        meta.append(el('button', {
-            class: 'media__action', type: 'button',
-            onclick: () => ensure(msg, 'full'),
-        }, 'Load voice'));
-    }
-    box.append(meta);
-    return box;
+    // A voice note never has a cover or a title: the native side passes
+    // this very label as the file name and shows the microphone frame.
+    return audioCard(msg, m, 'mic', 'Voice message');
 }
 
+/**
+ * A document, following TFileWidget: the icon on the left is the file
+ * type once the file is here and a download arrow until then, the name
+ * sits where audio's title does and the size where its times do, and
+ * the whole card is the click target rather than a button inside it.
+ */
 function renderFile(msg, m) {
-    const box = el('div', {class: 'media media--file'});
-    box.append(el('div', {class: 'media__cover'}, icon('file')));
-    const meta = el('div', {class: 'media__meta'});
-    meta.append(el('div', {class: 'media__title', textContent: m.fileName || 'File'}));
-    meta.append(el('div', {class: 'media__sub', textContent: fileSize(m.size)}));
-    box.append(meta);
-
-    if (m.url) {
-        box.append(el('a', {
-            class: 'media__action', href: m.url, download: m.fileName || '',
-        }, 'Save'));
-    } else {
-        box.append(el('button', {
-            class: 'media__action', type: 'button',
+    const name = m.fileName || 'File';
+    const box = m.url
+        ? el('a', {
+            class: 'media media--file is-clickable',
+            href: m.url,
+            download: name,
+            title: 'Save this file',
+        })
+        : el('div', {
+            class: 'media media--file is-clickable',
+            title: 'Download this file',
             onclick: () => ensure(msg, 'full'),
-        }, 'Download'));
-    }
+        });
+
+    box.append(el('span', {class: 'file__icon'}, icon(m.url ? 'file' : 'download')));
+    box.append(el('div', {class: 'file__body'},
+        el('div', {class: 'file__name', textContent: name}),
+        el('div', {class: 'file__size', textContent: fileSize(m.size)})));
+
+    const p = progress(m);
+    if (p) box.append(p);
     return box;
 }
 
@@ -475,11 +575,20 @@ function renderSticker(msg, m) {
             src: m.url, autoplay: true, loop: true, muted: true, playsInline: true,
         }));
     } else if (m.format === 'tgs') {
-        // A gzip-compressed Lottie animation. The native window renders
-        // these through rlottie; the browser would need a Lottie player,
-        // which is not in this project. Shown as a labelled placeholder
-        // rather than silently blank.
-        box.append(el('div', {class: 'media__sticker-wait', textContent: 'animated sticker'}));
+        // A gzip-compressed Lottie animation - see ui/sticker.js, which
+        // owns the unpacking, the player and the "is it on screen"
+        // question. The frame is created here and filled there, so a
+        // sticker that cannot be played says so instead of leaving a
+        // hole the size of a sticker.
+        const frame = el('div', {class: 'media__sticker media__sticker--lottie'});
+        box.append(frame);
+        playSticker(frame, m.url).then((ok) => {
+            if (ok || !frame.isConnected) return;
+            frame.replaceWith(el('div', {
+                class: 'media__sticker-wait',
+                textContent: 'animated sticker',
+            }));
+        });
     } else {
         box.append(el('img', {class: 'media__sticker', src: m.url, alt: ''}));
     }

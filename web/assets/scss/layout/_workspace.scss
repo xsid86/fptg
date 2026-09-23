@@ -9,6 +9,12 @@
   overflow: hidden;
 }
 
+// The box the history scrolls INSIDE, not the scroller itself. It
+// exists to be the positioning context for the "jump to the newest"
+// button: an absolutely positioned child of a scroll container is laid
+// out against its padding box and then scrolls away with the content,
+// so the button has to live outside the scroller. Before this it was a
+// child of the whole workspace and sat over the composer.
 .workspace__history {
   position: relative;
   flex: 1 1 auto;

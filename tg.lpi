@@ -19,7 +19,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="483"/>
+      <BuildNr Value="485"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -363,6 +363,10 @@
       </Unit>
       <Unit>
         <Filename Value="webapi.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="autodownload.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

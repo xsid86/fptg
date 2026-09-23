@@ -69,3 +69,13 @@ export function duration(seconds) {
   const pad = (v) => String(v).padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
+
+/**
+ * The same clock, signed. The native audio widget writes what is left
+ * of a track as a NEGATIVE time on the right-hand side, which is where
+ * this is used; duration() alone clamps at zero.
+ */
+export function signedDuration(seconds) {
+  const value = Math.round(Number(seconds) || 0);
+  return (value < 0 ? '-' : '') + duration(Math.abs(value));
+}

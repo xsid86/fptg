@@ -61,6 +61,14 @@
   width: 100%;
 }
 
+// How many messages the current search matched, inside the field so
+// that it appearing cannot change the height of the bar.
+.chat-header__count {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  white-space: nowrap;
+}
+
 // The filter strip. Each toggle is icon-only and carries its own label
 // for assistive tech; active state is colour, not a box, so the strip
 // stays quiet until something is on.
@@ -81,12 +89,20 @@
     @include size($icon-sm);
   }
 
-  &:hover {
+  &:hover:not(:disabled) {
     //background: var(--c-surface-hover);
     color: var(--accent-color);
   }
 
   &.is-active {
     color: var(--chat-color);
+  }
+
+  // The two that cannot be a message filter at all. Dimmed rather than
+  // hidden: the strip mirrors the native one, and a gap would read as
+  // something missing. The title says why.
+  &:disabled {
+    cursor: default;
+    opacity: .35;
   }
 }

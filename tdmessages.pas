@@ -695,6 +695,8 @@ type
     procedure ApplyCustomEmojiFile(AFile: TJSONObject);
 
     procedure Touch;
+    { A path this model is holding can stop being true. }
+    procedure ForgetFile(var APath: utf8string; var ARequested: boolean);
     procedure Rebuild(Sender: TObject);
     procedure SetLoadingOlder(AValue: boolean);
     function GetSearchActive: boolean;
@@ -3972,6 +3974,40 @@ begin
   end;
 end;
 
+{ The file this row was pointing at is no longer on disk.
+
+  TDLib deletes cached files, and this app asks it to on every start
+  (ApplyCacheLimit sends optimizeStorage with a TTL). What comes back
+  is awkward: a history response can still carry the OLD record, file
+  complete and path filled in, and the correction arrives one line
+  later as an updateFile with an empty path and
+  is_downloading_completed false. Measured on one session's log: 41 of
+  531 completed paths were already gone, and TDLib had said so for
+  every single one.
+
+  Until now the Apply*File handlers simply returned on that update and
+  kept the stale path. The native window drew a missing image; the web
+  was worse, because the page was handed a /media/ link that answers
+  404 and the link's TEXT never changed afterwards - so the message
+  node was never rebuilt and the broken frame stayed for the rest of
+  the session, while clicking it opened the original just fine.
+
+  Forgetting the path also clears the "already asked" flag, so the
+  next Ensure* downloads it again instead of trusting a file that is
+  not there. }
+procedure TTdMessages.ForgetFile(var APath: utf8string; var ARequested: boolean);
+begin
+  { An empty path is the ordinary state of a file being downloaded -
+    every progress update passes through here. Nothing to forget, and
+    nothing to tell anyone about. }
+  if APath = '' then begin
+    Exit;
+  end;
+  APath := '';
+  ARequested := False;
+  Touch;
+end;
+
 procedure TTdMessages.ApplyAudioFile(AFile: TJSONObject);
 var
   Idx, FileId: integer;
@@ -3990,6 +4026,9 @@ begin
 
   Local := JGetObj(AFile, 'local');
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(FByFile.Data[Idx].AudioLocalPath, FByFile.Data[Idx].AudioDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4068,6 +4107,9 @@ begin
 
   Local := JGetObj(AFile, 'local');
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(FAudioCoverByFile.Data[Idx].AudioCoverLocalPath, FAudioCoverByFile.Data[Idx].AudioCoverDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4146,6 +4188,9 @@ begin
 
   Local := JGetObj(AFile, 'local');
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(FVoiceByFile.Data[Idx].VoiceLocalPath, FVoiceByFile.Data[Idx].VoiceDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4234,6 +4279,9 @@ begin
 
   Local := JGetObj(AFile, 'local');
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(FDocByFile.Data[Idx].DocLocalPath, FDocByFile.Data[Idx].DocDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4352,6 +4400,9 @@ begin
   end;
 
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(R.PhotoLocalPath, R.PhotoDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4427,6 +4478,9 @@ begin
 
   Local := JGetObj(AFile, 'local');
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(FPhotoBestByFile.Data[Idx].PhotoBestLocalPath, FPhotoBestByFile.Data[Idx].PhotoBestDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4503,6 +4557,9 @@ begin
 
   Local := JGetObj(AFile, 'local');
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(FAnimByFile.Data[Idx].AnimLocalPath, FAnimByFile.Data[Idx].AnimDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4594,6 +4651,9 @@ begin
   end;
 
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(R.VideoLocalPath, R.VideoDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4668,6 +4728,9 @@ begin
 
   Local := JGetObj(AFile, 'local');
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(FVideoThumbByFile.Data[Idx].VideoThumbLocalPath, FVideoThumbByFile.Data[Idx].VideoThumbDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -4746,6 +4809,9 @@ begin
 
   Local := JGetObj(AFile, 'local');
   if not JGetBool(Local, 'is_downloading_completed') then begin
+    { Not "still downloading" only - it is also how a file that has
+      been DELETED is reported. See ForgetFile. }
+    ForgetFile(FStickerByFile.Data[Idx].StickerLocalPath, FStickerByFile.Data[Idx].StickerDownloadRequested);
     Exit;
   end;
   Path := JGetStr(Local, 'path');

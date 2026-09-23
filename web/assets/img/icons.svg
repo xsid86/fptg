@@ -62,15 +62,15 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      showguides="true"
-     inkscape:zoom="6.4765625"
-     inkscape:cx="49.486128"
-     inkscape:cy="162.04584"
+     inkscape:zoom="9.1592425"
+     inkscape:cx="123.0997"
+     inkscape:cy="168.84584"
      inkscape:window-width="1920"
      inkscape:window-height="1009"
      inkscape:window-x="-8"
      inkscape:window-y="-8"
      inkscape:window-maximized="1"
-     inkscape:current-layer="i-video">
+     inkscape:current-layer="svg87">
     <sodipodi:guide
        position="28,236.5"
        orientation="0,-1"
@@ -105,6 +105,26 @@
        position="-13.688782,75"
        orientation="0,-1"
        id="guide4"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="34.238842,144.25"
+       orientation="0,-1"
+       id="guide22"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="28,140.5"
+       orientation="0,-1"
+       id="guide23"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="-10.190591,123"
+       orientation="0,-1"
+       id="guide24"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="28,119.75"
+       orientation="0,-1"
+       id="guide25"
        inkscape:locked="false" />
   </sodipodi:namedview>
   <g
@@ -1038,9 +1058,9 @@
      transform="translate(96,160)"
      fill="none"
      stroke="currentColor"
-     stroke-width="2"
      stroke-linecap="round"
-     stroke-linejoin="round">
+     stroke-linejoin="round"
+     stroke-width="2">
     <rect
        data-cell="box"
        x="0"
@@ -1072,9 +1092,8 @@
   <g
      id="i-audio"
      transform="translate(136,160)"
-     fill="none"
-     stroke="currentColor"
-     stroke-width="2"
+     fill="currentColor"
+     stroke-width="0"
      stroke-linecap="round"
      stroke-linejoin="round">
     <rect
@@ -1099,14 +1118,9 @@
        stroke="none"
        id="text62">audio</text>
     <path
-       d="M9.5 18.5V6.2l10-2v12.3"
-       id="path63" />
-    <path
-       d="M7 16a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z"
-       id="path64" />
-    <path
-       d="M17 14a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z"
-       id="path65" />
+       d="m 6.172644,11.67623 c 0,-3.2196143 2.6077419,-5.8273563 5.827356,-5.8273563 3.219614,0 5.827356,2.607742 5.827356,5.8273563 v 1.365787 C 17.463145,12.914544 17.0698,12.841702 16.661885,12.841702 h -0.582736 c -0.965156,0 -1.748207,0.78305 -1.748207,1.748207 v 4.661884 C 14.330942,20.216949 15.113993,21 16.079149,21 h 0.582736 c 1.930311,0 3.496413,-1.566102 3.496413,-3.496413 V 11.67623 c 0,-4.5052748 -3.653023,-8.1582986 -8.158298,-8.1582986 -4.5052747,0 -8.1582984,3.6530238 -8.1582984,8.1582986 v 5.827357 C 3.8417016,19.433898 5.4078035,21 7.3381151,21 h 0.5827357 c 0.9651559,0 1.7482069,-0.783051 1.7482069,-1.748207 v -4.661884 c 0,-0.965157 -0.783051,-1.748207 -1.7482069,-1.748207 H 7.3381151 c -0.4079149,0 -0.8012614,0.0692 -1.1654711,0.200315 z"
+       id="path1-21-0"
+       style="stroke-width:0.036421" />
   </g>
   <g
      id="i-mic"
@@ -1555,7 +1569,8 @@
        rx="2"
        fill="none"
        stroke="#c9d2de"
-       stroke-width="0.5" />
+       stroke-width="0.5"
+       id="rect3" />
     <text
        data-guide="label"
        x="12"
@@ -1564,25 +1579,35 @@
        font-size="5"
        text-anchor="middle"
        fill="#8b95a6"
-       stroke="none">sun</text>
+       stroke="none"
+       id="text3">sun</text>
     <path
-       d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" />
+       d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"
+       id="path3" />
     <path
-       d="M12 2.5v2" />
+       d="M12 2.5v2"
+       id="path4" />
     <path
-       d="M12 19.5v2" />
+       d="M12 19.5v2"
+       id="path5" />
     <path
-       d="M2.5 12h2" />
+       d="M2.5 12h2"
+       id="path6" />
     <path
-       d="M19.5 12h2" />
+       d="M19.5 12h2"
+       id="path7" />
     <path
-       d="M5.5 5.5 7.3 7.3" />
+       d="M5.5 5.5 7.3 7.3"
+       id="path8" />
     <path
-       d="M16.7 16.7 18.5 18.5" />
+       d="M16.7 16.7 18.5 18.5"
+       id="path9" />
     <path
-       d="M18.5 5.5 16.7 7.3" />
+       d="M18.5 5.5 16.7 7.3"
+       id="path10" />
     <path
-       d="M7.3 16.7 5.5 18.5" />
+       d="M7.3 16.7 5.5 18.5"
+       id="path11" />
   </g>
   <g
      id="i-moon"
@@ -1601,7 +1626,8 @@
        rx="2"
        fill="none"
        stroke="#c9d2de"
-       stroke-width="0.5" />
+       stroke-width="0.5"
+       id="rect11" />
     <text
        data-guide="label"
        x="12"
@@ -1610,9 +1636,11 @@
        font-size="5"
        text-anchor="middle"
        fill="#8b95a6"
-       stroke="none">moon</text>
+       stroke="none"
+       id="text11">moon</text>
     <path
-       d="M20.5 14.2A9 9 0 1 1 9.8 3.5 7 7 0 0 0 20.5 14.2Z" />
+       d="M20.5 14.2A9 9 0 1 1 9.8 3.5 7 7 0 0 0 20.5 14.2Z"
+       id="path12" />
   </g>
   <g
      id="i-play"
@@ -1628,7 +1656,8 @@
        rx="2"
        fill="none"
        stroke="#c9d2de"
-       stroke-width="0.5" />
+       stroke-width="0.5"
+       id="rect13" />
     <text
        data-guide="label"
        x="12"
@@ -1637,8 +1666,82 @@
        font-size="5"
        text-anchor="middle"
        fill="#8b95a6"
-       stroke="none">play</text>
+       stroke="none"
+       id="text13">play</text>
     <path
-       d="M8.6 5.6 18.4 12 8.6 18.4Z" />
+       d="M8.6 5.6 18.4 12 8.6 18.4Z"
+       id="path15" />
+  </g>
+  <g
+     id="i-download"
+     transform="translate(136,256)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect18" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text18">download</text>
+    <path
+       d="M12 3.5v10"
+       id="path18" />
+    <path
+       d="M7.5 9.5 12 14l4.5-4.5"
+       id="path19" />
+    <path
+       d="M4.5 18.5h15"
+       id="path20" />
+  </g>
+  <g
+     id="i-pause"
+     transform="translate(176,256)"
+     fill="currentColor"
+     stroke="none">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect20" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text20">pause</text>
+    <path
+       d="M8 5.6h3.1v12.8H8Z"
+       id="path21" />
+    <path
+       d="M12.9 5.6H16v12.8h-3.1Z"
+       id="path22" />
   </g>
 </svg>

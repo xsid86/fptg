@@ -63,7 +63,7 @@ implementation
 uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fpjson, jsonparser,
   constants, tdchats, tdmessages, tdusers, tdcore, tdrecv, localserver,
-  webfiles;
+  webfiles, autodownload;
 
 type
   TWebReq = class
@@ -552,6 +552,72 @@ begin
   end;
 end;
 
+{ The Auto download grid, applied to one row on its way to the page.
+
+  The native window makes this decision in its layout pass
+  (TMsgScroller.MaybeAutoDownload), once per row it draws. The page
+  gets a whole screen of messages in a single response, so the same
+  decision is made here, per row, as it is serialised: same grid, same
+  media-to-setting mapping, same Ensure* calls. The two windows share
+  one account and one model and must not disagree about what has been
+  fetched — before this the page fetched NOTHING by itself, so every
+  file needed a click even with auto-download on.
+
+  Stickers are outside the gate entirely, exactly as they are there:
+  the files are tiny and a sticker's whole point is an instant picture.
+  That request already lives in MediaJson, unconditionally. }
+procedure AutoFetch(AMsgs: TTdMessages; ARow: TMsgRow);
+var
+  MediaKind, ChatKind: string;
+begin
+  if (AMsgs = nil) or (ARow = nil) then begin
+    Exit;
+  end;
+
+  case ARow.Kind of
+    mckPhoto: MediaKind := 'images';
+    { Voice notes share the Audio row of the grid with music: there is
+      no separate category for them, and the native side reads it the
+      same way. }
+    mckAudio, mckVoiceNote: MediaKind := 'audio';
+    mckFile: MediaKind := 'files';
+    mckAnimation: MediaKind := 'gif';
+    mckVideo: MediaKind := 'video';
+  else
+    Exit;
+  end;
+
+  ChatKind := AutoDownloadChatKind(AMsgs.ChatId);
+  if (ChatKind = '') or not AutoDownloadEnabled(MediaKind, ChatKind) then begin
+    Exit;
+  end;
+
+  case ARow.Kind of
+    mckPhoto: begin
+      { Both copies, as on the native side: the preview for the history
+        and the original so the viewer opens sharp instead of blurred. }
+      AMsgs.EnsurePhotoFile(ARow);
+      AMsgs.EnsurePhotoBestFile(ARow);
+    end;
+    mckAudio, mckVoiceNote:
+      AMsgs.EnsurePlayableFile(ARow);
+    mckFile:
+      AMsgs.EnsureDocFile(ARow);
+    mckAnimation: begin
+      { A downloaded "GIF" also starts looping by itself — the flag is
+        a permanent mark on the row, and the page reads it the same way
+        the native widget does. }
+      AMsgs.EnsureAnimFile(ARow);
+      ARow.AnimAutoPlay := True;
+    end;
+    mckVideo:
+      { Download only, never auto-play: a video with sound starting on
+        its own as it scrolls past is not what auto-download asked for.
+        Same call the native side makes. }
+      AMsgs.EnsureVideoFile(ARow);
+  end;
+end;
+
 function MsgToJson(AMsgs: TTdMessages; ARow: TMsgRow; ALastReadOutbox: Int64): TJSONObject;
 var
   Name, Color, PreviewText: utf8string;
@@ -633,6 +699,9 @@ begin
     Result.Add('poll', PollJson(ARow.Poll));
   end;
 
+  { Before the media is described, so that a download started on this
+    pass is already reflected in the progress fields below. }
+  AutoFetch(AMsgs, ARow);
   Media := MediaJson(AMsgs, ARow);
   if Media <> nil then begin
     Result.Add('media', Media);

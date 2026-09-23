@@ -84,7 +84,7 @@
   height: 100%;
   max-height: none;
   max-width: none;
-  object-fit: cover;  // absorbs the rung's rounding, a percent or two
+  object-fit: cover; // absorbs the rung's rounding, a percent or two
   width: 100%;
 }
 
@@ -94,7 +94,9 @@
 // way, and the original client crops those too.
 @for $i from 8 through 80 {
   $ar: $i * 5;
-  .media--ar-#{$ar} { aspect-ratio: math.div($ar, 100); }
+  .media--ar-#{$ar} {
+    aspect-ratio: math.div($ar, 100);
+  }
 }
 
 // Fullscreen belongs to the VIDEO, not to the box it came from. The
@@ -110,14 +112,67 @@ video:fullscreen {
   width: 100%;
 }
 
-// A frame that stands in for a video: the play badge says the click
-// does something, the corner says how long it runs. Both are used where
+// The tiny JPEG that rides inside the message. It is ~40px wide, so
+// without the blur it reads as a broken image rather than a
+// placeholder - the native side blurs it twice for the same reason.
+.media__img.is-placeholder {
+  filter: blur(8px);
+  transform: scale(1.06); // hides the soft edge the blur leaves
+}
+
+// A box holding nothing but that stamp would otherwise shrink to it:
+// the ratio is known, but the WIDTH comes from the content, and 40px
+// of content is a stamp. The floor belongs to the box, not to the
+// image - a minimum on the image only makes it overflow the box it is
+// supposed to be filling.
+.media--sized.is-pending {
+  min-width: 200px;
+}
+
+// A picture that is not downloaded yet says so with ONE button, not
+// with a panel over the whole frame. See the note on overlay() in
+// ui/message.js.
+//
+// It is also why this rule is not the old .media__action: that one was
+// `position: absolute; inset: 0` on the BASE class, and audio, voice
+// and file cards used the same class for an ordinary button. Those
+// cards are not positioned, so the button escaped to the nearest
+// ancestor that was - the history itself - and covered it edge to edge
+// with its own translucent black. A history filtered down to files or
+// voice notes was a screen of fog with one caption floating in the
+// middle of it.
+.media__overlay {
+  @include flex(row, center, center);
+  @include size(48px);
+  backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
+  border: none;
+  border-radius: 50%;
+  color: var(--c-light);
+  cursor: pointer;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  @include transition;
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-dark) 65%, transparent);
+  }
+
+  .icon {
+    @include size(22px);
+  }
+}
+
+// A frame that stands in for a video: the badge says the click does
+// something, the corner says how long it runs. Both are used where
 // there is no <video> to show its own controls - inside an album.
 .media__play {
   @include flex(row, center, center);
   @include size(48px);
-  background: color-mix(in srgb, var(--c-dark) 35%, transparent);
   backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--c-dark) 35%, transparent);
   border-radius: 50%;
   color: var(--c-light);
   inset-block-start: 50%;
@@ -132,8 +187,8 @@ video:fullscreen {
 }
 
 .media__badge {
-  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
   backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
   border-radius: $radius-sm;
   color: var(--c-light);
   font-size: $fs-sm;
@@ -143,74 +198,6 @@ video:fullscreen {
   padding: 0 $space-2;
   pointer-events: none;
   position: absolute;
-}
-
-// The tiny JPEG that rides inside the message. It is ~40px wide, so
-// without the blur it reads as a broken image rather than a
-// placeholder - the native side blurs it twice for the same reason.
-.media__img.is-placeholder {
-  filter: blur(8px);
-  min-height: 90px;
-  min-width: 160px;
-  transform: scale(1.06); // hides the soft edge the blur leaves
-}
-
-// A button laid over the preview, for the click that starts a download.
-.media__action {
-  @include flex(row, center, center, $space-2);
-  background: rgba(0, 0, 0, .1);
-  border: none;
-  border-radius: 0;
-  color: var(--c-accent-text);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  font-size: $fs-sm;
-  gap: 1rem;
-  height: 100%;
-  inset: 0;
-  line-height: normal;
-  padding: $space-2 $space-4;
-  position: absolute;
-  text-decoration: none;
-  transform: none;
-  width: 100%;
-  @include transition;
-
-  &:hover {
-    background: rgba(0, 0, 0, .2);
-  }
-
-  .media--photo &,
-  .media--video &,
-  .media--gif & {
-    inset-block-end: $space-4;
-    inset-inline-start: 50%;
-    position: absolute;
-    transform: translateX(-50%);
-  }
-
-  .icon {
-    @include size(72px);
-    background: color-mix(in srgb, var(--c-dark) 20%, transparent);
-    padding: $space-5;
-    border-radius: $radius-md;
-    backdrop-filter: blur(10px);
-  }
-
-  span {
-    background: color-mix(in srgb, var(--c-dark) 20%, transparent);
-    border-radius: $radius-sm;
-    backdrop-filter: blur(10px);
-    color: var(--c-light);
-    padding: $space-1 $space-4;
-
-    &:last-child {
-      position: absolute;
-      right: $space-2;
-      top: $space-2;
-    }
-  }
 }
 
 .media__progress {
@@ -227,22 +214,34 @@ video:fullscreen {
   height: 100%;
 }
 
-// ------------------------------------------------- audio / voice / file
+// ------------------------------------------- audio, voice and file
+// Both cards follow TAudioWidget/TFileWidget rather than the sender's
+// accent: the tint is AUDIO_COLOR, the same for every track and every
+// document, because the colour says what the thing IS, not who sent
+// it. Backing at 10%, outline at 50%, 4px corners - SENDER_BG_OPACITY,
+// SENDER_BORDER_OPACITY and AUDIO_CORNER_RADIUS.
 .media--audio,
 .media--file {
-  @include flex(row, center, flex-start, $space-4);
-  background: color-mix(in srgb, var(--sender-color) 12%, var(--c-surface));
-  border: 1px solid color-mix(in srgb, var(--sender-color) 25%, transparent);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--c-audio) 20%, white), color-mix(in srgb, var(--c-audio) 40%, white));
+  border: 1px solid color-mix(in srgb, var(--c-audio) 40%, white);
   border-radius: $radius-md;
-  padding: $space-3;
+  box-shadow: inset 0 0 48px rgba(255, 255, 255, 0.5), 0 2px 2px rgba(0, 0, 0, .1);
+  color: var(--c-audio);
+  position: relative; // a download bar belongs to the card, nothing else
 }
 
-.media__cover {
+.media--audio {
+  // native: AUDIO_COVER_PAD, and the height that follows from it -
+  // 48 + 2*6 = AUDIO_WIDGET_H.
+  @include flex(row, center, flex-start, $space-3);
+  padding: $space-4;
+}
+
+.audio__cover {
   @include flex(row, center, center);
-  @include size(80px); // native: AUDIO_COVER_SIZE
-  background: var(--c-surface-2);
-  border-radius: $radius-md;
-  color: var(--sender-color);
+  @include size(48px); // native: AUDIO_COVER_SIZE
+  background: color-mix(in srgb, var(--c-audio) 20%, transparent);
+  border-radius: 6px; // native: AUDIO_COVER_RADIUS
   flex: 0 0 auto;
   overflow: hidden;
 
@@ -252,31 +251,158 @@ video:fullscreen {
   }
 
   .icon {
-    @include size($icon-lg);
+    @include size(32px);
   }
 }
 
-.media__meta {
+.audio__play {
+  @include flex(row, center, center);
+  @include size(32px); // native: AUDIO_BUTTON_SIZE
+  background: var(--c-audio);
+  border: none;
+  border-radius: 50%;
+  color: var(--c-accent-text);
+  cursor: pointer;
+  flex: 0 0 auto;
+  @include transition;
+  @include focus-ring;
+
+  &:hover {
+    filter: brightness(1.1);
+  }
+
+  .icon {
+    @include size(24px);
+  }
+}
+
+.audio__glyph {
+  @include flex(row, center, center);
+  line-height: 0;
+}
+
+.audio__body {
+  @include flex(column, stretch, center, 3px);
   flex: 1 1 auto;
   min-width: 0;
+}
 
-  audio {
-    display: block;
-    height: 32px;
-    margin-top: $space-2;
-    width: 100%;
+.audio__title {
+  @include ellipsis;
+  font-size: $fs-sm;
+  font-weight: $fw-bold;
+  text-shadow: 0 1px rgba(255, 255, 255, .5);
+}
+
+// The track. A <progress> rather than a div whose width is written
+// from JavaScript: its position is an attribute, so the bar moves
+// without anything touching the style attribute. The 2px track and the
+// 25/75 split are AUDIO_TRACK_H, AUDIO_REMAIN_OPACITY and
+// AUDIO_PLAYED_OPACITY.
+.audio__track {
+  appearance: none;
+  // The unplayed remainder is the track's own background: a 2px line
+  // down the middle of the 6px hit area.
+  background: linear-gradient(
+          to bottom,
+          transparent calc(50% - 1px),
+          color-mix(in srgb, var(--c-audio) 25%, transparent) calc(50% - 1px),
+          color-mix(in srgb, var(--c-audio) 25%, transparent) calc(50% + 1px),
+          transparent calc(50% + 1px)
+  );
+  border: none;
+  cursor: pointer;
+  display: block;
+  height: 6px; // native: AUDIO_THUMB_H, the hit area
+  width: 100%;
+
+  &.is-idle {
+    cursor: default;
+  }
+
+  &::-webkit-progress-bar {
+    background: transparent;
+  }
+
+  // Chromium draws the bar and the value as two pseudo-elements; both
+  // are centred in the 6px hit area, which is what leaves a 2px line.
+  // The played part is the same 2px line, darker. Drawn as a gradient
+  // rather than a filled block because the pseudo-element is as tall
+  // as the hit area, and the native track is 2px whether it has been
+  // played or not (AUDIO_TRACK_H). What is NOT reproduced is the 6px
+  // thumb at the head: <progress> has nowhere to put one.
+  &::-webkit-progress-value {
+    background: linear-gradient(
+            to bottom,
+            transparent calc(50% - 1px),
+            color-mix(in srgb, var(--c-audio) 75%, transparent) calc(50% - 1px),
+            color-mix(in srgb, var(--c-audio) 75%, transparent) calc(50% + 1px),
+            transparent calc(50% + 1px)
+    );
   }
 }
 
-.media__title {
-  @include ellipsis;
-  font-weight: $fw-medium;
+.audio__times {
+  @include flex(row, center, space-between);
+  font-size: $fs-sm;
+  line-height: 1;
+  text-shadow: 0 1px rgba(255, 255, 255, .5);
 }
 
-.media__sub {
+// native: FILE_WIDGET_H = 32 + 2*11, and MSG_PAD_H between the icon and
+// the text.
+// The ready card is an <a> (the click saves the file), and the rule
+// for links inside message text would otherwise underline the name.
+// Written with the element so it outranks `.message__body a` rather
+// than relying on which partial is forwarded last.
+a.media--file,
+a.media--file:hover {
+  text-decoration: none;
+}
+
+.media--file {
+  @include flex(row, center, flex-start, $space-5);
+  cursor: pointer;
+  padding: $space-5;
+  text-decoration: none;
+  @include transition;
+
+  //&:hover {
+  //  background: color-mix(in srgb, var(--c-audio) 18%, transparent);
+  //}
+}
+
+.file__icon {
+  @include flex(row, center, center);
+  @include size(32px); // native: AUDIO_BUTTON_SIZE
+
+  .icon {
+    @include size(26px);
+  }
+}
+
+// The name sits on the icon's top edge and the size on its bottom,
+// with nothing between them - TFileWidget.Paint spreads the two lines
+// exactly that way, which is also what holds the card at the native
+// FILE_WIDGET_H.
+.file__body {
+  @include flex(column, stretch, space-between);
+  flex: 1 1 auto;
+  height: 32px;
+  line-height: 1;
+  min-width: 0;
+}
+
+.file__name {
   @include ellipsis;
-  color: var(--c-text-dim);
   font-size: $fs-sm;
+  font-weight: $fw-bold;
+  text-shadow: 0 1px rgba(255, 255, 255, .5);
+}
+
+.file__size {
+  font-size: $fs-sm;
+  text-shadow: 0 1px rgba(255, 255, 255, .5);
 }
 
 // --------------------------------------------------------- sticker
@@ -291,6 +417,20 @@ video:fullscreen {
   // native: STICKER_MAX_SIZE
   max-height: 170px;
   max-width: 170px;
+}
+
+// The lottie frame holds no content of its own - the player creates
+// the <svg> inside it - so unlike an <img> it has to be given a size.
+// Square at the native cap: a sticker's Lottie canvas is square
+// (512x512) and the player letterboxes anything that is not.
+.media__sticker--lottie {
+  @include size(170px);
+
+  svg {
+    display: block;
+    height: 100%;
+    width: 100%;
+  }
 }
 
 .media__sticker-wait {

@@ -52,7 +52,7 @@ uses
   framesettingsautodownload, framesettingsstorage,
   framelog, framewelcome, framechats, framehistory,
   mediaviewer, msginput, apisetup, chatheader,
-  wsframe, webfiles, localserver, webapi
+  wsframe, webfiles, localserver, webapi, autodownload
   { you can add units after this };
 
 {$R *.res}
