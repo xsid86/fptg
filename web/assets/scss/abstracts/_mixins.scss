@@ -71,7 +71,7 @@
   background: color-mix(in srgb, var(--c-bg) 20%, transparent);
   backdrop-filter: blur(15px);
   border-radius: $radius;
-  border: 1px solid color-mix(in srgb, var(--c-border) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
 }
 
 // Thin overlay scrollbar. Chromium only (this UI runs in a WebView),

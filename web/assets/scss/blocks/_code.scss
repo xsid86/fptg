@@ -1,0 +1,67 @@
+@use "../abstracts" as *;
+
+// A code block, with the header the official client gives it: what the
+// block is on the left, a copy button on the right, the code below.
+//
+// Tinted with the sender's colour like the quote band and the old bare
+// <pre> were - the block belongs to the message, not to a palette of
+// its own.
+.code {
+  background: color-mix(in srgb, var(--sender-color) 14%, transparent);
+  border-radius: $radius-sm;
+  margin: $space-3 0;
+  overflow: hidden;
+}
+
+.code__head {
+  @include flex(row, center, space-between, $space-3);
+  background: color-mix(in srgb, var(--sender-color) 12%, transparent);
+  color: var(--sender-color);
+  font-size: $fs-sm;
+  padding: $space-2 $space-3;
+}
+
+// The language when TDLib named one, the action when it did not - and
+// the same element says "copied" for a moment afterwards, so the
+// answer appears where the question was.
+.code__label {
+  @include ellipsis;
+  font-family: $font-mono;
+}
+
+.code__copy {
+  @include flex(row, center, center);
+  @include size(20px);
+  background: none;
+  border: none;
+  color: var(--sender-color);
+  cursor: pointer;
+  flex: 0 0 auto;
+  opacity: .7;
+  padding: 0;
+  @include transition;
+  @include focus-ring;
+
+  &:hover {
+    opacity: 1;
+  }
+
+  .icon {
+    @include size($icon-sm);
+  }
+}
+
+// The code itself. pre-wrap rather than pre: a chat column is narrow
+// and a horizontal scrollbar per snippet reads worse than a wrapped
+// line - the official client wraps here too.
+.code__body {
+  color: var(--sender-color);
+  font-family: $font-mono;
+  font-size: $fs-sm;
+  margin: 0;
+  overflow-x: auto;
+  padding: $space-3;
+  white-space: pre-wrap;
+  word-break: break-word;
+  @include scrollbar(6px);
+}

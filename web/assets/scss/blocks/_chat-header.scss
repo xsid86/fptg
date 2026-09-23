@@ -3,22 +3,27 @@
 // The bar above the history. Mirrors chatheader.pas: identity on the
 // left, a search field and a row of filter toggles on the right.
 .chat-header {
-  background: color-mix(in srgb, var(--chat-color) 8%, var(--c-surface));
-
+  @include card;
   @include flex(row, center, flex-start, $space-4);
-  border-bottom: 1px solid var(--c-border);
+  background: color-mix(in srgb, var(--chat-color) 20%, transparent);
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: 0 5px 5px rgba(0, 0, 0, .1);
   --chat-color: var(--accent-color, var(--c-accent));
   opacity: 1;
   padding: $space-3 $space-4;
   pointer-events: all;
   @include transition;
+  z-index: 1000;
 
   &[hidden] {
-    opacity: 0;
-    pointer-events: none;
-    padding: 0;
-    margin: 0;
     border-width: 0;
+    margin: 0;
+    opacity: 0;
+    padding: 0;
+    pointer-events: none;
   }
 }
 

@@ -63,7 +63,7 @@ implementation
 uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fpjson, jsonparser,
   constants, tdchats, tdmessages, tdusers, tdcore, tdrecv, localserver,
-  webfiles, autodownload;
+  webfiles, autodownload, customemoji;
 
 type
   TWebReq = class
@@ -198,6 +198,95 @@ begin
   Result := WebFilePublish(AFileId, APath);
 end;
 
+function CustomEmojiFormatStr(AFormat: TCustomEmojiFormat): utf8string;
+begin
+  case AFormat of
+    cmfTgs:  Result := 'tgs';
+    cmfWebm: Result := 'webm';
+  else
+    Result := 'webp';
+  end;
+end;
+
+{ Adds one custom emoji to the response's dictionary, unless it is
+  already there.
+
+  A dictionary per response rather than a URL on every occurrence: the
+  same premium emoji turns up in half the previews of a list and in
+  every second message of a chat, and the page only has to look an id
+  up once. Keyed by the id AS TEXT, which is also how the entities
+  carry it.
+
+  An entry with an empty url is not a mistake and is still worth
+  sending: it says "this id is a custom emoji whose file has not
+  arrived yet", which is what lets the page keep showing the fallback
+  character instead of a gap. }
+procedure AddCustomEmoji(ADict: TJSONObject; AId: Int64);
+var
+  Key: string;
+  O: TJSONObject;
+begin
+  if (ADict = nil) or (AId = 0) then begin
+    Exit;
+  end;
+  Key := IntToStr(AId);
+  if ADict.Find(Key) <> nil then begin
+    Exit;
+  end;
+  O := TJSONObject.Create;
+  O.Add('format', string(CustomEmojiFormatStr(CustomEmojiFormatFor(AId))));
+  O.Add('url', string(FileUrl(CustomEmojiFileIdFor(AId),
+    CustomEmojiLocalPathFor(AId))));
+  ADict.Add(Key, O);
+end;
+
+{ Every custom emoji a message mentions - in its text and in its
+  reactions. }
+procedure CollectMsgCustomEmoji(ADict: TJSONObject; ARow: TMsgRow);
+var
+  I: integer;
+begin
+  for I := 0 to High(ARow.Entities) do begin
+    AddCustomEmoji(ADict, ARow.Entities[I].CustomEmojiId);
+  end;
+  for I := 0 to High(ARow.Reactions) do begin
+    AddCustomEmoji(ADict, ARow.Reactions[I].CustomEmojiId);
+  end;
+end;
+
+{ ...and every one a chat row mentions - in its preview line and as the
+  premium status beside its title. }
+procedure CollectChatCustomEmoji(ADict: TJSONObject; ARow: TChatRow);
+var
+  I: integer;
+begin
+  for I := 0 to High(ARow.LastGlyphs) do begin
+    AddCustomEmoji(ADict, ARow.LastGlyphs[I].CustomEmojiId);
+  end;
+  AddCustomEmoji(ADict, ARow.EmojiStatusCustomEmojiId);
+end;
+
+{ The custom-emoji spans of a chat's preview line, in the same shape as
+  a message's entities: byte offsets into the string that was sent, so
+  the page cuts both the same way. }
+function GlyphsJson(const AGlyphs: TPreviewGlyphArray): TJSONArray;
+var
+  I: integer;
+  O: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  for I := 0 to High(AGlyphs) do begin
+    O := TJSONObject.Create;
+    { -1 for the same reason EntitiesJson does it: ByteStart is a
+      Pascal string index and counts from one. }
+    O.Add('start', AGlyphs[I].ByteStart - 1);
+    O.Add('len',   AGlyphs[I].ByteLen);
+    O.Add('kind',  'customEmoji');
+    O.Add('customEmojiId', string(IntToStr(AGlyphs[I].CustomEmojiId)));
+    Result.Add(O);
+  end;
+end;
+
 { A tiny JPEG that arrives inside the message itself, with no download
   — the blurred placeholder. Sent inline as a data URI because that is
   what it is for: something to show in the same frame the message
@@ -234,6 +323,15 @@ begin
   Result.Add('kind',     string(ChatKindStr(AChats, ARow)));
   Result.Add('color',    string(AccentKey(ARow)));
   Result.Add('preview',  string(ARow.LastText));
+  { The custom-emoji spans inside that preview, and the premium status
+    beside the title - ids only; what to draw for each one is in the
+    response's customEmoji dictionary. }
+  Result.Add('previewGlyphs', GlyphsJson(ARow.LastGlyphs));
+  if ARow.EmojiStatusCustomEmojiId <> 0 then begin
+    Result.Add('emojiStatus', string(IntToStr(ARow.EmojiStatusCustomEmojiId)));
+  end else begin
+    Result.Add('emojiStatus', '');
+  end;
   Result.Add('date',     ARow.LastDate);
   Result.Add('unread',   ARow.UnreadCount);
   Result.Add('mentions', ARow.UnreadMentionCount);
@@ -404,8 +502,15 @@ begin
     if AEntities[I].URL <> '' then begin
       O.Add('url', string(AEntities[I].URL));
     end;
+    if AEntities[I].Language <> '' then begin
+      O.Add('language', string(AEntities[I].Language));
+    end;
     if AEntities[I].CustomEmojiId <> 0 then begin
-      O.Add('customEmojiId', AEntities[I].CustomEmojiId);
+      { A STRING, for the same reason album ids are one: a
+        custom_emoji_id is a full 64-bit value (5127413407724601904 was
+        in the log), and JSON numbers stop being exact at 2^53. The
+        page only ever uses it as a key. }
+      O.Add('customEmojiId', string(IntToStr(AEntities[I].CustomEmojiId)));
     end;
     Result.Add(O);
   end;
@@ -426,7 +531,7 @@ begin
       end;
       rcCustomEmoji: begin
         O.Add('kind', 'custom');
-        O.Add('customEmojiId', AReactions[I].CustomEmojiId);
+        O.Add('customEmojiId', string(IntToStr(AReactions[I].CustomEmojiId)));
       end;
     else
       O.Add('kind', 'paid');
@@ -963,7 +1068,8 @@ function TWebApi.CmdChatsList(AArgs: TJSONObject): TJSONData;
 var
   Chats: TTdChats;
   Arr: TJSONArray;
-  Res: TJSONObject;
+  Res, Emoji: TJSONObject;
+  CRow: TChatRow;
   I, N, Limit: integer;
   Archived: boolean;
 begin
@@ -983,19 +1089,23 @@ begin
   end;
 
   Arr := TJSONArray.Create;
+  Emoji := TJSONObject.Create;
   try
     for I := 0 to N - 1 do begin
       if (Limit > 0) and (Arr.Count >= Limit) then begin
         Break;
       end;
       if Archived then begin
-        Arr.Add(RowToJson(Chats, Chats.ArchiveRows[I]));
+        CRow := Chats.ArchiveRows[I];
       end else begin
-        Arr.Add(RowToJson(Chats, Chats.Rows[I]));
+        CRow := Chats.Rows[I];
       end;
+      Arr.Add(RowToJson(Chats, CRow));
+      CollectChatCustomEmoji(Emoji, CRow);
     end;
   except
     Arr.Free;
+    Emoji.Free;
     raise;
   end;
 
@@ -1003,6 +1113,7 @@ begin
   Res.Add('total', N);
   Res.Add('loading', Chats.Loading);
   Res.Add('items', Arr);
+  Res.Add('customEmoji', Emoji);
   Result := Res;
 end;
 
@@ -1028,6 +1139,11 @@ begin
     CRow := Chats.Lookup(Arr.Int64s[I]);
     if CRow <> nil then begin
       Chats.EnsureAvatar(CRow);
+      { The custom emoji of the rows on screen, fetched here for the
+        same reason the avatars are: bounded by what is visible rather
+        than by how many chats exist. The URLs themselves ride back in
+        the next chats.list, as the avatars do. }
+      Chats.EnsureCustomEmojiForRow(CRow);
     end;
   end;
   Result := nil;
@@ -1246,7 +1362,7 @@ var
   Chats: TTdChats;
   CRow: TChatRow;
   Arr: TJSONArray;
-  Res: TJSONObject;
+  Res, Emoji: TJSONObject;
   I: integer;
   LastReadOutbox: Int64;
 begin
@@ -1262,6 +1378,7 @@ begin
   end;
 
   Arr := TJSONArray.Create;
+  Emoji := TJSONObject.Create;
   try
     for I := 0 to Msgs.Count - 1 do begin
       { Custom emoji used in the text, fetched the same way the native
@@ -1270,9 +1387,11 @@ begin
         serialisation costs nothing after the first. }
       Msgs.EnsureCustomEmojiForRow(Msgs.Rows[I]);
       Arr.Add(MsgToJson(Msgs, Msgs.Rows[I], LastReadOutbox));
+      CollectMsgCustomEmoji(Emoji, Msgs.Rows[I]);
     end;
   except
     Arr.Free;
+    Emoji.Free;
     raise;
   end;
 
@@ -1286,6 +1405,7 @@ begin
   Res.Add('searchActive', Msgs.SearchActive);
   Res.Add('searchFilter', string(Msgs.SearchFilter));
   Res.Add('searchQuery',  string(Msgs.SearchQuery));
+  Res.Add('customEmoji', Emoji);
   Res.Add('searchTotal',  Msgs.SearchTotalCount);
   Res.Add('items',        Arr);
   Result := Res;

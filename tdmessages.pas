@@ -67,6 +67,11 @@ type
     Kind:      TMsgEntityKind;
     URL:       utf8string;   { mekTextUrl only; for mekUrl the link is the text itself }
     CustomEmojiId: Int64;    { mekCustomEmoji only }
+    { mekPre only, and only from textEntityTypePreCode - TDLib names
+      the language itself, even for a fence that carried no tag. Empty
+      for a plain code block. Shown in the block's header, the way the
+      official client shows it. }
+    Language:  utf8string;
   end;
   TMsgEntityArray = array of TMsgEntity;
 
@@ -972,6 +977,14 @@ function DownloadSpeedLimit: integer;
 procedure SetPresenceInvisible(AValue: boolean);
 function PresenceInvisible: boolean;
 
+{ What SendFormattedText hands to TDLib's parseTextEntities. Pure
+  functions with no state, declared here so a harness can feed them a
+  message and print what the parser would actually see - which is the
+  only way to tell "the toolbar's markers" apart from "the user's own
+  punctuation" without sending real messages to real people. }
+function EscapeMarkdownV2(const AText: utf8string): utf8string;
+function EscapeHtml(const AText: utf8string): utf8string;
+
 implementation
 
 uses
@@ -1200,7 +1213,17 @@ begin
     Result := mekTextUrl;
   end else if AType = 'textEntityTypeCode' then begin
     Result := mekCode;
-  end else if AType = 'textEntityTypePre' then begin
+  end else if (AType = 'textEntityTypePre')
+           or (AType = 'textEntityTypePreCode') then begin
+    { Two constructors for one thing, the same way the two blockquote
+      kinds are handled below: a fence with a language tag comes back
+      as textEntityTypePreCode, and TDLib uses it even when the tag was
+      not typed - it answered "language":"php" for a plain ``` block of
+      PHP. Mapping only the first one dropped the entity entirely, so a
+      code block arrived at both windows as ordinary text.
+
+      The language IS carried: TMsgEntity.Language holds it, and the
+      web header shows it the way the official client does. }
     Result := mekPre;
   end else if AType = 'textEntityTypeStrikethrough' then begin
     Result := mekStrikethrough;
@@ -2037,12 +2060,16 @@ begin
     AEntities[N].ByteLen := ByteLen;
     AEntities[N].Kind := EKind;
     AEntities[N].CustomEmojiId := 0;
+    AEntities[N].Language := '';
     if EKind = mekTextUrl then begin
       AEntities[N].URL := JGetStr(TypeObj, 'url');
     end else begin
       AEntities[N].URL := '';
       if EKind = mekCustomEmoji then begin
         AEntities[N].CustomEmojiId := JGetInt64(TypeObj, 'custom_emoji_id');
+      end else if EKind = mekPre then begin
+        { Absent on textEntityTypePre, present on PreCode. }
+        AEntities[N].Language := JGetStr(TypeObj, 'language');
       end;
     end;
     Inc(N);
@@ -3336,6 +3363,25 @@ var
     Result := (APos = 1) or (S[APos - 1] = #10);
   end;
 
+  { Inside a code span the rules are different, and much simpler: per
+    the MarkdownV2 spec only '`' and '\' mean anything between
+    backticks - underscores, asterisks, brackets, punctuation are all
+    literal there.
+
+    Escaping the rest is not merely pointless, it is visible damage: a
+    backslash inside a pre/code entity is NOT an escape, so every one
+    of them ends up in the message. And recursing into the general
+    escaper, which is what used to happen here, re-parses the content
+    as markdown - which is how a pasted snippet with two underscores in
+    it (add_action, woocommerce_after_register) came out in italics. }
+  function EscapeCodeSpan(const AInner: string): string;
+  begin
+    { Backslash first: doing it after would double the ones just added
+      in front of the backticks. }
+    Result := StringReplace(AInner, '\', '\\', [rfReplaceAll]);
+    Result := StringReplace(Result, '`', '\`', [rfReplaceAll]);
+  end;
+
   { Consumes a symmetric AMarker...AMarker span starting at S[I] (the
     caller has already confirmed the opening marker is present).
     ABreakOnNewline=False lets the span cross line breaks — needed only
@@ -3346,7 +3392,8 @@ var
     advances I past the closing marker; returns False (I untouched) if
     no closing marker turns up, so the caller falls back to treating
     the opening character as ordinary literal text. }
-  function TryWrapper(const AMarker: string; ABreakOnNewline: boolean): boolean;
+  function TryWrapper(const AMarker: string; ABreakOnNewline: boolean;
+    ACodeSpan: boolean = False): boolean;
   var
     MarkLen, ClosePos, K: integer;
     Inner: string;
@@ -3369,7 +3416,11 @@ var
       Exit;   { no closing marker, or an empty span — leave as literal }
     end;
     Inner := Copy(S, I + MarkLen, ClosePos - (I + MarkLen));
-    Res := Res + AMarker + string(EscapeMarkdownV2(utf8string(Inner))) + AMarker;
+    if ACodeSpan then begin
+      Res := Res + AMarker + EscapeCodeSpan(Inner) + AMarker;
+    end else begin
+      Res := Res + AMarker + string(EscapeMarkdownV2(utf8string(Inner))) + AMarker;
+    end;
     I := ClosePos + MarkLen;
     Result := True;
   end;
@@ -3436,7 +3487,7 @@ begin
       Inc(I);
       Continue;
     end;
-    if (Copy(S, I, 3) = '```') and TryWrapper('```', False) then begin
+    if (Copy(S, I, 3) = '```') and TryWrapper('```', False, True) then begin
       Continue;
     end;
     if (S[I] = '[') and TryLink then begin
@@ -3452,7 +3503,7 @@ begin
       '*': if TryWrapper('*', True) then Continue;
       '_': if TryWrapper('_', True) then Continue;
       '~': if TryWrapper('~', True) then Continue;
-      '`': if TryWrapper('`', True) then Continue;
+      '`': if TryWrapper('`', True, True) then Continue;
     end;
     if S[I] in RESERVED then begin
       Res := Res + '\' + S[I];

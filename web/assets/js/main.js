@@ -2,6 +2,7 @@ import { qs } from './core/dom.js';
 import { on, emit } from './core/bus.js';
 import { connect, call } from './core/net.js';
 import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat } from './core/store.js';
+import { setCustomEmoji } from './util/emoji.js';
 import { loadIcons, hydrateIcons } from './util/icons.js';
 import { openMenu } from './util/menu.js';
 import { mountChatList, showListLoading, showListError } from './ui/chat-list.js';
@@ -105,9 +106,20 @@ async function showFolderMenu(id, anchor) {
 }
 
 // --------------------------------------------------------- fetching
+/**
+ * Every list response carries a dictionary of the custom emoji its
+ * rows mention. It is registered before the rows are handed on, so
+ * that whatever renders them next can already look them up.
+ */
+function applyMessages(state) {
+  setCustomEmoji(state?.customEmoji);
+  setMessages(state);
+}
+
 async function loadChats() {
   try {
     const result = await call('chats.list', { archived: store.archived });
+    setCustomEmoji(result.customEmoji);
     setChats(result.items);
     // Avatars only for what is on screen, the way the native list does
     // it - asking for a hundred downloads because the app started is
@@ -123,7 +135,7 @@ async function loadChats() {
 async function loadMessages() {
   if (store.activeChatId === null) return;
   try {
-    setMessages(await call('messages.list'));
+    applyMessages(await call('messages.list'));
   } catch (err) {
     report(err);
   }
@@ -141,7 +153,7 @@ function wireActions() {
   on('store:active', async (chat) => {
     if (!chat) return;
     try {
-      setMessages(await call('chat.open', { id: chat.id }));
+      applyMessages(await call('chat.open', { id: chat.id }));
     } catch (err) {
       report(err);
     }
@@ -198,7 +210,7 @@ function wireActions() {
 
   on('ui:jump', (messageId) => {
     call('chat.open', { id: store.activeChatId, jumpTo: messageId })
-      .then(setMessages).catch(report);
+      .then(applyMessages).catch(report);
   });
 
   on('ui:open-source', ({ chatId, messageId }) => {
@@ -207,7 +219,7 @@ function wireActions() {
     // while the history shows another.
     setActiveChat(chatId);
     call('chat.open', { id: chatId, jumpTo: messageId })
-      .then(setMessages).catch(report);
+      .then(applyMessages).catch(report);
   });
 
   on('ui:chat-action', ({ id, action }) => {
@@ -217,7 +229,7 @@ function wireActions() {
   on('ui:folder-menu', ({ id, anchor }) => showFolderMenu(id, anchor));
 
   on('ui:search', ({ filter, query }) => {
-    call('search.set', { filter, query }).then(setMessages).catch(report);
+    call('search.set', { filter, query }).then(applyMessages).catch(report);
   });
 }
 

@@ -4,6 +4,8 @@ import { store, setActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
 import { listTime, countLabel, initial } from '../util/format.js';
 import { closeMenu } from '../util/menu.js';
+import { customEmojiNode } from '../util/emoji.js';
+import { renderRichText } from '../util/entities.js';
 
 // Renders the chat list and nothing else. It reports a click through
 // the store and never touches the header or the history directly.
@@ -60,6 +62,10 @@ function chatItem(chat) {
     icon(kindIcon(chat.kind), 'chat-item__kind'),
     chat.premium ? icon('crown', 'chat-item__premium') : null,
     el('span', { class: 'chat-item__title', textContent: chat.title || '(no title)' }),
+    // The premium emoji status, which belongs to the name rather than
+    // to the row: Telegram shows it right after the title, and it is
+    // the one thing a premium account can put there.
+    chat.emojiStatus ? customEmojiNode(chat.emojiStatus, 'emoji--status') : null,
     receipt(chat),
     el('span', { class: 'chat-item__time u-tabular', textContent: listTime(chat.date) }),
     el('span', { class: 'chat-item__flags' }, actions),
@@ -67,7 +73,11 @@ function chatItem(chat) {
 
   const preview = el('div', { class: 'chat-item__preview' });
   if (chat.outgoing) preview.append(el('span', { class: 'chat-item__me', textContent: 'You: ' }));
-  preview.append(document.createTextNode(chat.preview || ''));
+  // Through the same cutter the message text uses: the server sends the
+  // custom-emoji spans of this line in the shape of entities, with the
+  // same UTF-8 byte offsets, so there is one implementation of "cut a
+  // string at byte offsets and put elements in the gaps".
+  preview.append(renderRichText(chat.preview || '', chat.previewGlyphs ?? []));
 
   // The second line is always emitted, even with neither a folder nor
   // an unread count: it is what keeps every card the same height,

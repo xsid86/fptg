@@ -48,6 +48,15 @@ function CustomEmojiKnown(AId: Int64): boolean;
 function CustomEmojiFileIdFor(AId: Int64): integer;
 function CustomEmojiIdForFile(AFileId: integer): Int64;   { 0 if none }
 
+{ Where the file is and what kind it is - nothing decoded, nothing
+  started. This is what the WEB side needs: webapi.pas hands the page a
+  /media/ URL and the page draws the emoji itself, so none of the
+  bitmap/player machinery below is involved at all. Empty path means
+  "not downloaded yet"; the format is only meaningful once
+  CustomEmojiSetSticker has been called for the id. }
+function CustomEmojiLocalPathFor(AId: Int64): utf8string;
+function CustomEmojiFormatFor(AId: Int64): TCustomEmojiFormat;
+
 { True once metadata is known (FileId<>0), the file isn't on disk yet,
   and no downloadFile has been issued for it yet — tdmessages.pas
   checks this before requesting, then calls
@@ -289,6 +298,31 @@ begin
     Result := 0;
   end else begin
     Result := E.FileId;
+  end;
+end;
+
+function CustomEmojiLocalPathFor(AId: Int64): utf8string;
+var
+  E: TCustomEmojiEntry;
+begin
+  E := Entry(AId, False);
+  if E = nil then begin
+    Result := '';
+  end else begin
+    Result := E.LocalPath;
+  end;
+end;
+
+function CustomEmojiFormatFor(AId: Int64): TCustomEmojiFormat;
+var
+  E: TCustomEmojiEntry;
+begin
+  { cmfWebp for an unknown id: it is the still, harmless one, and the
+    caller is expected to check the path before using any of this. }
+  Result := cmfWebp;
+  E := Entry(AId, False);
+  if E <> nil then begin
+    Result := E.Format;
   end;
 end;
 

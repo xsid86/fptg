@@ -1,4 +1,6 @@
 import { el } from '../core/dom.js';
+import { customEmojiNode } from './emoji.js';
+import { icon } from './icons.js';
 
 // Turning a message's text plus its entity ranges into DOM.
 //
@@ -39,29 +41,112 @@ export function renderRichText(text, entities = []) {
   if (!text) return frag;
 
   const bytes = encoder.encode(text);
-  const quotes = entities
-    .filter((e) => e.kind === 'quote')
-    .sort((a, b) => a.start - b.start);
-  const inline = entities.filter((e) => e.kind !== 'quote');
+
+  // A code block is a block for the same reason a quote is: it has a
+  // header of its own and it interrupts the line. `code` joins them
+  // only when it IS the whole message - that is the Mono button used
+  // on everything - while a backticked word inside a sentence stays
+  // inline, where it belongs.
+  const isBlock = (e) => e.kind === 'quote' || e.kind === 'pre'
+    || (e.kind === 'code' && e.start === 0 && e.start + e.len >= bytes.length);
+
+  const blocks = entities.filter(isBlock).sort((a, b) => a.start - b.start);
+  const inline = entities.filter((e) => !isBlock(e));
 
   // A blockquote is a block, not a span: it gets its own band with a
   // bar down the left, and the text around it stays where it was. So
   // the text is cut into top-level blocks first, and the inline pass
   // runs inside each one.
   let cursor = 0;
-  for (const quote of quotes) {
-    if (quote.start > cursor) {
-      appendInline(frag, bytes, cursor, quote.start, inline);
+  for (const block of blocks) {
+    if (block.start > cursor) {
+      appendInline(frag, bytes, cursor, block.start, inline);
     }
-    const band = el('blockquote', { class: 'message__quote' });
-    appendInline(band, bytes, quote.start, quote.start + quote.len, inline);
-    frag.append(band);
-    cursor = quote.start + quote.len;
+    if (block.kind === 'quote') {
+      const band = el('blockquote', { class: 'message__quote' });
+      appendInline(band, bytes, block.start, block.start + block.len, inline);
+      frag.append(band);
+    } else {
+      frag.append(codeBlock(bytes, block, inline));
+    }
+    cursor = block.start + block.len;
   }
   if (cursor < bytes.length) {
     appendInline(frag, bytes, cursor, bytes.length, inline);
   }
   return frag;
+}
+
+/**
+ * A code block with the header the official client gives it: what the
+ * thing is on the left - the language when TDLib named one, the action
+ * otherwise - and a button that puts the code on the clipboard.
+ *
+ * The label doubles as the button's own words on purpose: with no
+ * language there is nothing else to call the block, and "copy" is what
+ * the original says there too.
+ */
+function codeBlock(bytes, entity, inline) {
+  const body = el('pre', { class: 'code__body' });
+  appendInline(body, bytes, entity.start, entity.start + entity.len, inline);
+
+  const label = el('span', {
+    class: 'code__label',
+    textContent: entity.language || 'copy',
+  });
+  const button = el('button', {
+    class: 'code__copy',
+    type: 'button',
+    title: 'Copy this code',
+    onclick: () => copy(body, label, entity.language),
+  }, icon('copy'));
+
+  return el('div', { class: 'code' },
+    el('div', { class: 'code__head' }, label, button),
+    body);
+}
+
+/**
+ * Two routes, because the modern one is not always open: measured in
+ * the embedded browser this project is tested in, writeText answers
+ * "NotAllowedError: Write permission denied" with the document
+ * focused and a real click behind it, while the old selection-based
+ * command returns true on the same page. So: ask nicely, then fall
+ * back, and only say "could not copy" when both refuse - silence
+ * would look exactly like success.
+ */
+async function copy(body, label, language) {
+  const back = language || 'copy';
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(body.textContent);
+    ok = true;
+  } catch {
+    ok = copyBySelection(body);
+  }
+  label.textContent = ok ? 'copied' : 'could not copy';
+  setTimeout(() => { label.textContent = back; }, 1200);
+}
+
+/**
+ * The pre-Clipboard-API way: select the block, copy the selection, put
+ * the selection back the way it was. Deprecated, not dead.
+ */
+function copyBySelection(body) {
+  const selection = getSelection();
+  const saved = selection.rangeCount ? selection.getRangeAt(0) : null;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    selection.removeAllRanges();
+    if (saved) selection.addRange(saved);
+  }
 }
 
 /**
@@ -94,11 +179,26 @@ function appendInline(target, bytes, from, to, entities) {
     const covering = entities.filter(
       (e) => e.start <= s && e.start + e.len >= t,
     );
-    target.append(wrap(piece, covering));
+    target.append(wrap(piece, covering, s, t));
   }
 }
 
-function wrap(piece, covering) {
+function wrap(piece, covering, from, to) {
+  // A custom emoji REPLACES its text rather than decorating it: the
+  // characters underneath are the plain-emoji fallback Telegram sends
+  // with it, and they are what stays on screen until the file arrives
+  // (customEmojiNode answers null until then).
+  //
+  // Only when this piece is the whole span: an entity split by an
+  // overlapping one would otherwise draw the emoji once per fragment.
+  const custom = covering.find(
+    (e) => e.kind === 'customEmoji' && e.start === from && e.start + e.len === to,
+  );
+  if (custom) {
+    const node = customEmojiNode(custom.customEmojiId, 'emoji--text');
+    if (node) return node;
+  }
+
   // Innermost first, so the link ends up outermost and clicking
   // anywhere inside a styled link still hits the anchor.
   let node = document.createTextNode(piece);

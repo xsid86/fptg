@@ -1,0 +1,38 @@
+@use "../abstracts" as *;
+
+// Custom (Premium) emoji: a sticker standing in for one character
+// inside a line of text, and the status badge beside a premium name.
+//
+// Sized in em on purpose, so the same element is right in a message
+// (normal text) and in a chat-list preview (smaller text) without
+// anyone passing a number around. display is spelled out because the
+// reset makes every img and svg a block, and these have to sit in the
+// line like the character they replace.
+.emoji {
+  display: inline-block;
+  vertical-align: -0.2em;
+  width: 1.25em;
+  height: 1.25em;
+  object-fit: contain;
+}
+
+// The lottie frame holds no content of its own - ui/sticker.js puts an
+// <svg> inside it - so it needs its own size, and that svg has to fill
+// it rather than keep the 512x512 the file declares.
+.emoji--lottie {
+  line-height: 0;
+
+  svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+// Beside a name rather than inside a sentence: aligned to the text it
+// follows, with a little air in front of it.
+.emoji--status {
+  flex: 0 0 auto;
+  margin-inline-start: $space-1;
+  vertical-align: -0.15em;
+}
