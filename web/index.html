@@ -94,6 +94,18 @@
       </div>
 
       <div class="composer" id="composer">
+        <!-- What this message will answer, or which message is being
+             rewritten. Hidden until one of the two is true. -->
+        <div class="composer__banner" id="composer-banner" hidden>
+          <span class="composer__banner-kind"></span>
+          <span class="composer__banner-text"></span>
+          <button class="btn btn--icon composer__banner-cancel" type="button"
+                  title="Cancel">
+            <span class="icon" data-icon="close"></span>
+            <span class="u-sr-only">Cancel</span>
+          </button>
+        </div>
+
         <div class="composer__toolbar">
           <button class="btn composer__format" type="button" title="Bold"
                   data-fmt="bold" disabled>Bold</button>

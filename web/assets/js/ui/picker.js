@@ -32,7 +32,12 @@ const TONE_SWATCH = ['✋', '✋\u{1F3FB}', '✋\u{1F3FC}',
   '✋\u{1F3FD}', '✋\u{1F3FE}', '✋\u{1F3FF}'];
 
 let anchor = null;
+let mounted = null;   // the composer's smiley - where the panel normally hangs
 let hooks = {};
+// Set while the panel is being used to answer a question - "which
+// emoji?" - rather than to type into the composer. One shot: it is
+// cleared by the pick it answers.
+let oneShot = null;
 let panel = null;
 let tab = 'emoji';
 let catalogue = null;      // emoji.json, fetched once
@@ -87,8 +92,174 @@ function remember(char) {
 const toned = (item) => (tone > 0 && item.t ? item.t[tone - 1] : item.e);
 
 // ------------------------------------------------------------ emoji
+/**
+ * A Premium custom emoji, answered as an object rather than a
+ * character - it has no character to be.
+ *
+ * Only ever offered while the panel is answering "which emoji?" for a
+ * reaction. Typing one into the composer would mean writing a text
+ * ENTITY, and this composer is a plain textarea whose text is parsed
+ * as MarkdownV2 on the way out; the escaper would turn the markup for
+ * one back into literal punctuation. So the custom sets are built only
+ * in that mode, and the stylesheet keeps them out of the other.
+ */
+function pickCustom(item) {
+  if (!oneShot) return;
+  const answer = oneShot;
+  oneShot = null;
+  hide();
+  answer({ customEmojiId: item.id, emoji: item.emoji });
+}
+
+const customCell = (item) => el('button', {
+  class: 'picker__cell picker__cell--custom',
+  type: 'button',
+  title: item.emoji || 'Custom emoji',
+  onclick: () => pickCustom(item),
+}, stickerNode(item));
+
+/**
+ * ONE SET AT A TIME, not all of them down one list.
+ *
+ * Measured the hard way: an account's installed custom emoji run into
+ * the hundreds, most of them animated, and each animated one is a
+ * Lottie player of its own. Laying every set out in a single scroller
+ * meant building and running the lot at once, which is exactly the
+ * "brutal lag" it was reported as - and it also pushed the ordinary
+ * emoji off the top of the panel.
+ *
+ * So the strip at the bottom SWITCHES rather than scrolls: the
+ * standard emoji are one view (the default, all nine groups in one
+ * scroller as before), and each custom set is another. Nothing outside
+ * the view being shown exists in the document at all.
+ */
+let sets = [];          // what emoji.sets last answered
+let shownSet = null;    // id of the custom set on screen, null = the standard ones
+
+/** Asks for one set's emoji the first time it is looked at. */
+function wantSet(id) {
+  const set = sets.find((x) => x.id === id);
+  if (!set || set.loaded) return;
+  hooks.load?.('emoji.set', { id }).catch(() => { /* the panel stays as it is */ });
+}
+
+function renderCustomSet(box, set) {
+  clear(box);
+  if (!set) return;
+  const cells = set.emoji.filter((e) => e.url).map(customCell);
+  box.append(el('section', { class: 'picker__section' },
+    el('h3', { class: 'picker__heading' }, set.title),
+    cells.length
+      ? el('div', { class: 'picker__grid' }, ...cells)
+      : el('p', { class: 'picker__empty' }, 'Loading…')));
+}
+
+/**
+ * Switches the body between the standard emoji and one custom set.
+ * `id` of null means the standard ones, which is where the panel
+ * starts and where searching always goes.
+ */
+function showSet(id) {
+  shownSet = id;
+  const sections = qs('.picker__sections', panel);
+  const box = qs('.picker__custom', panel);
+  if (!sections || !box) return;
+
+  sections.hidden = id !== null;
+  box.hidden = id === null;
+  // Only the switching buttons carry the mark. The nine group buttons
+  // all lead to the same (default) view and would otherwise all light
+  // up at once.
+  for (const button of qsa('.picker__jump--custom', panel)) {
+    button.classList.toggle('is-active', button.dataset.set === id);
+  }
+  qs('.picker__jump--standard', panel)?.classList.toggle('is-active', id === null);
+  if (id === null) {
+    clear(box);
+    return;
+  }
+  renderCustomSet(box, sets.find((x) => x.id === id));
+  wantSet(id);
+  qs('.picker__body', panel).scrollTop = 0;
+}
+
+/**
+ * What a set's button in the strip wears.
+ *
+ * The set's COVER first - stickerSetInfo carries a few of the set's own
+ * stickers for exactly this, so the button can show the set before
+ * anything inside it has been asked for. Then, if that has not
+ * arrived, the first emoji that has. The character is the last resort:
+ * a strip of letters is what this looked like before the cover was
+ * fetched, and it looked like nothing at all.
+ */
+function setIcon(set) {
+  const art = set.cover?.url ? set.cover : set.emoji.find((e) => e.url);
+  if (art) return stickerNode(art);
+  return set.cover?.emoji || set.emoji[0]?.emoji || set.title.slice(0, 1);
+}
+
+/**
+ * The head of the strip: a way back to the standard emoji, then one
+ * button per custom set.
+ *
+ * The way back is its own button rather than "click any of the nine
+ * group buttons", which worked but never said so - the strip switches
+ * views now, and one of the views needs a name.
+ */
+function fillCustomJumps() {
+  const box = qs('.picker__jumps--custom', panel);
+  if (!box) return;
+  clear(box);
+  if (!sets.length) return;
+
+  box.append(el('button', {
+    class: `picker__jump picker__jump--standard${shownSet === null ? ' is-active' : ''}`,
+    type: 'button',
+    title: 'Standard emoji',
+    onclick: () => showSet(null),
+  }, icon('smile')));
+
+  for (const set of sets) {
+    box.append(el('button', {
+      class: `picker__jump picker__jump--custom${shownSet === set.id ? ' is-active' : ''}`,
+      type: 'button',
+      title: set.title,
+      dataset: { set: set.id },
+      onclick: () => showSet(set.id),
+    }, setIcon(set)));
+  }
+}
+
+async function fillCustom() {
+  let data;
+  try {
+    data = await hooks.load?.('emoji.sets');
+  } catch {
+    return;   // no custom emoji is a perfectly good panel
+  }
+  if (!panel?.matches(':popover-open')) return;
+
+  sets = data?.sets ?? [];
+  fillCustomJumps();
+  // Redraw the set on screen, if its emoji have just arrived. The rest
+  // are not in the document and have nothing to redraw.
+  if (shownSet !== null) {
+    const set = sets.find((x) => x.id === shownSet);
+    if (!set) showSet(null);
+    else renderCustomSet(qs('.picker__custom', panel), set);
+  }
+}
+
 function pickEmoji(char) {
   remember(char);
+  if (oneShot) {
+    const answer = oneShot;
+    oneShot = null;
+    hide();
+    answer(char);
+    return;
+  }
   hooks.insert?.(char);
   // Deliberately stays open: picking emoji comes in runs, and closing
   // after every one is the thing that makes a picker annoying.
@@ -141,20 +312,30 @@ function buildEmoji(body) {
     el('div', { class: 'picker__grid' }, ...group.items.map(emojiCell))));
   }
 
+  // The custom sets sit after the Unicode groups and before the
+  // search results, so scrolling past the end of the standard emoji
+  // runs into them the way it does in the official client.
+  const custom = el('div', { class: 'picker__custom', hidden: true });
+
   const results = el('section', { class: 'picker__section picker__results', hidden: true },
     el('h3', { class: 'picker__heading' }, 'Search results'),
     el('div', { class: 'picker__grid' }));
 
   const strip = el('div', { class: 'picker__strip' },
+    // Filled once the account's custom sets are known, and only while
+    // the panel is picking a reaction - see fillCustomJumps.
+    el('div', { class: 'picker__jumps picker__jumps--custom' }),
     ...catalogue.groups.map((group) => el('button', {
       class: 'picker__jump',
       type: 'button',
       title: group.name,
-      onclick: () => qs(`[data-group="${group.id}"]`, panel)
-        ?.scrollIntoView({ block: 'start' }),
+      onclick: () => {
+        showSet(null);
+        qs(`[data-group="${group.id}"]`, panel)?.scrollIntoView({ block: 'start' });
+      },
     }, group.icon)));
 
-  body.append(sections, results, strip);
+  body.append(sections, custom, results, strip);
   refreshRecent();
   applyTone();
 }
@@ -167,12 +348,16 @@ function buildEmoji(body) {
  */
 function runEmojiSearch(text) {
   const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  // The search is over Unicode names, so it answers from the standard
+  // groups - being inside a custom set while typing one would show a
+  // result that is not there.
+  if (words.length && shownSet !== null) showSet(null);
   const sections = qs('.picker__sections', panel);
   const results = qs('.picker__results', panel);
   const strip = qs('.picker__strip', panel);
 
   if (!words.length) {
-    sections.hidden = false;
+    sections.hidden = shownSet !== null;
     results.hidden = true;
     strip.hidden = false;
     return;
@@ -495,7 +680,14 @@ function onQuery(text) {
  */
 export function pickerChanged() {
   if (!panel?.matches(':popover-open')) return;
-  if (tab === 'emoji') return;
+  if (tab === 'emoji') {
+    // The standard emoji never change; the custom ones arrive set by
+    // set and file by file, exactly like stickers.
+    if (panel.classList.contains('picker--emoji-only')) {
+      fillCustom().catch(console.error);
+    }
+    return;
+  }
   const body = qs('.picker__body', panel);
   const top = body.scrollTop;
   showTab(tab).then(() => { body.scrollTop = top; }).catch(console.error);
@@ -539,7 +731,13 @@ function build() {
     el('div', { class: 'picker__body' }));
 
   node.addEventListener('toggle', (event) => {
-    if (event.newState === 'closed') anchor.classList.remove('is-picker-anchor');
+    if (event.newState !== 'closed') return;
+    anchor?.classList.remove('is-picker-anchor');
+    // Dismissed without answering: the question lapses, and the panel
+    // goes back to belonging to the composer.
+    oneShot = null;
+    anchor = mounted;
+    node.classList.remove('picker--emoji-only');
   });
   document.body.append(node);
   return node;
@@ -574,6 +772,29 @@ async function toggle() {
  */
 export function mountPicker(button, options) {
   anchor = button;
+  mounted = button;
   hooks = options ?? {};
   button.addEventListener('click', () => { toggle().catch(console.error); });
+}
+
+/**
+ * Opens the panel to answer one question - which emoji? - and calls
+ * back with the answer instead of typing it into the composer.
+ *
+ * What the reaction strip's chevron does. The panel hangs off whatever
+ * node is passed, because the button that opened it has by then gone
+ * with its menu, and an anchor outside the document positions nothing.
+ */
+export function openEmojiPicker(node, onPick) {
+  oneShot = onPick;
+  anchor?.classList.remove('is-picker-anchor');
+  anchor = node;
+  tab = 'emoji';
+  toggle().then(() => {
+    panel?.classList.add('picker--emoji-only');
+    // The standard emoji are what the panel opens on - the custom sets
+    // are a click away in the strip, not in front of them.
+    showSet(null);
+    fillCustom().catch(console.error);
+  }).catch(console.error);
 }

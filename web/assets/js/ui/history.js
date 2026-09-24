@@ -2,6 +2,7 @@ import { el, clear } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
 import { onActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
+import { reanchorMenu, closeMenuIfDetached } from '../util/menu.js';
 import { dateLabel } from '../util/format.js';
 import { renderMessage, renderAlbum } from './message.js';
 
@@ -57,6 +58,19 @@ export function mountHistory(node) {
     if (!chat) renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
   });
   renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
+}
+
+/**
+ * Throws away the per-message node cache, so the next render rebuilds
+ * everything.
+ *
+ * For changes that are real but are NOT in any message's payload - a
+ * custom emoji's file arriving is the case this exists for. The cache
+ * is keyed on the payload and would otherwise never notice.
+ */
+export function invalidateHistory() {
+  nodes.clear();
+  if (lastState) render(lastState);
 }
 
 function renderEmpty(title, note) {
@@ -157,6 +171,10 @@ function render(state) {
   }
 
   reconcile(column, desired);
+  // A message that was DELETED rather than rebuilt takes its node with
+  // it, and a menu acting on a message that is gone has nothing left to
+  // act on.
+  closeMenuIfDetached();
 
   if (wantScroll === 'pending' && state.unreadReady) {
     wantScroll = (state.unreadCovered && state.unreadFrom && dividerPlaced)
@@ -214,7 +232,10 @@ function albumNode(group) {
   if (known && known.hash === hash) return known.node;
 
   const node = renderAlbum(group);
-  if (known) known.node.replaceWith(node);
+  if (known) {
+    reanchorMenu(known.node, node);
+    known.node.replaceWith(node);
+  }
   nodes.set(key, { node, hash, ids: group.map((m) => m.id) });
   return node;
 }
@@ -225,7 +246,13 @@ function messageNode(msg) {
   if (known && known.hash === hash) return known.node;
 
   const node = renderMessage(msg);
-  if (known) known.node.replaceWith(node);
+  // A context menu may be anchored to the node about to be thrown
+  // away; it has to follow the message rather than be left pointing at
+  // a detached element. See reanchorMenu.
+  if (known) {
+    reanchorMenu(known.node, node);
+    known.node.replaceWith(node);
+  }
   nodes.set(msg.id, { node, hash, ids: [msg.id] });
   return node;
 }

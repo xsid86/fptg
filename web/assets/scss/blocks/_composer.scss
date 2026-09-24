@@ -82,3 +82,36 @@
   background: var(--c-surface-active);
   color: var(--c-accent);
 }
+
+// What this message will answer, or which message is being rewritten.
+// Hidden by the attribute, which has to be spelled out here for the
+// same reason it does in the picker: the UA's `[hidden]` rule is
+// specificity 0,1,0 and loses to the display below.
+.composer__banner {
+  @include flex(row, center, flex-start, $space-2);
+  background: var(--c-surface-2);
+  border-left: 2px solid var(--c-accent);
+  border-radius: $radius-sm;
+  font-size: $fs-sm;
+  padding: $space-2 $space-3;
+}
+
+.composer__banner[hidden] {
+  display: none;
+}
+
+.composer__banner-kind {
+  color: var(--c-accent);
+  flex: 0 0 auto;
+  font-weight: $fw-medium;
+}
+
+.composer__banner-text {
+  @include ellipsis;
+  color: var(--c-text-dim);
+  flex: 1 1 auto;
+}
+
+.composer__banner-cancel {
+  flex: 0 0 auto;
+}

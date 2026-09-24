@@ -62,10 +62,33 @@ implementation
 
 uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fpjson, jsonparser,
-  constants, tdchats, tdmessages, tdusers, tdstickers, tdcore, tdrecv,
+  constants, tdreq, tdchats, tdmessages, tdusers, tdstickers, tdcore, tdrecv,
   localserver, webfiles, autodownload, customemoji;
 
 type
+  { A request whose answer is not here yet.
+
+    Every command until now could be answered out of the model, which
+    is on this thread and already holds everything. The context menu
+    cannot: what may be done to a message (getMessageProperties) and
+    which reactions the chat offers (getMessageAvailableReactions) are
+    QUESTIONS FOR TELEGRAM, they go stale immediately, and caching them
+    in the model would mean answering with yesterday's rights.
+
+    So the id of the request is parked here and the answer is sent when
+    TDLib replies. The slot index is what rides on the TDLib request's
+    own Tag - the same trick, and the same reason (no closures in FPC
+    3.2), as TTdMessages' send slots. }
+  TDeferredReply = record
+    Busy: boolean;
+    ConnId: Int64;
+    ReqId: integer;
+    MessageId: Int64;
+    { The first answer of a two-step query, held while the second is
+      fetched. Owned here, freed when the slot is released. }
+    Held: TJSONObject;
+  end;
+
   TWebReq = class
   public
     ConnId:  Int64;
@@ -84,6 +107,7 @@ type
     FBoundChats: TTdChats;
     FBoundMsgs:  TTdMessages;
     FBoundStickers: TTdStickers;
+    FDeferred: array of TDeferredReply;
     { Set by the sticker model's own change event, drained on the next
       tick. Unlike chats and messages, this one fires per downloaded
       FILE - a set of a hundred stickers is a hundred notifications in
@@ -98,6 +122,12 @@ type
     procedure ChatsChanged(Sender: TObject);
     procedure MessagesChanged(Sender: TObject);
     procedure StickersChanged(Sender: TObject);
+    function  TakeDeferred(AConnId: Int64; AReqId: integer;
+      AMessageId: Int64): PtrInt;
+    procedure ReleaseDeferred(ASlot: PtrInt);
+    procedure MenuPropsDone(Sender: TObject; const AResp: TTdResponse);
+    procedure MenuReactionsDone(Sender: TObject; const AResp: TTdResponse);
+    procedure MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
     procedure PushEvent(const AName: utf8string; AData: TJSONObject);
     { NOT "Dispatch": TObject already has one (message dispatch), and
       a method of that name here hides it — the same family as
@@ -126,7 +156,17 @@ type
     function  CmdStickerSet(AArgs: TJSONObject): TJSONData;
     function  CmdGifsList(AArgs: TJSONObject): TJSONData;
     function  CmdGifEnsure(AArgs: TJSONObject): TJSONData;
+    function  CmdEmojiSets: TJSONData;
+    function  CmdEmojiSet(AArgs: TJSONObject): TJSONData;
     function  CmdMessageSendMedia(AArgs: TJSONObject): TJSONData;
+    function  CmdMessageMenu(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdMessageLink(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdMessageReact(AArgs: TJSONObject): TJSONData;
+    function  CmdMessageDelete(AArgs: TJSONObject): TJSONData;
+    function  CmdMessageEdit(AArgs: TJSONObject): TJSONData;
+    function  CmdMessagePin(AArgs: TJSONObject): TJSONData;
   public
     constructor Create;
     destructor Destroy; override;
@@ -749,6 +789,7 @@ begin
   Result.Add('date',     ARow.Date);
   Result.Add('editDate', ARow.EditDate);
   Result.Add('outgoing', ARow.IsOutgoing);
+  Result.Add('isPinned', ARow.IsPinned);
   { A STRING, not a number, and that is not cosmetic: album ids are full
     64-bit values (7822163933024890355 was in the log), well past the
     2^53 a JSON number survives in JavaScript. The page only ever
@@ -1499,7 +1540,10 @@ begin
     raise Exception.Create('empty message');
   end;
   Msgs.SendFormattedText(Text, AArgs.Get('html', False),
-    AArgs.Get('silent', False));
+    AArgs.Get('silent', False),
+    { As TEXT: a message id is a full Int64 and JSON numbers stop being
+      exact at 2^53 - the same rule ids follow everywhere else here. }
+    StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
   Result := nil;
 end;
 
@@ -1784,6 +1828,71 @@ begin
   TJSONObject(Result).Add('items', Arr);
 end;
 
+{ The account's installed CUSTOM emoji sets - the Premium ones a
+  reaction can be. Shaped like stickers.list, because they are the same
+  thing underneath, but keyed by custom emoji id rather than file id:
+  that is what a reaction names. }
+function TWebApi.CmdEmojiSets: TJSONData;
+var
+  Sticks: TTdStickers;
+  Sets, Arr: TJSONArray;
+  SetObj, O: TJSONObject;
+  Item, Cover: TStickerItem;
+  I, J: integer;
+begin
+  Sticks := RequireStickers;
+  Sticks.EnsureEmojiSets;
+
+  Sets := TJSONArray.Create;
+  for I := 0 to Sticks.EmojiSets.Count - 1 do begin
+    Arr := TJSONArray.Create;
+    for J := 0 to Sticks.EmojiSets[I].Items.Count - 1 do begin
+      Item := Sticks.EmojiSets[I].Items[J];
+      O := TJSONObject.Create;
+      O.Add('id', string(IntToStr(Item.CustomEmojiId)));
+      O.Add('format', string(StickerFormatStr(Item.Format)));
+      O.Add('emoji', string(Item.Emoji));
+      O.Add('url', string(FileUrl(Item.FileId, Item.LocalPath)));
+      Arr.Add(O);
+    end;
+    SetObj := TJSONObject.Create;
+    SetObj.Add('id', string(IntToStr(Sticks.EmojiSets[I].Id)));
+    SetObj.Add('title', string(Sticks.EmojiSets[I].Title));
+    SetObj.Add('loaded', Sticks.EmojiSets[I].Loaded);
+    { The set's own cover, so its button in the panel can wear the set
+      rather than the first letter of its name - and can do it before
+      the set itself has been asked for. }
+    Cover := Sticks.EmojiSets[I].Cover;
+    if Cover <> nil then begin
+      O := TJSONObject.Create;
+      O.Add('format', string(StickerFormatStr(Cover.Format)));
+      O.Add('emoji', string(Cover.Emoji));
+      O.Add('url', string(FileUrl(Cover.FileId, Cover.LocalPath)));
+      SetObj.Add('cover', O);
+    end;
+    SetObj.Add('emoji', Arr);
+    Sets.Add(SetObj);
+  end;
+
+  Result := TJSONObject.Create;
+  TJSONObject(Result).Add('ready', Sticks.EmojiSetsReady);
+  TJSONObject(Result).Add('sets', Sets);
+end;
+
+function TWebApi.CmdEmojiSet(AArgs: TJSONObject): TJSONData;
+var
+  Id: Int64;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('emoji.set needs a set id');
+  end;
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if Id <> 0 then begin
+    RequireStickers.EnsureEmojiSet(Id);
+  end;
+  Result := nil;
+end;
+
 { Asks for one saved GIF's own file, so its tile can move. Answers
   immediately and says nothing, like stickers.set: the fetch is
   asynchronous and announces itself with a 'stickers' event. }
@@ -1841,6 +1950,263 @@ begin
   end else begin
     raise Exception.Create('unknown media kind: ' + Kind);
   end;
+  Result := nil;
+end;
+
+{ ------------------------------------------------------------------ }
+{ the context menu, and what it can do                               }
+{ ------------------------------------------------------------------ }
+
+function TWebApi.TakeDeferred(AConnId: Int64; AReqId: integer;
+  AMessageId: Int64): PtrInt;
+var
+  I: integer;
+begin
+  Result := -1;
+  for I := 0 to High(FDeferred) do begin
+    if not FDeferred[I].Busy then begin
+      Result := I;
+      Break;
+    end;
+  end;
+  if Result < 0 then begin
+    SetLength(FDeferred, Length(FDeferred) + 1);
+    Result := High(FDeferred);
+  end;
+  FDeferred[Result].Busy := True;
+  FDeferred[Result].ConnId := AConnId;
+  FDeferred[Result].ReqId := AReqId;
+  FDeferred[Result].MessageId := AMessageId;
+  FDeferred[Result].Held := nil;
+end;
+
+procedure TWebApi.ReleaseDeferred(ASlot: PtrInt);
+begin
+  if (ASlot < 0) or (ASlot > High(FDeferred)) then begin
+    Exit;
+  end;
+  FreeAndNil(FDeferred[ASlot].Held);
+  FDeferred[ASlot].Busy := False;
+end;
+
+{ Step one of the menu: what may be done to this message. The answer is
+  KEPT rather than sent, because the strip of reactions above the menu
+  is a second question and the page wants one answer. }
+procedure TWebApi.MenuPropsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Msgs: TTdMessages;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+
+  { Cloned: the response object is only valid inside this callback. }
+  FDeferred[Slot].Held := AResp.Obj.Clone as TJSONObject;
+
+  Msgs := TdMsgList;
+  if Msgs = nil then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, 'no active account');
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Msgs.QueryAvailableReactions(FDeferred[Slot].MessageId,
+    @MenuReactionsDone, Slot);
+end;
+
+{ Step two, and the reply. A chat that offers no reactions at all is
+  not an error - the menu simply draws without the strip. }
+procedure TWebApi.MenuReactionsDone(Sender: TObject; const AResp: TTdResponse);
+
+  { Emoji out of one availableReaction vector, in order, skipping what
+    is already there. Custom (Premium) reactions are left out: they are
+    stickers, and the strip draws characters. }
+  procedure Collect(AArr: TJSONArray; AOut: TJSONArray; ALimit: integer);
+  var
+    I, J: integer;
+    TypeObj: TJSONObject;
+    E: utf8string;
+    Seen: boolean;
+  begin
+    if AArr = nil then begin
+      Exit;
+    end;
+    for I := 0 to AArr.Count - 1 do begin
+      if AOut.Count >= ALimit then begin
+        Exit;
+      end;
+      if not (AArr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      TypeObj := JGetObj(TJSONObject(AArr.Items[I]), 'type');
+      if JGetStr(TypeObj, '@type') <> 'reactionTypeEmoji' then begin
+        Continue;
+      end;
+      E := JGetStr(TypeObj, 'emoji');
+      if E = '' then begin
+        Continue;
+      end;
+      Seen := False;
+      for J := 0 to AOut.Count - 1 do begin
+        if AOut.Items[J].AsString = string(E) then begin
+          Seen := True;
+          Break;
+        end;
+      end;
+      if not Seen then begin
+        AOut.Add(string(E));
+      end;
+    end;
+  end;
+
+var
+  Slot: PtrInt;
+  Res, Props: TJSONObject;
+  Emojis: TJSONArray;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  Props := FDeferred[Slot].Held;
+
+  Emojis := TJSONArray.Create;
+  if AResp.Success then begin
+    { Top first, then popular: that is the order Telegram itself
+      intends them to be shown in. }
+    Collect(JGetArr(AResp.Obj, 'top_reactions'), Emojis, 8);
+    Collect(JGetArr(AResp.Obj, 'popular_reactions'), Emojis, 8);
+    Collect(JGetArr(AResp.Obj, 'recent_reactions'), Emojis, 8);
+  end;
+
+  Res := TJSONObject.Create;
+  Res.Add('id', string(IntToStr(FDeferred[Slot].MessageId)));
+  Res.Add('canEdit',       JGetBool(Props, 'can_be_edited'));
+  Res.Add('canDeleteSelf', JGetBool(Props, 'can_be_deleted_only_for_self'));
+  Res.Add('canDeleteAll',  JGetBool(Props, 'can_be_deleted_for_all_users'));
+  Res.Add('canReply',      JGetBool(Props, 'can_be_replied'));
+  Res.Add('canPin',        JGetBool(Props, 'can_be_pinned'));
+  Res.Add('canForward',    JGetBool(Props, 'can_be_forwarded'));
+  Res.Add('canSave',       JGetBool(Props, 'can_be_saved'));
+  Res.Add('canGetLink',    JGetBool(Props, 'can_get_link'));
+  Res.Add('reactions', Emojis);
+  Res.Add('allowCustom',
+    AResp.Success and JGetBool(AResp.Obj, 'allow_custom_emoji'));
+
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+procedure TWebApi.MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+  end else begin
+    Res := TJSONObject.Create;
+    Res.Add('url', string(JGetStr(AResp.Obj, 'link')));
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  end;
+  ReleaseDeferred(Slot);
+end;
+
+{ True means "answered later" - RunCommand must not reply again. }
+function TWebApi.CmdMessageMenu(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Id: Int64;
+begin
+  Msgs := RequireMsgs;
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if Id = 0 then begin
+    raise Exception.Create('message.menu needs a message id');
+  end;
+  Msgs.QueryProperties(Id, @MenuPropsDone, TakeDeferred(AConnId, AReqId, Id));
+  Result := True;
+end;
+
+function TWebApi.CmdMessageLink(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Id: Int64;
+begin
+  Msgs := RequireMsgs;
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if Id = 0 then begin
+    raise Exception.Create('message.link needs a message id');
+  end;
+  Msgs.QueryLink(Id, @MessageLinkDone, TakeDeferred(AConnId, AReqId, Id));
+  Result := True;
+end;
+
+function TWebApi.CmdMessageReact(AArgs: TJSONObject): TJSONData;
+var
+  Id, CustomId: Int64;
+begin
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if Id = 0 then begin
+    raise Exception.Create('message.react needs a message id');
+  end;
+  { One of the two kinds: a character, or the id of a custom emoji. }
+  CustomId := StrToInt64Def(utf8string(AArgs.Get('customEmojiId', '')), 0);
+  if CustomId <> 0 then begin
+    RequireMsgs.ToggleCustomReaction(Id, CustomId, AArgs.Get('add', True));
+  end else begin
+    RequireMsgs.ToggleReaction(Id, utf8string(AArgs.Get('emoji', '')),
+      AArgs.Get('add', True));
+  end;
+  Result := nil;
+end;
+
+function TWebApi.CmdMessageDelete(AArgs: TJSONObject): TJSONData;
+var
+  Id: Int64;
+begin
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if Id = 0 then begin
+    raise Exception.Create('message.delete needs a message id');
+  end;
+  RequireMsgs.DeleteMessage(Id, AArgs.Get('revoke', False));
+  Result := nil;
+end;
+
+function TWebApi.CmdMessageEdit(AArgs: TJSONObject): TJSONData;
+var
+  Id: Int64;
+  Text: utf8string;
+begin
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  Text := utf8string(AArgs.Get('text', ''));
+  if (Id = 0) or (Trim(Text) = '') then begin
+    raise Exception.Create('message.edit needs a message id and text');
+  end;
+  RequireMsgs.EditFormattedText(Id, Text, AArgs.Get('html', False));
+  Result := nil;
+end;
+
+function TWebApi.CmdMessagePin(AArgs: TJSONObject): TJSONData;
+var
+  Id: Int64;
+begin
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if Id = 0 then begin
+    raise Exception.Create('message.pin needs a message id');
+  end;
+  RequireMsgs.PinMessage(Id, AArgs.Get('unpin', False));
   Result := nil;
 end;
 
@@ -1934,8 +2300,25 @@ begin
         Reply(AConnId, ReqId, CmdGifsList(Args));
       end else if Cmd = 'gifs.ensure' then begin
         Reply(AConnId, ReqId, CmdGifEnsure(Args));
+      end else if Cmd = 'emoji.sets' then begin
+        Reply(AConnId, ReqId, CmdEmojiSets);
+      end else if Cmd = 'emoji.set' then begin
+        Reply(AConnId, ReqId, CmdEmojiSet(Args));
       end else if Cmd = 'message.sendMedia' then begin
         Reply(AConnId, ReqId, CmdMessageSendMedia(Args));
+      end else if Cmd = 'message.menu' then begin
+        { Answers later, from the TDLib callback - see TDeferredReply. }
+        CmdMessageMenu(AConnId, ReqId, Args);
+      end else if Cmd = 'message.link' then begin
+        CmdMessageLink(AConnId, ReqId, Args);
+      end else if Cmd = 'message.react' then begin
+        Reply(AConnId, ReqId, CmdMessageReact(Args));
+      end else if Cmd = 'message.delete' then begin
+        Reply(AConnId, ReqId, CmdMessageDelete(Args));
+      end else if Cmd = 'message.edit' then begin
+        Reply(AConnId, ReqId, CmdMessageEdit(Args));
+      end else if Cmd = 'message.pin' then begin
+        Reply(AConnId, ReqId, CmdMessagePin(Args));
       end else begin
         Fail(AConnId, ReqId, 'unknown command: ' + Cmd);
       end;

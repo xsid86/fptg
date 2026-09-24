@@ -7,8 +7,11 @@ import { loadIcons, hydrateIcons } from './util/icons.js';
 import { openMenu } from './util/menu.js';
 import { mountChatList, showListLoading, showListError } from './ui/chat-list.js';
 import { mountChatHeader } from './ui/chat-header.js';
-import { mountHistory } from './ui/history.js';
-import { mountComposer, insertAtCaret, isSilent } from './ui/composer.js';
+import { mountHistory, invalidateHistory } from './ui/history.js';
+import {
+  mountComposer, insertAtCaret, isSilent, replyTo, editMessage,
+} from './ui/composer.js';
+import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountStatusBar } from './ui/status-bar.js';
 import { mountThemeToggle } from './ui/theme.js';
@@ -113,8 +116,11 @@ async function showFolderMenu(id, anchor) {
  * that whatever renders them next can already look them up.
  */
 function applyMessages(state) {
-  setCustomEmoji(state?.customEmoji);
+  const fresh = setCustomEmoji(state?.customEmoji);
   setMessages(state);
+  // A custom emoji's file arriving changes no message, so the history's
+  // per-payload node cache cannot see it. Told explicitly, it redraws.
+  if (fresh) invalidateHistory();
 }
 
 async function loadChats() {
@@ -179,6 +185,24 @@ function wireActions() {
       report(err);
     }
   });
+
+  // Rewriting a message is its own command, not a send with a flag:
+  // editMessageText answers with the message rather than creating one,
+  // and the two paths diverge from the parse onwards.
+  on('ui:edit', async (payload) => {
+    try {
+      await call('message.edit', payload);
+      await loadMessages();
+    } catch (err) {
+      report(err);
+    }
+  });
+
+  on('ui:message-menu', ({ msg, anchor, at }) => {
+    openMessageMenu(anchor, msg, at).catch(report);
+  });
+
+  on('ui:react', ({ msg, emoji }) => toggleReaction(msg, emoji));
 
   on('ui:load-older', throttle(() => {
     call('messages.older').catch(report);
@@ -286,6 +310,15 @@ async function boot() {
   mountChatHeader(qs('#chat-header'));
   mountHistory(qs('#history'));
   mountComposer(qs('#composer'));
+  // The menu reads and acts through main.js like every other view:
+  // ui/ modules own the DOM, this file owns the socket.
+  mountMessageMenu({
+    load: (cmd, args) => call(cmd, args),
+    act: (cmd, args) => call(cmd, args).then(loadMessages).catch(report),
+    reply: replyTo,
+    edit: editMessage,
+    report,
+  });
   mountPicker(qs('#composer-emoji'), {
     insert: insertAtCaret,
     send: (payload) => emit('ui:send-media', payload),

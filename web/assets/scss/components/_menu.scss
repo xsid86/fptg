@@ -10,7 +10,8 @@
   @include flex(column, stretch, flex-start, 0);
   @include card($radius-md, var(--c-dark));
   //box-shadow: inset 0 0 $space-5 rgba(255, 255, 255, .5), 0 8px 24px rgba(0, 0, 0, .18);
-  border: 1px solid color-mix(in srgb, var(--c-light) 25%, var(--c-dark));
+  background: color-mix(in srgb, var(--c-bg) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-text) 25%, transparent);
   //border: 1px solid var(--c-border);
   max-width: 280px;
   //padding: $space-1 0;
@@ -21,10 +22,15 @@
 
 .menu__item {
   @include flex(row, center, flex-start, $space-2);
-  @include transition;
+  // NOT the shared @include transition, which is `all .25s ease-in-out`.
+  // A quarter of a second is a long time for a hover highlight: running
+  // the mouse down a list leaves several rows mid-fade at once, which
+  // is what reads as the highlight lagging behind the pointer. Naming
+  // the two properties also keeps `all` from animating a layout change
+  // the menu never intended to animate.
   background: none;
   border: 0;
-  color: var(--c-light);
+  color: var(--c-text);
   cursor: pointer;
   font: inherit;
   font-size: $fs-sm;
@@ -33,7 +39,8 @@
 
   &:hover:not(:disabled),
   &:active:not(:disabled) {
-    background: color-mix(in srgb, var(--c-light) 30%, var(--c-dark));
+    background: color-mix(in srgb, var(--c-text) 75%, transparent);
+    color: var(--c-bg);
   }
 
   &:disabled {
@@ -65,10 +72,24 @@
 }
 
 .menu__sep {
-  border: 0;
-  border-top: 1px solid color-mix(in srgb, var(--c-light) 25%, var(--c-dark));
+  botder-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent) 0 0 0;
   height: 0;
   margin: $space-1 0;
+}
+
+// A zero-sized marker sitting where the pointer was, so that a menu
+// opened at the cursor is anchored to an ORDINARY element and keeps the
+// placement, the edge flipping and the no-anchor fallback that every
+// other menu already has. The two numbers arrive as custom properties
+// from a one-rule adopted stylesheet - see util/menu.js for why that
+// rather than an inline style.
+.menu-point {
+  height: 0;
+  left: var(--menu-x, 0);
+  pointer-events: none;
+  position: fixed;
+  top: var(--menu-y, 0);
+  width: 0;
 }
 
 // ------------------------------------------------------- anchoring
@@ -94,5 +115,51 @@
     position-try-fallbacks: flip-block, flip-inline;
     max-height: 60vh;
     overflow-y: auto;
+  }
+}
+
+// ------------------------------------------- the message menu's extras
+// The row of reactions the message menu puts above its entries. Inside
+// the same card rather than floating separately above it: one popover
+// is one thing to place, to dismiss and to keep on screen.
+.menu__reactions {
+  @include flex(row, center, flex-start, $space-1);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  flex-wrap: wrap;
+  padding: $space-2 $space-3;
+}
+
+.menu__react {
+  @include size(26px);
+  @include flex(row, center, center);
+  background: none;
+  border: 0;
+  border-radius: $radius-pill;
+  color: var(--c-light);
+  cursor: pointer;
+  // Same reasoning as .menu__item above.
+  transition: background-color .1s linear;
+  // The emoji is the label, so this is a text size rather than an icon
+  // size - it is a character drawn by the emoji font.
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+  @include focus-ring(var(--c-accent), -2px);
+
+  // Already put on this message by this account - clicking takes it off.
+  &.is-chosen {
+    background: var(--c-accent);
+  }
+}
+
+.menu__react--more {
+  background: color-mix(in srgb, var(--c-text) 50%, transparent);
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-text) 75%, transparent);
+  }
+
+  .icon {
+    @include size($icon-sm);
   }
 }

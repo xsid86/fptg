@@ -27,12 +27,29 @@ import { playSticker } from '../ui/sticker.js';
 
 const known = new Map();
 
-/** Merges the dictionary that came with a response. */
+/**
+ * Merges the dictionary that came with a response, and answers whether
+ * any id gained a url it did not have before.
+ *
+ * The caller needs to know, because a custom emoji resolving is NOT a
+ * change to any message: the file arrives on its own schedule, the
+ * message payload is identical before and after, and a view that
+ * caches a node per payload will happily keep the placeholder for
+ * ever. Measured on a live account: the sticker behind a reaction was
+ * downloaded and on disk, and the pill still drew its dot, because the
+ * node holding that dot was never asked to redraw.
+ */
 export function setCustomEmoji(dict) {
-    if (!dict) return;
+    if (!dict) return false;
+    let fresh = false;
     for (const [id, info] of Object.entries(dict)) {
-        if (info && info.url) known.set(String(id), info);
+        if (!info?.url) continue;
+        const key = String(id);
+        if (known.get(key)?.url === info.url) continue;
+        known.set(key, info);
+        fresh = true;
     }
+    return fresh;
 }
 
 /**

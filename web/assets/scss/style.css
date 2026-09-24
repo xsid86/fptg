@@ -1161,7 +1161,8 @@ body {
   backdrop-filter: blur(15px);
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
-  border: 1px solid color-mix(in srgb, var(--c-light) 25%, var(--c-dark));
+  background: color-mix(in srgb, var(--c-bg) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-text) 25%, transparent);
   max-width: 280px;
   min-width: 200px;
   overflow: hidden;
@@ -1174,10 +1175,9 @@ body {
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
-  transition: all 0.25s ease-in-out;
   background: none;
   border: 0;
-  color: var(--c-light);
+  color: var(--c-text);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -1185,7 +1185,8 @@ body {
   text-align: left;
 }
 .menu__item:hover:not(:disabled), .menu__item:active:not(:disabled) {
-  background: color-mix(in srgb, var(--c-light) 30%, var(--c-dark));
+  background: color-mix(in srgb, var(--c-text) 75%, transparent);
+  color: var(--c-bg);
 }
 .menu__item:disabled {
   color: var(--c-text-faint);
@@ -1221,10 +1222,18 @@ body {
 }
 
 .menu__sep {
-  border: 0;
-  border-top: 1px solid color-mix(in srgb, var(--c-light) 25%, var(--c-dark));
+  botder-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent) 0 0 0;
   height: 0;
   margin: 2px 0;
+}
+
+.menu-point {
+  height: 0;
+  left: var(--menu-x, 0);
+  pointer-events: none;
+  position: fixed;
+  top: var(--menu-y, 0);
+  width: 0;
 }
 
 @supports (anchor-name: --probe) {
@@ -1241,6 +1250,58 @@ body {
     overflow-y: auto;
   }
 }
+.menu__reactions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  flex-wrap: wrap;
+  padding: 4px 6px;
+}
+
+.menu__react {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  color: var(--c-light);
+  cursor: pointer;
+  transition: background-color 0.1s linear;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+}
+.menu__react:focus {
+  outline: none;
+}
+.menu__react:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.menu__react.is-chosen {
+  background: var(--c-accent);
+}
+
+.menu__react--more {
+  background: color-mix(in srgb, var(--c-text) 50%, transparent);
+}
+.menu__react--more:hover {
+  background: color-mix(in srgb, var(--c-text) 75%, transparent);
+}
+.menu__react--more .icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
 .spinner {
   width: 16px;
   height: 16px;
@@ -3532,6 +3593,42 @@ a.media--file:hover {
   color: var(--c-accent);
 }
 
+.composer__banner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  background: var(--c-surface-2);
+  border-left: 2px solid var(--c-accent);
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.composer__banner[hidden] {
+  display: none;
+}
+
+.composer__banner-kind {
+  color: var(--c-accent);
+  flex: 0 0 auto;
+  font-weight: 500;
+}
+
+.composer__banner-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-text-dim);
+  flex: 1 1 auto;
+}
+
+.composer__banner-cancel {
+  flex: 0 0 auto;
+}
+
 .picker {
   display: flex;
   flex-direction: column;
@@ -3556,6 +3653,7 @@ a.media--file:hover {
 .picker__tones[hidden],
 .picker__strip[hidden],
 .picker__sections[hidden],
+.picker__custom[hidden],
 .picker__results[hidden],
 .picker__pane[hidden] {
   display: none;
@@ -3596,6 +3694,10 @@ a.media--file:hover {
 .picker__tab.is-active {
   border-bottom-color: var(--c-accent);
   color: var(--c-accent);
+}
+
+.picker--emoji-only .picker__tabs {
+  display: none;
 }
 
 .picker__head {
@@ -3718,9 +3820,10 @@ a.media--file:hover {
 }
 
 .picker__heading {
-  background: var(--c-surface);
+  backdrop-filter: blur(30px);
+  background: color-mix(in srgb, var(--c-surface) 75%, transparent);
   border-radius: 999px;
-  color: var(--c-text-faint);
+  color: var(--c-text);
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
@@ -3777,6 +3880,8 @@ a.media--file:hover {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
+  overflow-x: auto;
+  scrollbar-width: none;
   background: var(--c-surface);
   border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   bottom: 0;
@@ -3784,6 +3889,18 @@ a.media--file:hover {
   padding: 4px 6px;
   position: sticky;
   z-index: 2;
+}
+
+.picker__jumps {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  flex: 0 0 auto;
+}
+
+.picker:not(.picker--emoji-only) .picker__jumps--custom {
+  display: none;
 }
 
 .picker__jump {
@@ -3812,6 +3929,10 @@ a.media--file:hover {
   outline-offset: -2px;
 }
 .picker__jump:hover {
+  opacity: 1;
+}
+.picker__jump.is-active {
+  background: var(--c-surface-active);
   opacity: 1;
 }
 
@@ -3888,6 +4009,38 @@ span.picker__gif {
     position-try-fallbacks: flip-block, flip-inline;
   }
 }
+.picker:not(.picker--emoji-only) .picker__custom {
+  display: none;
+}
+
+.picker__cell--custom {
+  padding: 2px;
+}
+.picker__cell--custom .picker__sticker {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.picker__jump--custom .picker__sticker {
+  height: 20px;
+  object-fit: contain;
+  width: 20px;
+}
+
+.picker__jump--standard {
+  border-right: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: 0;
+  margin-right: 2px;
+  padding-right: 2px;
+  width: auto;
+}
+.picker__jump--standard .icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
 .status-bar {
   display: flex;
   flex-direction: row;

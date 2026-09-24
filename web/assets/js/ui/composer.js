@@ -1,6 +1,6 @@
 import { qs, qsa } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
-import { onActiveChat } from '../core/store.js';
+import { store, onActiveChat } from '../core/store.js';
 
 // The message box, and the same formatting toolbar msginput.pas has.
 //
@@ -21,7 +21,15 @@ let sendBtn = null;
 let emojiBtn = null;
 let htmlBox = null;
 let silentBox = null;
+let banner = null;
 let canSend = false;
+// What the next send is: a plain message, an answer to one, or a
+// rewrite of one. { mode: 'reply' | 'edit', msg, chatId }.
+//
+// The chat is noted because a message object does not carry one - it is
+// always the open chat's - and a reply left over from another chat
+// would be sent to the wrong place.
+let pending = null;
 
 // open/close pairs, per syntax. Checked against core.telegram.org's
 // Bot API formatting page rather than remembered: MarkdownV2 bold is a
@@ -52,12 +60,76 @@ const isHtml = () => Boolean(htmlBox?.checked);
 /** The Silent toggle, for anything sent from outside this module. */
 export const isSilent = () => Boolean(silentBox?.checked);
 
+/** A line that says which message, in as few words as the message allows. */
+function describe(msg) {
+  if (msg.text) return msg.text;
+  const kind = msg.kind && msg.kind !== 'text' ? msg.kind : 'message';
+  return kind.charAt(0).toUpperCase() + kind.slice(1);
+}
+
+function drawBanner() {
+  if (!banner) return;
+  banner.hidden = !pending;
+  if (!pending) return;
+  qs('.composer__banner-kind', banner).textContent =
+    pending.mode === 'edit' ? 'Editing' : 'Reply to';
+  qs('.composer__banner-text', banner).textContent = describe(pending.msg);
+}
+
+/** Drops whatever the composer was about to answer or rewrite. */
+export function cancelPending() {
+  if (!pending) return;
+  const wasEdit = pending.mode === 'edit';
+  pending = null;
+  drawBanner();
+  // An abandoned edit takes its text with it: leaving the old message
+  // sitting in the box would be the next thing sent by accident.
+  if (wasEdit) input.value = '';
+  input.focus();
+}
+
+/** Answers a message. The text box keeps whatever was already typed. */
+export function replyTo(msg) {
+  if (!canSend) return;
+  pending = { mode: 'reply', msg, chatId: store.activeChatId };
+  drawBanner();
+  input.focus();
+}
+
+/**
+ * Rewrites a message.
+ *
+ * The box is filled with the message's PLAIN text, and that is what
+ * will be sent: any bold, link or code the original carried is not
+ * reconstructed, so saving turns it into what is on screen. That is
+ * the honest behaviour for a plain textarea - what is shown is what
+ * goes - but it does mean an edit can flatten formatting. Rebuilding
+ * MarkdownV2 out of the entities is the fix, and it is a job of its
+ * own (see TODO.md).
+ */
+export function editMessage(msg) {
+  if (!canSend) return;
+  pending = { mode: 'edit', msg, chatId: store.activeChatId };
+  input.value = msg.text ?? '';
+  drawBanner();
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
 function updateEnabled(chat) {
   canSend = Boolean(chat) && chat.canSend !== false;
   input.disabled = !canSend;
   sendBtn.disabled = !canSend;
   for (const btn of qsa('.composer__format', box)) btn.disabled = !canSend;
   if (emojiBtn) emojiBtn.disabled = !canSend;
+
+  // A reply belongs to the chat it was written in, and so does an
+  // edit. Carrying either into another chat would send it to the wrong
+  // place.
+  if (pending && (!chat || pending.chatId !== chat.id)) {
+    pending = null;
+    drawBanner();
+  }
 
   if (!chat) input.placeholder = 'Pick a chat to start writing';
   else if (!canSend) input.placeholder = 'You cannot write in this chat';
@@ -184,7 +256,19 @@ function send() {
   if (!canSend) return;
   const text = input.value;
   if (!text.trim()) return;
-  emit('ui:send', { text, html: isHtml(), silent: Boolean(silentBox?.checked) });
+
+  if (pending?.mode === 'edit') {
+    emit('ui:edit', { id: String(pending.msg.id), text, html: isHtml() });
+  } else {
+    emit('ui:send', {
+      text,
+      html: isHtml(),
+      silent: Boolean(silentBox?.checked),
+      replyTo: pending?.mode === 'reply' ? String(pending.msg.id) : '',
+    });
+  }
+  pending = null;
+  drawBanner();
   input.value = '';
   input.focus();
 }
@@ -196,9 +280,16 @@ export function mountComposer(node) {
   emojiBtn = qs('.composer__emoji', box);
   htmlBox = qs('#composer-html', box);
   silentBox = qs('#composer-silent', box);
+  banner = qs('.composer__banner', box);
 
   sendBtn.addEventListener('click', send);
+  qs('.composer__banner-cancel', banner)?.addEventListener('click', cancelPending);
   input.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && pending) {
+      event.preventDefault();
+      cancelPending();
+      return;
+    }
     // Enter sends, Ctrl+Enter inserts a newline - the same split the
     // native input uses, so muscle memory carries between the two.
     if (event.key !== 'Enter' || event.ctrlKey || event.shiftKey) return;

@@ -2,6 +2,7 @@ import {el, clear} from '../core/dom.js';
 import {emit} from '../core/bus.js';
 import {icon} from '../util/icons.js';
 import {playSticker} from './sticker.js';
+import {customEmojiNode} from '../util/emoji.js';
 import {renderRichText} from '../util/entities.js';
 import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 
@@ -20,6 +21,27 @@ const RECEIPT_ICON = {
     pending: 'clock',
     failed: 'alert',
 };
+
+/**
+ * The right-click menu belongs to the message, so the card carries it.
+ *
+ * It opens AT THE POINTER: against a tall message - a code block, an
+ * album - a menu pinned to the card's edge can end up far enough away
+ * that which message it belongs to stops being obvious. The card still
+ * travels with it as what the menu is ABOUT, which is what decides when
+ * it has to close.
+ */
+function withMenu(card, msg) {
+    card.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        emit('ui:message-menu', {
+            msg,
+            anchor: card,
+            at: {x: event.clientX, y: event.clientY},
+        });
+    });
+    return card;
+}
 
 const KIND_ICON = {
     photo: 'image',
@@ -55,7 +77,7 @@ export function renderMessage(msg) {
     if (body.childNodes.length) card.append(body);
 
     if (msg.reactions?.length) card.append(renderReactions(msg));
-    return card;
+    return withMenu(card, msg);
 }
 
 /**
@@ -116,7 +138,10 @@ export function renderAlbum(msgs) {
 
     const reacted = msgs.find((m) => m.reactions?.length);
     if (reacted) card.append(renderReactions(reacted));
-    return card;
+    // An album is one bubble but several messages; the menu acts on the
+    // first, which is the one Telegram itself treats as the album's own
+    // (its id is what carries the reactions and the album id).
+    return withMenu(card, lead);
 }
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -648,18 +673,34 @@ function renderPoll(msg) {
 function renderReactions(msg) {
     const strip = el('footer', {class: 'message__reactions'});
     for (const r of msg.reactions) {
-        const pill = el('span', {
+        // A plain emoji reaction is a button: clicking it adds this
+        // account's own, clicking it again takes it away. The other two
+        // kinds are not, because there is nothing to toggle - a paid
+        // reaction costs stars and a custom one is a Premium sticker
+        // this page cannot offer yet.
+        const clickable = r.kind === 'emoji';
+        const pill = el(clickable ? 'button' : 'span', {
             class: `reaction${r.chosen ? ' is-chosen' : ''}`,
+            type: clickable ? 'button' : null,
+            title: clickable
+                ? (r.chosen ? 'Remove this reaction' : 'React with this')
+                : null,
+            onclick: clickable
+                ? () => emit('ui:react', {msg, emoji: r.emoji})
+                : null,
         });
         if (r.kind === 'emoji') {
             pill.append(el('span', {class: 'reaction__emoji', textContent: r.emoji}));
         } else if (r.kind === 'paid') {
             pill.append(el('span', {class: 'reaction__emoji', textContent: '★'}));
         } else {
-            // A Premium custom emoji. The sticker behind it is not exposed to
-            // the page yet, so the counter stands on its own rather than
-            // showing a wrong glyph.
-            pill.append(el('span', {class: 'reaction__emoji', textContent: '•'}));
+            // A Premium custom emoji: the same sticker, from the same
+            // per-response dictionary, as one sitting inside a line of
+            // text. Its file may not have arrived yet, and then there is
+            // no glyph to fall back on the way text has one - a dot
+            // holds the place until it does.
+            pill.append(customEmojiNode(r.customEmojiId, 'reaction__emoji')
+                ?? el('span', {class: 'reaction__emoji', textContent: '•'}));
         }
         pill.append(String(r.count));
         strip.append(pill);

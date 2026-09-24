@@ -33,6 +33,7 @@
 .picker__tones[hidden],
 .picker__strip[hidden],
 .picker__sections[hidden],
+.picker__custom[hidden],
 .picker__results[hidden],
 .picker__pane[hidden] {
   display: none;
@@ -67,6 +68,13 @@
     border-bottom-color: var(--c-accent);
     color: var(--c-accent);
   }
+}
+
+// Asked for ONE emoji - a reaction - rather than opened to type with.
+// Stickers and GIFs are not answers to that question, so the row of
+// tabs has nothing left to choose between and goes.
+.picker--emoji-only .picker__tabs {
+  display: none;
 }
 
 // --------------------------------------------------- search and tone
@@ -160,15 +168,16 @@
 }
 
 .picker__heading {
-  background: var(--c-surface);
+  backdrop-filter: blur(30px);
+  background: color-mix(in srgb, var(--c-surface) 75%, transparent);
   border-radius: $radius-pill;
-  color: var(--c-text-faint);
+  color: var(--c-text);
   font-size: $fs-xs;
   font-weight: $fw-medium;
   letter-spacing: .04em;
-  margin: 0 0 $space-2;
   // Sticky so the group a run of scrolling landed in keeps saying which
   // one it is. Inside the scroller, so it never escapes the panel.
+  margin: 0 0 $space-2;
   padding: $space-2 $space-6;
   position: sticky;
   text-transform: uppercase;
@@ -215,8 +224,14 @@
 // The group strip: sticky to the bottom of the scroller rather than a
 // row of its own, so the grid keeps the full height and the strip is
 // still always reachable.
+//
+// It scrolls sideways because the custom sets add a button each and an
+// account can have a dozen; the nine standard groups alone fit
+// exactly, which is why they are spread rather than packed.
 .picker__strip {
   @include flex(row, center, space-between, 0);
+  overflow-x: auto;
+  scrollbar-width: none;
   background: var(--c-surface);
   border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   bottom: 0;
@@ -224,6 +239,17 @@
   padding: $space-2 $space-3;
   position: sticky;
   z-index: 2;
+}
+
+// The custom sets' own jump buttons, kept together at the head of the
+// strip so the nine standard ones stay where the hand expects them.
+.picker__jumps {
+  @include flex(row, center, flex-start, 0);
+  flex: 0 0 auto;
+}
+
+.picker:not(.picker--emoji-only) .picker__jumps--custom {
+  display: none;
 }
 
 .picker__jump {
@@ -241,6 +267,13 @@
   @include focus-ring(var(--c-accent), -2px);
 
   &:hover {
+    opacity: 1;
+  }
+
+  // The strip SWITCHES views rather than scrolling within one, so the
+  // button for what is on screen has to say which that is.
+  &.is-active {
+    background: var(--c-surface-active);
     opacity: 1;
   }
 }
@@ -325,4 +358,49 @@ span.picker__gif {
     position-area: block-start span-inline-end;
     position-try-fallbacks: flip-block, flip-inline;
   }
+}
+
+// The account's installed custom (Premium) emoji.
+//
+// Shown only while the panel is answering "which emoji?" for a
+// reaction. In the composer they would have to be written as a text
+// ENTITY, and the box there is a plain textarea whose contents are
+// parsed as MarkdownV2 on the way out - the escaper turns the markup
+// for a custom emoji back into literal punctuation. Offering something
+// that would arrive as text is worse than not offering it.
+.picker:not(.picker--emoji-only) .picker__custom {
+  display: none;
+}
+
+// The image IS the label here, so the cell holds it rather than a
+// character.
+.picker__cell--custom {
+  padding: 2px;
+
+  .picker__sticker {
+    height: 100%;
+    object-fit: contain;
+    width: 100%;
+  }
+}
+
+// A set's button wears the set's own artwork, which is an image rather
+// than a character.
+.picker__jump--custom .picker__sticker {
+  height: 20px;
+  object-fit: contain;
+  width: 20px;
+}
+
+// The way back to the standard emoji, at the head of the strip. An
+// icon rather than an emoji: it names a VIEW, not one more set, and
+// the strip beside it is all artwork.
+.picker__jump--standard {
+  border-right: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: 0;
+  margin-right: $space-1;
+  padding-right: $space-1;
+  width: auto;
+
+  .icon { @include size($icon-sm); }
 }

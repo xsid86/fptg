@@ -57,6 +57,10 @@ type
     Width, Height: integer;
     LocalPath: utf8string;
     Requested: boolean;
+    { Non-zero only for a CUSTOM emoji: the id a reaction or a text
+      entity names it by. A full Int64, so it travels to the page as
+      text like every other id here. }
+    CustomEmojiId: Int64;
   end;
 
   TStickerItemList = specialize TFPGObjectList<TStickerItem>;
@@ -66,6 +70,11 @@ type
     Id: Int64;
     Title: utf8string;
     Items: TStickerItemList;
+    { One sticker out of stickerSetInfo.covers, kept so a set can be
+      drawn as itself before anything inside it has been asked for.
+      Without it a set's button in the panel has only its title to show
+      and ends up wearing a letter. Owned here. }
+    Cover: TStickerItem;
     { Requested = a getStickerSet is in flight, Loaded = its answer
       came back. Both false is the ordinary state of a set nobody has
       scrolled to yet. }
@@ -111,6 +120,14 @@ type
     FReq: TTdRequests;
     FRecent: TStickerItemList;
     FSets: TStickerSetList;
+    { The account's installed CUSTOM emoji sets - the same shape as
+      sticker sets, because that is exactly what they are: sets whose
+      stickers carry a custom_emoji_id. Kept apart because they answer
+      a different question (which emoji may I react with) and are
+      fetched only when something asks. }
+    FEmojiSets: TStickerSetList;
+    FEmojiAsked: boolean;
+    FEmojiReady: boolean;
     FGifs: TGifList;
     FAsked: boolean;
 
@@ -142,7 +159,10 @@ type
     FOnChanged: TTdStickersEvent;
 
     procedure Touch;
-    function ReadSticker(AObj: TJSONObject): TStickerItem;
+    function ReadSticker(AObj: TJSONObject; ACustom: boolean = False): TStickerItem;
+    function EmojiSetById(AId: Int64): TStickerSetRow;
+    procedure EmojiSetsDone(Sender: TObject; const AResp: TTdResponse);
+    procedure EmojiSetDone(Sender: TObject; const AResp: TTdResponse);
     procedure WantFile(AFileId: integer; var ARequested: boolean);
     procedure ApplyFile(AFile: TJSONObject);
     function SetById(AId: Int64): TStickerSetRow;
@@ -177,6 +197,13 @@ type
     { Fetches one set's stickers and starts downloading their files.
       Called when the panel shows that set, not before. }
     procedure EnsureSet(AId: Int64);
+
+    { The same two steps for the account's installed CUSTOM emoji: the
+      list of sets up front, one set's emoji when the panel scrolls to
+      it. Separate from EnsureLoaded because the emoji panel and the
+      sticker panel are different panels and either may never open. }
+    procedure EnsureEmojiSets;
+    procedure EnsureEmojiSet(AId: Int64);
 
     { Fetches the animation ITSELF for one saved GIF.
 
@@ -225,6 +252,8 @@ type
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
 
+    property EmojiSets: TStickerSetList read FEmojiSets;
+    property EmojiSetsReady: boolean read FEmojiReady;
     property SetsReady: boolean read FSetsReady;
     property GifsReady: boolean read FGifsReady;
     { What the last search asked for, what it found, and whether its
@@ -258,6 +287,7 @@ end;
 destructor TStickerSetRow.Destroy;
 begin
   Items.Free;
+  Cover.Free;
   inherited Destroy;
 end;
 
@@ -271,6 +301,7 @@ begin
   FReq := AReq;
   FRecent := TStickerItemList.Create(True);
   FSets := TStickerSetList.Create(True);
+  FEmojiSets := TStickerSetList.Create(True);
   FGifs := TGifList.Create(True);
   FFoundStickers := TStickerItemList.Create(True);
   FFoundGifs := TGifList.Create(True);
@@ -286,6 +317,7 @@ begin
   FSession := nil;
   FRecent.Free;
   FSets.Free;
+  FEmojiSets.Free;
   FGifs.Free;
   FFoundStickers.Free;
   FFoundGifs.Free;
@@ -296,6 +328,9 @@ procedure TTdStickers.Clear;
 begin
   FRecent.Clear;
   FSets.Clear;
+  FEmojiSets.Clear;
+  FEmojiAsked := False;
+  FEmojiReady := False;
   FGifs.Clear;
   FFoundStickers.Clear;
   FFoundGifs.Clear;
@@ -330,21 +365,24 @@ end;
   there: a path is present even for a file TDLib has merely reserved a
   name for, and for one whose bytes have since been evicted. The same
   trap TMsgRow's Apply*File handlers document at length. }
-function TTdStickers.ReadSticker(AObj: TJSONObject): TStickerItem;
+{ ACustom says WHICH kind of sticker is wanted, and the two are
+  mutually exclusive: a custom emoji is not something to send as a
+  message, and an ordinary sticker has no id to react with. Asking for
+  the wrong kind answers nil rather than half an item. }
+function TTdStickers.ReadSticker(AObj: TJSONObject; ACustom: boolean): TStickerItem;
 var
   FileObj, LocalObj, FullType: TJSONObject;
   FormatStr: utf8string;
+  IsCustom: boolean;
 begin
   Result := nil;
   if AObj = nil then begin
     Exit;
   end;
 
-  { Custom emoji arrive in sticker sets of their own and are not
-    offered here: they only mean anything inside a line of text, and
-    sending one as a message is not what the panel is for. }
   FullType := JGetObj(AObj, 'full_type');
-  if JGetStr(FullType, '@type') = 'stickerFullTypeCustomEmoji' then begin
+  IsCustom := JGetStr(FullType, '@type') = 'stickerFullTypeCustomEmoji';
+  if IsCustom <> ACustom then begin
     Exit;
   end;
 
@@ -356,6 +394,10 @@ begin
   Result := TStickerItem.Create;
   Result.FileId := JGetInt(FileObj, 'id');
   Result.Emoji := JGetStr(AObj, 'emoji');
+  if IsCustom then begin
+    { As text in the JSON TDLib sends, because it is an int64. }
+    Result.CustomEmojiId := StrToInt64Def(JGetStr(FullType, 'custom_emoji_id'), 0);
+  end;
   Result.Width := JGetInt(AObj, 'width');
   Result.Height := JGetInt(AObj, 'height');
 
@@ -462,6 +504,119 @@ begin
   FReq.SendRequest('getInstalledStickerSets',
     '"sticker_type":{"@type":"stickerTypeRegular"}', @SetsDone);
   FReq.SendRequest('getSavedAnimations', '', @GifsDone);
+end;
+
+function TTdStickers.EmojiSetById(AId: Int64): TStickerSetRow;
+var
+  I: integer;
+begin
+  Result := nil;
+  for I := 0 to FEmojiSets.Count - 1 do begin
+    if FEmojiSets[I].Id = AId then begin
+      Result := FEmojiSets[I];
+      Exit;
+    end;
+  end;
+end;
+
+procedure TTdStickers.EnsureEmojiSets;
+begin
+  if FEmojiAsked or (FReq = nil) then begin
+    Exit;
+  end;
+  FEmojiAsked := True;
+  FReq.SendRequest('getInstalledStickerSets',
+    '"sticker_type":{"@type":"stickerTypeCustomEmoji"}', @EmojiSetsDone);
+end;
+
+procedure TTdStickers.EnsureEmojiSet(AId: Int64);
+var
+  Row: TStickerSetRow;
+begin
+  Row := EmojiSetById(AId);
+  if (Row = nil) or Row.Requested or (FReq = nil) then begin
+    Exit;
+  end;
+  Row.Requested := True;
+  FReq.SendRequest('getStickerSet', '"set_id":' + utf8string(IntToStr(AId)),
+    @EmojiSetDone);
+end;
+
+procedure TTdStickers.EmojiSetsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Arr, Covers: TJSONArray;
+  I: integer;
+  Info: TJSONObject;
+  Row: TStickerSetRow;
+begin
+  if not AResp.Success then begin
+    FEmojiReady := True;
+    Touch;
+    Exit;
+  end;
+  FEmojiReady := True;
+  FEmojiSets.Clear;
+  Arr := JGetArr(AResp.Obj, 'sets');
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      Info := TJSONObject(Arr.Items[I]);
+      Row := TStickerSetRow.Create;
+      Row.Id := JGetInt64(Info, 'id');
+      Row.Title := JGetStr(Info, 'title');
+      { stickerSetInfo carries a few of the set's own stickers for
+        exactly this purpose. Taking the first means the set's button
+        can show the set instead of a letter, without loading the
+        whole thing. }
+      Covers := JGetArr(Info, 'covers');
+      if (Covers <> nil) and (Covers.Count > 0)
+         and (Covers.Items[0] is TJSONObject) then begin
+        Row.Cover := ReadSticker(TJSONObject(Covers.Items[0]), True);
+        if (Row.Cover <> nil) and (Row.Cover.LocalPath = '') then begin
+          WantFile(Row.Cover.FileId, Row.Cover.Requested);
+        end;
+      end;
+      FEmojiSets.Add(Row);
+    end;
+  end;
+  Touch;
+end;
+
+procedure TTdStickers.EmojiSetDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Row: TStickerSetRow;
+  Arr: TJSONArray;
+  I: integer;
+  Item: TStickerItem;
+begin
+  if not AResp.Success then begin
+    Exit;
+  end;
+  Row := EmojiSetById(JGetInt64(AResp.Obj, 'id'));
+  if Row = nil then begin
+    Exit;
+  end;
+  Row.Loaded := True;
+  Row.Items.Clear;
+  Arr := JGetArr(AResp.Obj, 'stickers');
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      Item := ReadSticker(TJSONObject(Arr.Items[I]), True);
+      if Item = nil then begin
+        Continue;
+      end;
+      Row.Items.Add(Item);
+      if Item.LocalPath = '' then begin
+        WantFile(Item.FileId, Item.Requested);
+      end;
+    end;
+  end;
+  Touch;
 end;
 
 procedure TTdStickers.EnsureSet(AId: Int64);
@@ -1045,6 +1200,16 @@ begin
     for J := 0 to FSets[I].Items.Count - 1 do begin
       Take(FSets[I].Items[J].FileId, FSets[I].Items[J].LocalPath,
         FSets[I].Items[J].Requested);
+    end;
+  end;
+  for I := 0 to FEmojiSets.Count - 1 do begin
+    if FEmojiSets[I].Cover <> nil then begin
+      Take(FEmojiSets[I].Cover.FileId, FEmojiSets[I].Cover.LocalPath,
+        FEmojiSets[I].Cover.Requested);
+    end;
+    for J := 0 to FEmojiSets[I].Items.Count - 1 do begin
+      Take(FEmojiSets[I].Items[J].FileId, FEmojiSets[I].Items[J].LocalPath,
+        FEmojiSets[I].Items[J].Requested);
     end;
   end;
   for I := 0 to FFoundStickers.Count - 1 do begin

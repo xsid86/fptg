@@ -3,7 +3,7 @@ import { on, emit } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
 import { listTime, countLabel, initial } from '../util/format.js';
-import { closeMenu } from '../util/menu.js';
+import { closeMenuIfDetached } from '../util/menu.js';
 import { customEmojiNode } from '../util/emoji.js';
 import { renderRichText } from '../util/entities.js';
 
@@ -214,16 +214,23 @@ let lastArchived = null;
 
 function render() {
   if (!root) return;
-  // The list is rebuilt wholesale, so an open menu would be left
-  // pointing at a detached button - and the list rebuilds on any
-  // incoming message, not just on something the user did.
-  closeMenu();
   // Clearing the container resets its scrollTop, which threw the list
   // back to the top on every refresh - including the one that follows
   // changing a chat's folder.
   const keep = lastArchived === store.archived ? scrollAnchor() : null;
   lastArchived = store.archived;
   clear(root);
+  // The list is rebuilt wholesale, so THIS list's own folder menu is
+  // now pointing at a detached button and has to go.
+  //
+  // Only that one, though. This used to be a plain closeMenu() before
+  // the clear, and closeMenu() is global - so every refresh of the chat
+  // list also shut whatever menu was open somewhere else, including the
+  // context menu on a message. The list rebuilds on any incoming
+  // message in any chat, which is why that looked like the menu closing
+  // itself at random moments. Detachment is the honest test: the folder
+  // menu's anchor has just been thrown away, a message's has not.
+  closeMenuIfDetached();
   const chats = store.chats;
   if (!chats.length) {
     root.append(el('div', { class: 'chat-list__empty', textContent: 'No chats here yet.' }));

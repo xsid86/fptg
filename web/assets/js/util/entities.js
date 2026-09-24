@@ -2,6 +2,7 @@ import { el } from '../core/dom.js';
 import { customEmojiNode } from './emoji.js';
 import { icon } from './icons.js';
 import { highlight } from './highlight.js';
+import { copyText, copyNode } from './clipboard.js';
 
 // Turning a message's text plus its entity ranges into DOM.
 //
@@ -131,37 +132,11 @@ function codeBlock(bytes, entity, inline) {
  */
 async function copy(body, label, language) {
   const back = language || 'copy';
-  let ok = false;
-  try {
-    await navigator.clipboard.writeText(body.textContent);
-    ok = true;
-  } catch {
-    ok = copyBySelection(body);
-  }
+  const ok = await copyText(body.textContent) || copyNode(body);
   label.textContent = ok ? 'copied' : 'could not copy';
   setTimeout(() => { label.textContent = back; }, 1200);
 }
 
-/**
- * The pre-Clipboard-API way: select the block, copy the selection, put
- * the selection back the way it was. Deprecated, not dead.
- */
-function copyBySelection(body) {
-  const selection = getSelection();
-  const saved = selection.rangeCount ? selection.getRangeAt(0) : null;
-  try {
-    const range = document.createRange();
-    range.selectNodeContents(body);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    return document.execCommand('copy');
-  } catch {
-    return false;
-  } finally {
-    selection.removeAllRanges();
-    if (saved) selection.addRange(saved);
-  }
-}
 
 /**
  * Cuts [from, to) into the smallest pieces over which the set of

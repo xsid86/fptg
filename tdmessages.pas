@@ -164,6 +164,10 @@ type
     SenderChatId:    Int64;   { 0 if the sender is a user }
     Date, EditDate:  Int64;
     IsOutgoing:      boolean;
+    { message.is_pinned. Only the context menu reads it, to decide
+      whether the entry says Pin or Unpin - messageProperties answers
+      whether pinning is ALLOWED, never whether it has happened. }
+    IsPinned:        boolean;
     { media_album_id: messages sent together as one album share it, and
       it is 0 for everything else. Telegram gives no other way to tell
       an album apart - the messages are ordinary separate messages that
@@ -407,6 +411,23 @@ type
 
   TMsgMap = specialize TFPGMap<Int64, TMsgRow>;
 
+  { What a send needs to remember across parseTextEntities.
+
+    The parse is a round trip of its own, and everything decided BEFORE
+    it - which message this answers, whether it is silent, whether it
+    is an edit rather than a new message - has to survive to the other
+    side. It rides on the request's own Tag, which is an index into
+    FSends: FPC 3.2 has no closures, and a field on Self would work
+    until two sends overlapped and then the second one's settings would
+    decide the first one's message. Silence alone used to travel as the
+    Tag directly; three things no longer fit in it. }
+  TPendingSend = record
+    Busy: boolean;
+    Silent: boolean;
+    ReplyTo: Int64;   { 0 - not a reply }
+    EditId: Int64;    { 0 - a new message rather than an edit }
+  end;
+
   { Preview of a quoted (reply_to) message — either for replies to a
     message already in the loaded history (see ReplyPreview/
     RequestReply) OR fetched separately via getRepliedMessage when it's
@@ -549,6 +570,10 @@ type
       which LoadOlder/its anchor depends on (see the comments there). }
     FReplyCache: TReplyMap;
     FReplyPending: array of Int64;
+    { Slots for sends waiting on their parseTextEntities - see
+      TPendingSend. Reused rather than appended to for ever; there are
+      never more than a couple in flight. }
+    FSends: array of TPendingSend;
 
     { Audio-file downloads — see EnsureAudioFile/ApplyAudioFile. }
     FByFile: TAudioFileMap;
@@ -711,7 +736,10 @@ type
     procedure RetryTick(Sender: TObject);
     procedure CheckUnreadBackfill;
     procedure SendMediaByFileId(const AContent: utf8string; ASilent: boolean);
+    function TakeSendSlot(ASilent: boolean; AReplyTo, AEditId: Int64): PtrInt;
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
+    procedure EditTextDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ActionOnlyDone(Sender: TObject; const AResp: TTdResponse);
     { Callback for SendFormattedText's own parseTextEntities request —
       see that method's comment for the two-step reason it's needed. }
     procedure ParseEntitiesDone(Sender: TObject; const AResp: TTdResponse);
@@ -796,7 +824,62 @@ type
       ride along through the parse step to reach the sendMessage on the
       far side of it, see ParseEntitiesDone. }
     procedure SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean;
-      ASilent: boolean);
+      ASilent: boolean; AReplyTo: Int64 = 0);
+
+    { Replaces the text of a message already sent. Goes through the
+      same parseTextEntities as a new one, so what the toolbar's
+      buttons produce means the same thing in an edit as in a send -
+      the alternative would be two syntaxes that drift apart.
+
+      Whether a message MAY be edited is not decided here: it is
+      messageProperties.can_be_edited, which the caller is expected to
+      have asked for (QueryProperties). Editing one that may not be
+      simply comes back as an error from Telegram. }
+    procedure EditFormattedText(AMessageId: Int64;
+      const AMarkupText: utf8string; AIsHtml: boolean);
+
+    { Deletes one message. ARevoke = "for everyone" rather than only
+      for this account; which of the two is allowed is again a
+      messageProperties question (can_be_deleted_for_all_users /
+      can_be_deleted_only_for_self). }
+    procedure DeleteMessage(AMessageId: Int64; ARevoke: boolean);
+
+    { Adds or removes THIS account's reaction. Only the ordinary
+      (Unicode emoji) kind: a custom emoji reaction is a Premium
+      sticker and the panel does not offer them yet.
+
+      update_recent_reactions is true on adding, which is what puts a
+      freshly used reaction at the front of the row Telegram offers
+      next time - the same behaviour as every official client. }
+    procedure ToggleReaction(AMessageId: Int64; const AEmoji: utf8string;
+      AAdd: boolean);
+    { The Premium kind: a reaction that is a custom emoji rather than a
+      character. Same call, different reaction_type - and it is
+      Telegram that decides whether this account may use one, so a
+      refusal comes back as an ordinary error. }
+    procedure ToggleCustomReaction(AMessageId, ACustomEmojiId: Int64;
+      AAdd: boolean);
+
+    { Pins or unpins. Pinning is silent (disable_notification) and for
+      everyone, matching what the official clients do by default. }
+    procedure PinMessage(AMessageId: Int64; AUnpin: boolean);
+
+    { The three per-message QUESTIONS the context menu has to ask
+      Telegram before it can draw itself: what may be done to this
+      message, which reactions this chat offers, and the public link.
+
+      They take a raw response callback and a tag rather than answering
+      into the model, because none of it is model state: properties go
+      stale the moment anything changes, and a link is wanted once, by
+      one caller, and never again. The caller (webapi) holds the
+      request it has to answer and resolves it when the response
+      arrives. }
+    procedure QueryProperties(AMessageId: Int64; ACallback: TTdResponseEvent;
+      ATag: PtrInt);
+    procedure QueryAvailableReactions(AMessageId: Int64;
+      ACallback: TTdResponseEvent; ATag: PtrInt);
+    procedure QueryLink(AMessageId: Int64; ACallback: TTdResponseEvent;
+      ATag: PtrInt);
     { Sends a sticker, or a saved animation, that is ALREADY on
       Telegram's side: the web UI's picker names one by its TDLib file
       id and nothing else, so nothing is uploaded and nothing has to be
@@ -3193,6 +3276,7 @@ begin
   R.Date := JGetInt64(AMsg, 'date');
   R.EditDate := JGetInt64(AMsg, 'edit_date');
   R.IsOutgoing := JGetBool(AMsg, 'is_outgoing');
+  R.IsPinned := JGetBool(AMsg, 'is_pinned');
   R.AlbumId := JGetInt64(AMsg, 'media_album_id');
 
   SenderObj := JGetObj(AMsg, 'sender_id');
@@ -3715,8 +3799,29 @@ begin
   Result := utf8string(Res);
 end;
 
+function TTdMessages.TakeSendSlot(ASilent: boolean; AReplyTo, AEditId: Int64): PtrInt;
+var
+  I: integer;
+begin
+  Result := -1;
+  for I := 0 to High(FSends) do begin
+    if not FSends[I].Busy then begin
+      Result := I;
+      Break;
+    end;
+  end;
+  if Result < 0 then begin
+    SetLength(FSends, Length(FSends) + 1);
+    Result := High(FSends);
+  end;
+  FSends[Result].Busy := True;
+  FSends[Result].Silent := ASilent;
+  FSends[Result].ReplyTo := AReplyTo;
+  FSends[Result].EditId := AEditId;
+end;
+
 procedure TTdMessages.SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean;
-  ASilent: boolean);
+  ASilent: boolean; AReplyTo: Int64);
 var
   ModeObj: TJSONObject;
   TextVal: TJSONString;
@@ -3775,7 +3880,188 @@ begin
     overlapped, and then the second one's flag would decide the first
     one's message. }
   FReq.SendRequest('parseTextEntities', Body, @ParseEntitiesDone,
-    PtrInt(Ord(ASilent)));
+    TakeSendSlot(ASilent, AReplyTo, 0));
+end;
+
+{ An edit is the same two steps as a send - parse, then act - so it
+  shares the parse and differs only in what the second step is. }
+procedure TTdMessages.EditFormattedText(AMessageId: Int64;
+  const AMarkupText: utf8string; AIsHtml: boolean);
+var
+  ModeObj: TJSONObject;
+  TextVal: TJSONString;
+  Body, EscapedText: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (AMessageId = 0)
+     or (Trim(string(AMarkupText)) = '') then begin
+    Exit;
+  end;
+
+  if AIsHtml then begin
+    EscapedText := EscapeHtml(AMarkupText);
+  end else begin
+    EscapedText := EscapeMarkdownV2(AMarkupText);
+  end;
+
+  ModeObj := TJSONObject.Create;
+  if AIsHtml then begin
+    ModeObj.Strings['@type'] := 'textParseModeHTML';
+  end else begin
+    ModeObj.Strings['@type'] := 'textParseModeMarkdown';
+    ModeObj.Integers['version'] := 2;
+  end;
+  TextVal := TJSONString.Create(string(EscapedText));
+  try
+    Body := '"text":' + utf8string(TextVal.AsJSON) +
+            ',"parse_mode":' + utf8string(ModeObj.AsJSON);
+  finally
+    TextVal.Free;
+    ModeObj.Free;
+  end;
+
+  FReq.SendRequest('parseTextEntities', Body, @ParseEntitiesDone,
+    TakeSendSlot(False, 0, AMessageId));
+end;
+
+procedure TTdMessages.DeleteMessage(AMessageId: Int64; ARevoke: boolean);
+const
+  BOOLSTR: array[boolean] of utf8string = ('false', 'true');
+begin
+  if (FReq = nil) or (FChatId = 0) or (AMessageId = 0) then begin
+    Exit;
+  end;
+  { deleteMessages takes a VECTOR even for one message. The row is not
+    removed here: updateDeleteMessages comes back and every view is
+    already listening for it, so doing it twice would only risk the two
+    disagreeing. }
+  FReq.SendRequest('deleteMessages',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_ids":[' + utf8string(IntToStr(AMessageId)) + ']' +
+    ',"revoke":' + BOOLSTR[ARevoke],
+    @ActionOnlyDone);
+end;
+
+procedure TTdMessages.ToggleReaction(AMessageId: Int64; const AEmoji: utf8string;
+  AAdd: boolean);
+var
+  E: TJSONString;
+  Body: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (AMessageId = 0) or (AEmoji = '') then begin
+    Exit;
+  end;
+  E := TJSONString.Create(string(AEmoji));
+  try
+    Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
+            ',"message_id":' + utf8string(IntToStr(AMessageId)) +
+            ',"reaction_type":{"@type":"reactionTypeEmoji","emoji":' +
+            utf8string(E.AsJSON) + '}';
+  finally
+    E.Free;
+  end;
+  if AAdd then begin
+    FReq.SendRequest('addMessageReaction',
+      Body + ',"is_big":false,"update_recent_reactions":true', @ActionOnlyDone);
+  end else begin
+    FReq.SendRequest('removeMessageReaction', Body, @ActionOnlyDone);
+  end;
+end;
+
+procedure TTdMessages.ToggleCustomReaction(AMessageId, ACustomEmojiId: Int64;
+  AAdd: boolean);
+var
+  Body: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (AMessageId = 0) or (ACustomEmojiId = 0) then begin
+    Exit;
+  end;
+  { custom_emoji_id is an int64, and td_api's JSON carries those as
+    TEXT - the same rule the ids in the entities already follow. }
+  Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
+          ',"message_id":' + utf8string(IntToStr(AMessageId)) +
+          ',"reaction_type":{"@type":"reactionTypeCustomEmoji","custom_emoji_id":"' +
+          utf8string(IntToStr(ACustomEmojiId)) + '"}';
+  if AAdd then begin
+    FReq.SendRequest('addMessageReaction',
+      Body + ',"is_big":false,"update_recent_reactions":true', @ActionOnlyDone);
+  end else begin
+    FReq.SendRequest('removeMessageReaction', Body, @ActionOnlyDone);
+  end;
+end;
+
+procedure TTdMessages.PinMessage(AMessageId: Int64; AUnpin: boolean);
+var
+  Body: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (AMessageId = 0) then begin
+    Exit;
+  end;
+  Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
+          ',"message_id":' + utf8string(IntToStr(AMessageId));
+  if AUnpin then begin
+    FReq.SendRequest('unpinChatMessage', Body, @ActionOnlyDone);
+  end else begin
+    FReq.SendRequest('pinChatMessage',
+      Body + ',"disable_notification":true,"only_for_self":false',
+      @ActionOnlyDone);
+  end;
+end;
+
+procedure TTdMessages.QueryProperties(AMessageId: Int64;
+  ACallback: TTdResponseEvent; ATag: PtrInt);
+begin
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+  FReq.SendRequest('getMessageProperties',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId)), ACallback, ATag);
+end;
+
+procedure TTdMessages.QueryAvailableReactions(AMessageId: Int64;
+  ACallback: TTdResponseEvent; ATag: PtrInt);
+begin
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+  { row_size is what the official clients pass to say how wide their
+    own reaction strip is; eight is what this panel draws. }
+  FReq.SendRequest('getMessageAvailableReactions',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId)) +
+    ',"row_size":8', ACallback, ATag);
+end;
+
+procedure TTdMessages.QueryLink(AMessageId: Int64; ACallback: TTdResponseEvent;
+  ATag: PtrInt);
+begin
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+  FReq.SendRequest('getMessageLink',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId)) +
+    ',"media_timestamp":0,"for_album":false,"in_message_thread":false',
+    ACallback, ATag);
+end;
+
+{ For the actions whose only answer is Ok or an error. Every one of
+  them is followed by an update that the views already listen to, so
+  there is nothing to apply here - only a failure worth reporting. }
+procedure TTdMessages.ActionOnlyDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if (not AResp.Success) and Assigned(FOnActionError) then begin
+    FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'action');
+  end;
+end;
+
+procedure TTdMessages.EditTextDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if AResp.Success then begin
+    ApplyMessage(AResp.Obj);
+  end else if Assigned(FOnActionError) then begin
+    FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'edit');
+  end;
 end;
 
 procedure TTdMessages.ParseEntitiesDone(Sender: TObject; const AResp: TTdResponse);
@@ -3783,7 +4069,21 @@ var
   Clean: TJSONObject;
   EntitiesArr: TJSONArray;
   Body: utf8string;
+  Silent: boolean;
+  ReplyTo, Edit: Int64;
 begin
+  { Read out and released FIRST, so the slot cannot leak down any of
+    the early exits below. }
+  Silent := False;
+  ReplyTo := 0;
+  Edit := 0;
+  if (AResp.Tag >= 0) and (AResp.Tag <= High(FSends)) then begin
+    Silent := FSends[AResp.Tag].Silent;
+    ReplyTo := FSends[AResp.Tag].ReplyTo;
+    Edit := FSends[AResp.Tag].EditId;
+    FSends[AResp.Tag].Busy := False;
+  end;
+
   if not AResp.Success then begin
     if Assigned(FOnActionError) then begin
       FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'parse');
@@ -3811,14 +4111,24 @@ begin
       Clean.Add('entities', EntitiesArr.Clone as TJSONArray);
     end;
     Body := '"chat_id":' + utf8string(IntToStr(FChatId));
-    { The silent flag set by the caller of SendFormattedText, carried
-      here on the parse request's Tag (see there). Only sent when it is
-      actually on: everything omitted from messageSendOptions defaults
-      to false/absent anyway, so a normal send stays byte-for-byte the
-      request it has always been. }
-    if AResp.Tag <> 0 then begin
-      Body := Body +
-        ',"options":{"@type":"messageSendOptions","disable_notification":true}';
+    { Everything decided before the parse, carried here on the
+      request's Tag as an index into FSends (see TPendingSend). }
+    if Edit <> 0 then begin
+      Body := Body + ',"message_id":' + utf8string(IntToStr(Edit));
+    end else begin
+      if Silent then begin
+        { Only sent when it is actually on: everything omitted from
+          messageSendOptions defaults to false/absent anyway, so a
+          normal send stays byte-for-byte the request it has always
+          been. }
+        Body := Body +
+          ',"options":{"@type":"messageSendOptions","disable_notification":true}';
+      end;
+      if ReplyTo <> 0 then begin
+        Body := Body +
+          ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +
+          utf8string(IntToStr(ReplyTo)) + '}';
+      end;
     end;
     Body := Body +
             ',"input_message_content":{"@type":"inputMessageText","text":' +
@@ -3827,9 +4137,13 @@ begin
     Clean.Free;
   end;
 
-  { Same final step as SendText: the sendMessage response is the new
-    message object itself, no separate temporary id needed. }
-  FReq.SendRequest('sendMessage', Body, @SendTextDone);
+  { Same final step as SendText: the response is the message object
+    itself, new or edited, no separate temporary id needed. }
+  if Edit <> 0 then begin
+    FReq.SendRequest('editMessageText', Body, @EditTextDone);
+  end else begin
+    FReq.SendRequest('sendMessage', Body, @SendTextDone);
+  end;
 end;
 
 procedure TTdMessages.MarkRead(const AMessageIds: array of Int64);
