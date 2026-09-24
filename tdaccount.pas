@@ -15,7 +15,7 @@ uses
   Windows,
   Classes, SysUtils, ExtCtrls, fpjson, jsonparser, base64,
   tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages, tdusers, tdaccentcolors,
-  tdsupergroups;
+  tdsupergroups, tdstickers;
 
 type
 
@@ -61,6 +61,7 @@ type
     FUsers:    TTdUsers;
     FAccentColors: TTdAccentColors;
     FSupergroups: TTdSupergroups;
+    FStickers: TTdStickers;
 
     FUpdateL: array of ITdUpdateListener;
     FStateL:  array of ITdStateListener;
@@ -158,6 +159,9 @@ type
     property Users: TTdUsers read FUsers;
     property AccentColors: TTdAccentColors read FAccentColors;
     property Supergroups: TTdSupergroups read FSupergroups;
+    { Sticker sets and saved animations. Fetches nothing until asked
+      — see TTdStickers.EnsureLoaded. }
+    property Stickers: TTdStickers read FStickers;
     property Requests: TTdRequests read FReq;
     property Auth: TTdAuth read FAuth;
     property State: TTdAuthState read FState;
@@ -283,10 +287,12 @@ begin
   FUsers := TTdUsers.Create(Self, Self, FReq);
   FAccentColors := TTdAccentColors.Create(Self, Self);
   FSupergroups := TTdSupergroups.Create(Self, Self, FReq);
+  FStickers := TTdStickers.Create(Self, Self, FReq);
 end;
 
 procedure TTdAccount.DestroyEngine;
 begin
+  FreeAndNil(FStickers);
   FreeAndNil(FSupergroups);
   FreeAndNil(FAccentColors);
   FreeAndNil(FUsers);

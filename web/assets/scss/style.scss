@@ -18,8 +18,16 @@
 // wins or loses depending on include order.
 
 @use "abstracts";   // no output, just tokens and mixins
+@use "vendor";      // @font-face only - nothing here styles anything
 @use "base";
 @use "layout";
 @use "components";
 @use "blocks";
 @use "pages";
+
+.pswp {
+  backdrop-filter: blur(60px);
+  .pswp__bg {
+    background: color-mix(ib srgb, var(--c-bg) 50%, transparent);
+  }
+}

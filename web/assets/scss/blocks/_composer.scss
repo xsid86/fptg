@@ -14,6 +14,14 @@
 .composer__toolbar {
   @include flex(row, center, flex-start, $space-1);
   flex-wrap: wrap;
+
+  .btn--toggle {
+    margin-right: $space-4;
+
+    &:last-child {
+      margin-right: 0;
+    }
+  }
 }
 
 .composer__spacer {
@@ -60,6 +68,12 @@
   &[disabled] {
     opacity: .4;
   }
+}
+
+// Sits on the right with the two toggles, so it takes their spacing
+// rather than the tight gap the format words use between themselves.
+.composer__emoji {
+  margin-right: $space-4;
 }
 
 // Format buttons are toggles, not actions: they insert markup around

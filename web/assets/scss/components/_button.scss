@@ -3,48 +3,77 @@
 .btn {
   @include flex(row, center, center, $space-2);
   @include focus-ring;
-  padding: $space-2 $space-4;
   border-radius: $radius-md;
-  font-size: $fs-base;
   color: var(--c-text);
+  font-size: $fs-base;
+  padding: $space-2 $space-4;
   transition: background $dur-fast $ease, color $dur-fast $ease;
 
-  &:hover  { background: var(--c-surface-hover); }
-  &:active { background: var(--c-surface-active); }
-  &[disabled] { opacity: .45; pointer-events: none; }
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+
+  &:active {
+    background: var(--c-surface-active);
+  }
+
+  &[disabled] {
+    opacity: .45;
+    pointer-events: none;
+  }
 }
 
 .btn--primary {
   background: var(--c-accent);
   color: var(--c-accent-text);
-  &:hover { background: var(--c-accent-hover); }
+
+  &:hover {
+    background: var(--c-accent-hover);
+  }
 }
 
-.btn--ghost { color: var(--c-text-dim); }
+.btn--ghost {
+  color: var(--c-text-dim);
+}
 
 // Icon-only. Square by construction so a row of them cannot end up
 // ragged when one icon is a pixel wider than the next.
 .btn--icon {
   @include size(28px);
-  padding: 0;
   border-radius: $radius-sm;
   color: var(--c-text-dim);
-  &:hover { color: var(--c-text); }
+  padding: 0;
+
+  &:hover {
+    color: var(--c-text);
+  }
 }
 
-.btn--round { border-radius: $radius-pill; }
+.btn--round {
+  border-radius: $radius-pill;
+}
 
-.btn--danger { color: var(--c-danger); }
+.btn--danger {
+  color: var(--c-danger);
+}
 
-.btn.is-active { color: var(--c-accent); }
+.btn.is-active {
+  color: var(--c-accent);
+}
 
 // A checkbox wearing a button's clothes - the HTML/Markdown and silent
 // toggles in the composer, matching the native TToggleBox pair.
 .btn--toggle {
-  gap: $space-2;
   cursor: pointer;
+  gap: $space-2;
+  position: relative;
 
-  input { margin: 0; }
+  input {
+    appearance: none;
+    margin: 0;
+    position: absolute;
+  }
+
   &:has(input:checked) {
     background: var(--c-accent);
     border-color: var(--c-accent);

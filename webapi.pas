@@ -62,8 +62,8 @@ implementation
 
 uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fpjson, jsonparser,
-  constants, tdchats, tdmessages, tdusers, tdcore, tdrecv, localserver,
-  webfiles, autodownload, customemoji;
+  constants, tdchats, tdmessages, tdusers, tdstickers, tdcore, tdrecv,
+  localserver, webfiles, autodownload, customemoji;
 
 type
   TWebReq = class
@@ -83,12 +83,21 @@ type
       once at start-up (at start-up there may be no account at all). }
     FBoundChats: TTdChats;
     FBoundMsgs:  TTdMessages;
+    FBoundStickers: TTdStickers;
+    { Set by the sticker model's own change event, drained on the next
+      tick. Unlike chats and messages, this one fires per downloaded
+      FILE - a set of a hundred stickers is a hundred notifications in
+      a couple of seconds - and the page redraws a whole panel on each
+      one. Coalescing to at most five a second is the difference
+      between a panel that fills in and a panel that flickers. }
+    FStickersDirty: boolean;
     procedure Tick(Sender: TObject);
     procedure Drain;
     procedure EnsureBindings;
     procedure DropBindings;
     procedure ChatsChanged(Sender: TObject);
     procedure MessagesChanged(Sender: TObject);
+    procedure StickersChanged(Sender: TObject);
     procedure PushEvent(const AName: utf8string; AData: TJSONObject);
     { NOT "Dispatch": TObject already has one (message dispatch), and
       a method of that name here hides it — the same family as
@@ -113,6 +122,11 @@ type
     function  CmdPollVote(AArgs: TJSONObject): TJSONData;
     function  CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
     function  CmdSearchSet(AArgs: TJSONObject): TJSONData;
+    function  CmdStickersList(AArgs: TJSONObject): TJSONData;
+    function  CmdStickerSet(AArgs: TJSONObject): TJSONData;
+    function  CmdGifsList(AArgs: TJSONObject): TJSONData;
+    function  CmdGifEnsure(AArgs: TJSONObject): TJSONData;
+    function  CmdMessageSendMedia(AArgs: TJSONObject): TJSONData;
   public
     constructor Create;
     destructor Destroy; override;
@@ -859,6 +873,7 @@ procedure TWebApi.EnsureBindings;
 var
   Chats: TTdChats;
   Msgs: TTdMessages;
+  Sticks: TTdStickers;
 begin
   Chats := TdChatList;
   if Chats <> FBoundChats then begin
@@ -880,6 +895,17 @@ begin
       Msgs.AddChangeListener(@MessagesChanged);
     end;
   end;
+
+  { One handler, not a list: nothing else in the app looks at sticker
+    sets, so TTdStickers has a plain OnChanged rather than the
+    subscriber list TTdChats/TTdMessages need. }
+  Sticks := TdStickerList;
+  if Sticks <> FBoundStickers then begin
+    FBoundStickers := Sticks;
+    if Sticks <> nil then begin
+      Sticks.OnChanged := @StickersChanged;
+    end;
+  end;
 end;
 
 { Unsubscribes, but only from objects that are still the current ones.
@@ -895,6 +921,10 @@ begin
     FBoundMsgs.RemoveChangeListener(@MessagesChanged);
   end;
   FBoundMsgs := nil;
+  if (FBoundStickers <> nil) and (FBoundStickers = TdStickerList) then begin
+    FBoundStickers.OnChanged := nil;
+  end;
+  FBoundStickers := nil;
 end;
 
 procedure TWebApi.PushEvent(const AName: utf8string; AData: TJSONObject);
@@ -933,6 +963,11 @@ begin
   PushEvent('messages', D);
 end;
 
+procedure TWebApi.StickersChanged(Sender: TObject);
+begin
+  FStickersDirty := True;
+end;
+
 procedure TWebApi.Enqueue(AConnId: Int64; const AText: utf8string);
 var
   R: TWebReq;
@@ -963,6 +998,10 @@ procedure TWebApi.Tick(Sender: TObject);
 begin
   EnsureBindings;
   Drain;
+  if FStickersDirty then begin
+    FStickersDirty := False;
+    PushEvent('stickers', nil);
+  end;
 end;
 
 procedure TWebApi.Drain;
@@ -1554,6 +1593,257 @@ begin
   Result := CmdMessagesList;
 end;
 
+{ ------------------------------------------------------------------ }
+{ stickers, saved animations                                         }
+{ ------------------------------------------------------------------ }
+
+function RequireStickers: TTdStickers;
+begin
+  Result := TdStickerList;
+  if Result = nil then begin
+    raise Exception.Create('no active account');
+  end;
+end;
+
+{ One sticker as the panel wants it. A sticker with no url yet is still
+  worth sending, for the same reason a custom emoji with no url is (see
+  AddCustomEmoji): it says "this one exists and is on its way", which
+  lets the page hold its place instead of reflowing the grid as files
+  land one by one. }
+function StickerJson(AItem: TStickerItem): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.Add('fileId', AItem.FileId);
+  Result.Add('format', string(StickerFormatStr(AItem.Format)));
+  Result.Add('emoji', string(AItem.Emoji));
+  Result.Add('w', AItem.Width);
+  Result.Add('h', AItem.Height);
+  Result.Add('url', string(FileUrl(AItem.FileId, AItem.LocalPath)));
+end;
+
+function TWebApi.CmdStickersList(AArgs: TJSONObject): TJSONData;
+var
+  Sticks: TTdStickers;
+  Sets, Arr: TJSONArray;
+  SetObj: TJSONObject;
+  I, J: integer;
+  Query: utf8string;
+begin
+  Sticks := RequireStickers;
+  Query := '';
+  if AArgs <> nil then begin
+    Query := utf8string(AArgs.Get('query', ''));
+  end;
+
+  { A search REPLACES the list rather than filtering it: the answer
+    comes from Telegram (the installed sets, plus favourites, recents
+    and trending), not from what happens to be loaded here. It is
+    reported as a single set so the page has one shape to draw. }
+  if Query <> '' then begin
+    Sticks.SearchStickers(Query);
+    Arr := TJSONArray.Create;
+    for I := 0 to Sticks.FoundStickers.Count - 1 do begin
+      Arr.Add(StickerJson(Sticks.FoundStickers[I]));
+    end;
+    Sets := TJSONArray.Create;
+    { A heading over nothing says less than "Nothing found" does, so an
+      empty result is reported as no sets at all rather than as one
+      empty set. }
+    if Arr.Count > 0 then begin
+      SetObj := TJSONObject.Create;
+      SetObj.Add('id', '0');
+      SetObj.Add('title', 'Search results');
+      SetObj.Add('loaded', True);
+      SetObj.Add('stickers', Arr);
+      Sets.Add(SetObj);
+    end else begin
+      Arr.Free;
+    end;
+    Result := TJSONObject.Create;
+    TJSONObject(Result).Add('ready', Sticks.StickerSearchReady);
+    TJSONObject(Result).Add('query', string(Query));
+    TJSONObject(Result).Add('sets', Sets);
+    Exit;
+  end;
+
+  { Leaving the search box puts the ordinary lists back, and drops the
+    results so the next search of the same words really re-runs. }
+  Sticks.SearchStickers('');
+  Sticks.EnsureLoaded;
+
+  Sets := TJSONArray.Create;
+
+  { The recent stickers ride in as a set of their own, at the front.
+    The panel then has one kind of thing to draw, and "Recently used"
+    sits where every client puts it. Its id is 0, which no real set
+    has, so asking to load it is a no-op rather than a special case. }
+  if Sticks.Recent.Count > 0 then begin
+    Arr := TJSONArray.Create;
+    for I := 0 to Sticks.Recent.Count - 1 do begin
+      Arr.Add(StickerJson(Sticks.Recent[I]));
+    end;
+    SetObj := TJSONObject.Create;
+    SetObj.Add('id', '0');
+    SetObj.Add('title', 'Recently used');
+    SetObj.Add('loaded', True);
+    SetObj.Add('stickers', Arr);
+    Sets.Add(SetObj);
+  end;
+
+  for I := 0 to Sticks.Sets.Count - 1 do begin
+    Arr := TJSONArray.Create;
+    for J := 0 to Sticks.Sets[I].Items.Count - 1 do begin
+      Arr.Add(StickerJson(Sticks.Sets[I].Items[J]));
+    end;
+    SetObj := TJSONObject.Create;
+    { As TEXT: a set id is a full Int64 and JSON numbers stop being
+      exact at 2^53 - the same trap album ids and custom emoji ids
+      already taught this project. }
+    SetObj.Add('id', string(IntToStr(Sticks.Sets[I].Id)));
+    SetObj.Add('title', string(Sticks.Sets[I].Title));
+    SetObj.Add('loaded', Sticks.Sets[I].Loaded);
+    SetObj.Add('stickers', Arr);
+    Sets.Add(SetObj);
+  end;
+
+  Result := TJSONObject.Create;
+  TJSONObject(Result).Add('ready', Sticks.SetsReady);
+  TJSONObject(Result).Add('query', '');
+  TJSONObject(Result).Add('sets', Sets);
+end;
+
+{ Asks for one set's stickers. Answers immediately with nothing to say:
+  the fetch is asynchronous, and its arrival is announced by the
+  'stickers' event like every other change here. }
+function TWebApi.CmdStickerSet(AArgs: TJSONObject): TJSONData;
+var
+  Id: Int64;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('stickers.set needs a set id');
+  end;
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if Id <> 0 then begin
+    RequireStickers.EnsureSet(Id);
+  end;
+  Result := nil;
+end;
+
+function GifJson(AItem: TGifItem): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.Add('fileId', AItem.FileId);
+  Result.Add('w', AItem.Width);
+  Result.Add('h', AItem.Height);
+  { 'mpeg4' means the THUMBNAIL already moves; anything else is a
+    still, and the page asks for the animation itself instead. }
+  Result.Add('thumbFormat', string(AItem.ThumbFormat));
+  Result.Add('url', string(FileUrl(AItem.ThumbFileId, AItem.ThumbPath)));
+  Result.Add('playUrl', string(FileUrl(AItem.FileId, AItem.Path)));
+end;
+
+function TWebApi.CmdGifsList(AArgs: TJSONObject): TJSONData;
+var
+  Sticks: TTdStickers;
+  Arr: TJSONArray;
+  I: integer;
+  Query: utf8string;
+begin
+  Sticks := RequireStickers;
+  Query := '';
+  if AArgs <> nil then begin
+    Query := utf8string(AArgs.Get('query', ''));
+  end;
+
+  Arr := TJSONArray.Create;
+  if Query <> '' then begin
+    { Telegram has no call that searches saved animations, and
+      searching them locally would be meaningless - they carry no
+      titles. Real GIF search goes through the inline bot Telegram
+      names in an option, which is what the model does. }
+    Sticks.SearchGifs(Query);
+    for I := 0 to Sticks.FoundGifs.Count - 1 do begin
+      Arr.Add(GifJson(Sticks.FoundGifs[I]));
+    end;
+    Result := TJSONObject.Create;
+    TJSONObject(Result).Add('ready', Sticks.GifSearchReady);
+    TJSONObject(Result).Add('query', string(Query));
+    TJSONObject(Result).Add('items', Arr);
+    Exit;
+  end;
+
+  Sticks.SearchGifs('');
+  Sticks.EnsureLoaded;
+  for I := 0 to Sticks.Gifs.Count - 1 do begin
+    Arr.Add(GifJson(Sticks.Gifs[I]));
+  end;
+
+  Result := TJSONObject.Create;
+  TJSONObject(Result).Add('ready', Sticks.GifsReady);
+  TJSONObject(Result).Add('query', '');
+  TJSONObject(Result).Add('items', Arr);
+end;
+
+{ Asks for one saved GIF's own file, so its tile can move. Answers
+  immediately and says nothing, like stickers.set: the fetch is
+  asynchronous and announces itself with a 'stickers' event. }
+function TWebApi.CmdGifEnsure(AArgs: TJSONObject): TJSONData;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('gifs.ensure needs a file id');
+  end;
+  RequireStickers.EnsureGif(AArgs.Get('fileId', 0));
+  Result := nil;
+end;
+
+{ Sends a sticker or a saved animation the account already has. The
+  page names it by file id alone; the dimensions Telegram needs come
+  from the model, which is where they arrived from Telegram in the
+  first place. }
+function TWebApi.CmdMessageSendMedia(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Sticks: TTdStickers;
+  Kind: utf8string;
+  FileId: integer;
+  Silent: boolean;
+  Item: TStickerItem;
+  G: TGifItem;
+begin
+  Msgs := RequireMsgs;
+  Sticks := RequireStickers;
+  if AArgs = nil then begin
+    raise Exception.Create('message.sendMedia needs a kind and a file id');
+  end;
+  Kind := utf8string(AArgs.Get('kind', ''));
+  FileId := AArgs.Get('fileId', 0);
+  Silent := AArgs.Get('silent', False);
+
+  if Kind = 'sticker' then begin
+    Item := Sticks.FindSticker(FileId);
+    if Item = nil then begin
+      raise Exception.Create('unknown sticker');
+    end;
+    Msgs.SendSticker(Item.FileId, Item.Width, Item.Height, Item.Emoji, Silent);
+  end else if Kind = 'animation' then begin
+    G := Sticks.FindGif(FileId);
+    if G = nil then begin
+      raise Exception.Create('unknown animation');
+    end;
+    { A GIF the search bot offered is not this account's file - it is
+      sent by naming the query and the result back to Telegram. One
+      the account has saved goes out by file id as before. }
+    if G.ResultId <> '' then begin
+      Msgs.SendInlineResult(Sticks.GifQueryId, G.ResultId, Silent);
+    end else begin
+      Msgs.SendAnimation(G.FileId, G.Width, G.Height, G.Duration, Silent);
+    end;
+  end else begin
+    raise Exception.Create('unknown media kind: ' + Kind);
+  end;
+  Result := nil;
+end;
+
 procedure TWebApi.RunCommand(AConnId: Int64; const AText: utf8string);
 var
   D: TJSONData;
@@ -1636,6 +1926,16 @@ begin
         Reply(AConnId, ReqId, CmdMediaEnsure(Args));
       end else if Cmd = 'search.set' then begin
         Reply(AConnId, ReqId, CmdSearchSet(Args));
+      end else if Cmd = 'stickers.list' then begin
+        Reply(AConnId, ReqId, CmdStickersList(Args));
+      end else if Cmd = 'stickers.set' then begin
+        Reply(AConnId, ReqId, CmdStickerSet(Args));
+      end else if Cmd = 'gifs.list' then begin
+        Reply(AConnId, ReqId, CmdGifsList(Args));
+      end else if Cmd = 'gifs.ensure' then begin
+        Reply(AConnId, ReqId, CmdGifEnsure(Args));
+      end else if Cmd = 'message.sendMedia' then begin
+        Reply(AConnId, ReqId, CmdMessageSendMedia(Args));
       end else begin
         Fail(AConnId, ReqId, 'unknown command: ' + Cmd);
       end;

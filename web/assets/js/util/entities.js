@@ -1,6 +1,7 @@
 import { el } from '../core/dom.js';
 import { customEmojiNode } from './emoji.js';
 import { icon } from './icons.js';
+import { highlight } from './highlight.js';
 
 // Turning a message's text plus its entity ranges into DOM.
 //
@@ -89,6 +90,19 @@ export function renderRichText(text, entities = []) {
 function codeBlock(bytes, entity, inline) {
   const body = el('pre', { class: 'code__body' });
   appendInline(body, bytes, entity.start, entity.start + entity.len, inline);
+
+  // Highlighting arrives later than the block, and may never arrive at
+  // all (unknown language, a file that would not load). The plain
+  // block is already on screen by then and is a complete answer on its
+  // own, so this only ever replaces what is there - and only if the
+  // node is still in the document.
+  if (entity.language) {
+    highlight(body.textContent, entity.language).then((nodes) => {
+      if (!nodes || !body.isConnected) return;
+      body.replaceChildren(nodes);
+      body.classList.add('is-highlighted');
+    });
+  }
 
   const label = el('span', {
     class: 'code__label',

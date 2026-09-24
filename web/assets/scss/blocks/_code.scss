@@ -8,7 +8,7 @@
 // its own.
 .code {
   background: color-mix(in srgb, var(--sender-color) 14%, transparent);
-  border-radius: $radius-sm;
+  border-radius: $radius-md;
   margin: $space-3 0;
   overflow: hidden;
 }
@@ -49,6 +49,62 @@
   .icon {
     @include size($icon-sm);
   }
+}
+
+// ------------------------------------------------------- highlighting
+// Token colours come out of the app's own palette rather than from one
+// of Prism's themes: a theme brings its own background and its own
+// idea of contrast, and this block is already tinted with the sender's
+// colour. Six roles is all a chat message needs to read as code.
+//
+// A highlighted block also drops the sender tint on its text: the
+// colours have to carry meaning now, and one of them would otherwise
+// collide with whatever colour the sender happens to have.
+.code__body.is-highlighted {
+  color: var(--c-text);
+}
+
+.tok--comment,
+.tok--prolog,
+.tok--cdata,
+.tok--doctype {
+  color: var(--c-text-faint);
+  font-style: italic;
+}
+
+.tok--keyword,
+.tok--boolean,
+.tok--atrule,
+.tok--rule,
+.tok--important {
+  color: var(--c-accent);
+}
+
+.tok--string,
+.tok--char,
+.tok--attr-value,
+.tok--regex,
+.tok--inserted {
+  color: var(--c-ok);
+}
+
+.tok--number,
+.tok--constant,
+.tok--symbol,
+.tok--deleted {
+  color: var(--c-danger);
+}
+
+.tok--function,
+.tok--class-name,
+.tok--tag,
+.tok--selector {
+  font-weight: $fw-bold;
+}
+
+.tok--operator,
+.tok--punctuation {
+  color: var(--c-text-dim);
 }
 
 // The code itself. pre-wrap rather than pre: a chat column is narrow

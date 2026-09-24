@@ -8,7 +8,8 @@ import { openMenu } from './util/menu.js';
 import { mountChatList, showListLoading, showListError } from './ui/chat-list.js';
 import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory } from './ui/history.js';
-import { mountComposer } from './ui/composer.js';
+import { mountComposer, insertAtCaret, isSilent } from './ui/composer.js';
+import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountStatusBar } from './ui/status-bar.js';
 import { mountThemeToggle } from './ui/theme.js';
 import { openViewer } from './ui/viewer.js';
@@ -168,6 +169,17 @@ function wireActions() {
     }
   });
 
+  // Stickers and GIFs are sent, not typed: the panel hands over a file
+  // id and the server turns it into inputMessageSticker/Animation.
+  on('ui:send-media', async (payload) => {
+    try {
+      await call('message.sendMedia', { ...payload, silent: isSilent() });
+      await loadMessages();
+    } catch (err) {
+      report(err);
+    }
+  });
+
   on('ui:load-older', throttle(() => {
     call('messages.older').catch(report);
   }, 300));
@@ -274,6 +286,11 @@ async function boot() {
   mountChatHeader(qs('#chat-header'));
   mountHistory(qs('#history'));
   mountComposer(qs('#composer'));
+  mountPicker(qs('#composer-emoji'), {
+    insert: insertAtCaret,
+    send: (payload) => emit('ui:send-media', payload),
+    load: (cmd, args) => call(cmd, args),
+  });
   mountStatusBar(qs('#status-bar'));
   mountThemeToggle(qs('#theme-toggle'));
 
@@ -286,6 +303,9 @@ async function boot() {
   // decision - see throttle above.
   on('srv:chats', refreshChats);
   on('srv:messages', refreshMessages);
+  // Not throttled here: the server already coalesces this one to a tick,
+  // and the panel ignores it unless it is open on the tab concerned.
+  on('srv:stickers', pickerChanged);
 
   // Load on every (re)connect, not just the first: after a drop the
   // list on screen is however stale the disconnection left it.

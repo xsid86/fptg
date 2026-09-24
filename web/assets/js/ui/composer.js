@@ -18,6 +18,7 @@ import { onActiveChat } from '../core/store.js';
 let box = null;
 let input = null;
 let sendBtn = null;
+let emojiBtn = null;
 let htmlBox = null;
 let silentBox = null;
 let canSend = false;
@@ -48,11 +49,15 @@ const MARKUP = {
 
 const isHtml = () => Boolean(htmlBox?.checked);
 
+/** The Silent toggle, for anything sent from outside this module. */
+export const isSilent = () => Boolean(silentBox?.checked);
+
 function updateEnabled(chat) {
   canSend = Boolean(chat) && chat.canSend !== false;
   input.disabled = !canSend;
   sendBtn.disabled = !canSend;
   for (const btn of qsa('.composer__format', box)) btn.disabled = !canSend;
+  if (emojiBtn) emojiBtn.disabled = !canSend;
 
   if (!chat) input.placeholder = 'Pick a chat to start writing';
   else if (!canSend) input.placeholder = 'You cannot write in this chat';
@@ -76,6 +81,25 @@ function wrapSelection(open, close) {
     // type the formatted text straight away.
     input.setSelectionRange(start + open.length, start + open.length);
   }
+  input.focus();
+}
+
+/**
+ * Drops text in at the caret, replacing whatever is selected - what the
+ * emoji panel needs, and the only way into this box from outside.
+ *
+ * Note what it does NOT do: escape anything. An emoji carries no
+ * MarkdownV2 meaning, and neither does any other character this is used
+ * for today. The day something with meaning is inserted here, escaping
+ * belongs at that call site, not in this function.
+ */
+export function insertAtCaret(text) {
+  if (!canSend || !text) return;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  input.value = input.value.slice(0, start) + text + input.value.slice(end);
+  const caret = start + text.length;
+  input.setSelectionRange(caret, caret);
   input.focus();
 }
 
@@ -169,6 +193,7 @@ export function mountComposer(node) {
   box = node;
   input = qs('.composer__input', box);
   sendBtn = qs('.composer__send', box);
+  emojiBtn = qs('.composer__emoji', box);
   htmlBox = qs('#composer-html', box);
   silentBox = qs('#composer-silent', box);
 

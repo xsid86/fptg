@@ -1,0 +1,328 @@
+@use "../abstracts" as *;
+
+// The emoji / sticker / GIF panel (ui/picker.js).
+//
+// Same two platform features as the popup menu: the top layer, so the
+// composer's own overflow cannot clip it, and light dismiss. Placement
+// is by anchor positioning off the smiley, with the UA's centred
+// popover as the fallback where that does not exist - usable either
+// way, never a prerequisite. Not one coordinate comes from JavaScript.
+.picker {
+  @include flex(column, stretch, flex-start, 0);
+  @include card($radius-md, var(--c-surface));
+  background: color-mix(in srgb, var(--c-bg) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-border) 60%, transparent);
+  // Wide enough for ten emoji a row, tall enough that a group heading
+  // is never the only thing on screen. Both are caps rather than fixed
+  // sizes, so a short list (no saved GIFs) draws a short panel.
+  color: var(--c-text);
+  height: 420px;
+  max-height: 70vh;
+  max-width: calc(100vw - #{$space-8});
+  overflow: hidden;
+  padding: 0;
+  width: 360px;
+}
+
+// `hidden` has to be spelled out for anything in this file that is
+// given a display of its own. The UA rule is `[hidden] { display: none }`
+// at specificity 0,1,0, and it LOSES to any author rule that sets
+// display - which is how the search box and the group strip stayed on
+// screen where the JavaScript had hidden them. Two classes beat one.
+.picker__head[hidden],
+.picker__tones[hidden],
+.picker__strip[hidden],
+.picker__sections[hidden],
+.picker__results[hidden],
+.picker__pane[hidden] {
+  display: none;
+}
+
+// ------------------------------------------------------------- tabs
+.picker__tabs {
+  @include flex(row, stretch, flex-start, 0);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  flex: 0 0 auto;
+}
+
+.picker__tab {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  flex: 1 1 0;
+  font: inherit;
+  font-size: $fs-sm;
+  font-weight: $fw-medium;
+  padding: $space-3 $space-2;
+  @include transition;
+  @include focus-ring(var(--c-accent), -2px);
+
+  &:hover {
+    color: var(--c-text);
+  }
+
+  &.is-active {
+    border-bottom-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+}
+
+// --------------------------------------------------- search and tone
+.picker__head {
+  @include flex(row, center, flex-start, $space-2);
+  flex: 0 0 auto;
+  padding: $space-3;
+}
+
+.picker__search {
+  @include flex(row, center, flex-start, $space-2);
+  background: var(--c-surface-2);
+  border-radius: $radius-pill;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 $space-3;
+}
+
+.picker__search-icon {
+  @include size($icon-sm);
+  color: var(--c-text-faint);
+}
+
+.picker__query {
+  background: none;
+  border: 0;
+  color: inherit;
+  flex: 1 1 auto;
+  font: inherit;
+  font-size: $fs-sm;
+  min-width: 0;
+  padding: $space-2 0;
+
+  &::placeholder {
+    color: var(--c-text-faint);
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  // The UA's own clear button in a type=search field, which brings its
+  // own metrics and does not follow the palette.
+  &::-webkit-search-cancel-button {
+    appearance: none;
+  }
+}
+
+// Six swatches rather than a menu: the tones are one row, they are the
+// whole choice, and a hand in the right colour says it better than the
+// word for it would.
+.picker__tones {
+  @include flex(row, center, flex-start, 0);
+  flex: 0 0 auto;
+}
+
+.picker__tone {
+  @include size(20px);
+  @include flex(row, center, center);
+  background: none;
+  border: 0;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: .5;
+  padding: 0;
+  @include transition;
+  @include focus-ring(var(--c-accent), -2px);
+
+  &:hover {
+    opacity: 1;
+  }
+
+  &.is-active {
+    background: var(--c-surface-active);
+    opacity: 1;
+  }
+}
+
+// ------------------------------------------------------------- body
+.picker__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 $space-3;
+  @include scrollbar(6px);
+}
+
+.picker__section {
+  margin-bottom: $space-3;
+}
+
+.picker__heading {
+  background: var(--c-surface);
+  border-radius: $radius-pill;
+  color: var(--c-text-faint);
+  font-size: $fs-xs;
+  font-weight: $fw-medium;
+  letter-spacing: .04em;
+  margin: 0 0 $space-2;
+  // Sticky so the group a run of scrolling landed in keeps saying which
+  // one it is. Inside the scroller, so it never escapes the panel.
+  padding: $space-2 $space-6;
+  position: sticky;
+  text-transform: uppercase;
+  top: 0;
+  z-index: 1;
+}
+
+.picker__empty {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+  margin: 0;
+  padding: $space-6 $space-3;
+  text-align: center;
+}
+
+// ------------------------------------------------------------ emoji
+.picker__grid {
+  display: grid;
+  gap: $space-1;
+  grid-template-columns: repeat(auto-fill, minmax(32px, 1fr));
+}
+
+.picker__cell {
+  @include flex(row, center, center);
+  aspect-ratio: 1;
+  background: none;
+  border: 0;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  // The emoji itself is the label, so this is a text size and not an
+  // icon size - it is a character, drawn by whatever colour emoji font
+  // the system has.
+  font-size: 22px;
+  line-height: 1;
+  padding: 0;
+  @include transition;
+  @include focus-ring(var(--c-accent), -2px);
+
+  &:hover {
+    background: var(--c-surface-active);
+  }
+}
+
+// The group strip: sticky to the bottom of the scroller rather than a
+// row of its own, so the grid keeps the full height and the strip is
+// still always reachable.
+.picker__strip {
+  @include flex(row, center, space-between, 0);
+  background: var(--c-surface);
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  bottom: 0;
+  margin: 0 (-$space-3);
+  padding: $space-2 $space-3;
+  position: sticky;
+  z-index: 2;
+}
+
+.picker__jump {
+  @include size(24px);
+  @include flex(row, center, center);
+  background: none;
+  border: 0;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  opacity: .65;
+  padding: 0;
+  @include transition;
+  @include focus-ring(var(--c-accent), -2px);
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
+// ------------------------------------------------- stickers and GIFs
+.picker__tiles {
+  display: grid;
+  gap: $space-2;
+  grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+}
+
+.picker__tiles--wide {
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+}
+
+.picker__tile {
+  @include flex(row, center, center);
+  aspect-ratio: 1;
+  background: none;
+  border: 0;
+  border-radius: $radius-md;
+  cursor: pointer;
+  padding: $space-1;
+  @include transition;
+  @include focus-ring(var(--c-accent), -2px);
+
+  &:hover {
+    background: var(--c-surface-active);
+  }
+}
+
+.picker__sticker {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+// A Lottie sticker is a box the player draws an <svg> into, so it has
+// no intrinsic size of its own to fall back on.
+.picker__sticker--lottie {
+  display: block;
+
+  svg {
+    display: block;
+    height: 100%;
+    width: 100%;
+  }
+}
+
+.picker__gif {
+  border-radius: $radius-sm;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+// The handful of saved animations Telegram sends no thumbnail for at
+// all. An empty tile would read as a broken one until the file lands,
+// which takes about a second.
+span.picker__gif {
+  background: var(--c-surface-2);
+  display: block;
+}
+
+// -------------------------------------------------------- anchoring
+// Chromium only, like the menu's. Without it the panel keeps the UA's
+// centred placement, which still works.
+@supports (anchor-name: --probe) {
+  .is-picker-anchor {
+    anchor-name: --picker-anchor;
+  }
+
+  .picker {
+    // The UA popover style is `inset: 0; margin: auto`, which stretches
+    // the panel across its containing block and beats position-area
+    // outright. Releasing the insets is what lets the area place it.
+    inset: auto;
+    margin: 0 0 $space-1 0;
+    position-anchor: --picker-anchor;
+    // Above the button: the composer sits at the bottom of the window,
+    // so there is never room below it.
+    position-area: block-start span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline;
+  }
+}

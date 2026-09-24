@@ -14,8 +14,20 @@
 // are meant to look like the same program, not like cousins.
 
 // ---------------------------------------------------------------- type
-$font-ui:   "Segoe UI", system-ui, -apple-system, sans-serif;
-$font-mono: "Cascadia Mono", Consolas, "SF Mono", monospace;
+// "Noto Color Emoji" is in both stacks, and its PLACE in them matters.
+// It is Google's emoji - the same ones emoji_atlas.dat gives the native
+// window, so the two windows draw a message identically instead of one
+// showing Microsoft's. Without it in the list at all, the system
+// fallback would supply Segoe UI Emoji and they would not.
+//
+// LAST rather than first, though: the font covers more than emoji. Its
+// slice 2 carries U+23, U+2A and U+30..39 - '#', '*' and the digits -
+// because those are what keycap sequences are built from. First in the
+// stack it would draw every plain digit in the UI as emoji art. Behind
+// the text fonts, those characters are already claimed and only the
+// emoji fall through to it. See assets/vendor/noto-emoji/README.txt.
+$font-ui:   "Segoe UI", system-ui, -apple-system, "Noto Color Emoji", sans-serif;
+$font-mono: "Cascadia Mono", Consolas, "SF Mono", "Noto Color Emoji", monospace;
 
 $fs-xs:   11px;
 $fs-sm:   12px;

@@ -702,6 +702,7 @@ type
     procedure Touch;
     { A path this model is holding can stop being true. }
     procedure ForgetFile(var APath: utf8string; var ARequested: boolean);
+    procedure ForgetRowFiles(ARow: TMsgRow);
     procedure Rebuild(Sender: TObject);
     procedure SetLoadingOlder(AValue: boolean);
     function GetSearchActive: boolean;
@@ -709,6 +710,7 @@ type
     procedure HistoryDone(Sender: TObject; const AResp: TTdResponse);
     procedure RetryTick(Sender: TObject);
     procedure CheckUnreadBackfill;
+    procedure SendMediaByFileId(const AContent: utf8string; ASilent: boolean);
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
     { Callback for SendFormattedText's own parseTextEntities request —
       see that method's comment for the two-step reason it's needed. }
@@ -794,6 +796,32 @@ type
       ride along through the parse step to reach the sendMessage on the
       far side of it, see ParseEntitiesDone. }
     procedure SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean;
+      ASilent: boolean);
+    { Sends a sticker, or a saved animation, that is ALREADY on
+      Telegram's side: the web UI's picker names one by its TDLib file
+      id and nothing else, so nothing is uploaded and nothing has to be
+      on this disk first.
+
+      The dimensions are not decoration — inputSticker/inputAnimation
+      both carry them, and Telegram shows the message at that aspect
+      ratio while the recipient is still fetching the file. They come
+      from the sticker/animation object the picker was built from, so
+      they are Telegram's own numbers, not a guess.
+
+      Same ASilent meaning, and the same completion path, as
+      SendFormattedText. }
+    procedure SendSticker(AFileId, AWidth, AHeight: integer;
+      const AEmoji: utf8string; ASilent: boolean);
+    procedure SendAnimation(AFileId, AWidth, AHeight, ADuration: integer;
+      ASilent: boolean);
+    { Sends something an INLINE BOT offered - a GIF found through the
+      search bot Telegram names for it. Such a result has no file id
+      of this account's own: it is sent by naming the query and the
+      result back, and Telegram fetches the file itself.
+
+      hide_via_bot stays false, so the message says "via @gif" exactly
+      as it does from every other client. }
+    procedure SendInlineResult(AQueryId: Int64; const AResultId: utf8string;
       ASilent: boolean);
     { Casts (or retracts) this account's vote on a poll. AOptionIndex is
       an index into ARow.Poll.Options.
@@ -3329,6 +3357,102 @@ begin
   Touch;
 end;
 
+{ The two "send something Telegram already has" paths. Shapes checked
+  against td_api.tl at 1.8.67, the version this build talks to:
+
+    inputMessageSticker sticker:inputSticker emoji:string
+    inputSticker sticker:InputFile thumbnail:inputThumbnail width height
+    inputMessageAnimation animation:inputAnimation caption ...
+    inputAnimation animation:InputFile thumbnail added_sticker_file_ids
+                   duration width height
+
+  Both wrap the file in inputFileId rather than inputFileRemote: the id
+  is the one TDLib itself handed out for this session, which is exactly
+  what inputFileId takes, and it saves carrying the remote id string
+  around just to hand it back.
+
+  The optional members (thumbnail, caption, added_sticker_file_ids) are
+  left out entirely. TDLib reads a missing object member as null, and
+  null is what they would have to be - there is no thumbnail to offer
+  for a file we never uploaded. }
+procedure TTdMessages.SendMediaByFileId(const AContent: utf8string; ASilent: boolean);
+var
+  Body: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+  Body := '"chat_id":' + utf8string(IntToStr(FChatId));
+  if ASilent then begin
+    Body := Body +
+      ',"options":{"@type":"messageSendOptions","disable_notification":true}';
+  end;
+  Body := Body + ',"input_message_content":' + AContent;
+  FReq.SendRequest('sendMessage', Body, @SendTextDone);
+end;
+
+procedure TTdMessages.SendSticker(AFileId, AWidth, AHeight: integer;
+  const AEmoji: utf8string; ASilent: boolean);
+var
+  Emoji: TJSONString;
+  Content: utf8string;
+begin
+  { The emoji goes through TJSONString rather than straight into the
+    request text: it is whatever Telegram attached to that sticker, and
+    a quote or a backslash in it would break the request. }
+  Emoji := TJSONString.Create(string(AEmoji));
+  try
+    Content := '{"@type":"inputMessageSticker","sticker":{"@type":"inputSticker"' +
+      ',"sticker":{"@type":"inputFileId","id":' + utf8string(IntToStr(AFileId)) + '}' +
+      ',"width":' + utf8string(IntToStr(AWidth)) +
+      ',"height":' + utf8string(IntToStr(AHeight)) + '}' +
+      ',"emoji":' + utf8string(Emoji.AsJSON) + '}';
+  finally
+    Emoji.Free;
+  end;
+  SendMediaByFileId(Content, ASilent);
+end;
+
+procedure TTdMessages.SendAnimation(AFileId, AWidth, AHeight, ADuration: integer;
+  ASilent: boolean);
+var
+  Content: utf8string;
+begin
+  Content := '{"@type":"inputMessageAnimation","animation":{"@type":"inputAnimation"' +
+    ',"animation":{"@type":"inputFileId","id":' + utf8string(IntToStr(AFileId)) + '}' +
+    ',"duration":' + utf8string(IntToStr(ADuration)) +
+    ',"width":' + utf8string(IntToStr(AWidth)) +
+    ',"height":' + utf8string(IntToStr(AHeight)) + '}}';
+  SendMediaByFileId(Content, ASilent);
+end;
+
+procedure TTdMessages.SendInlineResult(AQueryId: Int64;
+  const AResultId: utf8string; ASilent: boolean);
+var
+  Body: utf8string;
+  Rid: TJSONString;
+begin
+  if (FReq = nil) or (FChatId = 0) or (AQueryId = 0) or (AResultId = '') then begin
+    Exit;
+  end;
+  Rid := TJSONString.Create(string(AResultId));
+  try
+    Body := '"chat_id":' + utf8string(IntToStr(FChatId));
+    if ASilent then begin
+      Body := Body +
+        ',"options":{"@type":"messageSendOptions","disable_notification":true}';
+    end;
+    { query_id is an int64, and td_api's JSON carries those as TEXT. }
+    Body := Body +
+      ',"query_id":"' + utf8string(IntToStr(AQueryId)) + '"' +
+      ',"result_id":' + utf8string(Rid.AsJSON) +
+      ',"hide_via_bot":false';
+  finally
+    Rid.Free;
+  end;
+  FReq.SendRequest('sendInlineQueryResultMessage', Body, @SendTextDone);
+end;
+
 procedure TTdMessages.SendTextDone(Sender: TObject; const AResp: TTdResponse);
 begin
   if AResp.Success then begin
@@ -4552,6 +4676,60 @@ end;
   animation is simpler), with its own map FAnimByFile. priority 32 is
   the same "explicit user interest, not background" as the rest of the
   Ensure*File methods. }
+{ Takes a row out of every file_id -> row map.
+
+  MUST be called before freeing a row that is not being freed as part
+  of Clear (which empties the maps wholesale). The maps hold RAW
+  POINTERS to rows, so a row freed while one of its files is still
+  downloading leaves ten of them pointing at released memory, and the
+  updateFile that arrives a moment later writes a path straight into
+  it.
+
+  Found through a sent GIF, which is what made the window reachable at
+  all: sending goes pending row -> downloadFile -> answer, and
+  updateMessageSendSucceeded frees that pending row IN BETWEEN. The
+  file finished 236 ms after the row it belonged to had been freed
+  (both timestamps out of tdlib_raw.log). The visible symptom was the
+  mild one - the new row never learned the path, so the GIF neither
+  played nor appeared to download - but the write itself was into
+  freed memory and could have been anything.
+
+  Incoming media was always exposed to the same thing through
+  updateDeleteMessages; it just needs a message to be deleted while
+  one of its files is in flight, which is rare enough never to have
+  been seen. }
+procedure TTdMessages.ForgetRowFiles(ARow: TMsgRow);
+
+  { One parameter type for all ten: identical specializations of the
+    same generic ARE the same type in FPC, so the aliases below are
+    interchangeable here. }
+  procedure Purge(AMap: TAudioFileMap);
+  var
+    I: integer;
+  begin
+    for I := AMap.Count - 1 downto 0 do begin
+      if AMap.Data[I] = ARow then begin
+        AMap.Delete(I);
+      end;
+    end;
+  end;
+
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  Purge(FByFile);
+  Purge(FAudioCoverByFile);
+  Purge(FVoiceByFile);
+  Purge(FDocByFile);
+  Purge(FPhotoByFile);
+  Purge(FPhotoBestByFile);
+  Purge(FAnimByFile);
+  Purge(FVideoByFile);
+  Purge(FVideoThumbByFile);
+  Purge(FStickerByFile);
+end;
+
 procedure TTdMessages.EnsureAnimFile(ARow: TMsgRow);
 begin
   if ARow = nil then begin
@@ -5162,6 +5340,7 @@ begin
       if OldId <> 0 then begin
         Idx := FAll.IndexOf(OldId);
         if Idx >= 0 then begin
+          ForgetRowFiles(FAll.Data[Idx]);
           FAll.Data[Idx].Free;
           FAll.Delete(Idx);
         end;
@@ -5205,6 +5384,7 @@ begin
             end;
             Idx := FAll.IndexOf(Id);
             if Idx >= 0 then begin
+              ForgetRowFiles(FAll.Data[Idx]);
               FAll.Data[Idx].Free;
               FAll.Delete(Idx);
             end;
