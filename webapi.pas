@@ -2297,7 +2297,7 @@ procedure TWebApi.MenuReactionsDone(Sender: TObject; const AResp: TTdResponse);
   { Emoji out of one availableReaction vector, in order, skipping what
     is already there. Custom (Premium) reactions are left out: they are
     stickers, and the strip draws characters. }
-  procedure Collect(AArr: TJSONArray; AOut: TJSONArray; ALimit: integer);
+  procedure Collect(AArr: TJSONArray; AOut: TJSONArray);
   var
     I, J: integer;
     TypeObj: TJSONObject;
@@ -2308,9 +2308,6 @@ procedure TWebApi.MenuReactionsDone(Sender: TObject; const AResp: TTdResponse);
       Exit;
     end;
     for I := 0 to AArr.Count - 1 do begin
-      if AOut.Count >= ALimit then begin
-        Exit;
-      end;
       if not (AArr.Items[I] is TJSONObject) then begin
         Continue;
       end;
@@ -2348,11 +2345,20 @@ begin
 
   Emojis := TJSONArray.Create;
   if AResp.Success then begin
-    { Top first, then popular: that is the order Telegram itself
-      intends them to be shown in. }
-    Collect(JGetArr(AResp.Obj, 'top_reactions'), Emojis, 8);
-    Collect(JGetArr(AResp.Obj, 'popular_reactions'), Emojis, 8);
-    Collect(JGetArr(AResp.Obj, 'recent_reactions'), Emojis, 8);
+    { Top first, then popular, then recent: that is the order Telegram
+      itself intends them to be shown in.
+
+      ALL of them, not a row's worth. There used to be a cap of eight
+      here, and eight is simply not how many a chat offers: measured on
+      this account, a channel with a restricted set answered with 13
+      distinct emoji and an ordinary chat with 73. The strip drew the
+      first eight and there was no way to reach the rest - the "pick
+      any emoji" chevron beside it only appears where custom emoji are
+      allowed, and that channel did not allow them. The page scrolls
+      the strip instead. }
+    Collect(JGetArr(AResp.Obj, 'top_reactions'), Emojis);
+    Collect(JGetArr(AResp.Obj, 'popular_reactions'), Emojis);
+    Collect(JGetArr(AResp.Obj, 'recent_reactions'), Emojis);
   end;
 
   Res := TJSONObject.Create;

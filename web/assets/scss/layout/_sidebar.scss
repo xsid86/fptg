@@ -30,7 +30,13 @@
   padding: $space-3 $space-4;
 }
 
+// The box the chat list scrolls INSIDE, not the scroller itself - the
+// same split as .workspace__history, and for the same reason: the
+// "jump to the top" button is positioned against this box, because an
+// absolutely positioned child of the scroller would scroll away with
+// the rows.
 .sidebar__body {
   flex: 1 1 auto;
   min-height: 0;
+  position: relative;
 }

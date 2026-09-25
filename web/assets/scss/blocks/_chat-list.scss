@@ -17,6 +17,24 @@
   > * { flex-shrink: 0; }
 }
 
+// The history's button, the other way up: same corner of its own
+// scroller, same size, same fade, and it only exists while the top of
+// the list is off screen.
+//
+// The chevron is the same cell of the icon sheet turned over rather
+// than a second drawing of it - the sheet has no "up" and a rotated
+// "down" is exactly it. Turning the ICON and not the button keeps the
+// hover and the shadow the right way round.
+.chat-list__to-top {
+  @include scroll-jump;
+  inset-block-end: $space-6;
+  inset-inline-end: $space-6;
+
+  .icon {
+    transform: rotate(180deg);
+  }
+}
+
 .chat-list__empty {
   color: var(--c-text-faint);
   padding: $space-7 $space-5;

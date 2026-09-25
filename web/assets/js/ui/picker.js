@@ -1,6 +1,7 @@
 import { el, clear, qs, qsa } from '../core/dom.js';
 import { icon } from '../util/icons.js';
 import { playSticker } from './sticker.js';
+import { sideScroll } from '../util/sidescroll.js';
 
 // The emoji / sticker / GIF panel, the one thing in the composer that
 // is an icon rather than a word - a smiley, because that is what a
@@ -354,76 +355,8 @@ function buildStrip() {
         qs(`[data-group="${group.id}"]`, panel)?.scrollIntoView({ block: 'start' });
       },
     }, group.icon)));
-  dragToScroll(strip);
+  sideScroll(strip);
   panel.append(strip);
-}
-
-/**
- * Dragging the strip sideways, because there are more sets than fit
- * and no scrollbar to grab - the bar itself is hidden on purpose, a
- * visible one across the bottom of the panel looks like damage.
- *
- * Pointer capture rather than listeners on the document: the pointer
- * keeps reporting to this element even when it leaves it, so a drag
- * that runs off the edge of the panel still works and still ends.
- *
- * The click that ends a real drag is swallowed. Without that, letting
- * go over a button both scrolled the strip and switched the set.
- */
-function dragToScroll(strip) {
-  let from = 0;
-  let at = 0;
-  let held = false;
-  let moved = false;
-
-  strip.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    from = event.clientX;
-    at = strip.scrollLeft;
-    held = true;
-    moved = false;
-    // NOT captured here. Pointer capture redirects the CLICK as well
-    // as the pointer events: measured on a real click, the sequence
-    // was pointerdown, pointerup with capture held, and then a click
-    // whose target was the strip rather than the button under the
-    // finger - so every button in the strip stopped working while the
-    // drag itself looked fine. A synthetic click misses this entirely,
-    // because it never goes through the pointer path at all.
-  });
-
-  strip.addEventListener('pointermove', (event) => {
-    if (!held) return;
-    const by = event.clientX - from;
-    // A few pixels of slack, so a click with an unsteady hand is still
-    // a click.
-    if (!moved && Math.abs(by) > 4) {
-      moved = true;
-      // Only NOW, when this is certainly a drag and not a click: the
-      // pointer keeps reporting here once it has left the strip, so a
-      // drag that runs off the edge still works. Best effort - a
-      // refused capture must not stop the drag, which is why `held`
-      // and not capture is what says one is in progress.
-      try { strip.setPointerCapture(event.pointerId); } catch { /* fine */ }
-    }
-    if (moved) strip.scrollLeft = at - by;
-  });
-
-  const release = (event) => {
-    held = false;
-    try { strip.releasePointerCapture(event.pointerId); } catch { /* fine */ }
-  };
-  strip.addEventListener('pointerup', release);
-  strip.addEventListener('pointercancel', release);
-
-  // Letting go over a button used to both scroll the strip and switch
-  // the set. Captured, so it is stopped before the button ever sees
-  // it.
-  strip.addEventListener('click', (event) => {
-    if (!moved) return;
-    event.preventDefault();
-    event.stopPropagation();
-    moved = false;
-  }, true);
 }
 
 /**

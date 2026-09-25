@@ -34,10 +34,10 @@
 // card: it cuts the history in two and belongs to neither side.
 .history__unread {
   @include flex(row, center, center);
-  background: color-mix(in srgb, var(--c-bg) 50%, transparent);
+  background: color-mix(in srgb, var(--c-text) 95%, transparent);
   border-radius: $radius-md;
   border: 1px solid color-mix(in srgb, var(--c-text) 15%, transparent);
-  color: var(--c-text);
+  color: var(--c-bg);
   font-size: $fs-base;
   font-weight: $fw-medium;
   margin: $space-6 0;
@@ -59,30 +59,10 @@
 
 // The "jump to the newest message" button. Floats over the history in
 // the bottom corner and only exists while the bottom is off screen -
-// the same rule the native scroller applies.
+// the same rule the native scroller applies. The look is the
+// scroll-jump mixin, shared with the chat list's twin.
 .history__to-bottom {
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: 50%;
-  @include flex(row, center, center);
-  @include size(36px);
-  box-shadow: 0 2px 8px var(--c-shadow);
-  color: var(--c-text-dim);
-  cursor: pointer;
+  @include scroll-jump;
   inset-block-end: $space-6;
   inset-inline-end: $space-6;
-  opacity: 1;
-  pointer-events: all;
-  @include transition;
-  position: absolute;
-  z-index: 2;
-
-  &:hover {
-    color: var(--c-accent);
-  }
-
-  &[hidden] {
-    opacity: 0;
-    pointer-events: none;
-  }
 }

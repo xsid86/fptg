@@ -29,11 +29,12 @@
 }
 
 .composer__row {
-  @include flex(row, flex-end, flex-start, $space-2);
+  @include flex(column, flex-end, flex-start, $space-3);
 }
 
 .composer__input {
   background: var(--c-surface-2);
+  border: 1px solid transparent;
   border-radius: $radius-md;
   field-sizing: content;
   // Grows with its content without a line of JavaScript. Chromium 123+,
@@ -44,10 +45,12 @@
   line-height: $lh-base;
   max-height: $composer-max;
   min-height: $composer-min;
+  outline-offset: 0 !important;
   padding: $space-3 $space-4;
-  resize: none;
   @include scrollbar(6px);
   @include focus-ring;
+  resize: none;
+  width: 100%;
 
   &::placeholder {
     color: var(--c-text-faint);
@@ -56,10 +59,12 @@
 
 .composer__send {
   @include size(36px);
-  @include flex(row, center, center);
+  @include flex(row, center, center, $space-3);
   background: var(--c-accent);
   border-radius: $radius-md;
   color: var(--c-accent-text);
+  padding: 0 1rem;
+  width: auto;
 
   &:hover {
     background: var(--c-accent-hover);
@@ -67,6 +72,19 @@
 
   &[disabled] {
     opacity: .4;
+  }
+
+  span {
+    &.u-sr-only {
+      clip-path: unset;
+      height: auto;
+      margin: 0;
+      overflow: unset;
+      padding: 0;
+      position: relative;
+      white-space: nowrap;
+      width: auto;
+    }
   }
 }
 

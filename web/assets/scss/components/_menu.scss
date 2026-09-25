@@ -122,11 +122,31 @@
 // The row of reactions the message menu puts above its entries. Inside
 // the same card rather than floating separately above it: one popover
 // is one thing to place, to dismiss and to keep on screen.
+// The strip of reactions above the menu. One line, however many the
+// chat offers - see the note in ui/msgmenu.js. The "pick any emoji"
+// button is a sibling of the scroller rather than inside it, so it
+// stays reachable at the end of the row.
 .menu__reactions {
   @include flex(row, center, flex-start, $space-1);
   border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
-  flex-wrap: wrap;
   padding: $space-2 $space-3;
+}
+
+.menu__reactions-scroll {
+  @include flex(row, center, flex-start, $space-1);
+  cursor: grab;
+  // Or a long row refuses to shrink and widens the menu past its cap.
+  min-width: 0;
+  overflow-x: auto;
+  // Never a bar across the menu: the row is dragged instead, which is
+  // what util/sidescroll.js is for - drag or wheel.
+  scrollbar-width: none;
+  user-select: none;
+
+  &::-webkit-scrollbar { display: none; }
+  &:active { cursor: grabbing; }
+
+  > * { flex: 0 0 auto; }
 }
 
 .menu__react {

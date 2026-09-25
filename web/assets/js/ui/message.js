@@ -43,17 +43,6 @@ function withMenu(card, msg) {
     return card;
 }
 
-const KIND_ICON = {
-    photo: 'image',
-    video: 'video',
-    animation: 'gif',
-    audio: 'audio',
-    voice: 'mic',
-    file: 'file',
-    poll: 'poll',
-    sticker: 'smile',
-};
-
 export function renderMessage(msg) {
     const card = el('article', {
         class: [
@@ -195,9 +184,13 @@ function cellAspect(msg) {
 function renderHead(msg) {
     const head = el('header', {class: 'message__head'});
 
+    // Only the read receipt, and only on our own messages - an
+    // incoming one has nothing to report. What used to stand in this
+    // slot for everything else was an icon for the message's KIND, and
+    // it said nothing the message itself was not already showing: a
+    // photo above a little photo glyph.
     const receipt = RECEIPT_ICON[msg.receipt];
     if (receipt) head.append(icon(receipt, 'message__receipt'));
-    else if (KIND_ICON[msg.kind]) head.append(icon(KIND_ICON[msg.kind], 'message__receipt'));
 
     head.append(el('span', {
         class: 'message__sender',

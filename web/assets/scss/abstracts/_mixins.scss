@@ -29,7 +29,9 @@
   flex-direction: $direction;
   align-items: $align;
   justify-content: $justify;
-  @if $gap != 0 { gap: $gap; }
+  @if $gap != 0 {
+    gap: $gap;
+  }
 }
 
 @mixin size($w, $h: $w) {
@@ -60,10 +62,11 @@
 // click does not leave a ring behind, which is what makes people rip
 // focus styling out altogether and break keyboard use.
 @mixin focus-ring($color: var(--c-accent), $offset: 2px) {
-  &:focus { outline: none; }
+  &:focus {
+    outline: none !important;
+  }
   &:focus-visible {
-    outline: 2px solid $color;
-    outline-offset: $offset;
+    outline: 1px solid $color !important;
   }
 }
 
@@ -81,15 +84,22 @@
   scrollbar-width: thin;
   scrollbar-color: var(--c-border-strong) transparent;
 
-  &::-webkit-scrollbar { width: $size; height: $size; }
-  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar {
+    width: $size;
+    height: $size;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
   &::-webkit-scrollbar-thumb {
     background: var(--c-border-strong);
     border-radius: math.div($size, 2);
     border: 2px solid transparent;
     background-clip: content-box;
   }
-  &::-webkit-scrollbar-thumb:hover { background-color: var(--c-text-faint); }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--c-text-faint);
+  }
 }
 
 // A scroll region: overflow, the thin scrollbar, and the containment
@@ -106,7 +116,9 @@
   @if $bp == null {
     @error "respond-to: unknown breakpoint '#{$name}'";
   }
-  @media (max-width: $bp) { @content; }
+  @media (max-width: $bp) {
+    @content;
+  }
 }
 
 // Turns a hex accent into a faint tint of itself over the current
@@ -122,13 +134,55 @@
   &::after {
     content: "";
     position: absolute;
-    right: 0; top: 0; bottom: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
     width: $width;
     background: linear-gradient(to right, transparent, var(--c-surface));
     pointer-events: none;
   }
 }
 
-@mixin transition(){
+@mixin transition() {
   transition: all .25s ease-in-out;
+}
+
+// The round "take me to the other end" button that floats over a
+// scroller: the history's jump to the newest message, the chat list's
+// jump to the top. One definition because the two are the same
+// control - they differ only in which corner they sit in and which way
+// the chevron points.
+//
+// `position: absolute` here is a promise that whoever wears this class
+// lives in a positioned box that is NOT the scroller itself: an
+// absolutely positioned child of a scroll container is laid out
+// against its padding box and then scrolls away with the content. See
+// .workspace__history and .sidebar__body, which exist for exactly
+// that.
+@mixin scroll-jump {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 50%;
+  @include flex(row, center, center);
+  @include size(36px);
+  box-shadow: 0 2px 8px var(--c-shadow);
+  color: var(--c-text-dim);
+  cursor: pointer;
+  opacity: 1;
+  pointer-events: all;
+  @include transition;
+  position: absolute;
+  z-index: 2;
+
+  &:hover {
+    color: var(--c-accent);
+  }
+
+  // Hidden by the `hidden` attribute, which the two scrollers set from
+  // their own "is that end off screen" test. Faded rather than removed
+  // so it arrives and leaves instead of blinking.
+  &[hidden] {
+    opacity: 0;
+    pointer-events: none;
+  }
 }

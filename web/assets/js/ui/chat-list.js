@@ -2,9 +2,10 @@ import { el, clear } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
-import { listTime, countLabel, initial } from '../util/format.js';
+import { listTime, countLabel } from '../util/format.js';
 import { closeMenuIfDetached } from '../util/menu.js';
 import { customEmojiNode } from '../util/emoji.js';
+import { fillAvatar } from '../util/avatar.js';
 import { renderRichText } from '../util/entities.js';
 
 // Renders the chat list and nothing else. It reports a click through
@@ -164,18 +165,9 @@ function receipt(chat) {
   }, icon(name, 'icon--sm'));
 }
 
-/** Real photo when it is on disk, the inline blur while it is not. */
 function avatar(chat) {
-  const box = el('span', {
-    class: `avatar chat-item__avatar${chat.deleted ? ' is-deleted' : ''}`,
-  });
-  if (chat.avatar) {
-    box.append(el('img', { class: 'avatar__img', src: chat.avatar, alt: '' }));
-  } else if (chat.avatarThumb) {
-    box.append(el('img', { class: 'avatar__img is-blur', src: chat.avatarThumb, alt: '' }));
-  } else {
-    box.textContent = chat.deleted ? '×' : initial(chat.title);
-  }
+  const box = el('span', { class: 'avatar chat-item__avatar' });
+  fillAvatar(box, chat);
   return box;
 }
 
@@ -212,6 +204,36 @@ function restoreScroll(anchor) {
 // the archive is the one case where the old position means nothing.
 let lastArchived = null;
 
+// What the box above the list is filtering by, lower-cased and
+// trimmed, or '' for "show everything".
+//
+// It has to live HERE, and be applied while the list is built, rather
+// than be a pass over the finished nodes afterwards. The list is
+// rebuilt wholesale on every incoming message in any chat - which in a
+// busy account is every few seconds - and a rebuild put every hidden
+// row back while the box still had text in it. Measured: filtering to
+// one row out of 113 held until the next render and then the whole
+// list returned.
+let needle = '';
+
+/** Does this chat match what is typed in the filter box? */
+function matches(chat) {
+  if (!needle) return true;
+  return (chat.title ?? '').toLowerCase().includes(needle)
+    || (chat.preview ?? '').toLowerCase().includes(needle);
+}
+
+export function setChatFilter(text) {
+  const next = text.trim().toLowerCase();
+  if (next === needle) return;
+  needle = next;
+  render();
+}
+
+// The floating "back to the top" button. Lives beside the scroller,
+// not in it - see mountChatList.
+let topBtn = null;
+
 function render() {
   if (!root) return;
   // Clearing the container resets its scrollTop, which threw the list
@@ -231,19 +253,57 @@ function render() {
   // itself at random moments. Detachment is the honest test: the folder
   // menu's anchor has just been thrown away, a message's has not.
   closeMenuIfDetached();
-  const chats = store.chats;
+  const chats = store.chats.filter(matches);
   if (!chats.length) {
-    root.append(el('div', { class: 'chat-list__empty', textContent: 'No chats here yet.' }));
+    root.append(el('div', {
+      class: 'chat-list__empty',
+      textContent: needle ? `Nothing matches "${needle}"` : 'No chats here yet.',
+    }));
+    noteScrollPosition();
     return;
   }
   const fragment = document.createDocumentFragment();
   for (const chat of chats) fragment.append(chatItem(chat));
   root.append(fragment);
   restoreScroll(keep);
+  noteScrollPosition();
+}
+
+// ------------------------------------------------------- to the top
+// The history's "jump to the newest message", the other way up: the
+// list is long, the chat you want is usually the freshest one, and
+// scrolling back by hand after digging through it is the same chore
+// the history button exists to save. Same look, same rule for when it
+// is there - see .chat-list__to-top and the scroll-jump mixin.
+const TOP_SLACK = 40;           // the same slack the history allows
+
+function noteScrollPosition() {
+  if (!topBtn) return;
+  topBtn.hidden = root.scrollTop < TOP_SLACK;
+}
+
+function scrollToTop() {
+  root.scrollTop = 0;
+  noteScrollPosition();
 }
 
 export function mountChatList(node) {
   root = node;
+
+  topBtn = el('button', {
+    class: 'chat-list__to-top',
+    type: 'button',
+    title: 'Go to the top of the list',
+    hidden: true,
+    onclick: () => scrollToTop(),
+  }, icon('chevron-down'));
+  // Outside the scroller, in the box that holds it: a child of the
+  // scroller would be laid out against its padding box and scroll away
+  // with the rows. Same arrangement as the history's button.
+  root.parentElement.append(topBtn);
+
+  root.addEventListener('scroll', noteScrollPosition, { passive: true });
+
   on('store:chats', render);
   // Re-render on selection so the previously active card drops its
   // highlight; the list is small enough that a full rebuild is cheaper

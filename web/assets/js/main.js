@@ -5,7 +5,9 @@ import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat 
 import { setCustomEmoji } from './util/emoji.js';
 import { loadIcons, hydrateIcons } from './util/icons.js';
 import { openMenu } from './util/menu.js';
-import { mountChatList, showListLoading, showListError } from './ui/chat-list.js';
+import {
+  mountChatList, showListLoading, showListError, setChatFilter,
+} from './ui/chat-list.js';
 import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory, invalidateHistory } from './ui/history.js';
 import {
@@ -180,6 +182,11 @@ function wireActions() {
   // the event that fires only when the user really picked another chat.
   on('store:active', async (chat) => {
     if (!chat) return;
+    // The header shows this chat's picture, and the list only asks for
+    // the first screenful of them - so a chat opened from further down
+    // would sit under an initial for as long as it stayed open. The
+    // URL rides back in the next chats.list, like every other avatar.
+    call('chats.avatars', { ids: [chat.id] }).catch(() => {});
     try {
       applyMessages(await call('chat.open', { id: chat.id }));
     } catch (err) {
@@ -291,8 +298,6 @@ function wireActions() {
 }
 
 function wireSidebar() {
-  qs('#chats-refresh').addEventListener('click', loadChats);
-
   qs('#chats-archived').addEventListener('change', (event) => {
     setArchived(event.target.checked);
   });
@@ -300,16 +305,11 @@ function wireSidebar() {
 
   // Filtering the loaded list in the page rather than asking the server
   // again: it is already here, and a round trip per keystroke would be
-  // both slower and noisier than a scan of a few hundred items.
+  // both slower and noisier than a scan of a few hundred items. The
+  // filtering itself belongs to the list, which is the only thing that
+  // knows when it is about to rebuild - see setChatFilter.
   qs('#chats-search').addEventListener('input', (event) => {
-    const needle = event.target.value.trim().toLowerCase();
-    for (const node of listNode.children) {
-      const chat = store.chats.find((c) => String(c.id) === node.dataset.chatId);
-      const hit = !needle
-        || (chat?.title ?? '').toLowerCase().includes(needle)
-        || (chat?.preview ?? '').toLowerCase().includes(needle);
-      node.hidden = !hit;
-    }
+    setChatFilter(event.target.value);
   });
 }
 

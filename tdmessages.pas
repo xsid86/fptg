@@ -4024,12 +4024,14 @@ begin
   if (FReq = nil) or (FChatId = 0) then begin
     Exit;
   end;
-  { row_size is what the official clients pass to say how wide their
-    own reaction strip is; eight is what this panel draws. }
+  { row_size says how wide the caller's own reaction strip is, and it
+    shapes how many TOP reactions come back. td_api.tl allows 5-25;
+    asked for the maximum, because the strip scrolls rather than
+    stopping at a row - see the note in webapi.pas/MenuReactionsDone. }
   FReq.SendRequest('getMessageAvailableReactions',
     '"chat_id":' + utf8string(IntToStr(FChatId)) +
     ',"message_id":' + utf8string(IntToStr(AMessageId)) +
-    ',"row_size":8', ACallback, ATag);
+    ',"row_size":25', ACallback, ATag);
 end;
 
 procedure TTdMessages.QueryLink(AMessageId: Int64; ACallback: TTdResponseEvent;

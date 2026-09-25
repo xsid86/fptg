@@ -2,7 +2,7 @@ import { el } from '../core/dom.js';
 import { emit, on } from '../core/bus.js';
 import { onActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
-import { initial } from '../util/format.js';
+import { fillAvatar } from '../util/avatar.js';
 
 // The bar above the history: identity on the left, the search field and
 // the filter strip on the right.
@@ -162,7 +162,8 @@ function render(chat) {
   // Same palette class the list row carries, so the header and the row
   // for one chat can never disagree about its colour.
   root.className = `chat-header accent-${chat.color}`;
-  parts.avatar.textContent = initial(chat.title);
+  // The same picture the row in the list shows - see util/avatar.js.
+  fillAvatar(parts.avatar, chat);
   const kind = icon(kindIcon(chat.kind), 'icon--sm');
   parts.titleIcon.replaceWith(kind);
   parts.titleIcon = kind;

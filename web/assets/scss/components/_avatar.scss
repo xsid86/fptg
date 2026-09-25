@@ -1,9 +1,10 @@
 @use "../abstracts" as *;
 
-// Until the media route exists there is no photo to show, so the avatar
-// is a coloured disc with an initial. The colour is the chat's real
-// accent, resolved server-side (webapi.pas), not a hash invented here —
-// so it matches what the native window draws for the same chat.
+// The chat's photo when there is one, and a coloured disc with an
+// initial when there is not. The colour is the chat's real accent,
+// resolved server-side (webapi.pas), not a hash invented here — so it
+// matches what the native window draws for the same chat. Who puts
+// which of the two in the box: util/avatar.js.
 .avatar {
   @include size($avatar-md);
   @include flex(row, center, center);

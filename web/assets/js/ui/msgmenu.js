@@ -1,5 +1,6 @@
 import { el } from '../core/dom.js';
 import { icon } from '../util/icons.js';
+import { sideScroll } from '../util/sidescroll.js';
 import { openMenu, closeMenu } from '../util/menu.js';
 import { copyText } from '../util/clipboard.js';
 import { openEmojiPicker } from './picker.js';
@@ -61,7 +62,12 @@ function reactionStrip(anchor, msg, info) {
   if (!info.reactions?.length) return null;
   const chosen = mine(msg);
 
-  const row = el('div', { class: 'menu__reactions' },
+  // All of them, in one line that scrolls. A chat offers far more than
+  // a row holds - 13 in a restricted channel, 73 in an ordinary chat,
+  // measured - and they used to be cut at eight with no way to reach
+  // the rest. Wrapping instead would have turned the menu's header
+  // into six rows of emoji.
+  const scroller = el('div', { class: 'menu__reactions-scroll' },
     ...info.reactions.map((emoji) => el('button', {
       class: `menu__react${chosen.has(emoji) ? ' is-chosen' : ''}`,
       type: 'button',
@@ -71,8 +77,13 @@ function reactionStrip(anchor, msg, info) {
         react(msg, emoji, !chosen.has(emoji));
       },
     }, emoji)));
+  sideScroll(scroller);
+
+  const row = el('div', { class: 'menu__reactions' }, scroller);
 
   if (info.allowCustom !== false) {
+    // Outside the scroller on purpose: it is a way out of this strip,
+    // so it has to stay put while the strip moves under it.
     row.append(el('button', {
       class: 'menu__react menu__react--more',
       type: 'button',
