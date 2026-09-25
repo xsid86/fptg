@@ -162,8 +162,13 @@
     </div>
   </section>
 
+  <!-- Signing in. Covers everything until there is an account to
+       show, and is empty the rest of the time. -->
+  <div class="auth" id="auth" hidden></div>
+
   <footer class="app__status status-bar" id="status-bar">
     <div class="conn"></div>
+    <button class="status-bar__presence" type="button" id="presence"></button>
     <span class="status-bar__spacer"></span>
     <div class="status-bar__counts"></div>
     <a class="status-bar__item" href="check.html">transport check</a>

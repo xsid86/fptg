@@ -8,6 +8,21 @@ const data = {
   chats: [],
   archived: false,
   activeChatId: null,
+  // The open chat's ROW, kept apart from the list on screen.
+  //
+  // It used to be looked up in `chats` on demand, and that made the
+  // open chat vanish whenever its row was not in the list being shown
+  // - switching to the archive with an ordinary chat open, most
+  // obviously. Every refresh of that list then announced "no chat" to
+  // everything that redraws, so the history wiped itself, the composer
+  // went dead, and the next messages refresh put it all back: a
+  // flicker, once per list refresh, plus a burst of "load older" on
+  // the emptied history (measured: 72 getChatHistory in three
+  // minutes).
+  //
+  // A chat does not stop being open because you are looking somewhere
+  // else. This holds the last row seen for it.
+  activeRow: null,
   messages: null,
 };
 
@@ -15,7 +30,7 @@ export const store = {
   get chats() { return data.chats; },
   get archived() { return data.archived; },
   get activeChatId() { return data.activeChatId; },
-  get activeChat() { return data.chats.find((c) => c.id === data.activeChatId) ?? null; },
+  get activeChat() { return data.activeRow; },
   get messages() { return data.messages; },
 };
 
@@ -32,7 +47,12 @@ export function setChats(chats) {
   // model, its history jumped to whatever chat this page had open while
   // its own selection stayed behind. Redraw-only listeners take both
   // events through onActiveChat.
-  if (data.activeChatId !== null) emit('store:active-row', store.activeChat);
+  if (data.activeChatId === null) return;
+  // Only ever replaced by a row that is really there. A list without
+  // it says nothing about the chat - see data.activeRow.
+  const row = chats.find((c) => c.id === data.activeChatId);
+  if (row) data.activeRow = row;
+  emit('store:active-row', data.activeRow);
 }
 
 export function setArchived(flag) {
@@ -44,6 +64,7 @@ export function setArchived(flag) {
 export function setActiveChat(id) {
   if (data.activeChatId === id) return;
   data.activeChatId = id;
+  data.activeRow = data.chats.find((c) => c.id === id) ?? null;
   // The history belongs to the previous chat until the server answers
   // with the new one; dropping it here stops the old messages being on
   // screen under the new title for a frame.

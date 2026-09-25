@@ -283,20 +283,52 @@ function renderMedia(msg, group) {
     }
 }
 
+// The square a preview is fitted into. Keep in sync with
+// $media-max-width / $media-max-height in abstracts/_variables.scss -
+// the box is sized here in JavaScript and capped there in CSS, and the
+// two have to agree or the cap moves the box after it is placed.
+const MEDIA_CAP = 420;
+
 /**
- * The classes for one media box: the block, and - when the size is
- * known - the rung of the ratio ladder that gives the box the shape of
- * what is inside it.
+ * The classes for one media box: the block, the rung of the ratio
+ * ladder that gives the box the shape of what is inside it, and the
+ * rung of the width ladder that says how big it is.
  *
  * Without the ratio the box is sized by the original's width and ends
  * up wider than the capped picture, which is what used to show as a
  * grey margin beside every landscape photo. See .media--sized in
  * blocks/_media.scss for why the cap alone cannot fix that.
+ *
+ * Without the WIDTH the box is sized by its content, and the content
+ * of a picture that has not downloaded yet is the ~40px stamp riding
+ * inside the message - so the box stood at its 200px floor until the
+ * file arrived and then sprang to the full 420. Every such spring
+ * moves everything below it, which is the history jumping under the
+ * reader's eyes while a screenful of previews lands. TDLib reports the
+ * size in the message itself, long before the bytes, so the final size
+ * is known from the first paint and nothing has to move.
  */
 function sizedBox(kind, m) {
     const base = `media media--${kind}`;
-    if (!(m.w > 0 && m.h > 0)) return base;
-    return `${base} media--sized media--ar-${clamp(Math.round((m.w / m.h) * 20) * 5, 40, 400)}`;
+    // Nothing said how big this is: the box cannot promise a size it
+    // does not know, so it keeps the old stand-in and the old jump.
+    if (!(m.w > 0 && m.h > 0)) return `${base} media--guess`;
+    const ar = clamp(Math.round((m.w / m.h) * 20) * 5, 40, 400);
+    return `${base} media--sized media--ar-${ar} media--w-${shownWidth(m.w, ar)}`;
+}
+
+/**
+ * How wide the box ends up: the original, fitted into the cap square,
+ * snapped to the ladder's five-pixel step.
+ *
+ * Computed off the ratio RUNG rather than off w/h, so the height CSS
+ * derives from it (width / rung) lands inside the cap too - taking the
+ * true ratio here would let a portrait come out a few pixels too tall
+ * and be clipped by max-height, which is a size change again.
+ */
+function shownWidth(w, ar) {
+    const fit = Math.min(w, MEDIA_CAP, MEDIA_CAP * (ar / 100));
+    return clamp(Math.round(fit / 5) * 5, 40, MEDIA_CAP);
 }
 
 function ensure(msg, what) {

@@ -5,7 +5,8 @@ unit apisetup;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, StdCtrls, Dialogs, Graphics, LCLIntf;
+  Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs, Graphics,
+  LCLIntf;
 
 type
 
@@ -34,6 +35,19 @@ type
     procedure lblLinkClick(Sender: TObject);
     procedure edtApiIdKeyPress(Sender: TObject; var Key: char);
     procedure btnOkClick(Sender: TObject);
+  private
+    { The same pair can now be entered in the WEB interface, which is
+      listening by the time this dialog appears (tg.lpr starts the
+      server first for exactly that reason). This dialog is modal and
+      would otherwise sit in front of an application that is already
+      configured, so it watches for the credentials arriving from
+      anywhere and closes itself when they do.
+
+      A poll rather than a notification: this form exists before the
+      account machinery does and has nothing to subscribe to, and one
+      LoadConfig every half second costs an ini read. }
+    FWatch: TTimer;
+    procedure WatchTick(Sender: TObject);
   end;
 
 var
@@ -48,9 +62,24 @@ uses
 
 { TFormApiConfig }
 
+procedure TFormApiConfig.WatchTick(Sender: TObject);
+begin
+  { LoadConfig is what decides the pair is usable - the same check
+    btnOkClick makes, and the same one tg.lpr made to get here. }
+  if TdApp.LoadConfig then begin
+    FWatch.Enabled := False;
+    ModalResult := mrOk;
+  end;
+end;
+
 procedure TFormApiConfig.FormCreate(Sender: TObject);
 begin
   Position := poScreenCenter;
+
+  FWatch := TTimer.Create(Self);
+  FWatch.Interval := 500;
+  FWatch.OnTimer := @WatchTick;
+  FWatch.Enabled := True;
 
   { Pre-fills whatever LoadConfig already parsed successfully — most
     often either both blank (true first run) or api_id set with

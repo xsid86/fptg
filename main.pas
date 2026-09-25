@@ -106,22 +106,14 @@ type
     FAccMenuCount: integer;   { number of dynamically created menu items }
     FGlyphs: TStringList;   { menu glyph cache: key -> TBitmap }
     FAudioDeviceName: string;   { selected audio output device, from config.ini [audio] }
-    { True = "Invisible": never marks messages as read (already the
-      case — the app never calls viewMessages as a side effect of
-      reading, only from the explicit "Mark as read" chat-list menu
-      item, see tdchats.pas/TTdChats.MarkAsRead) AND suppresses the
-      "online" presence TDLib would otherwise show to contacts
-      automatically whenever the client has an authorized connection —
-      via setOption("online", false), see ApplyPresence. Persisted to
-      config.ini/[ui], same pattern as FAudioDeviceName. }
-    FInvisible: boolean;
     { True = pressing the window's close button hides it to the tray
       instead of quitting — the tray icon (always visible, see main.lfm)
       stays behind, a double-click or its own "Show" menu item restores
       the window. Does NOT affect an explicit quit (File > Quit, the
       tray icon's own "Exit", or closing the pre-login window) — those
       always go through the real shutdown, see FQuitRequested.
-      Persisted to config.ini/[ui], same pattern as FInvisible. Defaults
+      Persisted to config.ini/[ui], same pattern as the presence
+      switch above. Defaults
       to True: this is the newly-requested behavior, not a preserved
       old default. }
     FCloseToTray: boolean;
@@ -132,7 +124,7 @@ type
       general (a plain color, not e.g. "download bar color" specifically)
       since Settings > General presents it as one app-wide choice, not a
       per-feature one. Persisted to config.ini/[ui], same pattern as
-      FInvisible/FCloseToTray above. }
+      FCloseToTray above. }
     FAccentColor: TColor;
     { The app's background surface — the field the chat-list cards, the
       chat info bar's card and the message input box all float on (the
@@ -181,13 +173,9 @@ type
       model of the CURRENTLY OPEN chat (FNav.Current, if it's a
       TFrameHistory), see the comment on TFrameHistory.Model. }
     procedure MessageInputSend(Sender: TObject);
-    procedure ApplyPresence;
-    { Prunes TDLib's media cache to the configured limits. No-op when
-      both are 0 — the whole point of 0 is "keep everything". }
-    procedure ApplyCacheLimit;
-    procedure PresenceSetDone(Sender: TObject; const AResp: TTdResponse);
     procedure UpdatePresencePanel;
     procedure SetPresence(AInvisible: boolean);
+    function GetInvisible: boolean;
     { Pushes FSurfaceColor onto the handful of containers that actually
       own a background — everything inside them has ParentColor on and
       follows. Called from FormCreate (after the value is read) and
@@ -238,10 +226,10 @@ type
     { True = Invisible: TTdMessages.SendFormattedText and friends don't
       change behavior on this, but reading it never marks messages as
       read (see framehistory.pas/TMsgScroller.MarkVisibleAsRead) and
-      the "online" presence is suppressed (see ApplyPresence) — needed
+      the "online" presence is suppressed (see TdApplyPresence) — needed
       by framehistory.pas, same global-FormMain access pattern already
       used for AutoDownloadEnabled/AudioDeviceName. }
-    property Invisible: boolean read FInvisible;
+    property Invisible: boolean read GetInvisible;
     { Whether closing the window hides it to the tray instead of
       quitting — needed by framesettingsgeneral.pas (the General
       section's checkbox), same global-FormMain access pattern already
@@ -412,7 +400,6 @@ begin
   with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
     try
       FAudioDeviceName := ReadString('audio', 'device', '');
-      FInvisible := ReadBool('ui', 'invisible', False);
       FCloseToTray := ReadBool('ui', 'closetotray', True);
       FAccentColor := TColor(ReadInteger('ui', 'accentcolor', Integer(APP_ACCENT_COLOR)));
       FSurfaceColor := TColor(ReadInteger('ui', 'surfacecolor', Integer(APP_SURFACE_COLOR)));
@@ -428,14 +415,17 @@ begin
       Free;
     end;
   end;
+  { Presence is read from the same file, but by tdcore: the page has
+    the same switch, and one setting with two owners is one setting
+    with two answers. See TdLoadPresence. }
+  TdLoadPresence;
   LoadAutoDownloadSettings;
-  { tdmessages.pas keeps the live value — it is read by every
-    TTdMessages instance, including ones created later for other
-    accounts, so it has to be pushed once at startup rather than
-    handed to a particular model. }
-  tdmessages.SetDownloadConcurrency(FDownloadConcurrency);
-  FDownloadConcurrency := tdmessages.DownloadConcurrency;   { clamped }
-  tdmessages.SetDownloadSpeedLimit(FDownloadSpeedKB);
+  { Pushed by tdcore, out of the same file — see TdLoadDownloadLimits.
+    The fields above stay because the Settings dialog shows and edits
+    them; they are re-read here as the CLAMPED values, which is what
+    the dialog should be showing. }
+  TdLoadDownloadLimits;
+  FDownloadConcurrency := tdmessages.DownloadConcurrency;
   FDownloadSpeedKB := tdmessages.DownloadSpeedLimit;
   ApplySurfaceColor;
   UpdatePresencePanel;
@@ -686,9 +676,18 @@ end;
 
 { ---------------- presence (online/invisible) ---------------- }
 
+{ The setting itself belongs to tdcore — see TdSetPresence. What is
+  left here is the window's half of it: the word in the status bar and
+  the icon beside it. }
+
+function TFormMain.GetInvisible: boolean;
+begin
+  Result := TdPresenceInvisible;
+end;
+
 procedure TFormMain.UpdatePresencePanel;
 begin
-  if FInvisible then begin
+  if TdPresenceInvisible then begin
     StatusBar1.Panels[0].Text := 'Invisible';
   end else begin
     StatusBar1.Panels[0].Text := 'Online';
@@ -698,50 +697,8 @@ end;
 
 procedure TFormMain.SetPresence(AInvisible: boolean);
 begin
-  if AInvisible = FInvisible then begin
-    Exit;
-  end;
-  FInvisible := AInvisible;
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      WriteBool('ui', 'invisible', FInvisible);
-    finally
-      Free;
-    end;
-  end;
+  TdSetPresence(AInvisible);
   UpdatePresencePanel;
-  ApplyPresence;
-end;
-
-procedure TFormMain.ApplyPresence;
-var
-  ValStr: utf8string;
-begin
-  { Before the early exit below: this flag is ours, not TDLib's, and it
-    has to be right even when there is no client to tell about the
-    presence itself. }
-  SetPresenceInvisible(FInvisible);
-  if TdRequests = nil then begin
-    Exit;
-  end;
-  if FInvisible then begin
-    ValStr := 'false';
-  end else begin
-    ValStr := 'true';
-  end;
-  { TDLib has no bare-bool shortcut for setOption — the value must be
-    wrapped in an optionValueBoolean object. }
-  TdRequests.SendRequest('setOption',
-    '"name":"online","value":{"@type":"optionValueBoolean","value":' +
-    ValStr + '}', @PresenceSetDone);
-end;
-
-procedure TFormMain.PresenceSetDone(Sender: TObject; const AResp: TTdResponse);
-begin
-  if not AResp.Success then begin
-    SetStatusText(Format('ERROR %d: %s',
-      [AResp.ErrorCode, string(AResp.ErrorMessage)]));
-  end;
 end;
 
 procedure TFormMain.StatusBar1MouseDown(Sender: TObject; Button: TMouseButton;
@@ -777,7 +734,7 @@ begin
     Exit;
   end;
 
-  if FInvisible then begin
+  if TdPresenceInvisible then begin
     IconIdx := PRESENCE_ICON_INVISIBLE;
   end else begin
     IconIdx := PRESENCE_ICON_ONLINE;
@@ -862,14 +819,14 @@ begin
       TDLib client has its own "online" option, so whichever account
       just became ready needs to be told again. Idempotent — resending
       the same value is harmless. }
-    ApplyPresence;
-    { Same "on every transition to Ready" reasoning as ApplyPresence,
+    TdApplyPresence;
+    { Same "on every transition to Ready" reasoning as TdApplyPresence,
       and for the same underlying reason: TdRequests talks to whichever
       account is active, so an account switch has to prune ITS cache,
       not re-prune the previous one. Repeats are harmless — tdstorage
       ignores a call while one is still running, and a cache already
       inside the limit loses nothing. }
-    ApplyCacheLimit;
+    TdApplyCacheLimit;
     if not Visible then begin
       Show;
       { The first screen is shown only once the form has actually
@@ -1299,18 +1256,6 @@ begin
       Free;
     end;
   end;
-end;
-
-procedure TFormMain.ApplyCacheLimit;
-begin
-  if (FCacheLimitMB <= 0) and (FCacheTtlDays <= 0) then begin
-    Exit;
-  end;
-  { Deliberately not subscribed to TdCache.OnChanged: that is a
-    single-listener event and it belongs to the Storage settings
-    section, which is the only place the numbers are shown. A silent
-    prune at startup is the intended behavior. }
-  TdCache.Cleanup(FCacheLimitMB, FCacheTtlDays);
 end;
 
 procedure TFormMain.SetAudioDeviceName(const AName: string);

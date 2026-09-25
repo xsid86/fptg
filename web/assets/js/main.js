@@ -13,6 +13,7 @@ import {
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
+import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
 import { mountThemeToggle } from './ui/theme.js';
 import { openViewer } from './ui/viewer.js';
@@ -121,6 +122,26 @@ function applyMessages(state) {
   // A custom emoji's file arriving changes no message, so the history's
   // per-payload node cache cannot see it. Told explicitly, it redraws.
   if (fresh) invalidateHistory();
+}
+
+/**
+ * Which step of signing in the application is on, and therefore
+ * whether there is anything else to show at all.
+ *
+ * The chat list is only asked for once the answer is "ready". Asking
+ * earlier is not merely wasteful - before an account exists every
+ * command answers "no active account", and the page would open on an
+ * error it has no business reporting.
+ */
+let signedIn = false;
+
+async function refreshAuth() {
+  const info = await call('auth.state');
+  showAuth(info);
+  const ready = info?.state === 'ready';
+  if (ready === signedIn) return;
+  signedIn = ready;
+  if (ready) await loadChats();
 }
 
 async function loadChats() {
@@ -319,6 +340,14 @@ async function boot() {
     edit: editMessage,
     report,
   });
+  mountAuth(qs('#auth'), {
+    send: (cmd, args) => call(cmd, args)
+      // The refusal for a step is part of the step: the server reports
+      // it with the next auth state, so there is nothing to show here
+      // beyond the ones that never get that far.
+      .then(() => refreshAuth())
+      .catch(report),
+  });
   mountPicker(qs('#composer-emoji'), {
     insert: insertAtCaret,
     send: (payload) => emit('ui:send-media', payload),
@@ -336,15 +365,22 @@ async function boot() {
   // decision - see throttle above.
   on('srv:chats', refreshChats);
   on('srv:messages', refreshMessages);
+  on('srv:auth', () => { refreshAuth().catch(report); });
   // Not throttled here: the server already coalesces this one to a tick,
   // and the panel ignores it unless it is open on the tab concerned.
   on('srv:stickers', pickerChanged);
 
   // Load on every (re)connect, not just the first: after a drop the
   // list on screen is however stale the disconnection left it.
+  //
+  // Signing in is asked about FIRST, and the chat list only follows
+  // from its answer - see refreshAuth. A reconnect can land on a
+  // different step than the last one did (the application may have
+  // been signed out while the page was away).
   on('net:status', (status) => {
     if (status !== 'open') return;
-    loadChats();
+    signedIn = false;
+    refreshAuth().catch(report);
     if (store.activeChatId !== null) loadMessages();
   });
 

@@ -88,6 +88,7 @@
   color: var(--c-ok);
 }
 
+.tok--tag,
 .tok--number,
 .tok--constant,
 .tok--symbol,
@@ -97,8 +98,8 @@
 
 .tok--function,
 .tok--class-name,
-.tok--tag,
 .tok--selector {
+  color: var(--c-warn);
   font-weight: $fw-bold;
 }
 

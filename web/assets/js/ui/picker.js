@@ -173,7 +173,9 @@ function showSet(id) {
   for (const button of qsa('.picker__jump--custom', panel)) {
     button.classList.toggle('is-active', button.dataset.set === id);
   }
-  qs('.picker__jump--standard', panel)?.classList.toggle('is-active', id === null);
+  const standard = qs('.picker__jump--standard', panel);
+  standard?.classList.toggle('is-active', id === null);
+  centreJump(id === null ? standard : qs('.picker__jump.is-active', panel));
   if (id === null) {
     clear(box);
     return;
@@ -321,6 +323,24 @@ function buildEmoji(body) {
     el('h3', { class: 'picker__heading' }, 'Search results'),
     el('div', { class: 'picker__grid' }));
 
+  body.append(sections, custom, results);
+  buildStrip();
+  refreshRecent();
+  applyTone();
+}
+
+/**
+ * The row of group and set buttons along the bottom.
+ *
+ * It is a child of the PANEL, not of the scrolling body. Inside the
+ * body it was `position: sticky; bottom: 0`, which pins an element to
+ * the bottom of the scroller only while there is enough content to
+ * scroll: a short set left it floating halfway up the panel. Outside
+ * the scroller there is nothing to float - it is simply the last row
+ * of the panel.
+ */
+function buildStrip() {
+  if (qs('.picker__strip', panel)) return;
   const strip = el('div', { class: 'picker__strip' },
     // Filled once the account's custom sets are known, and only while
     // the panel is picking a reaction - see fillCustomJumps.
@@ -334,10 +354,102 @@ function buildEmoji(body) {
         qs(`[data-group="${group.id}"]`, panel)?.scrollIntoView({ block: 'start' });
       },
     }, group.icon)));
+  dragToScroll(strip);
+  panel.append(strip);
+}
 
-  body.append(sections, custom, results, strip);
-  refreshRecent();
-  applyTone();
+/**
+ * Dragging the strip sideways, because there are more sets than fit
+ * and no scrollbar to grab - the bar itself is hidden on purpose, a
+ * visible one across the bottom of the panel looks like damage.
+ *
+ * Pointer capture rather than listeners on the document: the pointer
+ * keeps reporting to this element even when it leaves it, so a drag
+ * that runs off the edge of the panel still works and still ends.
+ *
+ * The click that ends a real drag is swallowed. Without that, letting
+ * go over a button both scrolled the strip and switched the set.
+ */
+function dragToScroll(strip) {
+  let from = 0;
+  let at = 0;
+  let held = false;
+  let moved = false;
+
+  strip.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    from = event.clientX;
+    at = strip.scrollLeft;
+    held = true;
+    moved = false;
+    // NOT captured here. Pointer capture redirects the CLICK as well
+    // as the pointer events: measured on a real click, the sequence
+    // was pointerdown, pointerup with capture held, and then a click
+    // whose target was the strip rather than the button under the
+    // finger - so every button in the strip stopped working while the
+    // drag itself looked fine. A synthetic click misses this entirely,
+    // because it never goes through the pointer path at all.
+  });
+
+  strip.addEventListener('pointermove', (event) => {
+    if (!held) return;
+    const by = event.clientX - from;
+    // A few pixels of slack, so a click with an unsteady hand is still
+    // a click.
+    if (!moved && Math.abs(by) > 4) {
+      moved = true;
+      // Only NOW, when this is certainly a drag and not a click: the
+      // pointer keeps reporting here once it has left the strip, so a
+      // drag that runs off the edge still works. Best effort - a
+      // refused capture must not stop the drag, which is why `held`
+      // and not capture is what says one is in progress.
+      try { strip.setPointerCapture(event.pointerId); } catch { /* fine */ }
+    }
+    if (moved) strip.scrollLeft = at - by;
+  });
+
+  const release = (event) => {
+    held = false;
+    try { strip.releasePointerCapture(event.pointerId); } catch { /* fine */ }
+  };
+  strip.addEventListener('pointerup', release);
+  strip.addEventListener('pointercancel', release);
+
+  // Letting go over a button used to both scroll the strip and switch
+  // the set. Captured, so it is stopped before the button ever sees
+  // it.
+  strip.addEventListener('click', (event) => {
+    if (!moved) return;
+    event.preventDefault();
+    event.stopPropagation();
+    moved = false;
+  }, true);
+}
+
+/**
+ * Brings the button for what is on screen into the middle of the
+ * strip, so the neighbours on both sides are visible and the strip
+ * reads as a place you are somewhere in.
+ */
+function centreJump(button) {
+  if (!button) return;
+  const strip = button.closest('.picker__strip');
+  if (!strip) return;
+
+  // Measured off the rectangles rather than offsetLeft: the button's
+  // offsetParent is the panel (a popover, and therefore positioned),
+  // so offsetLeft is a layout position that ignores how far the strip
+  // is already scrolled. The rects are what is actually on screen.
+  const seen = strip.getBoundingClientRect();
+  const mine = button.getBoundingClientRect();
+  const to = strip.scrollLeft + (mine.left - seen.left)
+    - (seen.width - mine.width) / 2;
+
+  // Plainly, not smoothly. `behavior: 'smooth'` does nothing at all in
+  // this WebView - measured: a plain scrollTo moved the strip to 200,
+  // the same call with behavior smooth left it at 0 - and a scroll
+  // that silently does not happen is worse than one without easing.
+  strip.scrollLeft = Math.max(0, to);
 }
 
 /**
@@ -600,6 +712,10 @@ async function showTab(name) {
   const box = qs('.picker__query', panel);
   box.placeholder = PLACEHOLDER[name];
   qs('.picker__tones', panel).hidden = name !== 'emoji';
+  // The strip navigates the emoji groups and sets, and there is
+  // nothing for it to navigate on the other two tabs.
+  const strip = qs('.picker__strip', panel);
+  if (strip) strip.hidden = name !== 'emoji';
 
   const pane = paneFor(name);
   if (name === 'emoji') {

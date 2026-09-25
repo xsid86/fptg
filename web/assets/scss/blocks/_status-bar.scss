@@ -15,6 +15,28 @@
   font-variant-numeric: tabular-nums;
   .icon { @include size($icon-sm); }
 }
+// The presence switch, next to the connection dot: both answer "what
+// is this client doing right now", and the native window keeps them in
+// the same corner for the same reason.
+.status-bar__presence {
+  @include flex(row, center, flex-start, $space-2);
+  background: none;
+  border: 0;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  font: inherit;
+  padding: 0 $space-2;
+
+  &:hover:not(:disabled) { color: var(--c-text); }
+  &:disabled { cursor: default; }
+  &:focus-visible { @include focus-ring(var(--c-accent), -2px); }
+
+  // Online borrows the connection dot's own green; Invisible goes grey,
+  // which is what "nothing is going out" should look like.
+  .conn__dot { background: var(--c-ok); }
+  &.is-invisible .conn__dot { background: var(--c-text-faint); }
+}
+
 // The theme switch. It sits at the right-hand end of the status bar,
 // which is where it belongs: a setting that is always reachable but
 // never in the way of the chat.

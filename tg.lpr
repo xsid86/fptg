@@ -52,14 +52,30 @@ uses
   framesettingsautodownload, framesettingsstorage,
   framelog, framewelcome, framechats, framehistory,
   mediaviewer, msginput, apisetup, chatheader,
-  wsframe, webfiles, localserver, webapi, autodownload
+  wsframe, webfiles, localserver, webapi, webauth, webui, autodownload
   { you can add units after this };
 
 {$R *.res}
+{ The application's icon.
+
+  The project never had one: the exe showed the generic Windows icon,
+  and Application.Icon was empty. That did not matter while the only
+  tray icon lived on TFormMain and carried its own image in main.lfm -
+  and it started mattering the moment the web window became the
+  application and needed a tray icon of its own.
+
+  tg.ico is that same image, lifted out of main.lfm's TrayIcon1.Icon
+  .Data, so both windows show the one icon. Rebuild the resource after
+  changing the file with:
+
+    fpcres -of res -o tg_icon.res tg_icon.rc }
+{$R tg_icon.res}
 
 var
   WaitIter: integer;
   ServerPort: word;
+  ServerUp: boolean;
+  UseWeb: boolean;
 
 begin
   { Defensive, app-wide belt-and-suspenders fix alongside tdrecv's own
@@ -84,6 +100,65 @@ begin
   { Ни одна форма не должна появиться сама: кто и когда показывается,
     решают сами формы по состоянию авторизации. }
   Application.ShowMainForm := False;
+
+  { The web UI's transport, and it goes up FIRST - before the config
+    is even read.
+
+    It used to start last, after the first-run dialog had already been
+    through and the accounts were loaded. That was fine while the web
+    was a second view of a running application; it is not fine now
+    that signing in is being moved there, because the very first thing
+    a fresh install needs is a way to be told an api_id - and a server
+    that starts after that question has been asked cannot be the one
+    asking it.
+
+    Nothing here depends on the config: the port comes from the
+    command line or a constant, and the command bridge reports "no
+    account yet" perfectly well, that being one of the states the page
+    knows how to draw.
+
+    A refused start (port already taken) is still not fatal - the
+    native window is a complete application on its own, and it is what
+    the program falls back to just below. }
+  ServerPort := ConfiguredServerPort;
+  ServerUp := StartLocalServer(ServerPort);
+  if ServerUp then begin
+    WebApiStart;
+  end;
+
+  { THE WEB INTERFACE IS THE APPLICATION'S FACE.
+
+    Its own window comes up immediately and is the only one there is:
+    no splash, no login form, no main window. Signing in - including
+    the api_id/api_hash a fresh install has to be told - happens in the
+    page, against the same TTdAuth the native forms used to drive.
+
+    The native forms are NOT gone. They are still built into this
+    binary, still work, and are the fallback for the two ways this can
+    fail: no local server (the port was taken) and no WebView2 runtime
+    (nothing to host the page in). Neither is hypothetical, and in
+    either case a complete native application is a far better answer
+    than a program with no window at all. }
+  UseWeb := ServerUp and ShowWebUi(utf8string(LocalServerUrl));
+
+  if UseWeb then begin
+    SetWebUiPrimary(True);
+    { The account layer comes up as soon as there is a pair to bring it
+      up with: now, if config.ini already has one, or later from the
+      page's api.save. Nothing is shown or waited for here - the page
+      is already on screen asking the question. }
+    { The settings the native window used to read on its way up. The
+      page has no screen to EDIT most of them yet - that is still the
+      desktop Settings dialog - but what stands in the file has to
+      apply either way. The cache ceiling is not here: pruning needs a
+      live client, so it goes off the transition to Ready, see
+      TWebApi.AuthChanged. }
+    TdLoadPresence;
+    TdLoadDownloadLimits;
+    TdApp.EnsureStarted;
+  end else begin
+
+  { ---------------- the native path, to the end of this block ------ }
 
   { Конфиг и список аккаунтов читаются ДО создания форм: формы
     в FormCreate подписываются на активный аккаунт и обращаются
@@ -125,6 +200,12 @@ begin
   FormSplash.Show;
   TdApp.Start;
 
+  end;   { not UseWeb }
+
+  { Both paths end here, and end the same way: one message loop, and
+    one shutdown. The decoder-thread wait below is the reason that
+    matters - see its own comment. }
+
   { The web UI's transport, on for every launch. It used to need
     --server, which meant remembering a flag to get at the interface
     the app is being moved to — the wrong default once the web UI is
@@ -139,14 +220,6 @@ begin
     told about it — that menu item is the only place this failure
     would otherwise surface, a GUI process having no console to
     complain to. }
-  ServerPort := ConfiguredServerPort;
-  if StartLocalServer(ServerPort) then begin
-    { Only once the socket is actually listening: without the server
-      there is nothing for the command bridge to answer on, and its
-      timer would just tick for nothing. }
-    WebApiStart;
-  end;
-
   Application.Run;
 
   { Before the decoder-thread wait below, because this one is quick

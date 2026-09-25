@@ -79,6 +79,13 @@ type
       came back. Both false is the ordinary state of a set nobody has
       scrolled to yet. }
     Requested, Loaded: boolean;
+    { Every sticker's FILE has been asked for, not just the first.
+      Kept apart from Loaded because for custom emoji the two happen
+      at very different times: the list of stickers arrives for every
+      set at once (there is no other way to know what a set looks
+      like), while the files only arrive for the set actually being
+      looked at. }
+    FilesWanted: boolean;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -161,6 +168,7 @@ type
     procedure Touch;
     function ReadSticker(AObj: TJSONObject; ACustom: boolean = False): TStickerItem;
     function EmojiSetById(AId: Int64): TStickerSetRow;
+    procedure RequestEmojiSet(ARow: TStickerSetRow);
     procedure EmojiSetsDone(Sender: TObject; const AResp: TTdResponse);
     procedure EmojiSetDone(Sender: TObject; const AResp: TTdResponse);
     procedure WantFile(AFileId: integer; var ARequested: boolean);
@@ -529,17 +537,33 @@ begin
     '"sticker_type":{"@type":"stickerTypeCustomEmoji"}', @EmojiSetsDone);
 end;
 
+{ The set is being looked at, so now its files are worth having.
+
+  Separate from RequestEmojiSet, which only asks what is IN a set:
+  that happens for every set as soon as the list is known, because a
+  set cannot be drawn without it. This is the expensive half, and it
+  happens for one set at a time. }
 procedure TTdStickers.EnsureEmojiSet(AId: Int64);
 var
   Row: TStickerSetRow;
+  I: integer;
 begin
   Row := EmojiSetById(AId);
-  if (Row = nil) or Row.Requested or (FReq = nil) then begin
+  if (Row = nil) or Row.FilesWanted then begin
     Exit;
   end;
-  Row.Requested := True;
-  FReq.SendRequest('getStickerSet', '"set_id":' + utf8string(IntToStr(AId)),
-    @EmojiSetDone);
+  Row.FilesWanted := True;
+  { Not loaded yet means the list is still on its way; EmojiSetDone
+    sees FilesWanted and fetches the files as it fills the set. }
+  if not Row.Loaded then begin
+    RequestEmojiSet(Row);
+    Exit;
+  end;
+  for I := 0 to Row.Items.Count - 1 do begin
+    if Row.Items[I].LocalPath = '' then begin
+      WantFile(Row.Items[I].FileId, Row.Items[I].Requested);
+    end;
+  end;
 end;
 
 procedure TTdStickers.EmojiSetsDone(Sender: TObject; const AResp: TTdResponse);
@@ -566,10 +590,12 @@ begin
       Row := TStickerSetRow.Create;
       Row.Id := JGetInt64(Info, 'id');
       Row.Title := JGetStr(Info, 'title');
-      { stickerSetInfo carries a few of the set's own stickers for
-        exactly this purpose. Taking the first means the set's button
-        can show the set instead of a letter, without loading the
-        whole thing. }
+      { stickerSetInfo has a `covers` field meant for exactly this, and
+        for custom emoji sets it is EMPTY - measured on a live account:
+        all 28 installed sets came back with "covers":[] and no
+        thumbnail either. So a set cannot be drawn from its own
+        listing, and the only way to know what one looks like is to
+        fetch it. }
       Covers := JGetArr(Info, 'covers');
       if (Covers <> nil) and (Covers.Count > 0)
          and (Covers.Items[0] is TJSONObject) then begin
@@ -582,6 +608,26 @@ begin
     end;
   end;
   Touch;
+
+  { So every set is fetched, right away - but only its LIST of
+    stickers. The files behind them stay untouched except for the
+    first of each, which is what the panel's strip draws the set with.
+    Metadata for a couple of dozen sets is a few hundred kilobytes of
+    JSON out of TDLib's own database; the files would be thousands of
+    downloads. }
+  for I := 0 to FEmojiSets.Count - 1 do begin
+    RequestEmojiSet(FEmojiSets[I]);
+  end;
+end;
+
+procedure TTdStickers.RequestEmojiSet(ARow: TStickerSetRow);
+begin
+  if (ARow = nil) or ARow.Requested or (FReq = nil) then begin
+    Exit;
+  end;
+  ARow.Requested := True;
+  FReq.SendRequest('getStickerSet',
+    '"set_id":' + utf8string(IntToStr(ARow.Id)), @EmojiSetDone);
 end;
 
 procedure TTdStickers.EmojiSetDone(Sender: TObject; const AResp: TTdResponse);
@@ -611,8 +657,13 @@ begin
         Continue;
       end;
       Row.Items.Add(Item);
-      if Item.LocalPath = '' then begin
-        WantFile(Item.FileId, Item.Requested);
+      { The first one's file, always: it is the set's own picture in
+        the panel's strip, and without it the button has nothing to
+        wear but a letter. The rest wait for the set to be opened. }
+      if (Row.Items.Count = 1) or Row.FilesWanted then begin
+        if Item.LocalPath = '' then begin
+          WantFile(Item.FileId, Item.Requested);
+        end;
       end;
     end;
   end;

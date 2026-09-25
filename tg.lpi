@@ -19,7 +19,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="498"/>
+      <BuildNr Value="505"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -391,6 +391,10 @@
       </Unit>
       <Unit>
         <Filename Value="tdstickers.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="webauth.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

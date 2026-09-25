@@ -99,6 +99,26 @@
   }
 }
 
+// And the width, on its own ladder, because the box has to be the size
+// it will END at from the very first paint.
+//
+// `width: fit-content` above is honest only once there is content to
+// fit: before the file arrives the box holds the ~40px stamp from the
+// message and stands at a floor, and when the picture lands the box
+// grows to the cap. That growth pushes down everything below it, which
+// is the history jumping while a screenful of previews downloads.
+//
+// ui/message.js knows the final width from the size TDLib reports in
+// the message, which is there long before the bytes are - so it picks
+// the rung and the box never moves. Declared after .media--sized, and
+// with the same one-class weight, so the rung is what wins.
+@for $i from 8 through 84 {
+  $w: $i * 5;
+  .media--w-#{$w} {
+    width: #{$w}px;
+  }
+}
+
 // Fullscreen belongs to the VIDEO, not to the box it came from. The
 // page's own sizing is kept away from it by the :not(:fullscreen)
 // clauses on the rules that would otherwise reach it; what is left is
@@ -120,12 +140,13 @@ video:fullscreen {
   transform: scale(1.06); // hides the soft edge the blur leaves
 }
 
-// A box holding nothing but that stamp would otherwise shrink to it:
-// the ratio is known, but the WIDTH comes from the content, and 40px
-// of content is a stamp. The floor belongs to the box, not to the
-// image - a minimum on the image only makes it overflow the box it is
-// supposed to be filling.
-.media--sized.is-pending {
+// The fallback, for media that never reported a size: there is no rung
+// to put it on, so the box is sized by its content and a box holding
+// nothing but the stamp would shrink to 40px. The floor belongs to the
+// box, not to the image - a minimum on the image only makes it
+// overflow the box it is supposed to be filling. This one still jumps
+// when the file lands; it is the only case left that can.
+.media--guess.is-pending {
   min-width: 200px;
 }
 

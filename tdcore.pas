@@ -112,6 +112,16 @@ type
     procedure DiscardAccount(AAccount: TTdAccount);
     procedure Start;
 
+    { Brings the account layer up, but only once there are credentials
+      to bring it up with; answers whether there were.
+
+      Exists because the api_id/api_hash can now arrive at two very
+      different moments: already in config.ini when the program
+      starts, or typed into the web UI minutes later. Both call this,
+      whichever happens first wins, and the other is a no-op - Start
+      is guarded by FStarted and loads the accounts itself. }
+    function EnsureStarted: boolean;
+
     procedure SubscribeActive(const AListener: ITdActiveListener);
     procedure UnsubscribeActive(const AListener: ITdActiveListener);
 
@@ -182,6 +192,48 @@ function TdSupergroupList: TTdSupergroups;
 function TdStickerList: TTdStickers;
 function TdRequests: TTdRequests;
 
+{ Presence: "Online" versus "Invisible".
+
+  The FLAG itself lives in tdmessages, right next to the viewMessages
+  it suppresses - that is where a read receipt would leak from. What
+  lives here is the rest of the setting: the config.ini line it is
+  remembered in, and the setOption("online") TDLib has to be told
+  about, both of which need the active account.
+
+  Here rather than in the main form because the form is no longer the
+  only face. The page has the same switch, and a setting owned by one
+  of two windows is a setting the other one can contradict. }
+function TdPresenceInvisible: boolean;
+{ Reads the remembered value. Call once at startup, before any client
+  is up - it only sets the flag, it does not talk to TDLib. }
+procedure TdLoadPresence;
+{ Changes it: remembers, and tells whoever is listening. }
+procedure TdSetPresence(AInvisible: boolean);
+{ Pushes the current value at TDLib. Called on every transition to
+  Ready, not just the first: each client has its own "online" option,
+  so an account switch or a reconnect has to be told again. Resending
+  the same value is harmless. }
+procedure TdApplyPresence;
+
+{ The other two settings that shape how the app behaves rather than how
+  it looks: the download pacing and the media cache ceiling.
+
+  Here for the same reason as the presence above. They used to be read
+  by the main form on its way up, and the web path never builds one, so
+  on that path the numbers in config.ini were simply not applied and
+  the defaults ran instead. Auto-download escaped this only because
+  autodownload.pas reads the file itself, lazily.
+
+  Read from the file rather than passed in: the settings dialog writes
+  every change straight to it, so the file is always the current
+  answer. }
+procedure TdLoadDownloadLimits;
+{ Prunes TDLib's media cache to the configured limits. No-op when both
+  are 0 - the whole point of 0 is "keep everything". Called on every
+  transition to Ready, like TdApplyPresence, because the cache belongs
+  to whichever account just became ready. }
+procedure TdApplyCacheLimit;
+
 { Unsubscribes from all accounts at once. A form may have subscribed to
   one account while a different one is active by the time it's
   destroyed. }
@@ -194,6 +246,12 @@ function TdIsShuttingState(AState: TTdAuthState): boolean;
 procedure TdSessionUnsubscribe(const ASession: ITdSession; const AListener: IUnknown);
 
 implementation
+
+uses
+  { In the implementation on purpose: tdstorage's own implementation
+    uses this unit back, and a cycle is only legal while at least one
+    side of it is down here. }
+  tdstorage;
 
 var
   GCore: TTdCore = nil;
@@ -288,6 +346,104 @@ begin
   end else begin
     Result := nil;
   end;
+end;
+
+function TdPresenceInvisible: boolean;
+begin
+  Result := tdmessages.PresenceInvisible;
+end;
+
+procedure TdLoadPresence;
+begin
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      tdmessages.SetPresenceInvisible(ReadBool('ui', 'invisible', False));
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TdSetPresence(AInvisible: boolean);
+begin
+  if AInvisible = tdmessages.PresenceInvisible then begin
+    Exit;
+  end;
+  { The flag first, and unconditionally: it is ours, not TDLib's, and
+    it has to be right even when there is no client to tell. }
+  tdmessages.SetPresenceInvisible(AInvisible);
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      WriteBool('ui', 'invisible', AInvisible);
+    finally
+      Free;
+    end;
+  end;
+  TdApplyPresence;
+end;
+
+procedure TdApplyPresence;
+var
+  ValStr: utf8string;
+begin
+  if TdRequests = nil then begin
+    Exit;
+  end;
+  if tdmessages.PresenceInvisible then begin
+    ValStr := 'false';
+  end else begin
+    ValStr := 'true';
+  end;
+  { TDLib has no bare-bool shortcut for setOption - the value must be
+    wrapped in an optionValueBoolean object. }
+  TdRequests.SendRequest('setOption',
+    '"name":"online","value":{"@type":"optionValueBoolean","value":' +
+    ValStr + '}', nil);
+end;
+
+procedure TdLoadDownloadLimits;
+var
+  Concurrency, SpeedKB: integer;
+begin
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      Concurrency := ReadInteger('downloads', 'concurrency',
+        DOWNLOAD_CONCURRENCY_DEFAULT);
+      SpeedKB := ReadInteger('downloads', 'speedkb',
+        DOWNLOAD_SPEED_DEFAULT_KB);
+    finally
+      Free;
+    end;
+  end;
+  { tdmessages keeps the live values - they are read by every
+    TTdMessages instance, including ones created later for other
+    accounts, so they are pushed once rather than handed to a
+    particular model. Both setters clamp, and the getters then report
+    what the clamp left. }
+  tdmessages.SetDownloadConcurrency(Concurrency);
+  tdmessages.SetDownloadSpeedLimit(SpeedKB);
+end;
+
+procedure TdApplyCacheLimit;
+var
+  LimitMB, TtlDays: integer;
+begin
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      LimitMB := ReadInteger('storage', 'maxcachemb', CACHE_LIMIT_DEFAULT_MB);
+      TtlDays := ReadInteger('storage', 'ttldays', CACHE_TTL_DEFAULT_DAYS);
+    finally
+      Free;
+    end;
+  end;
+  if (LimitMB <= 0) and (TtlDays <= 0) then begin
+    Exit;
+  end;
+  { Deliberately not subscribed to TdCache.OnChanged: that is a
+    single-listener event and it belongs to the Storage settings
+    section, which is the only place the numbers are shown. A silent
+    prune at startup is the intended behavior. }
+  TdCache.Cleanup(LimitMB, TtlDays);
 end;
 
 procedure TdUnsubscribe(const AListener: IUnknown);
@@ -663,6 +819,14 @@ begin
     A := TTdAccount(FPendingRemove[I]);
     FPendingRemove.Delete(I);
     RemoveAccount(A);
+  end;
+end;
+
+function TTdCore.EnsureStarted: boolean;
+begin
+  Result := LoadConfig;
+  if Result then begin
+    Start;
   end;
 end;
 

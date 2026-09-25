@@ -1,0 +1,183 @@
+@use "../abstracts" as *;
+
+// Signing in (ui/auth.js).
+//
+// One card on a backdrop, covering everything. Not a popover and not a
+// dialog: at this point there is nothing underneath worth seeing
+// through to, and nothing to dismiss it back to.
+//
+// `hidden` is spelled out because the grid below would otherwise win
+// over the UA rule - the same 0,1,0 trap the picker documents.
+.auth {
+  @include flex(row, center, center);
+  background: var(--c-bg);
+  inset: 0;
+  overflow-y: auto;
+  position: fixed;
+  z-index: 100;
+}
+
+.auth[hidden] {
+  display: none;
+}
+
+.auth__backdrop {
+  @include flex(row, center, center);
+  min-height: 100%;
+  padding: $space-7 $space-6;
+  width: 100%;
+}
+
+.auth__card {
+  @include flex(column, stretch, flex-start, $space-4);
+  @include card($radius-lg, var(--c-surface));
+  max-width: 420px;
+  padding: $space-7;
+  width: 100%;
+}
+
+.auth__title {
+  font-size: $fs-lg;
+  font-weight: $fw-bold;
+  margin: 0;
+}
+
+.auth__note {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  line-height: $lh-base;
+  margin: 0;
+}
+
+.auth__note--dim {
+  color: var(--c-text-faint);
+}
+
+.auth__form {
+  @include flex(column, stretch, flex-start, $space-4);
+}
+
+.auth__field {
+  @include flex(column, stretch, flex-start, $space-2);
+}
+
+.auth__label {
+  color: var(--c-text-dim);
+  font-size: $fs-xs;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.auth__input {
+  background: var(--c-surface-2);
+  border: 1px solid transparent;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  font: inherit;
+  font-size: $fs-md;
+  padding: $space-3 $space-4;
+  @include transition;
+  @include focus-ring;
+
+  &:focus {
+    border-color: var(--c-accent);
+  }
+}
+
+.auth__submit {
+  background: var(--c-accent);
+  border: 0;
+  border-radius: $radius-md;
+  color: var(--c-accent-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: $fs-md;
+  font-weight: $fw-medium;
+  padding: $space-3 $space-4;
+  @include transition;
+  @include focus-ring;
+
+  &:hover {
+    background: var(--c-accent-hover);
+  }
+}
+
+// The alternatives under a form - another way in, another delivery.
+// A button rather than an anchor: none of them go anywhere, they all
+// send something.
+.auth__aside {
+  @include flex(row, center, center, $space-3);
+}
+
+.auth__link {
+  background: none;
+  border: 0;
+  color: var(--c-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: $fs-sm;
+  padding: 0;
+  text-decoration: underline;
+  @include focus-ring;
+}
+
+// What Telegram refused. Sits at the foot of the card and is the one
+// part that updates without the card being rebuilt.
+.auth__error {
+  background: color-mix(in srgb, var(--c-danger) 15%, transparent);
+  border-radius: $radius-md;
+  color: var(--c-danger);
+  font-size: $fs-sm;
+  margin: 0;
+  padding: $space-3 $space-4;
+}
+
+.auth__steps {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  line-height: $lh-base;
+  margin: 0;
+  padding-left: $space-6;
+}
+
+// Drawn by the server (qrrender.pas, the same renderer the native
+// window uses), so this only has to place it. White underneath
+// regardless of theme: a QR code is read by a camera, and a dark one
+// with a dark quiet zone is not read at all.
+.auth__qr {
+  align-self: center;
+  background: #fff;
+  border-radius: $radius-md;
+  display: block;
+  height: auto;
+  max-width: 260px;
+  padding: $space-3;
+  width: 100%;
+}
+
+.auth__tos {
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  color: var(--c-text-faint);
+  font-size: $fs-xs;
+  line-height: $lh-base;
+  margin: 0;
+  max-height: 140px;
+  overflow-y: auto;
+  padding-top: $space-4;
+  white-space: pre-wrap;
+  @include scrollbar(6px);
+}
+
+.auth__spinner {
+  @include flex(row, center, center);
+  color: var(--c-text-faint);
+
+  .icon {
+    @include size(24px);
+    animation: auth-spin 1.2s linear infinite;
+  }
+}
+
+@keyframes auth-spin {
+  to { transform: rotate(1turn); }
+}

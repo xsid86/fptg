@@ -62,8 +62,9 @@ implementation
 
 uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fpjson, jsonparser,
-  constants, tdreq, tdchats, tdmessages, tdusers, tdstickers, tdcore, tdrecv,
-  localserver, webfiles, autodownload, customemoji;
+  constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
+  tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
+  autodownload, customemoji;
 
 type
   { A request whose answer is not here yet.
@@ -107,6 +108,11 @@ type
     FBoundChats: TTdChats;
     FBoundMsgs:  TTdMessages;
     FBoundStickers: TTdStickers;
+    { Watches the sign-in flow. Owned here, alive for the life of the
+      bridge: unlike the models it exists before any account does,
+      because "there is no account yet" is one of the things the page
+      has to be told. }
+    FAuth: TWebAuth;
     FDeferred: array of TDeferredReply;
     { Set by the sticker model's own change event, drained on the next
       tick. Unlike chats and messages, this one fires per downloaded
@@ -122,6 +128,7 @@ type
     procedure ChatsChanged(Sender: TObject);
     procedure MessagesChanged(Sender: TObject);
     procedure StickersChanged(Sender: TObject);
+    procedure AuthChanged(Sender: TObject);
     function  TakeDeferred(AConnId: Int64; AReqId: integer;
       AMessageId: Int64): PtrInt;
     procedure ReleaseDeferred(ASlot: PtrInt);
@@ -148,6 +155,8 @@ type
     function  CmdMessagesList: TJSONData;
     function  CmdMessagesOlder: TJSONData;
     function  CmdMessagesRead(AArgs: TJSONObject): TJSONData;
+    function  CmdPresenceGet: TJSONData;
+    function  CmdPresenceSet(AArgs: TJSONObject): TJSONData;
     function  CmdMessageSend(AArgs: TJSONObject): TJSONData;
     function  CmdPollVote(AArgs: TJSONObject): TJSONData;
     function  CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
@@ -156,6 +165,10 @@ type
     function  CmdStickerSet(AArgs: TJSONObject): TJSONData;
     function  CmdGifsList(AArgs: TJSONObject): TJSONData;
     function  CmdGifEnsure(AArgs: TJSONObject): TJSONData;
+    function  CmdAuthState: TJSONData;
+    function  CmdAuthSubmit(const ACmd: utf8string; AArgs: TJSONObject): TJSONData;
+    function  CmdApiConfig: TJSONData;
+    function  CmdApiSave(AArgs: TJSONObject): TJSONData;
     function  CmdEmojiSets: TJSONData;
     function  CmdEmojiSet(AArgs: TJSONObject): TJSONData;
     function  CmdMessageSendMedia(AArgs: TJSONObject): TJSONData;
@@ -881,6 +894,8 @@ begin
   FTimer.Interval := WEBAPI_FALLBACK_TICK_MS;
   FTimer.OnTimer := @Tick;
   FTimer.Enabled := True;
+  FAuth := TWebAuth.Create(nil);
+  FAuth.OnChanged := @AuthChanged;
 end;
 
 destructor TWebApi.Destroy;
@@ -889,6 +904,7 @@ var
 begin
   FTimer.Enabled := False;
   FTimer.Free;
+  FreeAndNil(FAuth);
   DropBindings;
   { A queued Drain still pointing at this object would run against
     freed memory. }
@@ -916,6 +932,13 @@ var
   Msgs: TTdMessages;
   Sticks: TTdStickers;
 begin
+  { The sign-in watcher follows the active account too, and does it
+    first: until an account is signed in there is nothing else to
+    bind, and the page is waiting to be told exactly that. }
+  if FAuth <> nil then begin
+    FAuth.Bind(TdApp.Active);
+  end;
+
   Chats := TdChatList;
   if Chats <> FBoundChats then begin
     { The previous object is NOT unsubscribed from here. It belongs to
@@ -1007,6 +1030,25 @@ end;
 procedure TWebApi.StickersChanged(Sender: TObject);
 begin
   FStickersDirty := True;
+end;
+
+procedure TWebApi.AuthChanged(Sender: TObject);
+begin
+  { Every transition to Ready, not just the first: each TDLib client
+    has its own "online" option, so a reconnect or a switch to another
+    account has to be told again. Exactly what the native window does
+    from its own TdStateChanged, and needed here because on the web
+    path that window is never built. Resending the same value is
+    harmless. }
+  if (FAuth <> nil) and (FAuth.State = tasReady) then begin
+    TdApplyPresence;
+    { And the cache ceiling, for the same reason and with the same
+      repetition: it belongs to whichever account just became ready. }
+    TdApplyCacheLimit;
+  end;
+  { Not coalesced like the sticker one: the steps of a sign-in are
+    rare, deliberate and each one is the whole screen. }
+  PushEvent('auth', nil);
 end;
 
 procedure TWebApi.Enqueue(AConnId: Int64; const AText: utf8string);
@@ -1261,11 +1303,19 @@ begin
 
   { The unread marker comes from the chat row, not from the history
     model: TTdMessages has no chat list of its own to look it up in.
-    Same split as TFrameHistory.OpenChat. }
+    Same split as TFrameHistory.OpenChat - and the same two conditions
+    it applies. Only when something is actually unread: in a chat that
+    is fully read last_read_inbox_message_id IS the newest message, and
+    asking the model to reach back past it sends it hunting for a
+    boundary it already stands on. And not at all when the caller named
+    a message: following a quote is a deliberate destination, the
+    marker is only a default one. }
   UnreadFrom := 0;
-  CRow := Chats.Lookup(ChatId);
-  if CRow <> nil then begin
-    UnreadFrom := CRow.LastReadInbox;
+  if JumpTo = 0 then begin
+    CRow := Chats.Lookup(ChatId);
+    if (CRow <> nil) and (CRow.UnreadCount > 0) then begin
+      UnreadFrom := CRow.LastReadInbox;
+    end;
   end;
 
   Msgs.OpenChat(ChatId, JumpTo, UnreadFrom);
@@ -1498,6 +1548,38 @@ begin
   Msgs := RequireMsgs;
   Msgs.LoadOlder;
   Result := nil;
+end;
+
+{ Online / Invisible. The setting lives in tdcore, which also
+  remembers it and tells TDLib; what happens here is only the page's
+  half of the conversation.
+
+  The answer carries the value rather than just an ok, so a page that
+  has just switched and a page that only asked get their state from
+  the same place. }
+function TWebApi.CmdPresenceGet: TJSONData;
+var
+  Res: TJSONObject;
+begin
+  Res := TJSONObject.Create;
+  Res.Add('invisible', TdPresenceInvisible);
+  Result := Res;
+end;
+
+function TWebApi.CmdPresenceSet(AArgs: TJSONObject): TJSONData;
+var
+  Data: TJSONObject;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('presence.set needs a value');
+  end;
+  TdSetPresence(AArgs.Get('invisible', False));
+  { Anyone else with the page open is looking at the same account, so
+    they are told too - the same reasoning as every other push here. }
+  Data := TJSONObject.Create;
+  Data.Add('invisible', TdPresenceInvisible);
+  PushEvent('presence', Data);
+  Result := CmdPresenceGet;
 end;
 
 function TWebApi.CmdMessagesRead(AArgs: TJSONObject): TJSONData;
@@ -1845,24 +1927,39 @@ begin
 
   Sets := TJSONArray.Create;
   for I := 0 to Sticks.EmojiSets.Count - 1 do begin
+    { Only the set being LOOKED AT sends its emoji. The others send
+      nothing but their icon below - a couple of dozen sets of sixty
+      would otherwise put well over a thousand entries into every
+      answer, on a command that is re-asked each time a file lands. }
     Arr := TJSONArray.Create;
-    for J := 0 to Sticks.EmojiSets[I].Items.Count - 1 do begin
-      Item := Sticks.EmojiSets[I].Items[J];
-      O := TJSONObject.Create;
-      O.Add('id', string(IntToStr(Item.CustomEmojiId)));
-      O.Add('format', string(StickerFormatStr(Item.Format)));
-      O.Add('emoji', string(Item.Emoji));
-      O.Add('url', string(FileUrl(Item.FileId, Item.LocalPath)));
-      Arr.Add(O);
+    if Sticks.EmojiSets[I].FilesWanted then begin
+      for J := 0 to Sticks.EmojiSets[I].Items.Count - 1 do begin
+        Item := Sticks.EmojiSets[I].Items[J];
+        O := TJSONObject.Create;
+        O.Add('id', string(IntToStr(Item.CustomEmojiId)));
+        O.Add('format', string(StickerFormatStr(Item.Format)));
+        O.Add('emoji', string(Item.Emoji));
+        O.Add('url', string(FileUrl(Item.FileId, Item.LocalPath)));
+        Arr.Add(O);
+      end;
     end;
     SetObj := TJSONObject.Create;
     SetObj.Add('id', string(IntToStr(Sticks.EmojiSets[I].Id)));
     SetObj.Add('title', string(Sticks.EmojiSets[I].Title));
-    SetObj.Add('loaded', Sticks.EmojiSets[I].Loaded);
-    { The set's own cover, so its button in the panel can wear the set
-      rather than the first letter of its name - and can do it before
-      the set itself has been asked for. }
+    { "loaded" is what the page uses to decide whether it has the set
+      to draw - which means the FILES, not merely the list of what is
+      in it. }
+    SetObj.Add('loaded', Sticks.EmojiSets[I].FilesWanted
+      and Sticks.EmojiSets[I].Loaded);
+    { What the set's button wears. stickerSetInfo's own `covers` is
+      EMPTY for custom emoji sets - measured on a live account, all 28
+      of them - so this is normally the set's first sticker, whose
+      file is fetched for every set as soon as its contents are
+      known. }
     Cover := Sticks.EmojiSets[I].Cover;
+    if (Cover = nil) and (Sticks.EmojiSets[I].Items.Count > 0) then begin
+      Cover := Sticks.EmojiSets[I].Items[0];
+    end;
     if Cover <> nil then begin
       O := TJSONObject.Create;
       O.Add('format', string(StickerFormatStr(Cover.Format)));
@@ -1950,6 +2047,179 @@ begin
   end else begin
     raise Exception.Create('unknown media kind: ' + Kind);
   end;
+  Result := nil;
+end;
+
+{ ------------------------------------------------------------------ }
+{ signing in                                                         }
+{ ------------------------------------------------------------------ }
+
+{ The step the page has to draw.
+
+  Two states come from outside TTdAuth entirely and are reported here
+  rather than in webauth.pas, because they are about the APPLICATION
+  and not about an account:
+
+    'apiConfig' - config.ini has no api_id/api_hash yet. Nothing can
+                  be signed in to until it does, and the native
+                  first-run dialog is asking for the same pair.
+    'none'      - credentials are there but no account exists yet. }
+{ The QR login code, drawn here rather than in the page.
+
+  The renderer is the one the native window uses (qrrender.pas, on
+  QRCodeGenLib) - the alternative was a second QR implementation in
+  JavaScript, vendored and maintained, to draw the same square from
+  the same string. A data URI rather than a URL because it is tiny,
+  it changes with every link, and there is nothing to cache. }
+function QrDataUri(const ALink: utf8string): utf8string;
+var
+  Bmp: TBitmap;
+  Png: TPortableNetworkGraphic;
+  Stream: TMemoryStream;
+  Raw: RawByteString;
+begin
+  Result := '';
+  if ALink = '' then begin
+    Exit;
+  end;
+  Bmp := TBitmap.Create;
+  Stream := TMemoryStream.Create;
+  { The LCL's own PNG graphic rather than a raw FPImage writer: it
+    takes the bitmap by Assign and knows how to write itself, which is
+    the whole conversion. }
+  Png := TPortableNetworkGraphic.Create;
+  try
+    if DrawQrToBitmap(ALink, Bmp, 320) = 0 then begin
+      Exit;
+    end;
+    Png.Assign(Bmp);
+    Png.SaveToStream(Stream);
+    SetLength(Raw, Stream.Size);
+    Stream.Position := 0;
+    if Stream.Size > 0 then begin
+      Stream.ReadBuffer(Raw[1], Stream.Size);
+    end;
+    Result := 'data:image/png;base64,' +
+      utf8string(EncodeStringBase64(string(Raw)));
+  finally
+    Png.Free;
+    Stream.Free;
+    Bmp.Free;
+  end;
+end;
+
+function TWebApi.CmdAuthState: TJSONData;
+var
+  O: TJSONObject;
+  Link: utf8string;
+begin
+  if (TdApp.ApiId = 0) or (TdApp.ApiHash = '') then begin
+    O := TJSONObject.Create;
+    O.Add('state', 'apiConfig');
+    Result := O;
+    Exit;
+  end;
+  if FAuth = nil then begin
+    O := TJSONObject.Create;
+    O.Add('state', 'none');
+    Result := O;
+    Exit;
+  end;
+  Result := FAuth.StateJson;
+  { Drawn on the way out rather than kept: the link changes whenever
+    TDLib renews it, and a stale square is worse than none. }
+  O := TJSONObject(Result);
+  Link := utf8string(O.Get('qrLink', ''));
+  if Link <> '' then begin
+    O.Add('qrImage', string(QrDataUri(Link)));
+  end;
+end;
+
+{ Every answer the page can give, in one place.
+
+  They all end up calling TTdAuth, which is the same object the native
+  login form talks to - so a code typed in either window moves the one
+  state machine, and the other window follows through its own
+  listener. That is the whole reason this is a bridge rather than a
+  second implementation. }
+function TWebApi.CmdAuthSubmit(const ACmd: utf8string; AArgs: TJSONObject): TJSONData;
+var
+  Auth: TTdAuth;
+begin
+  Result := nil;
+  if (FAuth = nil) or (FAuth.Session = nil) then begin
+    raise Exception.Create('no account to sign in');
+  end;
+  Auth := FAuth.Session.Auth;
+  if Auth = nil then begin
+    raise Exception.Create('no account to sign in');
+  end;
+  if AArgs = nil then begin
+    AArgs := TJSONObject.Create;   { leaks nothing: freed with the request }
+  end;
+
+  if ACmd = 'auth.phone' then begin
+    Auth.SubmitPhone(utf8string(AArgs.Get('phone', '')));
+  end else if ACmd = 'auth.qr' then begin
+    Auth.RequestQr;
+  end else if ACmd = 'auth.code' then begin
+    Auth.SubmitCode(utf8string(AArgs.Get('code', '')));
+  end else if ACmd = 'auth.resend' then begin
+    Auth.ResendCode;
+  end else if ACmd = 'auth.email' then begin
+    Auth.SubmitEmailAddress(utf8string(AArgs.Get('email', '')));
+  end else if ACmd = 'auth.emailCode' then begin
+    Auth.SubmitEmailCode(utf8string(AArgs.Get('code', '')));
+  end else if ACmd = 'auth.password' then begin
+    Auth.SubmitPassword(utf8string(AArgs.Get('password', '')));
+  end else if ACmd = 'auth.recover' then begin
+    Auth.RequestPasswordRecovery;
+  end else if ACmd = 'auth.recoverCode' then begin
+    Auth.SubmitRecoveryCode(utf8string(AArgs.Get('code', '')),
+      utf8string(AArgs.Get('password', '')), utf8string(AArgs.Get('hint', '')));
+  end else if ACmd = 'auth.register' then begin
+    Auth.SubmitRegistration(utf8string(AArgs.Get('first', '')),
+      utf8string(AArgs.Get('last', '')));
+  end else begin
+    raise Exception.Create('unknown auth command: ' + ACmd);
+  end;
+end;
+
+function TWebApi.CmdApiConfig: TJSONData;
+var
+  O: TJSONObject;
+begin
+  O := TJSONObject.Create;
+  O.Add('apiId', TdApp.ApiId);
+  { The hash is NOT sent back. It is a credential, the page never has
+    to show it, and a form that arrives pre-filled with one is a form
+    that leaks it to anything reading the page. }
+  O.Add('hasHash', TdApp.ApiHash <> '');
+  Result := O;
+end;
+
+{ Saves the pair and re-reads it.
+
+  Re-reading is what makes the rest of the start-up notice: the native
+  first-run dialog is sitting in ShowModal watching for exactly this
+  (see apisetup.pas), and closes itself once the pair is valid. }
+function TWebApi.CmdApiSave(AArgs: TJSONObject): TJSONData;
+var
+  Id: integer;
+  Hash: utf8string;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('api.save needs an api_id and an api_hash');
+  end;
+  Id := AArgs.Get('apiId', 0);
+  Hash := Trim(utf8string(AArgs.Get('apiHash', '')));
+  if (Id <= 0) or (Hash = '') then begin
+    raise Exception.Create('an api_id and an api_hash are both needed');
+  end;
+  TdApp.SaveApiCredentials(Id, Hash);
+  { And bring the account layer up, which on a fresh install has been
+    waiting for exactly this pair. A no-op when it is already up. }
+  TdApp.EnsureStarted;
   Result := nil;
 end;
 
@@ -2255,7 +2525,20 @@ begin
       and simply hangs. Caught by the harness: chats.list without a
       TDLib client answered id 0 instead of id 2. }
     try
-      if Cmd = 'ping' then begin
+      { Signing in comes before everything else, and deliberately
+        before EnsureBindings' models: these are the commands that
+        work when there is no account at all. }
+      if Copy(Cmd, 1, 5) = 'auth.' then begin
+        if Cmd = 'auth.state' then begin
+          Reply(AConnId, ReqId, CmdAuthState);
+        end else begin
+          Reply(AConnId, ReqId, CmdAuthSubmit(Cmd, Args));
+        end;
+      end else if Cmd = 'api.config' then begin
+        Reply(AConnId, ReqId, CmdApiConfig);
+      end else if Cmd = 'api.save' then begin
+        Reply(AConnId, ReqId, CmdApiSave(Args));
+      end else if Cmd = 'ping' then begin
         { Deliberately trivial, and deliberately kept: it is the one
           command that proves the whole path — socket thread, queue,
           main thread, back out — without involving the model. }
@@ -2282,6 +2565,10 @@ begin
         Reply(AConnId, ReqId, CmdMessagesList);
       end else if Cmd = 'messages.older' then begin
         Reply(AConnId, ReqId, CmdMessagesOlder);
+      end else if Cmd = 'presence.get' then begin
+        Reply(AConnId, ReqId, CmdPresenceGet);
+      end else if Cmd = 'presence.set' then begin
+        Reply(AConnId, ReqId, CmdPresenceSet(Args));
       end else if Cmd = 'messages.read' then begin
         Reply(AConnId, ReqId, CmdMessagesRead(Args));
       end else if Cmd = 'message.send' then begin

@@ -16,7 +16,8 @@ unit webui;
 interface
 
 uses
-  Windows, SysUtils, Classes, Forms, Controls, Dialogs, LCLIntf,
+  Windows, SysUtils, Classes, Forms, Controls, Dialogs, LCLIntf, ExtCtrls,
+  Menus, IniFiles,
   webview2;
 
 type
@@ -31,6 +32,25 @@ type
     FByElement: boolean;
     FSavedStyle: PtrInt;
     FSavedPlacement: TWindowPlacement;
+
+    { Only built when this window is the application (SetWebUiPrimary).
+      As a second view it has no business owning a tray icon - the
+      native main window already has one. }
+    FTray: TTrayIcon;
+    FCloseToTray: boolean;
+    { A real quit, as opposed to the close button with close-to-tray
+      on. Set by the tray's Exit and nothing else. }
+    FQuitting: boolean;
+    { TDLib has confirmed every client is closed, so the window may
+      actually go. }
+    FTdClosed: boolean;
+    FGiveUp: TTimer;
+
+    procedure TrayShowClick(Sender: TObject);
+    procedure TrayQuitClick(Sender: TObject);
+    procedure TrayDblClick(Sender: TObject);
+    procedure ShutdownDone(Sender: TObject);
+    procedure GiveUpTick(Sender: TObject);
     procedure ViewExternalUri(Sender: TObject; const AUri: utf8string);
     procedure ViewUnavailable(Sender: TObject; const AMessage: string);
     procedure ViewAcceleratorKey(Sender: TObject; AVirtualKey: word;
@@ -38,11 +58,14 @@ type
     procedure ViewFullScreenElement(Sender: TObject; AActive: boolean);
   protected
     procedure DoClose(var CloseAction: TCloseAction); override;
+    function CloseQuery: boolean; override;
   public
     constructor CreateNew(AOwner: TComponent; Dummy: Integer = 0); override;
     destructor Destroy; override;
     procedure Resize; override;
     procedure Open(const AUrl: utf8string);
+    { Builds the tray icon. Called once, by SetWebUiPrimary. }
+    procedure SetupTray;
     { F11, and the page's own fullscreen, both end up here. }
     procedure SetFullScreen(AOn: boolean);
     property FullScreen: boolean read FFullScreen;
@@ -53,10 +76,35 @@ type
   decides what to tell the user. }
 function ShowWebUi(const AUrl: utf8string): boolean;
 
+{ Says that this window IS the application rather than a second view
+  of it.
+
+  It changes one thing, and that thing matters: a secondary window
+  hides when closed (rebuilding the runtime for every open would throw
+  the page state away), but the application's own window closing has
+  to end the application. With no LCL main form there is nothing else
+  left to end it. }
+procedure SetWebUiPrimary(AOn: boolean);
+
 implementation
+
+uses
+  { Only for the shutdown and for the one setting the tray honours.
+    In the implementation section so the interface stays free of the
+    account layer - this unit is a window, not a model. }
+  tdcore;
 
 var
   GForm: TFormWebUi = nil;
+  GPrimary: boolean = False;
+
+procedure SetWebUiPrimary(AOn: boolean);
+begin
+  GPrimary := AOn;
+  if AOn and (GForm <> nil) then begin
+    GForm.SetupTray;
+  end;
+end;
 
 constructor TFormWebUi.CreateNew(AOwner: TComponent; Dummy: Integer);
 begin
@@ -207,12 +255,91 @@ begin
     Exit;                  { one complaint per window, not one per retry }
   end;
   FFailed := True;
-  MessageDlg('Web interface',
-    AMessage + LineEnding + LineEnding
-    + 'The Microsoft Edge WebView2 Runtime is needed to show the web '
-    + 'interface in its own window. Without it, Tools - Open web '
-    + 'interface in a browser still works.',
-    mtError, [mbOK], 0);
+  { Two different pieces of advice, because there are two different
+    situations. As a second view of a running application, the native
+    window is right there and has a menu item for the browser. As the
+    application itself, there is no menu to point at - only the file
+    the server writes its address into. }
+  if GPrimary then begin
+    MessageDlg('Web interface',
+      AMessage + LineEnding + LineEnding
+      + 'The Microsoft Edge WebView2 Runtime is needed to show the '
+      + 'interface in this window. Until it is installed, open the '
+      + 'address in server_url.txt (beside the program) in any '
+      + 'browser instead.',
+      mtError, [mbOK], 0);
+  end else begin
+    MessageDlg('Web interface',
+      AMessage + LineEnding + LineEnding
+      + 'The Microsoft Edge WebView2 Runtime is needed to show the web '
+      + 'interface in its own window. Without it, Tools - Open web '
+      + 'interface in a browser still works.',
+      mtError, [mbOK], 0);
+  end;
+  Close;
+end;
+
+{ Whether the window may actually close, and the place where the
+  application is shut down properly.
+
+  TDLib REQUIRES every client to be closed before the process exits,
+  and that is asynchronous: BeginShutdown answers False and calls back
+  once the clients confirm. The native main window has always done
+  this (TFormMain.FormCloseQuery); when this window became the
+  application, the step was missed - and an application that never
+  closes its clients is one that has to be killed from Task Manager,
+  which is exactly how it was reported. }
+function TFormWebUi.CloseQuery: boolean;
+begin
+  Result := inherited CloseQuery;
+  if (not Result) or (not GPrimary) then begin
+    Exit;
+  end;
+
+  { The close button with close-to-tray on: out of sight, still
+    running. Quit from the tray is what actually ends it. }
+  if FCloseToTray and (not FQuitting) and (FTray <> nil) then begin
+    Result := False;
+    Hide;
+    Exit;
+  end;
+
+  if FTdClosed then begin
+    Exit;
+  end;
+
+  { Hidden before TDLib has confirmed anything: closing the clients
+    fires a burst of updates, and there is no reason to watch them go
+    by. Same reasoning as the native window's. }
+  Hide;
+  FTdClosed := TdApp.BeginShutdown(@ShutdownDone);
+  Result := FTdClosed;
+  if not Result then begin
+    { And a bound on the wait. Without one, a client that never
+      confirms leaves the application unclosable - the very thing this
+      is here to prevent. }
+    if FGiveUp = nil then begin
+      FGiveUp := TTimer.Create(Self);
+      FGiveUp.Interval := 5000;
+      FGiveUp.OnTimer := @GiveUpTick;
+    end;
+    FGiveUp.Enabled := True;
+  end;
+end;
+
+procedure TFormWebUi.ShutdownDone(Sender: TObject);
+begin
+  if FGiveUp <> nil then begin
+    FGiveUp.Enabled := False;
+  end;
+  FTdClosed := True;
+  Close;
+end;
+
+procedure TFormWebUi.GiveUpTick(Sender: TObject);
+begin
+  FGiveUp.Enabled := False;
+  FTdClosed := True;
   Close;
 end;
 
@@ -222,6 +349,89 @@ begin
   { Kept alive and hidden: rebuilding the runtime for every open would
     throw away the page state and cost a visible pause. }
   CloseAction := caHide;
+  { Unless this window is the application - see SetWebUiPrimary. There
+    is no main form to close in that case, so nothing else would ever
+    end the message loop. Only reached once CloseQuery has agreed,
+    which means TDLib is already closed. }
+  if GPrimary then begin
+    Application.Terminate;
+  end;
+end;
+
+{ The tray icon, and the only way to quit when close-to-tray is on.
+
+  Built in code rather than dropped on a form: this window has no
+  .lfm - it is a CreateNew form wrapped around the WebView2 control. }
+procedure TFormWebUi.SetupTray;
+var
+  Pop: TPopupMenu;
+  Item: TMenuItem;
+begin
+  if FTray <> nil then begin
+    Exit;
+  end;
+
+  { The same setting, from the same file, as the native window reads -
+    so turning it off in Settings still means what it meant. }
+  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+    try
+      FCloseToTray := ReadBool('ui', 'closetotray', True);
+    finally
+      Free;
+    end;
+  end;
+
+  Pop := TPopupMenu.Create(Self);
+
+  Item := TMenuItem.Create(Pop);
+  Item.Caption := 'Show window';
+  Item.OnClick := @TrayShowClick;
+  Item.Default := True;
+  Pop.Items.Add(Item);
+
+  Item := TMenuItem.Create(Pop);
+  Item.Caption := '-';
+  Pop.Items.Add(Item);
+
+  Item := TMenuItem.Create(Pop);
+  Item.Caption := 'Quit';
+  Item.OnClick := @TrayQuitClick;
+  Pop.Items.Add(Item);
+
+  FTray := TTrayIcon.Create(Self);
+  FTray.Hint := 'TG Orchestrator';
+  FTray.PopUpMenu := Pop;
+  FTray.OnDblClick := @TrayDblClick;
+  { The application's own icon, which the resource already carries -
+    an empty one would leave a blank gap in the tray. }
+  if not Application.Icon.Empty then begin
+    FTray.Icon.Assign(Application.Icon);
+  end;
+  FTray.Visible := True;
+end;
+
+procedure TFormWebUi.TrayShowClick(Sender: TObject);
+begin
+  TrayDblClick(Sender);
+end;
+
+procedure TFormWebUi.TrayDblClick(Sender: TObject);
+begin
+  if not Visible then begin
+    Show;
+  end;
+  if WindowState = wsMinimized then begin
+    WindowState := wsNormal;
+  end;
+  BringToFront;
+  Application.BringToFront;
+end;
+
+procedure TFormWebUi.TrayQuitClick(Sender: TObject);
+begin
+  { The one path that skips close-to-tray. }
+  FQuitting := True;
+  Close;
 end;
 
 function ShowWebUi(const AUrl: utf8string): boolean;

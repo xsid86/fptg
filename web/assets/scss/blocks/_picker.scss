@@ -221,24 +221,34 @@
   }
 }
 
-// The group strip: sticky to the bottom of the scroller rather than a
-// row of its own, so the grid keeps the full height and the strip is
-// still always reachable.
+// The group strip: the panel's last row, OUTSIDE the scrolling body.
 //
-// It scrolls sideways because the custom sets add a button each and an
-// account can have a dozen; the nine standard groups alone fit
-// exactly, which is why they are spread rather than packed.
+// It used to be `position: sticky; bottom: 0` inside the body, and
+// that pins an element to the bottom of a scroller only while there
+// is enough content to scroll - a short set left the strip floating
+// halfway up the panel. As a row of the panel there is nothing to
+// float.
+//
+// It scrolls sideways because an account can have a couple of dozen
+// custom sets and they do not fit. The scrollbar is hidden on
+// purpose: a bar across the bottom of the panel reads as damage, so
+// the strip is dragged instead (ui/picker.js) and the button for
+// whatever is on screen is kept near the middle.
 .picker__strip {
-  @include flex(row, center, space-between, 0);
-  overflow-x: auto;
-  scrollbar-width: none;
+  @include flex(row, center, flex-start, 0);
   background: var(--c-surface);
   border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
-  bottom: 0;
-  margin: 0 (-$space-3);
+  cursor: grab;
+  flex: 0 0 auto;
+  overflow-x: auto;
   padding: $space-2 $space-3;
-  position: sticky;
-  z-index: 2;
+  // Dragging must not paint a text selection across the buttons.
+  user-select: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar { display: none; }
+
+  &:active { cursor: grabbing; }
 }
 
 // The custom sets' own jump buttons, kept together at the head of the
@@ -246,6 +256,8 @@
 .picker__jumps {
   @include flex(row, center, flex-start, 0);
   flex: 0 0 auto;
+  gap: .2rem;
+  @include transition;
 }
 
 .picker:not(.picker--emoji-only) .picker__jumps--custom {
@@ -397,10 +409,9 @@ span.picker__gif {
 // the strip beside it is all artwork.
 .picker__jump--standard {
   border-right: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
-  border-radius: 0;
-  margin-right: $space-1;
-  padding-right: $space-1;
-  width: auto;
+  border-radius: 5px;
+  //width: auto;
+  @include flex(row, center, center);
 
   .icon { @include size($icon-sm); }
 }

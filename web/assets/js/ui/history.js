@@ -1,6 +1,6 @@
 import { el, clear } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
-import { onActiveChat } from '../core/store.js';
+import { store, onActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
 import { reanchorMenu, closeMenuIfDetached } from '../util/menu.js';
 import { dateLabel } from '../util/format.js';
@@ -23,7 +23,12 @@ let scrollBtn = null;
 const nodes = new Map();
 let chatId = null;
 let atBottom = true;
-let wantScroll = null;          // 'bottom' | 'unread' | null
+let wantScroll = null;          // 'pending' | 'settling' | null
+// The reader has taken the scroller over, so the opening position is
+// no longer ours to choose. Set by the gestures that can only be a
+// person - never by our own scrollTop, which fires the same `scroll`
+// event as a wheel does.
+let userMoved = false;
 let readTimer = null;
 let lastState = null;
 // items.length at which a fill request was last sent - see maybeFill.
@@ -32,6 +37,9 @@ const pendingRead = new Set();
 const seenMedia = new Set();
 
 const READ_DEBOUNCE_MS = 500;   // same wait the native scroller uses
+// How far above the "Unread messages" divider the view stops, so the
+// last read message is still visible over it.
+const UNREAD_AIR = 24;
 
 // ---------------------------------------------------------- mounting
 export function mountHistory(node) {
@@ -44,18 +52,32 @@ export function mountHistory(node) {
     type: 'button',
     title: 'Go to the newest message',
     hidden: true,
-    onclick: () => scrollToBottom(),
+    onclick: () => {
+      takeOver();
+      scrollToBottom();
+    },
   }, icon('chevron-down'));
   root.parentElement.append(scrollBtn);
 
   root.addEventListener('scroll', onScroll, { passive: true });
+  // What ends the opening hold. All four are things only a person
+  // does; a programmatic scrollTop does none of them.
+  for (const name of ['wheel', 'touchstart', 'keydown', 'pointerdown']) {
+    root.addEventListener(name, takeOver, { passive: true });
+  }
   // A wider window can leave a history that used to fill the screen
   // too short again. The native frame checks the same thing from its
   // own Resize for the same reason.
   window.addEventListener('resize', () => maybeFill(lastState));
   on('store:messages', render);
-  onActiveChat((chat) => {
-    if (!chat) renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
+  onActiveChat(() => {
+    // Whether a chat is OPEN, not whether its row happens to be in the
+    // list on screen. The two came apart when the archive was shown
+    // with an ordinary chat open, and treating a missing row as "no
+    // chat" wiped the history on every refresh of that list.
+    if (store.activeChatId === null) {
+      renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
+    }
   });
   renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
 }
@@ -98,10 +120,10 @@ function render(state) {
     clear(column);
     // A freshly opened chat starts where the native window starts it:
     // at the first unread message when there is one, at the bottom
-    // otherwise. The decision waits for unreadReady - until the
-    // backfill search is over the boundary is not known yet, and
-    // jumping twice looks like a glitch.
+    // otherwise. Nothing is positioned until unreadReady - until the
+    // backfill search is over the boundary is not known yet.
     wantScroll = 'pending';
+    userMoved = false;
     atBottom = true;
   }
 
@@ -176,10 +198,13 @@ function render(state) {
   // act on.
   closeMenuIfDetached();
 
-  if (wantScroll === 'pending' && state.unreadReady) {
-    wantScroll = (state.unreadCovered && state.unreadFrom && dividerPlaced)
-      ? 'unread' : 'bottom';
-  }
+  // Ready means the model has stopped hunting for the boundary - not
+  // that it found it. It also says "ready" when it gives up, and one
+  // of the ways it gives up is "a retry is already pending", after
+  // which the missing pages can still arrive and the divider appear.
+  // So this is where HOLDING the position starts, not where it is
+  // decided once and for all: see applyScroll.
+  if (wantScroll === 'pending' && state.unreadReady) wantScroll = 'settling';
   applyScroll(keepFromBottom);
   requestVisibleMedia(state.items);
   maybeFill(state);
@@ -204,6 +229,11 @@ function render(state) {
 function maybeFill(state) {
   if (!state || !state.items.length) return;
   if (state.loadingOlder || state.oldestLoaded) return;
+  // A box with no height cannot be "too short to fill", it simply is
+  // not being shown - and asking on its behalf never ends, because
+  // nothing that arrives can ever make zero bigger than zero. Every
+  // page would be pulled in, one request per answer.
+  if (root.clientHeight === 0) return;
   if (root.scrollHeight > root.clientHeight) {
     fillAskedAt = -1;
     return;
@@ -282,24 +312,78 @@ function reconcile(parent, desired) {
 }
 
 // ----------------------------------------------------------- scroll
+/**
+ * Where a freshly opened chat sits, and where it stays.
+ *
+ * The opening position is HELD rather than set once. Two things used
+ * to move it afterwards, and both are ordinary:
+ *
+ *   * the divider can appear late. The model says "ready" when it
+ *     stops hunting for the unread boundary, which includes giving up
+ *     because a retry is pending - and that retry then brings the
+ *     pages that cover the boundary after all.
+ *   * whatever is below the fold can grow as it loads, and the
+ *     ordinary anchor keeps the distance to the BOTTOM, so growth down
+ *     there slides the reader down with it.
+ *
+ * Either way the chat ended up at its newest message with everything
+ * on screen marked as read, which is the one thing opening at the
+ * divider exists to prevent. Holding converges instead: whichever of
+ * the two arrives, the next render puts the view back.
+ *
+ * The hold ends when the reader touches the scroller - not when a
+ * scroll event arrives, because our own scrollTop raises one of those
+ * too.
+ */
 function applyScroll(keepFromBottom) {
-  if (wantScroll === 'unread') {
-    const divider = separators.get('unread');
-    if (divider?.isConnected) {
-      root.scrollTop = divider.offsetTop - root.offsetTop;
-      wantScroll = null;
-      return;
-    }
-  }
-  if (wantScroll === 'bottom') {
-    scrollToBottom();
-    wantScroll = null;
-    return;
-  }
   if (wantScroll === 'pending') return;
 
+  if (wantScroll === 'settling') {
+    if (!userMoved) {
+      const divider = separators.get('unread');
+      if (divider?.isConnected) {
+        // A little air above it, so it reads as the top of what is new
+        // rather than as something clipped by the edge.
+        scrollTo(divider.offsetTop - root.offsetTop - UNREAD_AIR);
+      } else {
+        scrollToBottom();
+      }
+      return;
+    }
+    wantScroll = null;
+  }
+
   if (atBottom) scrollToBottom();
-  else root.scrollTop = root.scrollHeight - keepFromBottom;
+  else scrollTo(root.scrollHeight - keepFromBottom);
+}
+
+/** The reader has taken over; stop holding the opening position. */
+function takeOver() {
+  userMoved = true;
+}
+
+/**
+ * Moves the scroller AND writes down where it ended up.
+ *
+ * The second half is the point. A `scroll` event is dispatched in a
+ * later task, so between setting scrollTop and hearing about it there
+ * is a window in which atBottom still says whatever it said before -
+ * and renders come thick and fast (every arriving message, every
+ * download tick). Opening a chat sets atBottom = true, so a render
+ * landing in that window took the "follow the newest" branch and threw
+ * the reader from the unread divider straight to the end of the chat,
+ * where everything on screen was then marked as read. Writing the
+ * position down at the moment it is set leaves no such window.
+ */
+function scrollTo(top) {
+  root.scrollTop = top;
+  noteScrollPosition();
+}
+
+function noteScrollPosition() {
+  const distance = root.scrollHeight - root.scrollTop - root.clientHeight;
+  atBottom = distance < 40;
+  if (scrollBtn) scrollBtn.hidden = atBottom;
 }
 
 function scrollToBottom() {
@@ -309,9 +393,7 @@ function scrollToBottom() {
 }
 
 function onScroll() {
-  const distance = root.scrollHeight - root.scrollTop - root.clientHeight;
-  atBottom = distance < 40;
-  if (scrollBtn) scrollBtn.hidden = atBottom;
+  noteScrollPosition();
 
   // Near the top: ask for another page. The model ignores the request
   // when it is already loading or the history is exhausted, so there is
