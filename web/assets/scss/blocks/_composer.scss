@@ -9,6 +9,10 @@
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   padding: $space-3 $space-4;
+
+  &:not(.composer--join):has(textarea[disabled]) {
+    display: none;
+  }
 }
 
 .composer__toolbar {

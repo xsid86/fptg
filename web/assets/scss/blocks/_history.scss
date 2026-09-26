@@ -53,7 +53,7 @@
 
 .history__date {
   @include flex(row, center, center);
-  margin: $space-6 0 $space-4;
+  margin: $space-6 0 $space-6;
 
   > span {
     background: var(--c-surface-2);

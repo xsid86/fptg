@@ -1839,7 +1839,7 @@ body {
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  margin: 16px 0 8px;
+  margin: 16px 0 16px;
 }
 .history__date > span {
   background: var(--c-surface-2);
@@ -3609,8 +3609,8 @@ a.media--file:hover {
   flex: 0 0 auto;
 }
 .file__icon .icon {
-  width: 26px;
-  height: 26px;
+  width: 42px;
+  height: 42px;
   flex: 0 0 auto;
 }
 
@@ -4028,6 +4028,9 @@ a.media--file:hover {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   padding: 6px 8px;
+}
+.composer:not(.composer--join):has(textarea[disabled]) {
+  display: none;
 }
 
 .composer__toolbar {

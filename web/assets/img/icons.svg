@@ -62,15 +62,15 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      showguides="true"
-     inkscape:zoom="9.1592425"
-     inkscape:cx="259.24633"
-     inkscape:cy="46.674165"
+     inkscape:zoom="12.953125"
+     inkscape:cx="146.79855"
+     inkscape:cy="262.90953"
      inkscape:window-width="1920"
      inkscape:window-height="1009"
-     inkscape:window-x="-8"
+     inkscape:window-x="1912"
      inkscape:window-y="-8"
      inkscape:window-maximized="1"
-     inkscape:current-layer="i-chat">
+     inkscape:current-layer="i-download">
     <sodipodi:guide
        position="28,236.5"
        orientation="0,-1"
@@ -1668,6 +1668,12 @@
      stroke-width="2"
      stroke-linecap="round"
      stroke-linejoin="round">
+    <path
+       d="m 917.7782,-388.20163 c -8.8375,0 -16,7.1625 -16,16 0,8.8375 7.1625,16 16,16 8.8375,0 16,-7.1625 16,-16 0,-8.8375 -7.1625,-16 -16,-16 z m -0.7062,24.20625 -6.5,-6.5 c -0.2875,-0.2875 -0.3688,-0.71875 -0.2188,-1.0875 0.15,-0.36875 0.5188,-0.61875 0.925,-0.61875 h 3.5 v -6 c 0,-1.10625 0.8938,-2 2,-2 h 2 c 1.1063,0 2,0.89375 2,2 v 6 h 3.5 c 0.4063,0 0.7688,0.24375 0.925,0.61875 0.1563,0.375 0.069,0.80625 -0.2187,1.0875 l -6.5,6.5 c -0.3875,0.3875 -1.025,0.3875 -1.4125,0 z"
+       id="path3"
+       stroke="none"
+       fill="currentColor"
+       transform="matrix(0.54597538,0,0,0.54597538,-489.0843,215.47732)" />
     <rect
        data-cell="box"
        x="0"
@@ -1689,15 +1695,6 @@
        fill="#8b95a6"
        stroke="none"
        id="text18">download</text>
-    <path
-       d="M12 3.5v10"
-       id="path18" />
-    <path
-       d="M7.5 9.5 12 14l4.5-4.5"
-       id="path19" />
-    <path
-       d="M4.5 18.5h15"
-       id="path20" />
   </g>
   <g
      id="i-pause"
@@ -1761,15 +1758,10 @@
        fill="#8b95a6"
        stroke="none"
        id="text4">copy</text>
-    <rect
-       x="9"
-       y="9"
-       width="11"
-       height="11"
-       rx="2"
-       id="rect5" />
     <path
-       d="M15.5 5.5H6a1.5 1.5 0 0 0-1.5 1.5v9.5"
-       id="path17" />
+       d="m 10.910506,3.5340466 c -1.2018483,0 -2.1789884,0.9771401 -2.1789884,2.1789883 v 8.7159531 c 0,1.201849 0.9771401,2.178989 2.1789884,2.178989 h 6.536965 c 1.201848,0 2.178988,-0.97714 2.178988,-2.178989 V 7.5992217 c 0,-0.5924122 -0.241731,-1.1609922 -0.67072,-1.572957 L 16.991245,4.1400777 C 16.58609,3.7519455 16.044747,3.5340466 15.482977,3.5340466 Z M 6.5525294,7.8920233 c -1.2018483,0 -2.1789885,0.97714 -2.1789885,2.1789887 v 8.715953 c 0,1.201848 0.9771402,2.178988 2.1789885,2.178988 h 6.5369646 c 1.201848,0 2.178988,-0.97714 2.178988,-2.178988 v -0.544747 h -2.178988 v 0.544747 H 6.5525294 v -8.715953 h 0.544747 V 7.8920233 Z"
+       id="path1-094"
+       stroke="none"
+       fill="currentColor" />
   </g>
 </svg>
