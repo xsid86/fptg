@@ -184,28 +184,21 @@
 // look.
 .comments {
   @include flex(row, center, center, $space-2);
-  background: color-mix(in srgb, var(--sender-color) 25%, var(--c-surface));
-  border: 1px solid transparent;
+  background: linear-gradient(to bottom, color-mix(in srgb, white 90%, black), color-mix(in srgb, white 80%, black));
+  border: 1px solid white;
   border-radius: $radius-pill;
-  color: inherit;
+  box-shadow: 0 .25rem .25rem rgba(0, 0, 0, .1);
+  color: var(--c-dark);
   cursor: pointer;
   flex: 0 0 auto;
   font-size: $fs-sm;
   line-height: 1;
   padding: $space-2 $space-3;
+  text-shadow: 0 1px rgba(255, 255, 255, .75);
   @include transition;
-
-  &:hover {
-    border-color: var(--sender-color);
-  }
 
   &:focus-visible {
     @include focus-ring(var(--c-accent), 2px);
-  }
-
-  // Unread comments: last_message_id is past last_read_inbox_message_id.
-  &.is-unread {
-    border-color: var(--sender-color);
   }
 }
 

@@ -2091,28 +2091,24 @@ body {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background: color-mix(in srgb, var(--sender-color) 25%, var(--c-surface));
-  border: 1px solid transparent;
+  background: linear-gradient(to bottom, color-mix(in srgb, white 90%, black), color-mix(in srgb, white 80%, black));
+  border: 1px solid white;
   border-radius: 999px;
-  color: inherit;
+  box-shadow: 0 0.25rem 0.25rem rgba(0, 0, 0, 0.1);
+  color: var(--c-dark);
   cursor: pointer;
   flex: 0 0 auto;
   font-size: 12px;
   line-height: 1;
   padding: 4px 6px;
+  text-shadow: 0 1px rgba(255, 255, 255, 0.75);
   transition: all 0.25s ease-in-out;
-}
-.comments:hover {
-  border-color: var(--sender-color);
 }
 .comments:focus-visible:focus {
   outline: none !important;
 }
 .comments:focus-visible:focus-visible {
   outline: 1px solid var(--c-accent) !important;
-}
-.comments.is-unread {
-  border-color: var(--sender-color);
 }
 
 .comments__icon {
@@ -5167,3 +5163,5 @@ span.picker__gif {
 .pswp .pswp__bg {
   background: color-mix(in srgb, var(--c-bg) 50%, transparent);
 }
+
+/*# sourceMappingURL=style.css.map */

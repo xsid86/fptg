@@ -62,15 +62,15 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      showguides="true"
-     inkscape:zoom="18.318485"
-     inkscape:cx="62.150336"
-     inkscape:cy="277.94329"
+     inkscape:zoom="9.1592425"
+     inkscape:cx="259.24633"
+     inkscape:cy="46.674165"
      inkscape:window-width="1920"
      inkscape:window-height="1009"
      inkscape:window-x="-8"
      inkscape:window-y="-8"
      inkscape:window-maximized="1"
-     inkscape:current-layer="i-moon">
+     inkscape:current-layer="i-chat">
     <sodipodi:guide
        position="28,236.5"
        orientation="0,-1"
@@ -140,6 +140,16 @@
        position="-18.5552,27"
        orientation="0,-1"
        id="guide28"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="28,284.5"
+       orientation="0,-1"
+       id="guide1"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="28,267"
+       orientation="0,-1"
+       id="guide2"
        inkscape:locked="false" />
   </sodipodi:namedview>
   <g
@@ -375,8 +385,10 @@
        stroke="none"
        id="text15">chat</text>
     <path
-       d="M6.5 4.5h11A2.5 2.5 0 0 1 20 7v6.5a2.5 2.5 0 0 1-2.5 2.5H9l-5 4.5V7a2.5 2.5 0 0 1 2.5-2.5Z"
-       id="path16" />
+       d="m 3.2840462,6.8025294 v 7.6264596 c 0,1.804474 1.4640084,3.268482 3.2684823,3.268482 h 1.0894953 v 2.451362 c 0,0.442607 0.374513,0.81712 0.81712,0.81712 0.170233,0 0.340467,-0.06809 0.476653,-0.170233 l 3.9494172,-2.928016 c 0.136186,-0.10214 0.306421,-0.170233 0.476654,-0.170233 h 4.085603 c 1.804474,0 3.268483,-1.464008 3.268483,-3.268482 V 6.8025294 c 0,-1.8044748 -1.464009,-3.2684826 -3.268483,-3.2684826 H 6.5525285 c -1.8044739,0 -3.2684823,1.4640078 -3.2684823,3.2684826 z"
+       id="path51-0"
+       stroke="none"
+       fill="currentColor" />
   </g>
   <g
      id="i-crown"
