@@ -171,6 +171,10 @@
     <button class="status-bar__theme" type="button" id="theme-toggle"></button>
   </footer>
 
+  <!-- Arrival cards. Outside .app so nothing in the layout can clip
+       them, and empty until something arrives - see ui/toasts.js. -->
+  <div class="toast-stack" id="toasts"></div>
+
 </div>
 
 <script type="module" src="assets/js/main.js"></script>

@@ -20,6 +20,18 @@ type
     Id: Int64;
     { Only meaningful when Definite is True — see its own comment. }
     CanSend: boolean;
+    { supergroup.join_to_send_messages: "users need to join the
+      supergroup before they can send messages". Together with IsMember
+      this is the difference between "you may not write here" and "you
+      may, once you join" - which is what a discussion group under a
+      channel usually asks for, and what the official clients answer
+      with a join button rather than a dead input box. }
+    JoinToSend:  boolean;
+    { join_by_request: joining needs an administrator's approval, so
+      the wording is "apply" rather than "join". }
+    JoinByRequest: boolean;
+    { Derived from the same status this row already reads. }
+    IsMember:    boolean;
     { True when CanSend was derived from an EXPLICIT personal signal
       (being the creator, an administrator's own posting rights, a
       Restricted member's own permissions override, or not being a
@@ -81,6 +93,13 @@ type
       issues getSupergroup asynchronously (the real answer, once
       known, arrives later via OnChanged). }
     function OverridesPermissions(AId: Int64; out ACanSend: boolean): boolean;
+    { "You cannot write here YET": the group asks people to join first
+      and this account has not. AByRequest says whether joining needs
+      approval, which is the difference between "Join" and "Apply to
+      join" in the wording. False when the group is unknown - saying
+      "you must join" about a group whose status has not loaded would
+      be a guess. }
+    function MustJoinToSend(AId: Int64; out AByRequest: boolean): boolean;
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -202,6 +221,7 @@ var
   Row: TSupergroupRow;
   Idx: integer;
   NewCanSend, NewDefinite: boolean;
+  NewJoinToSend, NewJoinByRequest, NewIsMember: boolean;
 begin
   if AGroup = nil then begin
     Exit;
@@ -213,6 +233,17 @@ begin
   IsChannel := JGetBool(AGroup, 'is_channel');
   StatusObj := JGetObj(AGroup, 'status');
   StatusType := JGetStr(StatusObj, '@type');
+  NewJoinToSend := JGetBool(AGroup, 'join_to_send_messages');
+  NewJoinByRequest := JGetBool(AGroup, 'join_by_request');
+  { Restricted carries its own is_member; the rest say membership by
+    their very name. }
+  if StatusType = 'chatMemberStatusRestricted' then begin
+    NewIsMember := JGetBool(StatusObj, 'is_member')
+  end else begin
+    NewIsMember := (StatusType = 'chatMemberStatusCreator')
+      or (StatusType = 'chatMemberStatusAdministrator')
+      or (StatusType = 'chatMemberStatusMember');
+  end;
 
   NewDefinite := True;
   if StatusType = 'chatMemberStatusCreator' then begin
@@ -249,10 +280,26 @@ begin
   end;
   Row.CanSend := NewCanSend;
   Row.Definite := NewDefinite;
+  Row.JoinToSend := NewJoinToSend;
+  Row.JoinByRequest := NewJoinByRequest;
+  Row.IsMember := NewIsMember;
 
   if Assigned(FOnChanged) then begin
     FOnChanged(Self);
   end;
+end;
+
+function TTdSupergroups.MustJoinToSend(AId: Int64; out AByRequest: boolean): boolean;
+var
+  Row: TSupergroupRow;
+begin
+  AByRequest := False;
+  Row := Lookup(AId);
+  if Row = nil then begin
+    Exit(False);
+  end;
+  AByRequest := Row.JoinByRequest;
+  Result := Row.JoinToSend and (not Row.IsMember);
 end;
 
 procedure TTdSupergroups.RequestGroup(AId: Int64);

@@ -1,6 +1,6 @@
 import { el } from '../core/dom.js';
 import { emit, on } from '../core/bus.js';
-import { onActiveChat } from '../core/store.js';
+import { store, onActiveChat, openThread } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
 import { fillAvatar } from '../util/avatar.js';
 
@@ -54,6 +54,9 @@ let root = null;
 let parts = null;
 let activeFilter = '';
 let lastChatId = null;
+// What the bar last drew for the thread - title, picture, colour and
+// comment count rolled into one string. Empty means "no thread".
+let threadMark = '';
 
 function apply() {
   emit('ui:search', { filter: activeFilter, query: parts.input.value.trim() });
@@ -93,6 +96,23 @@ function onSearchKey(e) {
 
 function build() {
   const avatar = el('span', { class: 'avatar avatar--lg chat-header__avatar' });
+  // One button, two jobs: on a narrow screen it goes back to the chat
+  // list (the .app[data-view] switch in main.js), and in a comment
+  // thread it leaves the thread. Hidden on a wide screen unless a
+  // thread is open - see render().
+  const back = el('button', {
+    class: 'btn btn--icon chat-header__back',
+    type: 'button',
+    title: 'Back',
+    hidden: true,
+    onclick: (event) => {
+      if (!openThread()) return;      // narrow screen: back to the list
+      // Leaving the thread is the whole action here, so the
+      // document-level "back to the list" handler must not also fire.
+      event.stopPropagation();
+      emit('ui:thread-close');
+    },
+  }, icon('chevron-left'));
   const titleIcon = icon('chat', 'icon--sm');
   const titleText = el('span', { class: 'u-ellipsis' });
   const subtitle = el('div', { class: 'chat-header__subtitle' });
@@ -121,8 +141,7 @@ function build() {
   });
 
   root.append(
-    el('button', { class: 'btn btn--icon chat-header__back', type: 'button', title: 'Back' },
-      icon('chevron-left')),
+    back,
     avatar,
     el('div', { class: 'chat-header__identity' },
       el('div', { class: 'chat-header__title' }, titleIcon, titleText),
@@ -133,7 +152,13 @@ function build() {
       strip),
   );
 
-  parts = { avatar, titleIcon, titleText, subtitle, input, count, filters };
+  parts = { avatar, back, titleIcon, titleText, subtitle, input, count, filters };
+}
+
+/** "no comments yet" / "1 comment" / "N comments". */
+function commentLabel(n) {
+  if (!n) return 'no comments yet';
+  return n === 1 ? '1 comment' : `${n} comments`;
 }
 
 function render(chat) {
@@ -159,16 +184,35 @@ function render(chat) {
   }
 
   root.hidden = false;
+  // Reading a post's comments: the bar says so and offers the way out,
+  // because the chat underneath is still the channel and nothing else
+  // on screen would explain where these messages came from.
+  const thread = openThread();
+  root.classList.toggle('chat-header--thread', !!thread);
+  // On a narrow screen this is still "back to the chat list"; in a
+  // thread on a wide one the way out is the floating button over the
+  // history instead, so the bar keeps only its own job.
+  parts.back.hidden = !thread;
   // Same palette class the list row carries, so the header and the row
   // for one chat can never disagree about its colour.
-  root.className = `chat-header accent-${chat.color}`;
+  // In a thread everything on this bar describes the DISCUSSION
+  // GROUP: these are its messages, and wearing the channel's name and
+  // picture said the wrong thing about where the reader was.
+  const face = thread
+    ? { title: thread.title || 'Discussion', avatar: thread.avatar, color: thread.color }
+    : chat;
+  root.className = `chat-header accent-${face.color ?? chat.color}`;
   // The same picture the row in the list shows - see util/avatar.js.
-  fillAvatar(parts.avatar, chat);
+  fillAvatar(parts.avatar, face);
   const kind = icon(kindIcon(chat.kind), 'icon--sm');
   parts.titleIcon.replaceWith(kind);
   parts.titleIcon = kind;
-  parts.titleText.textContent = chat.title || '(no title)';
-  parts.subtitle.textContent = subtitle(chat);
+  parts.titleText.textContent = face.title || '(no title)';
+  // What this thread is: how many comments, and under whose post.
+  parts.subtitle.textContent = thread
+    ? [commentLabel(thread.post?.comments ?? 0), thread.postChatTitle]
+        .filter(Boolean).join(' \u00b7 ')
+    : subtitle(chat);
 }
 
 /**
@@ -181,6 +225,24 @@ function render(chat) {
  */
 function syncFromState(state) {
   if (!parts || !state) return;
+
+  // Everything the bar shows in a thread lives in THIS payload, not in
+  // the chat - so it has to redraw from here too. Without it, leaving
+  // a thread left the discussion group's name and picture on screen
+  // until some unrelated chat-list refresh happened to nudge it.
+  //
+  // Compared as a whole rather than as "is there a thread": the
+  // group's picture is asked for when the thread opens and arrives a
+  // payload or two later, so the bar that drew a letter has to notice
+  // and draw the photo.
+  const mark = state.thread
+    ? [state.thread.title, state.thread.avatar, state.thread.color,
+       state.thread.post?.comments].join('|')
+    : '';
+  if (mark !== threadMark) {
+    threadMark = mark;
+    render(store.activeChat);
+  }
 
   activeFilter = state.searchFilter ?? '';
   syncFilters();

@@ -1,0 +1,71 @@
+@use "../abstracts" as *;
+
+// The stack of arrival cards, bottom right. Fixed rather than absolute:
+// it belongs to the window, not to whichever panel happens to be under
+// it, and it must not be clipped by the workspace's own overflow.
+//
+// Only the CARDS take the pointer. The stack itself is a full-height
+// column down that edge, and catching clicks with it would mean a dead
+// strip beside the composer whenever nothing had arrived.
+.toast-stack {
+  @include flex(column, flex-end, flex-end, $space-3);
+  inset-block-end: $space-6;
+  inset-inline-end: $space-6;
+  pointer-events: none;
+  position: fixed;
+  z-index: 40;
+}
+
+.toast {
+  @include flex(row, flex-start, flex-start, $space-3);
+  @include card($radius-md);
+  background: var(--c-surface);
+  border-left: 3px solid var(--avatar-color, var(--c-accent));
+  box-shadow: 0 8px 24px var(--c-shadow);
+  cursor: pointer;
+  max-width: 320px;
+  padding: $space-4;
+  pointer-events: all;
+  width: max-content;
+  @include transition;
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+}
+
+.toast__avatar {
+  flex: 0 0 auto;
+}
+
+.toast__body {
+  @include flex(column, stretch, flex-start, 2px);
+  min-width: 0;
+}
+
+.toast__title {
+  @include ellipsis;
+  color: var(--c-text);
+  font-size: $fs-sm;
+  font-weight: $fw-bold;
+}
+
+// Two lines at most: a card is a glance, not the message.
+.toast__text {
+  @include line-clamp(2);
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.toast__close {
+  background: none;
+  border: 0;
+  color: var(--c-text-faint);
+  cursor: pointer;
+  flex: 0 0 auto;
+  line-height: 0;
+  padding: 0;
+
+  &:hover { color: var(--c-text); }
+  &:focus-visible { @include focus-ring(var(--c-accent), 2px); }
+}

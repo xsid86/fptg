@@ -1,6 +1,6 @@
-import { qs, qsa } from '../core/dom.js';
+import { qs, qsa, el } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
-import { store, onActiveChat } from '../core/store.js';
+import { store, onActiveChat, openThread } from '../core/store.js';
 
 // The message box, and the same formatting toolbar msginput.pas has.
 //
@@ -18,6 +18,9 @@ import { store, onActiveChat } from '../core/store.js';
 let box = null;
 let input = null;
 let sendBtn = null;
+let joinBtn = null;
+// What the box last drew for: inside a thread, or outside one.
+let inThread = false;
 let emojiBtn = null;
 let htmlBox = null;
 let silentBox = null;
@@ -117,7 +120,17 @@ export function editMessage(msg) {
 }
 
 function updateEnabled(chat) {
-  canSend = Boolean(chat) && chat.canSend !== false;
+  // In a comment thread the row to ask is the discussion group's, and
+  // there may not be one - see openThread. Commenting on a channel
+  // post does not require joining the group, so the thread's own
+  // answer wins over the channel row, which always says "no".
+  const thread = openThread();
+  // Some discussion groups want you in before you may write. That is
+  // not "you may not write here" - it is a different answer and it
+  // gets different words, see below.
+  const mustJoin = !!thread?.mustJoin;
+  canSend = thread ? (thread.canSend !== false && !mustJoin)
+    : (Boolean(chat) && chat.canSend !== false);
   input.disabled = !canSend;
   sendBtn.disabled = !canSend;
   for (const btn of qsa('.composer__format', box)) btn.disabled = !canSend;
@@ -131,7 +144,22 @@ function updateEnabled(chat) {
     drawBanner();
   }
 
-  if (!chat) input.placeholder = 'Pick a chat to start writing';
+  // Telling someone they must join, with no way to do it, is half an
+  // answer. The input row gives way to the button that does it.
+  box.classList.toggle('composer--join', mustJoin);
+  joinBtn.hidden = !mustJoin;
+  joinBtn.textContent = thread?.byRequest
+    ? 'Apply to join the group' : 'Join the group';
+
+  if (thread) {
+    if (mustJoin) {
+      input.placeholder = thread.byRequest
+        ? 'Apply to join the group to comment'
+        : 'Join the group to comment';
+    } else {
+      input.placeholder = canSend ? 'Write a comment' : 'You cannot comment here';
+    }
+  } else if (!chat) input.placeholder = 'Pick a chat to start writing';
   else if (!canSend) input.placeholder = 'You cannot write in this chat';
   else input.placeholder = 'Write a message';
 }
@@ -277,6 +305,16 @@ export function mountComposer(node) {
   box = node;
   input = qs('.composer__input', box);
   sendBtn = qs('.composer__send', box);
+  joinBtn = el('button', {
+    class: 'composer__join',
+    type: 'button',
+    hidden: true,
+    onclick: () => {
+      joinBtn.disabled = true;
+      emit('ui:join-chat');
+    },
+  });
+  qs('.composer__row', box).append(joinBtn);
   emojiBtn = qs('.composer__emoji', box);
   htmlBox = qs('#composer-html', box);
   silentBox = qs('#composer-silent', box);
@@ -302,5 +340,17 @@ export function mountComposer(node) {
   }
 
   onActiveChat(updateEnabled);
+  // Entering or leaving a comment thread is NOT a chat change - the
+  // page's active chat stays the channel throughout - but it changes
+  // every answer this box gives: whether one may write, what the
+  // placeholder says, and whether the join button is there. So it
+  // redraws from the message payload too, which is where the thread
+  // lives.
+  on('store:messages', (state) => {
+    const now = !!state?.thread;
+    if (now === inThread) return;
+    inThread = now;
+    updateEnabled(store.activeChat);
+  });
   updateEnabled(null);
 }

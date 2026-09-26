@@ -174,6 +174,16 @@ type
   TBotMap = specialize TFPGMap<Int64, boolean>;
 
   TTdChatsEvent = procedure(Sender: TObject) of object;
+  { A message has just ARRIVED in some chat - not "the list changed",
+    which is what OnChanged says several times a second. Carries the
+    row it landed in and the one-line preview the list would draw, so
+    whoever shows a notification does not have to parse content again.
+
+    The model decides only what it knows: incoming, and the chat is not
+    muted. Whether the window is on screen, and whether that chat is
+    already open, is the view's business - see webapi.pas. }
+  TTdChatsArrivalEvent = procedure(Sender: TObject; ARow: TChatRow;
+    const APreview: utf8string) of object;
   TTdChatsErrorEvent = procedure(Sender: TObject; ACode: integer;
     const AMessage, AAction: utf8string) of object;
 
@@ -221,6 +231,7 @@ type
     FChangeListeners: array of TTdChatsEvent;
     FOnLoadingChanged: TTdChatsEvent;
     FOnActionError: TTdChatsErrorEvent;
+    FOnArrival: TTdChatsArrivalEvent;
     { custom_emoji_ids with a getCustomEmojiStickers request in flight —
       see EnsureCustomEmojiForRow. Mirrors TTdMessages.FCustomEmojiPending
       (tdmessages.pas) — a genuine duplicate, not shared: TTdChats and
@@ -248,6 +259,7 @@ type
     procedure ApplyPosition(ARow: TChatRow; APos: TJSONObject);
     procedure ApplyPhoto(ARow: TChatRow; APhoto: TJSONObject);
     procedure ApplyLastMessage(ARow: TChatRow; AMsg: TJSONObject);
+    procedure Arrived(AMsg: TJSONObject);
     procedure ApplyEmojiStatus(ARow: TChatRow; AStatus: TJSONObject);
     procedure ApplyPermissions(ARow: TChatRow; APermissions: TJSONObject);
 
@@ -411,6 +423,7 @@ type
     property OnChanged: TTdChatsEvent read FOnChanged write FOnChanged;
     property OnActionError: TTdChatsErrorEvent read FOnActionError write FOnActionError;
     property OnLoadingChanged: TTdChatsEvent read FOnLoadingChanged write FOnLoadingChanged;
+    property OnArrival: TTdChatsArrivalEvent read FOnArrival write FOnArrival;
   end;
 
 function ChatKindToStr(AKind: TChatKind): string;
@@ -2107,6 +2120,35 @@ begin
   end;
 end;
 
+{ updateNewMessage, reduced to "is this worth telling anyone about".
+
+  Deliberately NOT built on the unread counter: that also moves when
+  messages are read elsewhere, when a chat is resynced, and when
+  history loads - none of which is an arrival. updateNewMessage fires
+  once, for a message that is genuinely new.
+
+  A message carries no "was sent silently" flag (disable_notification
+  is a send parameter, not a field of `message` - checked against
+  td_api.tl), so the mute state of the chat is the whole of the
+  filter here. }
+procedure TTdChats.Arrived(AMsg: TJSONObject);
+var
+  R: TChatRow;
+  Glyphs: TPreviewGlyphArray;
+begin
+  if (AMsg = nil) or (not Assigned(FOnArrival)) then begin
+    Exit;
+  end;
+  if JGetBool(AMsg, 'is_outgoing') then begin
+    Exit;
+  end;
+  R := Lookup(JGetInt64(AMsg, 'chat_id'));
+  if (R = nil) or R.IsMuted then begin
+    Exit;
+  end;
+  FOnArrival(Self, R, MessagePreview(JGetObj(AMsg, 'content'), Glyphs));
+end;
+
 procedure TTdChats.ApplyLastMessage(ARow: TChatRow; AMsg: TJSONObject);
 var
   St: utf8string;
@@ -2249,6 +2291,8 @@ begin
         ApplyPhoto(R, JGetObj(Obj, 'photo'));
         Touch;
       end;
+    end else if T = 'updateNewMessage' then begin
+      Arrived(JGetObj(Obj, 'message'));
     end else if T = 'updateChatNotificationSettings' then begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));
       if R <> nil then begin

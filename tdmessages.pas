@@ -250,6 +250,29 @@ type
     DocFileId:            integer;
     DocLocalPath:         utf8string;
     DocDownloadRequested: boolean;
+    { messageText.link_preview — the card Telegram builds on its own
+      servers for a link in the text. Nothing is fetched by us: the
+      whole thing (site, title, description, and a photo ready to
+      download) arrives inside the message.
+
+      LinkPhoto* is ONE picture, whatever the preview happens to carry:
+      the article's image, the photo itself, or the video player's
+      thumbnail - they are all `photo` objects in the same shape (see
+      ExtractLinkPreview for which of the forty LinkPreviewType
+      variants actually reach us). LinkLarge is show_large_media, the
+      server's own opinion on whether this one deserves the big
+      picture or the small square beside the text. }
+    LinkUrl:       utf8string;
+    LinkDisplay:   utf8string;
+    LinkSite:      utf8string;
+    LinkTitle:     utf8string;
+    LinkDesc:      utf8string;
+    LinkLarge:     boolean;
+    LinkPhotoW, LinkPhotoH:  integer;
+    LinkMinithumb:           RawByteString;
+    LinkPhotoFileId:         integer;
+    LinkPhotoPath:           utf8string;
+    LinkPhotoRequested:      boolean;
     { messagePhoto.photo — Kind=mckPhoto only. PhotoWidth/Height are the
       natural size of the chosen (medium, type='m') layer of
       photo.sizes, used for computing the preview. PhotoMinithumb is
@@ -389,6 +412,21 @@ type
     StickerFileId:           integer;
     StickerLocalPath:        utf8string;
     StickerDownloadRequested: boolean;
+    { message.interaction_info.reply_info — the comments under a
+      channel post.
+
+      TDLib fills it "only in channels with a discussion supergroup",
+      which is exactly the condition "this post has comments": no
+      discussion group, no reply_info, no button. CommentUnread is
+      last_message_id > last_read_inbox_message_id, the same test the
+      official clients use to mark the button. }
+    { HasComments is the real question - "this post takes comments" -
+      and it is NOT CommentCount > 0. A post nobody has commented on
+      yet still has reply_info, still shows the button, and that button
+      is the only way to leave the first comment. }
+    HasComments:   boolean;
+    CommentCount:  integer;
+    CommentUnread: boolean;
     { message.interaction_info.reactions.reactions — empty if the
       message has no reactions (the common case). Set unconditionally
       in ApplyMessage (independent of Kind/content — any message type
@@ -512,6 +550,31 @@ type
       down and vanish while the user is still reading — the official
       clients keep it where it was until the chat is left, and so does
       this. 0 means "no divider" (the chat had nothing unread). }
+    { COMMENT THREAD MODE. Non-zero FThreadPostId means the history
+      being shown is the comments under one channel post rather than a
+      chat's own messages.
+
+      Three ids, and they are three different things:
+        FChatId          - the DISCUSSION supergroup. The comments live
+                           there, so this is what sending, reading and
+                           every id lookup work against, exactly as in
+                           an ordinary chat.
+        FThreadChatId /  - the CHANNEL and the POST. getMessageThreadHistory
+        FThreadPostId      is asked in terms of the original message,
+                           not of the discussion group (checked against
+                           td_api.tl, which says so outright).
+        FThreadId        - message_thread_id, which is what a reply has
+                           to name to land in this thread rather than
+                           loose in the group.
+
+      FThreadBack is the chat to return to when the thread is closed. }
+    FThreadChatId: Int64;
+    FThreadPostId: Int64;
+    FThreadId: Int64;
+    FThreadBack: Int64;
+    { What OpenThread asked about, held until the answer comes back. }
+    FPendingThreadChat: Int64;
+    FPendingThreadMsg: Int64;
     FUnreadFromId: Int64;
     { Extra history pages still allowed while looking for the boundary,
       and whether that search has finished one way or the other (found
@@ -586,6 +649,10 @@ type
     FDocByFile: TDocFileMap;
     { Photo downloads — see EnsurePhotoFile/ApplyPhotoFile. }
     FPhotoByFile: TPhotoFileMap;
+    { The same map, for the picture inside a link preview. Its own,
+      because one row can carry both: a photo message whose caption
+      holds a link would otherwise have the two fight over the slot. }
+    FLinkByFile: TPhotoFileMap;
     { Original (largest layer) downloads — see
       EnsurePhotoBestFile/ApplyPhotoBestFile. A separate map: different
       file_id, different TDLib cache file than the preview download
@@ -690,6 +757,11 @@ type
       out AFileId: integer; out ALocalPath: utf8string);
     procedure DownloadDocDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyDocFile(AFile: TJSONObject);
+    procedure ExtractReplyInfo(AInteractionInfo: TJSONObject; ARow: TMsgRow);
+    procedure ExtractLinkPreview(AContent: TJSONObject; const AType: utf8string;
+      ARow: TMsgRow);
+    procedure DownloadLinkDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyLinkFile(AFile: TJSONObject);
     procedure ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8string;
       out AWidth, AHeight: integer; out AMinithumb: RawByteString;
       out AFileId: integer; out ALocalPath: utf8string;
@@ -774,8 +846,23 @@ type
       bottom as before. The caller passes it rather than this unit
       looking it up: the chat list lives in tdchats, whose rows this
       unit has no instance of. }
+    { Opens the comment thread of one post. AChatId/AMessageId are the
+      POST's - the channel's - and the history that follows comes from
+      the linked discussion group. Answers False when this message has
+      no thread (TDLib says so through can_get_message_thread; asking
+      anyway just returns an error, which is handled). }
+    procedure OpenThread(AChatId, AMessageId: Int64);
+    { Back out of the thread, to the chat the post was read in. }
+    procedure CloseThread;
+    { Join a chat. The answer says whether it worked outright or a
+      request went off for approval - see chatJoinResult in td_api.tl. }
+    procedure JoinChat(AChatId: Int64);
+    property ThreadPostId: Int64 read FThreadPostId;
+    property ThreadChatId: Int64 read FThreadChatId;
     procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0;
       AUnreadFrom: Int64 = 0);
+    function TopicPart: utf8string;
+    procedure ThreadDone(Sender: TObject; const AResp: TTdResponse);
     procedure CloseChat;
     { Loads an older page of history — or, while a filter/search is
       active, an older page of MATCHES (see SetSearchFilter). }
@@ -970,6 +1057,10 @@ type
     procedure EnsureDocFile(ARow: TMsgRow);
     { Same for a photo (see PhotoFileId) — the same approach. }
     procedure EnsurePhotoFile(ARow: TMsgRow);
+    { The picture inside a link preview. Its own call rather than a
+      branch of the photo one: the message is a TEXT message, so there
+      is no Kind to switch on - see TWebApi.CmdMediaEnsure. }
+    procedure EnsureLinkFile(ARow: TMsgRow);
     { The photo's original (see PhotoBestFileId) — for "Save as"/"Show
       in folder", separate from the preview above (see the field's
       comment). }
@@ -1386,6 +1477,8 @@ begin
   FDocByFile.Sorted := True;
   FPhotoByFile := TPhotoFileMap.Create;
   FPhotoByFile.Sorted := True;
+  FLinkByFile := TPhotoFileMap.Create;
+  FLinkByFile.Sorted := True;
   FPhotoBestByFile := TPhotoFileMap.Create;
   FPhotoBestByFile.Sorted := True;
   FAnimByFile := TAnimFileMap.Create;
@@ -1436,6 +1529,7 @@ begin
   FVoiceByFile.Free;
   FDocByFile.Free;
   FPhotoByFile.Free;
+  FLinkByFile.Free;
   FPhotoBestByFile.Free;
   FAnimByFile.Free;
   FVideoByFile.Free;
@@ -1462,6 +1556,7 @@ begin
   FVoiceByFile.Clear;
   FDocByFile.Clear;
   FPhotoByFile.Clear;
+  FLinkByFile.Clear;
   FPhotoBestByFile.Clear;
   FAnimByFile.Clear;
   FVideoByFile.Clear;
@@ -1488,6 +1583,9 @@ begin
   FUnreadFromId := 0;
   FUnreadBackfill := 0;
   FUnreadReady := False;
+  { NOT the thread fields: Clear runs from inside OpenThread too, and
+    wiping them there would undo the very thing being set up. Leaving
+    the thread is CloseThread's job, and it goes through OpenChat. }
   FNoProgressRetries := 0;
   FRetryTimer.Enabled := False;
   FDirty := False;
@@ -1520,6 +1618,11 @@ begin
   end;
   Clear;
   FChatId := AChatId;
+  { Opening any ordinary chat leaves the thread behind. }
+  FThreadChatId := 0;
+  FThreadPostId := 0;
+  FThreadId := 0;
+  FThreadBack := 0;
   { After Clear (which resets these) and before the first load, so the
     very first HistoryDone already knows whether it is hunting for the
     boundary. An explicit jump target wins: following a quote is a
@@ -1855,12 +1958,127 @@ begin
     FLoadingOlder/FOldestLoaded with data belonging to someone else's
     chat (PtrInt is 8 bytes on this platform, same as Int64: the
     project only builds for win64). }
+  { A thread pages the same way - same anchor, same exclusive
+    boundary, same HistoryDone - but the question is asked about the
+    POST, not about the chat the answers live in. }
+  if FThreadPostId <> 0 then begin
+    FReq.SendRequest('getMessageThreadHistory',
+      '"chat_id":' + utf8string(IntToStr(FThreadChatId)) +
+      ',"message_id":' + utf8string(IntToStr(FThreadPostId)) +
+      ',"from_message_id":' + utf8string(IntToStr(Anchor)) +
+      ',"offset":' + utf8string(IntToStr(Offset)) +
+      ',"limit":' + utf8string(IntToStr(FLoadLimit)),
+      @HistoryDone, PtrInt(FChatId));
+    Exit;
+  end;
+
   FReq.SendRequest('getChatHistory',
     '"chat_id":' + utf8string(IntToStr(FChatId)) +
     ',"from_message_id":' + utf8string(IntToStr(Anchor)) +
     ',"offset":' + utf8string(IntToStr(Offset)) +
     ',"limit":' + utf8string(IntToStr(FLoadLimit)) +
     ',"only_local":false', @HistoryDone, PtrInt(FChatId));
+end;
+
+{ The topic a message has to name to land in the open thread, as a
+  ready-made fragment for a sendMessage body - empty outside thread
+  mode. In this schema it is topic_id:MessageTopic, and the variant
+  for comments is messageTopicThread (td_api.tl). }
+function TTdMessages.TopicPart: utf8string;
+begin
+  if FThreadId = 0 then begin
+    Result := '';
+  end else begin
+    Result := ',"topic_id":{"@type":"messageTopicThread","message_thread_id":' +
+      utf8string(IntToStr(FThreadId)) + '}';
+  end;
+end;
+
+{ Step one: ask what the thread IS. The answer names the discussion
+  group and the thread id; only then can the history be asked for. }
+procedure TTdMessages.OpenThread(AChatId, AMessageId: Int64);
+begin
+  if (FReq = nil) or (AChatId = 0) or (AMessageId = 0) then begin
+    Exit;
+  end;
+  { Remembered rather than carried in the tag: getMessageThreadHistory
+    needs BOTH the post's chat and the post's id, and a tag is one
+    machine word. Only one of these can be in flight at a time - the
+    click that starts it also takes the history away. }
+  FPendingThreadChat := AChatId;
+  FPendingThreadMsg := AMessageId;
+  FReq.SendRequest('getMessageThread',
+    '"chat_id":' + utf8string(IntToStr(AChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId)),
+    @ThreadDone);
+end;
+
+procedure TTdMessages.ThreadDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Back, Group, Thread: Int64;
+begin
+  if not AResp.Success then begin
+    { A post whose thread cannot be fetched is not an error worth
+      showing: the button simply does nothing, and the history stays
+      where it was. }
+    Exit;
+  end;
+  Group := JGetInt64(AResp.Obj, 'chat_id');
+  Thread := JGetInt64(AResp.Obj, 'message_thread_id');
+  if (Group = 0) or (Thread = 0) then begin
+    Exit;
+  end;
+  Back := FChatId;
+
+  if (FChatId <> 0) and (FReq <> nil) then begin
+    FReq.SendRequest('closeChat',
+      '"chat_id":' + utf8string(IntToStr(FChatId)), @ActionDone);
+  end;
+  Clear;
+  FChatId := Group;
+  { The POST, as asked for - this is what the history is requested in
+    terms of, and it is NOT the same number as message_thread_id. }
+  FThreadChatId := FPendingThreadChat;
+  FThreadPostId := FPendingThreadMsg;
+  FThreadId := Thread;
+  FThreadBack := Back;
+
+  FReq.SendRequest('openChat',
+    '"chat_id":' + utf8string(IntToStr(FChatId)), @ActionDone);
+  NotifyChanged;
+  LoadOlder;
+end;
+
+procedure TTdMessages.JoinChat(AChatId: Int64);
+begin
+  if (FReq = nil) or (AChatId = 0) then begin
+    Exit;
+  end;
+  FReq.SendRequest('joinChat',
+    '"chat_id":' + utf8string(IntToStr(AChatId)), @ActionDone);
+end;
+
+procedure TTdMessages.CloseThread;
+var
+  Back, Post: Int64;
+begin
+  if FThreadPostId = 0 then begin
+    Exit;
+  end;
+  Back := FThreadBack;
+  Post := FThreadPostId;
+  { OpenChat clears the thread fields itself; it also refuses to do
+    anything when asked for the chat already open, hence the reset
+    first. }
+  FThreadPostId := 0;
+  FThreadId := 0;
+  FThreadChatId := 0;
+  FThreadBack := 0;
+  if Back <> 0 then begin
+    { Back to the POST, not merely to the channel: the reader came from
+      one message and that is where they expect to land. }
+    OpenChat(Back, Post);
+  end;
 end;
 
 { searchChatMessages -> foundChatMessages, an object carrying
@@ -2972,6 +3190,208 @@ end;
   as"/"Show in folder" (saving needs the original, not the preview
   copy) — chosen by area, not array order, since TDLib's ordering of
   sizes from smallest to largest isn't relied upon. }
+{ How many comments a channel post has, and whether any are unread.
+
+  reply_info is present only where comments exist at all - TDLib fills
+  it for channels that have a discussion supergroup - so its absence is
+  the answer "this post takes no comments", not a missing field. }
+procedure TTdMessages.ExtractReplyInfo(AInteractionInfo: TJSONObject;
+  ARow: TMsgRow);
+var
+  Info: TJSONObject;
+begin
+  ARow.HasComments := False;
+  ARow.CommentCount := 0;
+  ARow.CommentUnread := False;
+  if AInteractionInfo = nil then begin
+    Exit;
+  end;
+  Info := JGetObj(AInteractionInfo, 'reply_info');
+  if Info = nil then begin
+    Exit;
+  end;
+  ARow.HasComments := True;
+  ARow.CommentCount := JGetInt(Info, 'reply_count');
+  ARow.CommentUnread :=
+    JGetInt64(Info, 'last_message_id') > JGetInt64(Info, 'last_read_inbox_message_id');
+end;
+
+{ The link preview inside a text message.
+
+  Telegram builds these itself - the claim is true, and the log shows
+  it: `link_preview` rides inside messageText already filled in, so
+  there is nothing for this client to fetch or parse out of the page.
+
+  `type` is a union of some forty variants. Measured on this account,
+  four of them actually turn up: Photo, EmbeddedVideoPlayer, Article
+  and Animation. What they have in common is a `photo` object (under
+  `photo` or, for the players, `thumbnail`), which is the only part of
+  the union read here. Everything else still gets its card, just
+  without a picture - which is also what Article looks like when the
+  page has no image, and that happens too (a GitHub link, measured). }
+procedure TTdMessages.ExtractLinkPreview(AContent: TJSONObject;
+  const AType: utf8string; ARow: TMsgRow);
+var
+  Prev, TypeObj, PhotoObj, MiniObj, SizeObj, FileObj, LocalObj: TJSONObject;
+  Arr: TJSONArray;
+  I, BestIdx, W, H: integer;
+  BestArea, Area: Int64;
+  B64: utf8string;
+begin
+  ARow.LinkUrl := '';
+  ARow.LinkDisplay := '';
+  ARow.LinkSite := '';
+  ARow.LinkTitle := '';
+  ARow.LinkDesc := '';
+  ARow.LinkLarge := False;
+  ARow.LinkPhotoW := 0;
+  ARow.LinkPhotoH := 0;
+  ARow.LinkMinithumb := '';
+  ARow.LinkPhotoFileId := 0;
+  ARow.LinkPhotoPath := '';
+  ARow.LinkPhotoRequested := False;
+  if (AContent = nil) or (AType <> 'messageText') then begin
+    Exit;
+  end;
+  Prev := JGetObj(AContent, 'link_preview');
+  if Prev = nil then begin
+    Exit;
+  end;
+
+  ARow.LinkUrl := JGetStr(Prev, 'url');
+  ARow.LinkDisplay := JGetStr(Prev, 'display_url');
+  ARow.LinkSite := JGetStr(Prev, 'site_name');
+  ARow.LinkTitle := JGetStr(Prev, 'title');
+  { description is a formattedText; the card shows one paragraph, so
+    the entities are dropped rather than carried down. }
+  ARow.LinkDesc := JGetStr(JGetObj(Prev, 'description'), 'text');
+  ARow.LinkLarge := JGetBool(Prev, 'show_large_media');
+
+  TypeObj := JGetObj(Prev, 'type');
+  if TypeObj = nil then begin
+    Exit;
+  end;
+  PhotoObj := JGetObj(TypeObj, 'photo');
+  if PhotoObj = nil then begin
+    PhotoObj := JGetObj(TypeObj, 'thumbnail');
+  end;
+  if PhotoObj = nil then begin
+    Exit;
+  end;
+
+  MiniObj := JGetObj(PhotoObj, 'minithumbnail');
+  if MiniObj <> nil then begin
+    B64 := JGetStr(MiniObj, 'data');
+    if B64 <> '' then begin
+      ARow.LinkMinithumb := DecodeStringBase64(string(B64));
+    end;
+  end;
+
+  { The largest layer. A preview picture is small to begin with - the
+    card is at most a few hundred pixels wide - so there is no second,
+    cheaper layer worth the arithmetic ExtractPhotoMeta does. }
+  Arr := JGetArr(PhotoObj, 'sizes');
+  if (Arr = nil) or (Arr.Count = 0) then begin
+    Exit;
+  end;
+  BestIdx := 0;
+  BestArea := -1;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Items[I].JSONType <> jtObject then begin
+      Continue;
+    end;
+    W := JGetInt(TJSONObject(Arr.Items[I]), 'width');
+    H := JGetInt(TJSONObject(Arr.Items[I]), 'height');
+    Area := Int64(W) * H;
+    if Area > BestArea then begin
+      BestArea := Area;
+      BestIdx := I;
+    end;
+  end;
+  if Arr.Items[BestIdx].JSONType <> jtObject then begin
+    Exit;
+  end;
+  SizeObj := TJSONObject(Arr.Items[BestIdx]);
+  ARow.LinkPhotoW := JGetInt(SizeObj, 'width');
+  ARow.LinkPhotoH := JGetInt(SizeObj, 'height');
+  FileObj := JGetObj(SizeObj, 'photo');
+  if FileObj = nil then begin
+    Exit;
+  end;
+  ARow.LinkPhotoFileId := JGetInt(FileObj, 'id');
+  LocalObj := JGetObj(FileObj, 'local');
+  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+    ARow.LinkPhotoPath := JGetStr(LocalObj, 'path');
+  end;
+end;
+
+{ Same shape as EnsurePhotoFile, over the link map. }
+procedure TTdMessages.EnsureLinkFile(ARow: TMsgRow);
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  if (ARow.LinkPhotoFileId = 0) or (ARow.LinkPhotoPath <> '')
+     or ARow.LinkPhotoRequested then begin
+    Exit;
+  end;
+  ARow.LinkPhotoRequested := True;
+  if FLinkByFile.IndexOf(ARow.LinkPhotoFileId) < 0 then begin
+    FLinkByFile.Add(ARow.LinkPhotoFileId, ARow);
+  end;
+  if FReq = nil then begin
+    ARow.LinkPhotoRequested := False;
+    Exit;
+  end;
+  RequestFileDownload(ARow.LinkPhotoFileId, @DownloadLinkDone);
+end;
+
+procedure TTdMessages.DownloadLinkDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+begin
+  if AResp.Success then begin
+    ApplyLinkFile(AResp.Obj);
+    NoteFileDownloadState(AResp.Obj);
+    Exit;
+  end;
+  ReleaseDownloadSlot(integer(AResp.Tag));
+  Idx := FLinkByFile.IndexOf(integer(AResp.Tag));
+  if Idx >= 0 then begin
+    FLinkByFile.Data[Idx].LinkPhotoRequested := False;
+  end;
+end;
+
+{ No progress bar for this one, unlike ApplyPhotoFile: the card either
+  has its picture or wears the blurred stamp, and a preview thumbnail
+  is a few kilobytes. }
+procedure TTdMessages.ApplyLinkFile(AFile: TJSONObject);
+var
+  Idx: integer;
+  Local: TJSONObject;
+  R: TMsgRow;
+  Path: utf8string;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  Idx := FLinkByFile.IndexOf(JGetInt(AFile, 'id'));
+  if Idx < 0 then begin
+    Exit;
+  end;
+  R := FLinkByFile.Data[Idx];
+  Local := JGetObj(AFile, 'local');
+  if (Local = nil) or (not JGetBool(Local, 'is_downloading_completed')) then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if (Path = '') or (Path = R.LinkPhotoPath) then begin
+    Exit;
+  end;
+  R.LinkPhotoPath := Path;
+  Touch;
+end;
+
 procedure TTdMessages.ExtractPhotoMeta(AContent: TJSONObject; const AType: utf8string;
   out AWidth, AHeight: integer; out AMinithumb: RawByteString;
   out AFileId: integer; out ALocalPath: utf8string;
@@ -3353,6 +3773,7 @@ begin
     pagination pages, a repeated getChatHistory) while its reaction
     counts have moved on since the last time it was seen. }
   ExtractReactions(JGetObj(AMsg, 'interaction_info'), R.Reactions);
+  ExtractReplyInfo(JGetObj(AMsg, 'interaction_info'), R);
 
   ContentObj := JGetObj(AMsg, 'content');
   if ContentObj <> nil then begin
@@ -3382,6 +3803,7 @@ begin
     R.AudioCoverFileId, R.AudioCoverLocalPath, R.AudioFileId, R.AudioLocalPath);
   ExtractVoiceMeta(ContentObj, T, R.VoiceDuration, R.VoiceFileId, R.VoiceLocalPath);
   ExtractDocMeta(ContentObj, T, R.DocFileName, R.DocFileSize, R.DocFileId, R.DocLocalPath);
+  ExtractLinkPreview(ContentObj, T, R);
   ExtractPhotoMeta(ContentObj, T, R.PhotoWidth, R.PhotoHeight, R.PhotoMinithumb,
     R.PhotoFileId, R.PhotoLocalPath, R.PhotoBestFileId, R.PhotoBestLocalPath,
     R.PhotoBestWidth, R.PhotoBestHeight);
@@ -3466,7 +3888,7 @@ begin
   if (FReq = nil) or (FChatId = 0) then begin
     Exit;
   end;
-  Body := '"chat_id":' + utf8string(IntToStr(FChatId));
+  Body := '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart;
   if ASilent then begin
     Body := Body +
       ',"options":{"@type":"messageSendOptions","disable_notification":true}';
@@ -4118,6 +4540,10 @@ begin
     if Edit <> 0 then begin
       Body := Body + ',"message_id":' + utf8string(IntToStr(Edit));
     end else begin
+      { In a comment thread a new message has to name the thread, or it
+        lands loose in the discussion group instead of under the post.
+        An EDIT never does: it already belongs where it is. }
+      Body := Body + TopicPart;
       if Silent then begin
         { Only sent when it is actually on: everything omitted from
           messageSendOptions defaults to false/absent anyway, so a
@@ -5620,6 +6046,7 @@ begin
       ApplyVoiceFile(JGetObj(Obj, 'file'));
       ApplyDocFile(JGetObj(Obj, 'file'));
       ApplyPhotoFile(JGetObj(Obj, 'file'));
+      ApplyLinkFile(JGetObj(Obj, 'file'));
       ApplyPhotoBestFile(JGetObj(Obj, 'file'));
       ApplyAnimFile(JGetObj(Obj, 'file'));
       ApplyVideoFile(JGetObj(Obj, 'file'));
@@ -5645,6 +6072,7 @@ begin
         R := Lookup(JGetInt64(Obj, 'message_id'));
         if R <> nil then begin
           ExtractReactions(JGetObj(Obj, 'interaction_info'), R.Reactions);
+          ExtractReplyInfo(JGetObj(Obj, 'interaction_info'), R);
           Touch;
         end;
       end;

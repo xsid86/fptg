@@ -24,6 +24,38 @@
   }
 }
 
+// Replaces the input row where the group wants you in first. Full
+// width, because it is the only thing to do there.
+.composer__join {
+  @include flex(row, center, center, $space-2);
+  background: var(--c-accent);
+  border: 0;
+  border-radius: $radius-md;
+  color: var(--c-accent-text);
+  cursor: pointer;
+  flex: 1 1 auto;
+  font: inherit;
+  font-weight: $fw-bold;
+  min-height: 44px;
+  padding: $space-3 $space-5;
+  @include transition;
+
+  &:hover:not(:disabled) { background: var(--c-accent-hover); }
+  &:disabled { opacity: .5; cursor: default; }
+  &:focus-visible { @include focus-ring(var(--c-accent), 2px); }
+
+  // A `display` of our own outranks the UA's rule for the hidden
+  // attribute, so hiding it has to be said here. Same trap the back
+  // arrow in the chat header sits in.
+  &[hidden] { display: none; }
+}
+
+// While it is showing, the box and the send button have nothing to do.
+.composer--join {
+  .composer__input,
+  .composer__send { display: none; }
+}
+
 .composer__spacer {
   flex: 1 1 auto;
 }

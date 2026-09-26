@@ -18,7 +18,7 @@ interface
 uses
   Windows, SysUtils, Classes, Forms, Controls, Dialogs, LCLIntf, ExtCtrls,
   Menus, IniFiles,
-  webview2;
+  constants, webview2;
 
 type
   TFormWebUi = class(TForm)
@@ -66,6 +66,14 @@ type
     procedure Open(const AUrl: utf8string);
     { Builds the tray icon. Called once, by SetWebUiPrimary. }
     procedure SetupTray;
+    { A Windows notification from the tray icon. No-op without a tray,
+      which means: only while this window is the application. }
+    procedure Notify(const ATitle, AText: utf8string);
+    { Is the user actually looking at this window? Visible is not
+      enough - a window behind three others is as unseen as a hidden
+      one, and that is exactly when a notification has to leave the
+      page and become a system one. }
+    function IsShowing: boolean;
     { F11, and the page's own fullscreen, both end up here. }
     procedure SetFullScreen(AOn: boolean);
     property FullScreen: boolean read FFullScreen;
@@ -75,6 +83,14 @@ type
   False when there is no WebView2 runtime to host it - the caller then
   decides what to tell the user. }
 function ShowWebUi(const AUrl: utf8string): boolean;
+
+{ True while the web window is the one the user is looking at. False
+  when it is hidden in the tray, minimised, or simply behind something
+  else - the cases where a notification belongs to the system rather
+  than to the page. }
+function WebUiIsShowing: boolean;
+{ Shows ATitle/AText as a Windows notification from the tray icon. }
+procedure WebUiNotify(const ATitle, AText: utf8string);
 
 { Says that this window IS the application rather than a second view
   of it.
@@ -98,6 +114,18 @@ var
   GForm: TFormWebUi = nil;
   GPrimary: boolean = False;
 
+function WebUiIsShowing: boolean;
+begin
+  Result := (GForm <> nil) and GForm.IsShowing;
+end;
+
+procedure WebUiNotify(const ATitle, AText: utf8string);
+begin
+  if GForm <> nil then begin
+    GForm.Notify(ATitle, AText);
+  end;
+end;
+
 procedure SetWebUiPrimary(AOn: boolean);
 begin
   GPrimary := AOn;
@@ -109,7 +137,7 @@ end;
 constructor TFormWebUi.CreateNew(AOwner: TComponent; Dummy: Integer);
 begin
   inherited CreateNew(AOwner, Dummy);
-  Caption := 'TG Orchestrator';
+  Caption := APP_TITLE;
   Width := 1200;
   Height := 800;
   Position := poScreenCenter;
@@ -399,7 +427,7 @@ begin
   Pop.Items.Add(Item);
 
   FTray := TTrayIcon.Create(Self);
-  FTray.Hint := 'TG Orchestrator';
+  FTray.Hint := APP_TITLE;
   FTray.PopUpMenu := Pop;
   FTray.OnDblClick := @TrayDblClick;
   { The application's own icon, which the resource already carries -
@@ -408,6 +436,27 @@ begin
     FTray.Icon.Assign(Application.Icon);
   end;
   FTray.Visible := True;
+end;
+
+function TFormWebUi.IsShowing: boolean;
+begin
+  Result := Visible and (WindowState <> wsMinimized)
+    and (GetForegroundWindow = Handle);
+end;
+
+procedure TFormWebUi.Notify(const ATitle, AText: utf8string);
+begin
+  if FTray = nil then begin
+    Exit;
+  end;
+  FTray.BalloonTitle := string(ATitle);
+  FTray.BalloonHint := string(AText);
+  FTray.BalloonFlags := bfNone;
+  FTray.BalloonTimeout := 5000;
+  { Where the widgetset cannot raise a shell notification, LCL falls
+    back to a TPopupNotifier window of its own (customtrayicon.inc) -
+    so something is shown either way. }
+  FTray.ShowBalloonHint;
 end;
 
 procedure TFormWebUi.TrayShowClick(Sender: TObject);

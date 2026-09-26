@@ -30,6 +30,15 @@ uses
 
 const
 
+  { ================= the application itself ================= }
+
+  { The name the user sees: the window caption, the tray tooltip, and -
+    through the Start-menu shortcut appid.pas writes - the header of
+    every Windows notification. One constant because those three must
+    agree; the shortcut is matched BY NAME, so changing this leaves the
+    old one behind in the Start menu. }
+  APP_TITLE = 'TG Orchestrator';
+
   { ================= avatarcache.pas ================= }
 
   { Avatar size in the chat list's content area, beside the last-message

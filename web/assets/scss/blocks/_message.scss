@@ -170,6 +170,53 @@
   padding: $space-3 $space-5;
 }
 
+// Shoves whatever follows it to the far edge of the strip. Its own
+// element rather than margin-inline-start:auto on the pill, so the
+// pill's own styling stays free of layout.
+.message__reactions-gap {
+  flex: 1 1 auto;
+}
+
+// The comments pill. Deliberately built out of the same measurements as
+// .reaction below - it reads as one of the row, which is what the
+// original client does - but kept a SEPARATE class so it can be
+// restyled without touching reactions. A starting point, not a final
+// look.
+.comments {
+  @include flex(row, center, center, $space-2);
+  background: color-mix(in srgb, var(--sender-color) 25%, var(--c-surface));
+  border: 1px solid transparent;
+  border-radius: $radius-pill;
+  color: inherit;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+  line-height: 1;
+  padding: $space-2 $space-3;
+  @include transition;
+
+  &:hover {
+    border-color: var(--sender-color);
+  }
+
+  &:focus-visible {
+    @include focus-ring(var(--c-accent), 2px);
+  }
+
+  // Unread comments: last_message_id is past last_read_inbox_message_id.
+  &.is-unread {
+    border-color: var(--sender-color);
+  }
+}
+
+.comments__icon {
+  @include size($icon-sm);
+}
+
+.comments__count {
+  font-variant-numeric: tabular-nums;
+}
+
 .reaction {
   @include flex(row, center, center, $space-2);
   background: color-mix(in srgb, var(--sender-color) 25%, var(--c-surface));

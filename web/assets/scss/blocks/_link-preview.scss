@@ -1,0 +1,102 @@
+@use "../abstracts" as *;
+
+// The card Telegram builds for a link. Two shapes, and the SERVER
+// picks which (show_large_media): a wide picture above the text, or a
+// small square beside it. See renderLinkPreview in ui/message.js.
+//
+// The accent bar on the left is the same device the reply and forward
+// banners use - it says "this belongs to the message above", not "this
+// is another message".
+.link-preview {
+  @include flex(row, flex-start, flex-start, $space-3);
+  background: color-mix(in srgb, var(--c-text) 4%, transparent);
+  border-inline-start: 3px solid var(--accent-color, var(--c-accent));
+  border-radius: $radius-md;
+  color: inherit;
+  margin-block-start: $space-3;
+  padding: $space-3;
+  text-decoration: none !important;
+  @include transition;
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-text) 8%, transparent);
+    text-decoration: none;
+  }
+
+  &--wide {
+    flex-direction: column;
+  }
+}
+
+.link-preview__shot {
+  border-radius: $radius-sm;
+  display: block;
+  flex: 0 0 auto;
+  line-height: 0;
+  overflow: hidden;
+  position: relative;
+  @include size(64px);
+
+  .link-preview--wide & {
+    // The bubble's width, and a cap so a tall picture cannot turn the
+    // card into a column.
+    height: auto;
+    max-height: 220px;
+    width: 100%;
+  }
+}
+
+.link-preview__img-bg {
+  background-position: center;
+  background-size: cover;
+  filter: blur(40px);
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  width: 100%;
+  z-index: 0;
+}
+
+.link-preview__img {
+  display: block;
+  filter: drop-shadow(0 0 50px black) drop-shadow(0 0 150px black) drop-shadow(0 0 250px black) drop-shadow(0 0 350px black);
+  height: 100%;
+  object-fit: contain;
+  position: relative;
+  width: 100%;
+
+  .link-preview--wide & {
+    height: auto;
+    max-height: 220px;
+  }
+
+  // The inline stamp that rides in the message, ~40px wide: without
+  // the blur it reads as a broken image. Same treatment as .media__img.
+  &.is-placeholder {
+    filter: blur(6px);
+    transform: scale(1.06);
+  }
+}
+
+.link-preview__body {
+  @include flex(column, stretch, flex-start, 2px);
+  min-width: 0;
+}
+
+.link-preview__site {
+  color: var(--accent-color, var(--c-accent));
+  font-size: $fs-sm;
+  font-weight: $fw-bold;
+}
+
+.link-preview__title {
+  @include line-clamp(2);
+  font-size: $fs-sm;
+  font-weight: $fw-bold;
+}
+
+.link-preview__text {
+  @include line-clamp(3);
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}

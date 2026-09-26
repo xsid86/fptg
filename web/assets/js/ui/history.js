@@ -18,6 +18,10 @@ import { renderMessage, renderAlbum } from './message.js';
 let root = null;
 let column = null;
 let scrollBtn = null;
+let threadBtn = null;
+// A message the view owes the reader - see the ui:show-message
+// handler. Null when there is nothing outstanding.
+let wantMessage = null;
 
 // id -> { node, hash }. Cleared when the chat changes.
 const nodes = new Map();
@@ -59,6 +63,19 @@ export function mountHistory(node) {
   }, icon('chevron-down'));
   root.parentElement.append(scrollBtn);
 
+  // The way out of a comment thread, back to the post it hangs from.
+  // Floating over the history rather than living in the bar above it:
+  // the bar now describes the discussion group, and this button is
+  // about leaving it.
+  threadBtn = el('button', {
+    class: 'history__to-post',
+    type: 'button',
+    title: 'Back to the post',
+    hidden: true,
+    onclick: () => emit('ui:thread-close'),
+  }, icon('chevron-left'));
+  root.parentElement.append(threadBtn);
+
   root.addEventListener('scroll', onScroll, { passive: true });
   // What ends the opening hold. All four are things only a person
   // does; a programmatic scrollTop does none of them.
@@ -69,6 +86,19 @@ export function mountHistory(node) {
   // too short again. The native frame checks the same thing from its
   // own Resize for the same reason.
   window.addEventListener('resize', () => maybeFill(lastState));
+  // Put one message in view, wherever it is in the loaded range. Used
+  // when leaving a comment thread: the reader came from that post and
+  // expects to land back on it, and the model has already reloaded the
+  // history around it.
+  on('ui:show-message', (id) => {
+    // Remembered, not done on the spot. Leaving a comment thread asks
+    // for the post, and at that moment the post is not loaded yet: the
+    // model has only been told to jump to it, and its page arrives a
+    // beat later. So this is a standing wish, tried again after every
+    // render until the message actually turns up.
+    wantMessage = id;
+    showWanted();
+  });
   on('store:messages', render);
   onActiveChat(() => {
     // Whether a chat is OPEN, not whether its row happens to be in the
@@ -110,6 +140,7 @@ function render(state) {
   if (!state) return;
 
   lastState = state;
+  if (threadBtn) threadBtn.hidden = !state.thread;
 
   if (state.chatId !== chatId) {
     chatId = state.chatId;
@@ -149,6 +180,23 @@ function render(state) {
   const desired = [];
   let lastDay = null;
   let dividerPlaced = false;
+
+  // A thread opens with the post itself, then a divider, then the
+  // comments - the way the original client lays it out. Without the
+  // post there is no way to quote a line of it, which is the whole
+  // reason it is here rather than only in the channel.
+  if (state.thread?.post) {
+    // Keyed by the post, or a second thread would show the first
+    // one's node back - separator() caches by key.
+    desired.push(separator('thread-post:' + state.thread.post.id, () => {
+      const box = el('div', { class: 'history__thread-post' });
+      box.append(renderMessage(state.thread.post));
+      return box;
+    }));
+    desired.push(separator('thread-start', () =>
+      el('div', { class: 'history__date' },
+        el('span', { textContent: 'Discussion starts here' }))));
+  }
 
   // Indexed rather than for..of because an album swallows the messages
   // that follow it, and the loop has to be able to skip them.
@@ -206,6 +254,7 @@ function render(state) {
   // decided once and for all: see applyScroll.
   if (wantScroll === 'pending' && state.unreadReady) wantScroll = 'settling';
   applyScroll(keepFromBottom);
+  showWanted();
   requestVisibleMedia(state.items);
   maybeFill(state);
 }
@@ -386,6 +435,24 @@ function noteScrollPosition() {
   if (scrollBtn) scrollBtn.hidden = atBottom;
 }
 
+/**
+ * Puts the owed message in view, if it has arrived. Offsets rather
+ * than scrollIntoView: the same arithmetic the unread divider uses,
+ * and scrollIntoView needs a live viewport to centre into - there is
+ * none while the window is not being drawn.
+ */
+function showWanted() {
+  if (wantMessage === null) return;
+  const entry = nodes.get(wantMessage);
+  if (!entry?.node.isConnected) return;
+  wantMessage = null;
+  // A deliberate destination outranks the opening position, which
+  // would otherwise pull the view to the unread divider or the end.
+  userMoved = true;
+  wantScroll = null;
+  scrollTo(Math.max(0, entry.node.offsetTop - root.offsetTop - UNREAD_AIR));
+}
+
 function scrollToBottom() {
   root.scrollTop = root.scrollHeight;
   atBottom = true;
@@ -440,6 +507,14 @@ function collectRead() {
 function requestVisibleMedia(items) {
   for (const msg of items) {
     if (seenMedia.has(msg.id)) continue;
+    // A link preview's picture, for a message that is otherwise pure
+    // text - so it is asked for here rather than in the media sweep
+    // below, which only ever looks at msg.media.
+    if (msg.link && msg.link.w > 0 && !msg.link.url_photo) {
+      seenMedia.add(msg.id);
+      emit('ui:ensure-media', { id: msg.id, what: 'link' });
+      continue;
+    }
     if (!msg.media) continue;
     if (msg.kind === 'photo' && !msg.media.url) {
       seenMedia.add(msg.id);

@@ -17,6 +17,7 @@ import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.
 import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
+import { mountToasts } from './ui/toasts.js';
 import { mountThemeToggle } from './ui/theme.js';
 import { openViewer } from './ui/viewer.js';
 
@@ -118,7 +119,20 @@ async function showFolderMenu(id, anchor) {
  * rows mention. It is registered before the rows are handed on, so
  * that whatever renders them next can already look them up.
  */
+// The post whose comments are open. Carried by the page rather than
+// fetched again: the click that opens a thread happens ON that
+// message, so the page already holds it - and the thread has to show
+// it at the top, or there is nothing to quote a line of the post from.
+let threadPost = null;
+
 function applyMessages(state) {
+  // NOT cleared when a payload arrives without a thread. thread.open
+  // answers with the list as it stands, and at that moment TDLib has
+  // only been ASKED what the thread is - the first payload back still
+  // describes the channel. Clearing here threw the post away a beat
+  // before the thread it belongs to arrived. It is cleared where it
+  // really ends instead: leaving the thread, or opening a chat.
+  if (state?.thread) state.thread.post = threadPost;
   const fresh = setCustomEmoji(state?.customEmoji);
   setMessages(state);
   // A custom emoji's file arriving changes no message, so the history's
@@ -181,6 +195,9 @@ function wireActions() {
   // the native window sees too. So it hangs off 'store:active' alone,
   // the event that fires only when the user really picked another chat.
   on('store:active', async (chat) => {
+    // A chat of one's own is not a thread; whatever post was being
+    // commented on is behind us.
+    threadPost = null;
     if (!chat) return;
     // The header shows this chat's picture, and the list only asks for
     // the first screenful of them - so a chat opened from further down
@@ -292,6 +309,27 @@ function wireActions() {
 
   on('ui:folder-menu', ({ id, anchor }) => showFolderMenu(id, anchor));
 
+  // The comments pill under a channel post, and the way back out.
+  on('ui:comments', ({ msg }) => {
+    threadPost = msg;
+    call('thread.open', { id: msg.id }).then(applyMessages).catch(report);
+  });
+  on('ui:join-chat', () => {
+    // No id: the server joins the chat the history is in, which in a
+    // thread is the discussion group.
+    call('chat.join').then(() => loadMessages()).catch(report);
+  });
+  on('ui:thread-close', () => {
+    const postId = threadPost?.id ?? null;
+    threadPost = null;
+    call('thread.close').then((state) => {
+      applyMessages(state);
+      // The history has just been rebuilt around that post; now put it
+      // where the reader can see it.
+      if (postId !== null) emit('ui:show-message', postId);
+    }).catch(report);
+  });
+
   on('ui:search', ({ filter, query }) => {
     call('search.set', { filter, query }).then(applyMessages).catch(report);
   });
@@ -354,6 +392,7 @@ async function boot() {
     load: (cmd, args) => call(cmd, args),
   });
   mountStatusBar(qs('#status-bar'));
+  mountToasts(qs('#toasts'));
   mountThemeToggle(qs('#theme-toggle'));
 
   wireSidebar();

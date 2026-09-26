@@ -64,7 +64,7 @@ uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fpjson, jsonparser,
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
-  autodownload, customemoji;
+  autodownload, customemoji, webui;
 
 type
   { A request whose answer is not here yet.
@@ -126,6 +126,8 @@ type
     procedure EnsureBindings;
     procedure DropBindings;
     procedure ChatsChanged(Sender: TObject);
+    procedure ChatArrived(Sender: TObject; ARow: TChatRow;
+      const APreview: utf8string);
     procedure MessagesChanged(Sender: TObject);
     procedure StickersChanged(Sender: TObject);
     procedure AuthChanged(Sender: TObject);
@@ -155,6 +157,9 @@ type
     function  CmdMessagesList: TJSONData;
     function  CmdMessagesOlder: TJSONData;
     function  CmdMessagesRead(AArgs: TJSONObject): TJSONData;
+    function  CmdThreadOpen(AArgs: TJSONObject): TJSONData;
+    function  CmdThreadClose: TJSONData;
+    function  CmdChatJoin(AArgs: TJSONObject): TJSONData;
     function  CmdPresenceGet: TJSONData;
     function  CmdPresenceSet(AArgs: TJSONObject): TJSONData;
     function  CmdMessageSend(AArgs: TJSONObject): TJSONData;
@@ -865,6 +870,37 @@ begin
     Result.Add('forward', Sub);
   end;
 
+  { The link preview, if Telegram built one for this message. The
+    whole card comes from their servers; the only thing the client
+    does is download the picture and lay it out. }
+  if ARow.LinkUrl <> '' then begin
+    Sub := TJSONObject.Create;
+    Sub.Add('url',     string(ARow.LinkUrl));
+    Sub.Add('display', string(ARow.LinkDisplay));
+    Sub.Add('site',    string(ARow.LinkSite));
+    Sub.Add('title',   string(ARow.LinkTitle));
+    Sub.Add('text',    string(ARow.LinkDesc));
+    Sub.Add('large',   ARow.LinkLarge);
+    if ARow.LinkPhotoFileId <> 0 then begin
+      Sub.Add('w', ARow.LinkPhotoW);
+      Sub.Add('h', ARow.LinkPhotoH);
+      Sub.Add('url_photo',
+        string(FileUrl(ARow.LinkPhotoFileId, ARow.LinkPhotoPath)));
+      if ARow.LinkMinithumb <> '' then begin
+        Sub.Add('thumb', string(ThumbDataUri(ARow.LinkMinithumb)));
+      end;
+    end;
+    Result.Add('link', Sub);
+  end;
+
+  { The comments pill. Sent whenever the post TAKES comments, count
+    and all - including zero: without the button there is no way to
+    leave the first one. }
+  if ARow.HasComments then begin
+    Result.Add('comments',  ARow.CommentCount);
+    Result.Add('commentsNew', ARow.CommentUnread);
+  end;
+
   if Length(ARow.Reactions) > 0 then begin
     Result.Add('reactions', ReactionsJson(ARow.Reactions));
   end;
@@ -949,6 +985,7 @@ begin
     FBoundChats := Chats;
     if Chats <> nil then begin
       Chats.AddChangeListener(@ChatsChanged);
+      Chats.OnArrival := @ChatArrived;
     end;
   end;
 
@@ -979,6 +1016,7 @@ procedure TWebApi.DropBindings;
 begin
   if (FBoundChats <> nil) and (FBoundChats = TdChatList) then begin
     FBoundChats.RemoveChangeListener(@ChatsChanged);
+    FBoundChats.OnArrival := nil;
   end;
   FBoundChats := nil;
   if (FBoundMsgs <> nil) and (FBoundMsgs = TdMsgList) then begin
@@ -1049,6 +1087,42 @@ begin
   { Not coalesced like the sticker one: the steps of a sign-in are
     rare, deliberate and each one is the whole screen. }
   PushEvent('auth', nil);
+end;
+
+{ A message arrived somewhere. The model has already ruled out our own
+  messages and muted chats; what is left is WHERE to say so.
+
+  Two places, and the window decides which. While the web window is the
+  one on screen, the page draws its own card - that is the half that
+  looks like a real client, with the chat's picture on it and a click
+  that opens the chat. When the window is in the tray, minimised or
+  simply behind something else, the page would be talking to nobody, so
+  it goes to the tray icon and becomes a Windows notification instead.
+
+  Both are sent for the SAME arrival, never neither: a page open in an
+  ordinary browser is not this window, and it is told either way - it
+  decides for itself whether it is visible (see ui/toasts.js). }
+procedure TWebApi.ChatArrived(Sender: TObject; ARow: TChatRow;
+  const APreview: utf8string);
+var
+  Data: TJSONObject;
+begin
+  if ARow = nil then begin
+    Exit;
+  end;
+  Data := TJSONObject.Create;
+  { A number, the same shape chats.list sends an id in - the page
+    compares it against the open chat. }
+  Data.Add('chatId', ARow.Id);
+  Data.Add('title', string(ARow.Title));
+  Data.Add('text', string(APreview));
+  Data.Add('color', string(AccentKey(ARow)));
+  Data.Add('avatar', string(FileUrl(ARow.PhotoFileId, ARow.PhotoPath)));
+  PushEvent('arrival', Data);
+
+  if not WebUiIsShowing then begin
+    WebUiNotify(ARow.Title, APreview);
+  end;
 end;
 
 procedure TWebApi.Enqueue(AConnId: Int64; const AText: utf8string);
@@ -1492,9 +1566,10 @@ var
   Chats: TTdChats;
   CRow: TChatRow;
   Arr: TJSONArray;
-  Res, Emoji: TJSONObject;
+  Res, Emoji, Sub: TJSONObject;
   I: integer;
   LastReadOutbox: Int64;
+  MustJoin, ByRequest: boolean;
 begin
   Msgs := RequireMsgs;
 
@@ -1527,6 +1602,54 @@ begin
 
   Res := TJSONObject.Create;
   Res.Add('chatId',       Msgs.ChatId);
+  { Comment thread, or nothing. The page cannot work this out for
+    itself: the chat now open is the DISCUSSION group, which may not
+    even be in the user's chat list - so the header and the composer
+    would have no row to read and would show a dead bar. }
+  if Msgs.ThreadPostId <> 0 then begin
+    Sub := TJSONObject.Create;
+    Sub.Add('postId',  Msgs.ThreadPostId);
+    Sub.Add('postChatId', Msgs.ThreadChatId);
+    CRow := Chats.Lookup(Msgs.ChatId);
+    if CRow <> nil then begin
+      Sub.Add('title',   string(CRow.Title));
+      Sub.Add('canSend', CRow.CanSendBasicMessages);
+      { The bar above the thread belongs to the DISCUSSION GROUP - that
+        is whose messages these are. It used to wear the channel's
+        name and picture, which said the wrong thing about where the
+        reader was. }
+      { The group is rarely in the visible part of the list, so its
+        picture has usually never been asked for. Asked now: it rides
+        back in the next messages.list, like every other avatar. }
+      Chats.EnsureAvatar(CRow);
+      Sub.Add('avatar',  string(FileUrl(CRow.PhotoFileId, CRow.PhotoPath)));
+      Sub.Add('color',   string(AccentKey(CRow)));
+      Sub.Add('chatId',  CRow.Id);
+    end else begin
+      { Not in the list - the ordinary case for a discussion group
+        nobody has joined. }
+      Sub.Add('title',   '');
+      Sub.Add('canSend', True);
+    end;
+    { Some discussion groups want you in before you may write
+      (supergroup.join_to_send_messages). That is NOT the same as "you
+      may not write here", and the official clients say so with a join
+      button instead of a dead input box - so the page is told which of
+      the two it is, and whether joining needs approval. }
+    MustJoin := False;
+    ByRequest := False;
+    if (CRow <> nil) and (CRow.SupergroupId <> 0)
+       and (TdSupergroupList <> nil) then begin
+      MustJoin := TdSupergroupList.MustJoinToSend(CRow.SupergroupId, ByRequest);
+    end;
+    Sub.Add('mustJoin',  MustJoin);
+    Sub.Add('byRequest', ByRequest);
+    CRow := Chats.Lookup(Msgs.ThreadChatId);
+    if CRow <> nil then begin
+      Sub.Add('postChatTitle', string(CRow.Title));
+    end;
+    Res.Add('thread', Sub);
+  end;
   Res.Add('unreadFrom',   Msgs.UnreadFromId);
   Res.Add('unreadReady',  Msgs.UnreadReady);
   Res.Add('unreadCovered', Msgs.UnreadCovered);
@@ -1548,6 +1671,55 @@ begin
   Msgs := RequireMsgs;
   Msgs.LoadOlder;
   Result := nil;
+end;
+
+{ Open the comment thread of a post, and come back out of it.
+
+  Both answer with the message list, exactly as chat.open does, so the
+  page applies the result the same way and does not need a second code
+  path for "the history changed". }
+function TWebApi.CmdThreadOpen(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  if AArgs = nil then begin
+    raise Exception.Create('thread.open needs a message id');
+  end;
+  { The post is in the chat that is open right now - the button that
+    sends this lives on one of its messages. }
+  Msgs.OpenThread(Msgs.ChatId, AArgs.Get('id', Int64(0)));
+  Result := CmdMessagesList;
+end;
+
+{ Join the group whose thread is open - the answer to "you must join
+  before you can comment". Which of the two it turns out to be (joined
+  outright, or a request sent for approval) is TDLib's to say, so the
+  answer is passed straight back for the page to word. }
+function TWebApi.CmdChatJoin(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Id: Int64;
+begin
+  Msgs := RequireMsgs;
+  Id := 0;
+  if AArgs <> nil then begin
+    Id := AArgs.Get('id', Int64(0));
+  end;
+  if Id = 0 then begin
+    Id := Msgs.ChatId;
+  end;
+  if Id = 0 then begin
+    raise Exception.Create('no chat to join');
+  end;
+  Msgs.JoinChat(Id);
+  Result := nil;
+end;
+
+function TWebApi.CmdThreadClose: TJSONData;
+begin
+  RequireMsgs.CloseThread;
+  Result := CmdMessagesList;
 end;
 
 { Online / Invisible. The setting lives in tdcore, which also
@@ -1692,6 +1864,10 @@ begin
       mckFile:  Msgs.EnsureDocFile(Row);
       mckAnimation: Msgs.EnsureAnimFile(Row);
     end;
+  end else if What = 'link' then begin
+    { A text message has no Kind to switch on - the preview's picture
+      is asked for by name. }
+    Msgs.EnsureLinkFile(Row);
   end else begin
     case Row.Kind of
       mckPhoto: Msgs.EnsurePhotoFile(Row);
@@ -2571,6 +2747,12 @@ begin
         Reply(AConnId, ReqId, CmdMessagesList);
       end else if Cmd = 'messages.older' then begin
         Reply(AConnId, ReqId, CmdMessagesOlder);
+      end else if Cmd = 'thread.open' then begin
+        Reply(AConnId, ReqId, CmdThreadOpen(Args));
+      end else if Cmd = 'thread.close' then begin
+        Reply(AConnId, ReqId, CmdThreadClose);
+      end else if Cmd = 'chat.join' then begin
+        Reply(AConnId, ReqId, CmdChatJoin(Args));
       end else if Cmd = 'presence.get' then begin
         Reply(AConnId, ReqId, CmdPresenceGet);
       end else if Cmd = 'presence.set' then begin

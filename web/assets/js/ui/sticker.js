@@ -97,9 +97,21 @@ function drop(node) {
 /**
  * Animations whose node is no longer in the document.
  *
- * Hung on the same event that makes the history rebuild its nodes, so
- * the sweep happens exactly when nodes are replaced and costs nothing
- * the rest of the time.
+ * THIS USED TO HANG ON store:messages ALONE, and that was a leak with
+ * a sixteen-hour fuse. The CHAT LIST also holds animated custom emoji,
+ * and it rebuilds every row on store:chats - which fires for a message
+ * in ANY chat, while store:messages fires only for the open one. A busy
+ * account with a quiet chat open therefore rebuilt the list thousands
+ * of times with nothing ever sweeping, and the registry is a strong
+ * map: every rebuild left its players, their parsed data and their
+ * SVG trees behind. Measured: 150 list rebuilds took the JS heap
+ * from 5 MB to 114 MB; the same 150 with a sweep after each left it
+ * at 5 MB.
+ *
+ * So it now hangs on both events AND runs before every new animation.
+ * The last one is what makes it self-healing: whatever event does or
+ * does not fire, the registry cannot outgrow the nodes actually in the
+ * document by more than one render.
  */
 function sweep() {
     for (const node of [...live.keys()]) {
@@ -107,6 +119,7 @@ function sweep() {
     }
 }
 on('store:messages', sweep);
+on('store:chats', sweep);
 
 /**
  * Draws the .tgs at `url` inside `node`, looping. Resolves to false if
@@ -118,6 +131,8 @@ export async function playSticker(node, url) {
         const [lottie, data] = await Promise.all([loadEngine(), animationData(url)]);
         // The node may have been thrown away while we were fetching.
         if (!node.isConnected) return false;
+        // Everything the last render left behind - see sweep().
+        sweep();
         drop(node);
 
         const anim = lottie.loadAnimation({

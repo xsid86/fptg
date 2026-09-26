@@ -52,7 +52,8 @@ uses
   framesettingsautodownload, framesettingsstorage,
   framelog, framewelcome, framechats, framehistory,
   mediaviewer, msginput, apisetup, chatheader,
-  wsframe, webfiles, localserver, webapi, webauth, webui, autodownload
+  wsframe, webfiles, localserver, webapi, webauth, webui, autodownload,
+  appid
   { you can add units after this };
 
 {$R *.res}
@@ -89,8 +90,13 @@ begin
     program. }
   DefaultSystemCodePage := CP_UTF8;
 
+  { Before any window or tray icon exists: this is what Windows files
+    our notifications under, and it has to be declared while there is
+    still nothing to file. See appid.pas. }
+  EnsureAppId;
+
   RequireDerivedFormResource := True;
-  Application.Title:='TG Orchestrator';
+  Application.Title := APP_TITLE;
   Application.Scaled:=True;
   {$PUSH}{$WARN 5044 OFF}
   Application.MainFormOnTaskbar := True;

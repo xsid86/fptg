@@ -4,6 +4,7 @@ import {icon} from '../util/icons.js';
 import {playSticker} from './sticker.js';
 import {customEmojiNode} from '../util/emoji.js';
 import {renderRichText} from '../util/entities.js';
+import {holdImage} from '../util/offscreen.js';
 import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 
 // One message block, following framehistory.pas rather than inventing a
@@ -63,9 +64,11 @@ export function renderMessage(msg) {
     if (media) body.append(media);
     if (msg.kind === 'poll' && msg.poll) body.append(renderPoll(msg));
     if (msg.text) body.append(renderRichText(msg.text, msg.entities ?? []));
+    if (msg.link) body.append(renderLinkPreview(msg));
     if (body.childNodes.length) card.append(body);
 
-    if (msg.reactions?.length) card.append(renderReactions(msg));
+    const footer = renderFooter(msg);
+    if (footer) card.append(footer);
     return withMenu(card, msg);
 }
 
@@ -125,8 +128,14 @@ export function renderAlbum(msgs) {
     if (captioned) body.append(renderRichText(captioned.text, captioned.entities ?? []));
     card.append(body);
 
-    const reacted = msgs.find((m) => m.reactions?.length);
-    if (reacted) card.append(renderReactions(reacted));
+    // The strip belongs to whichever message in the run carries the
+    // reactions or the comment count - Telegram hangs both on one
+    // message of an album, not on every cell.
+    const footed = msgs.find((m) => m.reactions?.length || m.comments !== undefined);
+    if (footed) {
+        const strip = renderFooter(footed);
+        if (strip) card.append(strip);
+    }
     // An album is one bubble but several messages; the menu acts on the
     // first, which is the one Telegram itself treats as the album's own
     // (its id is what carries the reactions and the album id).
@@ -201,6 +210,63 @@ function renderHead(msg) {
         head.append(el('span', {class: 'message__state', textContent: 'edited'}));
     }
     return head;
+}
+
+// ----------------------------------------------------- link preview
+/**
+ * The card Telegram builds for a link, drawn under the text.
+ *
+ * Nothing here is worked out by this client: the site, the title, the
+ * description and a ready-to-download picture all arrive inside the
+ * message (messageText.link_preview). So the only decisions left are
+ * layout ones.
+ *
+ * `large` is the server's own opinion - show_large_media - on whether
+ * this preview earns the wide picture above the text or the small
+ * square beside it. Following it rather than measuring the image is
+ * what keeps a news card looking like a news card and a favicon-sized
+ * article image from being blown up to the width of the bubble.
+ */
+function renderLinkPreview(msg) {
+    const p = msg.link;
+    const wide = !!(p.large && p.url_photo);
+    const card = el('a', {
+        class: `link-preview${wide ? ' link-preview--wide' : ''}`,
+        href: p.url,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        title: p.url,
+    });
+
+    if (p.w > 0 || p.thumb) {
+        const shot = el('span', {class: 'link-preview__shot'});
+        const bg = el('div', {
+            class: 'link-preview__img-bg',
+            style: `background-image: url(${p.url_photo || p.thumb || ''})`
+        });
+        shot.append(bg);
+        const shown = el('img', {
+            class: p.url_photo ? 'link-preview__img' : 'link-preview__img is-placeholder',
+            src: p.url_photo || p.thumb || '',
+            alt: '',
+            loading: 'lazy',
+        });
+        if (p.url_photo) holdImage(shown, p.url_photo, p.thumb);
+        shot.append(shown);
+        card.append(shot);
+        if (!p.url_photo) ensure(msg, 'link');
+    }
+
+    const body = el('span', {class: 'link-preview__body'});
+    if (p.site) body.append(el('span', {class: 'link-preview__site', textContent: p.site}));
+    if (p.title) body.append(el('span', {class: 'link-preview__title', textContent: p.title}));
+    if (p.text) body.append(el('span', {class: 'link-preview__text', textContent: p.text}));
+    // A card with nothing but a picture still has to say where it goes.
+    if (!body.childNodes.length) {
+        body.append(el('span', {class: 'link-preview__site', textContent: p.display || p.url}));
+    }
+    card.append(body);
+    return card;
 }
 
 // ------------------------------------------------------------ reply
@@ -363,6 +429,10 @@ function renderPhoto(msg, m, group) {
         alt: '',
         loading: 'lazy',
     });
+    // Released again once it is far from the screen - see
+    // util/offscreen.js. Only when the file is really here: one still
+    // waiting for its download is already wearing the stamp.
+    if (m.url) holdImage(img, m.url, m.thumb);
     box.append(img);
     if (m.url) {
         box.classList.add('is-clickable');
@@ -389,12 +459,14 @@ function renderVideo(msg, m) {
             preload: 'metadata',
         }));
     } else {
-        box.append(el('img', {
+        const still = el('img', {
             class: m.thumbUrl ? 'media__img' : 'media__img is-placeholder',
             src: m.thumbUrl || '',
             alt: '',
             loading: 'lazy',
-        }));
+        });
+        if (m.thumbUrl) holdImage(still, m.thumbUrl, m.thumb);
+        box.append(still);
         box.classList.add('is-pending');
         box.append(overlay('download', () => ensure(msg, 'full')));
         if (m.duration) {
@@ -418,12 +490,14 @@ function renderVideo(msg, m) {
  */
 function renderVideoCell(msg, m, group) {
     const box = el('div', {class: `${sizedBox('video', m)} is-clickable`});
-    box.append(el('img', {
+    const still = el('img', {
         class: m.thumbUrl ? 'media__img' : 'media__img is-placeholder',
         src: m.thumbUrl || m.thumb || '',
         alt: '',
         loading: 'lazy',
-    }));
+    });
+    if (m.thumbUrl) holdImage(still, m.thumbUrl, m.thumb);
+    box.append(still);
     // The badge says what the click will do: play what is here, or
     // fetch what is not.
     box.append(el('span', {class: 'media__play'}, icon(m.url ? 'play' : 'download')));
@@ -536,7 +610,8 @@ function audioCard(msg, m, coverIcon, title) {
         }
         if (playing && playing !== sound) playing.pause();
         playing = sound;
-        sound.play().catch(() => {});
+        sound.play().catch(() => {
+        });
     });
     sound.addEventListener('play', () => {
         setGlyph('pause');
@@ -640,7 +715,9 @@ function renderSticker(msg, m) {
             }));
         });
     } else {
-        box.append(el('img', {class: 'media__sticker', src: m.url, alt: ''}));
+        const face = el('img', {class: 'media__sticker', src: m.url, alt: ''});
+        holdImage(face, m.url);
+        box.append(face);
     }
     return box;
 }
@@ -695,8 +772,52 @@ function renderPoll(msg) {
 }
 
 // ------------------------------------------------------- reactions
-function renderReactions(msg) {
+/**
+ * The strip under a message: reactions on the left, the comments pill
+ * on the right.
+ *
+ * One row rather than two, because a post can have either, both or
+ * neither - and when it has both they belong on the same line, which
+ * is where the original client puts them.
+ */
+function renderFooter(msg) {
+    const hasReactions = !!msg.reactions?.length;
+    // Not "> 0": a post nobody has commented on still shows the
+    // button, and that button is the only way to leave the first one.
+    const hasComments = msg.comments !== undefined;
+    if (!hasReactions && !hasComments) return null;
+
     const strip = el('footer', {class: 'message__reactions'});
+    if (hasReactions) fillReactions(strip, msg);
+    if (hasComments) {
+        // Pushed to the far edge whether or not anything precedes it.
+        strip.append(el('span', {class: 'message__reactions-gap'}));
+        strip.append(renderComments(msg));
+    }
+    return strip;
+}
+
+/**
+ * "N comments", shaped like a reaction pill and sitting at the right
+ * edge of the same strip.
+ *
+ * The count is message.interaction_info.reply_info.reply_count, which
+ * TDLib fills only for channels that have a discussion supergroup - so
+ * the pill appears exactly where comments exist.
+ */
+function renderComments(msg) {
+    const pill = el('button', {
+        class: `comments${msg.commentsNew ? ' is-unread' : ''}`,
+        type: 'button',
+        title: msg.comments ? 'Comments' : 'Leave a comment',
+        onclick: () => emit('ui:comments', {msg}),
+    });
+    pill.append(icon('chat', 'comments__icon'));
+    pill.append(el('span', {class: 'comments__count', textContent: String(msg.comments)}));
+    return pill;
+}
+
+function fillReactions(strip, msg) {
     for (const r of msg.reactions) {
         // A plain emoji reaction is a button: clicking it adds this
         // account's own, clicking it again takes it away. The other two
@@ -730,5 +851,4 @@ function renderReactions(msg) {
         pill.append(String(r.count));
         strip.append(pill);
     }
-    return strip;
 }

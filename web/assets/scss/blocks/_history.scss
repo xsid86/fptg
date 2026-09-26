@@ -24,6 +24,13 @@
   margin-bottom: 0;
 }
 
+// The post a comment thread hangs from, shown once at the very top of
+// the thread. Dimmed a touch so it reads as context rather than as the
+// first comment.
+.history__thread-post {
+  opacity: .85;
+}
+
 .history__loader {
   @include flex(row, center, center, $space-3);
   color: var(--c-text-dim);
@@ -61,6 +68,34 @@
 // the bottom corner and only exists while the bottom is off screen -
 // the same rule the native scroller applies. The look is the
 // scroll-jump mixin, shared with the chat list's twin.
+// Out of a comment thread, back to the post. Same round floating
+// shape as the "jump to the newest" button below, opposite corner -
+// it is the same kind of thing: a way out of where you are.
+.history__to-post {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 50%;
+  @include flex(row, center, center);
+  @include size(36px);
+  box-shadow: 0 2px 8px var(--c-shadow);
+  color: var(--c-text-dim);
+  cursor: pointer;
+  inset-block-start: $space-6;
+  inset-inline-start: $space-6;
+  opacity: 1;
+  pointer-events: all;
+  position: absolute;
+  @include transition;
+  z-index: 2;
+
+  &:hover { color: var(--c-accent); }
+
+  &[hidden] {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
 .history__to-bottom {
   @include scroll-jump;
   inset-block-end: $space-6;

@@ -87,3 +87,17 @@ export function setMessages(payload) {
   data.messages = payload;
   emit('store:messages', payload);
 }
+
+/**
+ * The comment thread currently open, or null.
+ *
+ * It rides along with the message list rather than being its own piece
+ * of state, because it changes at exactly the same moments and for
+ * exactly the same reason. The chat that is open while a thread is
+ * being read is the DISCUSSION group, which may not be in the chat
+ * list at all - so the header and the composer ask here instead of
+ * reading a row that does not exist.
+ */
+export function openThread() {
+  return data.messages?.thread ?? null;
+}
