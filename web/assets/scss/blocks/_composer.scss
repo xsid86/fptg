@@ -36,24 +36,39 @@
   flex: 1 1 auto;
   font: inherit;
   font-weight: $fw-bold;
-  min-height: 44px;
-  padding: $space-3 $space-5;
+  height: 36px;
+  max-height: 36px;
+  padding: 0 1rem;
   @include transition;
 
-  &:hover:not(:disabled) { background: var(--c-accent-hover); }
-  &:disabled { opacity: .5; cursor: default; }
-  &:focus-visible { @include focus-ring(var(--c-accent), 2px); }
+  &:hover:not(:disabled) {
+    background: var(--c-accent-hover);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: .5;
+  }
+
+  &:focus-visible {
+    @include focus-ring(var(--c-accent), 2px);
+  }
 
   // A `display` of our own outranks the UA's rule for the hidden
   // attribute, so hiding it has to be said here. Same trap the back
   // arrow in the chat header sits in.
-  &[hidden] { display: none; }
+  &[hidden] {
+    display: none;
+  }
 }
 
 // While it is showing, the box and the send button have nothing to do.
 .composer--join {
+  .composer__toolbar,
   .composer__input,
-  .composer__send { display: none; }
+  .composer__send {
+    display: none;
+  }
 }
 
 .composer__spacer {
@@ -62,6 +77,12 @@
 
 .composer__row {
   @include flex(column, flex-end, flex-start, $space-3);
+}
+
+.composer--join {
+  .composer__row {
+    @include flex(row, center, center, $space-3);
+  }
 }
 
 .composer__input {

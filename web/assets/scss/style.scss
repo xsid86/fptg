@@ -26,7 +26,7 @@
 @use "pages";
 
 .pswp {
-  backdrop-filter: blur(60px);
+  backdrop-filter: blur(30px);
   .pswp__bg {
     background: color-mix(in srgb, var(--c-bg) 50%, transparent);
   }

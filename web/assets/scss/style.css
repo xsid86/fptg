@@ -4063,16 +4063,17 @@ a.media--file:hover {
   flex: 1 1 auto;
   font: inherit;
   font-weight: 600;
-  min-height: 44px;
-  padding: 6px 11px;
+  height: 36px;
+  max-height: 36px;
+  padding: 0 1rem;
   transition: all 0.25s ease-in-out;
 }
 .composer__join:hover:not(:disabled) {
   background: var(--c-accent-hover);
 }
 .composer__join:disabled {
-  opacity: 0.5;
   cursor: default;
+  opacity: 0.5;
 }
 .composer__join:focus-visible:focus {
   outline: none !important;
@@ -4084,6 +4085,7 @@ a.media--file:hover {
   display: none;
 }
 
+.composer--join .composer__toolbar,
 .composer--join .composer__input,
 .composer--join .composer__send {
   display: none;
@@ -4098,6 +4100,14 @@ a.media--file:hover {
   flex-direction: column;
   align-items: flex-end;
   justify-content: flex-start;
+  gap: 6px;
+}
+
+.composer--join .composer__row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
 }
 
@@ -5152,7 +5162,7 @@ span.picker__gif {
 }
 
 .pswp {
-  backdrop-filter: blur(60px);
+  backdrop-filter: blur(30px);
 }
 .pswp .pswp__bg {
   background: color-mix(in srgb, var(--c-bg) 50%, transparent);
