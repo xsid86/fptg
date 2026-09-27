@@ -408,6 +408,10 @@ function windowFor(state) {
     centre = n - 1;
   } else {
     centre = state.items.findIndex((m) => m.id === anchorId);
+    // Not knowing where the reader is, is not a reason to move them.
+    // Anywhere but here would be a guess; the middle of the window
+    // they already have is the one answer that changes nothing.
+    if (centre < 0) centre = winFrom + (WINDOW >> 1);
   }
   if (centre === undefined || centre < 0) centre = n - 1;
 
@@ -527,11 +531,20 @@ function anchorIndex() {
 /** Moves the window when the reader has walked to its edge. */
 function reframe() {
   if (framing || !lastState) return;
+
+  // Where the reader is, recorded whether or not there is a window to
+  // move. A short history is built whole and needs no window - but the
+  // page that arrives when the reader reaches the top of it can push
+  // the history past the window's size, and then this is the only
+  // record of where they were. Without it the window had nothing to
+  // centre on and went to the newest message, leaving the reader at
+  // the top of a chat looking at a gap.
+  const a = anchorIndex();
+  if (a >= 0) anchorId = lastState.items[a]?.id ?? null;
+
   const n = lastState.items.length;
   if (n <= WINDOW) return;
-  const a = anchorIndex();
   if (a < 0) return;
-  anchorId = lastState.items[a]?.id ?? null;
   const nearTop = winFrom > 0 && a - winFrom < WINDOW_EDGE;
   const nearEnd = winTo < n && winTo - a < WINDOW_EDGE;
   if (!nearTop && !nearEnd) return;
