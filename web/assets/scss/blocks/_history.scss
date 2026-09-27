@@ -68,6 +68,28 @@
 // the bottom corner and only exists while the bottom is off screen -
 // the same rule the native scroller applies. The look is the
 // scroll-jump mixin, shared with the chat list's twin.
+// What stands in for the messages that are NOT built right now.
+//
+// The history keeps only a window of real nodes around the reader (see
+// ui/history.js); everything above and below it is one of these, as
+// tall as the messages it replaces, so the scrollbar still describes
+// the whole chat and the reader's place in it does not move.
+//
+// Its height is an arbitrary number of pixels and JS may not write
+// `style`, so it is spelled out in DECIMAL: one child per non-zero
+// digit, each wearing the class for its place value. Six places, 54
+// classes, at most six elements - against 200000 classes for a ladder
+// with a step of one pixel, or a ragged one with a coarse step.
+.history__gap {
+  overflow: hidden;
+}
+
+@each $place in (1, 10, 100, 1000, 10000, 100000) {
+  @for $d from 1 through 9 {
+    .gap-#{$d * $place} { height: #{$d * $place}px; }
+  }
+}
+
 // Out of a comment thread, back to the post. Same round floating
 // shape as the "jump to the newest" button below, opposite corner -
 // it is the same kind of thing: a way out of where you are.

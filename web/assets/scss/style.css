@@ -1849,6 +1849,226 @@ body {
   padding: 2px 8px;
 }
 
+.history__gap {
+  overflow: hidden;
+}
+
+.gap-1 {
+  height: 1px;
+}
+
+.gap-2 {
+  height: 2px;
+}
+
+.gap-3 {
+  height: 3px;
+}
+
+.gap-4 {
+  height: 4px;
+}
+
+.gap-5 {
+  height: 5px;
+}
+
+.gap-6 {
+  height: 6px;
+}
+
+.gap-7 {
+  height: 7px;
+}
+
+.gap-8 {
+  height: 8px;
+}
+
+.gap-9 {
+  height: 9px;
+}
+
+.gap-10 {
+  height: 10px;
+}
+
+.gap-20 {
+  height: 20px;
+}
+
+.gap-30 {
+  height: 30px;
+}
+
+.gap-40 {
+  height: 40px;
+}
+
+.gap-50 {
+  height: 50px;
+}
+
+.gap-60 {
+  height: 60px;
+}
+
+.gap-70 {
+  height: 70px;
+}
+
+.gap-80 {
+  height: 80px;
+}
+
+.gap-90 {
+  height: 90px;
+}
+
+.gap-100 {
+  height: 100px;
+}
+
+.gap-200 {
+  height: 200px;
+}
+
+.gap-300 {
+  height: 300px;
+}
+
+.gap-400 {
+  height: 400px;
+}
+
+.gap-500 {
+  height: 500px;
+}
+
+.gap-600 {
+  height: 600px;
+}
+
+.gap-700 {
+  height: 700px;
+}
+
+.gap-800 {
+  height: 800px;
+}
+
+.gap-900 {
+  height: 900px;
+}
+
+.gap-1000 {
+  height: 1000px;
+}
+
+.gap-2000 {
+  height: 2000px;
+}
+
+.gap-3000 {
+  height: 3000px;
+}
+
+.gap-4000 {
+  height: 4000px;
+}
+
+.gap-5000 {
+  height: 5000px;
+}
+
+.gap-6000 {
+  height: 6000px;
+}
+
+.gap-7000 {
+  height: 7000px;
+}
+
+.gap-8000 {
+  height: 8000px;
+}
+
+.gap-9000 {
+  height: 9000px;
+}
+
+.gap-10000 {
+  height: 10000px;
+}
+
+.gap-20000 {
+  height: 20000px;
+}
+
+.gap-30000 {
+  height: 30000px;
+}
+
+.gap-40000 {
+  height: 40000px;
+}
+
+.gap-50000 {
+  height: 50000px;
+}
+
+.gap-60000 {
+  height: 60000px;
+}
+
+.gap-70000 {
+  height: 70000px;
+}
+
+.gap-80000 {
+  height: 80000px;
+}
+
+.gap-90000 {
+  height: 90000px;
+}
+
+.gap-100000 {
+  height: 100000px;
+}
+
+.gap-200000 {
+  height: 200000px;
+}
+
+.gap-300000 {
+  height: 300000px;
+}
+
+.gap-400000 {
+  height: 400000px;
+}
+
+.gap-500000 {
+  height: 500000px;
+}
+
+.gap-600000 {
+  height: 600000px;
+}
+
+.gap-700000 {
+  height: 700000px;
+}
+
+.gap-800000 {
+  height: 800000px;
+}
+
+.gap-900000 {
+  height: 900000px;
+}
+
 .history__to-post {
   background: var(--c-surface);
   border: 1px solid var(--c-border);

@@ -40,6 +40,54 @@ let fillAskedAt = -1;
 const pendingRead = new Set();
 const seenMedia = new Set();
 
+// ------------------------------------------------------ the window
+//
+// Only a window of messages around the reader is built as real nodes;
+// the rest is two gaps as tall as what they stand for. Measured before
+// this existed: 628 messages meant 17241 DOM elements, every one of
+// them reconciled on each of the model's changes (they come several a
+// second while media download), and collectRead read the position of
+// every one of them on every scroll event.
+//
+// The window is generous on purpose. The reader sees a dozen messages;
+// the rest is what a flick of the wheel can cross before the next
+// render catches up, so the gaps are never seen being filled in.
+const WINDOW = 120;
+// How close to the window's edge the reader may come before it moves.
+const WINDOW_EDGE = 30;
+// What a message that has never been built is assumed to be worth,
+// until this chat has shown what its messages are really like. A fixed
+// number is a poor guess: measured on a media-heavy channel the built
+// messages averaged 329px against this, so the gap came out at a fifth
+// of the height it stood for and the scrollbar described a chat five
+// times shorter than the real one. So it is only the seed for an
+// average of what has actually been measured here.
+const GUESS_H = 72;
+
+// id -> the height of the slot its node occupied, margins and any
+// divider above it included (measured as the distance to the next
+// message, so nothing between them is lost). NUMBERS ONLY: this is
+// what the gaps are made of, and it must not keep a node alive.
+const heights = new Map();
+// Running total of the heights in that map, so the guess for the
+// unbuilt ones is this chat's own average rather than a constant.
+// Kept as a sum rather than recomputed: the map is walked once per
+// render already, and that is enough.
+let hSum = 0;
+let hCount = 0;
+// The half-open range of state.items currently built.
+let winFrom = 0;
+let winTo = 0;
+// item index -> its node, for the built range only.
+let winNodes = [];
+// The message the reader is on, BY ID. Not by index: a page of older
+// messages arrives at the FRONT of the list and moves every index
+// along with it, so an index would quietly come to mean a different
+// message - and the window would jump to it.
+let anchorId = null;
+// render() re-entered from the scroll handler would be a loop.
+let framing = false;
+
 const READ_DEBOUNCE_MS = 500;   // same wait the native scroller uses
 // How far above the "Unread messages" divider the view stops, so the
 // last read message is still visible over it.
@@ -136,9 +184,24 @@ function renderEmpty(title, note) {
 }
 
 // ----------------------------------------------------------- render
+/**
+ * Renders, and says so while it does.
+ *
+ * Moving the scroller is how the window learns it has to move (see
+ * reframe), and render moves the scroller itself - so without this it
+ * would re-enter itself through its own scrolling.
+ */
 function render(state) {
   if (!state) return;
+  framing = true;
+  try {
+    paint(state);
+  } finally {
+    framing = false;
+  }
+}
 
+function paint(state) {
   lastState = state;
   if (threadBtn) threadBtn.hidden = !state.thread;
 
@@ -150,6 +213,14 @@ function render(state) {
     // the new chat's view still (see applyScroll).
     wantMessage = null;
     nodes.clear();
+    separators.clear();
+    heights.clear();
+    hSum = 0;
+    hCount = 0;
+    winFrom = 0;
+    winTo = 0;
+    winNodes = [];
+    anchorId = null;
     seenMedia.clear();
     pendingRead.clear();
     clear(column);
@@ -181,7 +252,28 @@ function render(state) {
   // reader up the page.
   const keepFromBottom = root.scrollHeight - root.scrollTop;
 
+  const items = state.items;
+  const [from, to] = windowFor(state);
+  // What sits above the reader changes for three different reasons -
+  // the window moves, a page of older messages arrives, or the gap is
+  // simply re-reckoned because more heights are now known - and all
+  // three would shove the view. Measured: 15000px of scrolling saw the
+  // gap alone shrink by 7962px.
+  //
+  // So the view is pinned to a NODE rather than to any arithmetic:
+  // whatever the layout turns out to be, put that node back where the
+  // reader had it. Every render, not only when the window moves. Only
+  // while the reader is in charge, though - the opening position and a
+  // jump are deliberate placements and outrank this.
+  const pinning = !atBottom && wantScroll === null && wantMessage === null;
+  const pinNode = pinning
+    ? (nodes.get(anchorId)?.node ?? winNodes[winFrom] ?? null)
+    : null;
+  const pinWas = pinNode?.isConnected ? pinNode.getBoundingClientRect().top : null;
+
   const desired = [];
+  const slots = [];
+  winNodes = [];
   let lastDay = null;
   let dividerPlaced = false;
 
@@ -202,10 +294,13 @@ function render(state) {
         el('span', { textContent: 'Discussion starts here' }))));
   }
 
+  // Everything older than the window, as one gap.
+  if (from > 0) desired.push(gapNode(sumHeights(items, 0, from)));
+
   // Indexed rather than for..of because an album swallows the messages
   // that follow it, and the loop has to be able to skip them.
-  for (let i = 0; i < state.items.length; i += 1) {
-    const msg = state.items[i];
+  for (let i = from; i < to; i += 1) {
+    const msg = items[i];
     const day = dateLabel(msg.date);
     if (day !== lastDay) {
       desired.push(separator(`day:${day}`, () =>
@@ -225,19 +320,28 @@ function render(state) {
     // A run of one is left alone: a single photo is just a photo.
     if (msg.albumId) {
       let last = i;
-      while (last + 1 < state.items.length
-             && state.items[last + 1].albumId === msg.albumId) {
+      while (last + 1 < to && items[last + 1].albumId === msg.albumId) {
         last += 1;
       }
       if (last > i) {
-        desired.push(albumNode(state.items.slice(i, last + 1)));
+        const group = items.slice(i, last + 1);
+        const node = albumNode(group);
+        desired.push(node);
+        slots.push({ node, ids: group.map((m) => m.id) });
+        for (let k = i; k <= last; k += 1) winNodes[k] = node;
         i = last;
         continue;
       }
     }
 
-    desired.push(messageNode(msg));
+    const node = messageNode(msg);
+    desired.push(node);
+    slots.push({ node, ids: [msg.id] });
+    winNodes[i] = node;
   }
+
+  // And everything newer than it.
+  if (to < items.length) desired.push(gapNode(sumHeights(items, to, items.length)));
 
   if (state.loadingOlder) {
     desired.unshift(separator('loading', () =>
@@ -245,6 +349,15 @@ function render(state) {
   }
 
   reconcile(column, desired);
+  winFrom = from;
+  winTo = to;
+  // Nodes the window has left behind. Dropping the ENTRY is the point:
+  // holding a detached node in the map would keep alive the very thing
+  // this window exists to let go of, and its pictures with it.
+  for (const [key, entry] of nodes) {
+    if (!entry.node.isConnected) nodes.delete(key);
+  }
+  measureSlots(slots);
   // A message that was DELETED rather than rebuilt takes its node with
   // it, and a menu acting on a message that is gone has nothing left to
   // act on.
@@ -258,9 +371,171 @@ function render(state) {
   // decided once and for all: see applyScroll.
   if (wantScroll === 'pending' && state.unreadReady) wantScroll = 'settling';
   applyScroll(keepFromBottom);
+  // Put the pinned node back where the reader had it. After
+  // applyScroll, because this is the more exact answer to the same
+  // question and it is measured against what actually happened.
+  if (pinNode?.isConnected && pinWas !== null) {
+    const drift = pinNode.getBoundingClientRect().top - pinWas;
+    if (drift) {
+      root.scrollTop += drift;
+      noteScrollPosition();
+    }
+  }
   showWanted();
-  requestVisibleMedia(state.items);
+  requestVisibleMedia(items.slice(from, to));
   maybeFill(state);
+}
+
+/**
+ * Which slice of the history to build, as [from, to).
+ *
+ * A short history is built whole - that is most chats, and it leaves
+ * them working exactly as they did before any of this.
+ */
+function windowFor(state) {
+  const n = state.items.length;
+  if (n <= WINDOW) return [0, n];
+
+  let centre;
+  if (wantMessage !== null) {
+    // A destination has to BE built, or it can never be shown.
+    centre = state.items.findIndex((m) => m.id === wantMessage);
+  } else if (wantScroll !== null && state.unreadCovered && state.unreadFrom) {
+    // Opening at the unread divider: that is where the reader lands,
+    // so that is where the window belongs.
+    centre = state.items.findIndex((m) => !m.outgoing && m.id > state.unreadFrom);
+  } else if (atBottom) {
+    centre = n - 1;
+  } else {
+    centre = state.items.findIndex((m) => m.id === anchorId);
+  }
+  if (centre === undefined || centre < 0) centre = n - 1;
+
+  let from = Math.max(0, Math.min(centre - (WINDOW >> 1), n - WINDOW));
+  let to = Math.min(n, from + WINDOW);
+  // An album is one node for a run of messages: a window cut through
+  // the middle of one would build it short.
+  while (from > 0 && state.items[from].albumId
+         && state.items[from - 1].albumId === state.items[from].albumId) {
+    from -= 1;
+  }
+  while (to < n && state.items[to - 1].albumId
+         && state.items[to].albumId === state.items[to - 1].albumId) {
+    to += 1;
+  }
+  return [from, to];
+}
+
+/** What the messages in [from, to) are worth, in pixels. */
+function sumHeights(items, from, to) {
+  let px = 0;
+  for (let i = from; i < to; i += 1) {
+    const h = heights.get(items[i].id);
+    px += h === undefined ? guessHeight() : h;
+  }
+  return px;
+}
+
+/** What an unbuilt message is worth: this chat's average, once known. */
+function guessHeight() {
+  return hCount > 0 ? Math.round(hSum / hCount) : GUESS_H;
+}
+
+/**
+ * The height of each built slot, taken as the distance to the next one
+ * so that margins and any divider in between are counted exactly once,
+ * by the message they sit above.
+ */
+function measureSlots(slots) {
+  for (let k = 0; k < slots.length; k += 1) {
+    const top = slots[k].node.offsetTop;
+    const next = k + 1 < slots.length
+      ? slots[k + 1].node.offsetTop
+      : top + slots[k].node.offsetHeight;
+    const h = next - top;
+    if (h <= 0) continue;
+    noteHeight(slots[k].ids[0], h);
+    // An album is one node for several messages: the first of them
+    // carries the height, the rest are worth nothing on their own.
+    for (let j = 1; j < slots[k].ids.length; j += 1) noteHeight(slots[k].ids[j], 0);
+  }
+}
+
+/**
+ * Remembers one slot's height, keeping the running average honest when
+ * a message is measured again after being rebuilt.
+ *
+ * The zeroes COUNT. An album is one node for several messages, so its
+ * height sits on the first of them and its siblings are worth nothing
+ * - and the average is applied per MESSAGE, to messages that have
+ * never been built and may well turn out to be album members
+ * themselves. Leaving the zeroes out made it an average per NODE
+ * instead: measured on a channel of albums it came out at 684px
+ * against a real 330, and the gap stood twice as tall as what it
+ * stood for.
+ */
+function noteHeight(id, h) {
+  const had = heights.get(id);
+  if (had !== undefined) {
+    hSum -= had;
+    hCount -= 1;
+  }
+  heights.set(id, h);
+  hSum += h;
+  hCount += 1;
+}
+
+/**
+ * A gap of exactly this many pixels, written in decimal: one child per
+ * non-zero digit, each wearing the class for its place value. Six
+ * places, so up to 999999px - longer than any chat gets. Spelled out
+ * this way because JS may not write `style`.
+ */
+function gapNode(px) {
+  const box = el('div', { class: 'history__gap' });
+  let left = Math.max(0, Math.round(px));
+  for (const place of [100000, 10000, 1000, 100, 10, 1]) {
+    const d = Math.floor(left / place);
+    if (d === 0) continue;
+    box.append(el('div', { class: 'gap-' + (d * place) }));
+    left -= d * place;
+  }
+  return box;
+}
+
+/**
+ * Which message the reader is on. A binary search over the built range
+ * rather than a walk: this runs on every scroll event, and reading a
+ * node's position forces layout.
+ */
+function anchorIndex() {
+  if (winTo <= winFrom) return -1;
+  const top = root.scrollTop;
+  let lo = winFrom;
+  let hi = winTo - 1;
+  let best = winFrom;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const node = winNodes[mid];
+    if (!node?.isConnected) { lo = mid + 1; continue; }
+    if (node.offsetTop - root.offsetTop <= top) { best = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return best;
+}
+
+/** Moves the window when the reader has walked to its edge. */
+function reframe() {
+  if (framing || !lastState) return;
+  const n = lastState.items.length;
+  if (n <= WINDOW) return;
+  const a = anchorIndex();
+  if (a < 0) return;
+  anchorId = lastState.items[a]?.id ?? null;
+  const nearTop = winFrom > 0 && a - winFrom < WINDOW_EDGE;
+  const nearEnd = winTo < n && winTo - a < WINDOW_EDGE;
+  if (!nearTop && !nearEnd) return;
+  render(lastState);
 }
 
 /**
@@ -472,10 +747,20 @@ function scrollToBottom() {
   root.scrollTop = root.scrollHeight;
   atBottom = true;
   if (scrollBtn) scrollBtn.hidden = true;
+  // The end of the chat is only BUILT if the window is down here. Sent
+  // from the far end of a long history, this used to land the reader
+  // in the gap - the right place in the scroller, with nothing in it -
+  // until some later scroll event happened to move the window. Asked
+  // for now instead; skipped when a render is already choosing the
+  // window for itself.
+  reframe();
 }
 
 function onScroll() {
   noteScrollPosition();
+  // Before anything that reads positions: the window may have to move,
+  // and everything below wants to look at what is actually built.
+  reframe();
 
   // Near the top: ask for another page. The model ignores the request
   // when it is already loading or the history is exhausted, so there is
