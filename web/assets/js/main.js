@@ -197,7 +197,7 @@ function wireActions() {
   // tells TDLib which chat is on screen and reloads the history, which
   // the native window sees too. So it hangs off 'store:active' alone,
   // the event that fires only when the user really picked another chat.
-  on('store:active', async (chat) => {
+  on('store:active', async () => {
     // A chat of one's own is not a thread; whatever post was being
     // commented on is behind us.
     threadPost = null;
@@ -205,15 +205,22 @@ function wireActions() {
     // this opening is FOR. Taken here so it cannot outlive its errand.
     const jumpTo = pendingJump;
     pendingJump = 0;
-    if (!chat) return;
+    // The ID, not the row. A chat reached by following a forward or a
+    // quote can be one the account does not follow, and then there is
+    // no row in the list to find - but the chat is just as open, and
+    // bailing out here left the reader looking at the chat they came
+    // from with nothing loaded. The row arrives with the history
+    // instead (see setMessages).
+    const id = store.activeChatId;
+    if (!id) return;
     // The header shows this chat's picture, and the list only asks for
     // the first screenful of them - so a chat opened from further down
     // would sit under an initial for as long as it stayed open. The
     // URL rides back in the next chats.list, like every other avatar.
-    call('chats.avatars', { ids: [chat.id] }).catch(() => {});
+    call('chats.avatars', { ids: [id] }).catch(() => {});
     try {
       applyMessages(await call('chat.open',
-        jumpTo ? { id: chat.id, jumpTo } : { id: chat.id }));
+        jumpTo ? { id, jumpTo } : { id }));
       // A standing wish, retried after every render: the message is
       // not on the page yet at this point (see ui/history.js).
       if (jumpTo) emit('ui:show-message', jumpTo);

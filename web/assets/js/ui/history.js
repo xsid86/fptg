@@ -145,6 +145,10 @@ function render(state) {
   if (state.chatId !== chatId) {
     chatId = state.chatId;
     fillAskedAt = -1;
+    // A destination belongs to the chat it was asked for. One that
+    // never turned up must not stay pending here, or it would hold
+    // the new chat's view still (see applyScroll).
+    wantMessage = null;
     nodes.clear();
     seenMedia.clear();
     pendingRead.clear();
@@ -386,6 +390,13 @@ function reconcile(parent, desired) {
  */
 function applyScroll(keepFromBottom) {
   if (wantScroll === 'pending') return;
+  // A destination outranks both of the rules below, and it has to keep
+  // outranking them: the media above it are sized from what TDLib said,
+  // but link previews and stickers still settle after the fact, and
+  // "keep the distance from the END" then slides the landing out of
+  // view. Measured: a jump landed at 123px from the top and had drifted
+  // to 146px ABOVE it by the time the pictures had drawn.
+  if (wantMessage !== null) return;
 
   if (wantScroll === 'settling') {
     if (!userMoved) {
@@ -409,6 +420,9 @@ function applyScroll(keepFromBottom) {
 /** The reader has taken over; stop holding the opening position. */
 function takeOver() {
   userMoved = true;
+  // And stop holding the destination they were taken to: they are
+  // reading from there now, and re-pinning it would fight the wheel.
+  wantMessage = null;
 }
 
 /**
@@ -445,10 +459,11 @@ function showWanted() {
   if (wantMessage === null) return;
   const entry = nodes.get(wantMessage);
   if (!entry?.node.isConnected) return;
-  wantMessage = null;
+  // NOT cleared here. The wish stands until the reader takes over -
+  // see takeOver - because one correct placement is not enough while
+  // the history is still growing into its final shape.
   // A deliberate destination outranks the opening position, which
   // would otherwise pull the view to the unread divider or the end.
-  userMoved = true;
   wantScroll = null;
   scrollTo(Math.max(0, entry.node.offsetTop - root.offsetTop - UNREAD_AIR));
 }

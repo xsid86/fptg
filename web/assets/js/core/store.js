@@ -85,6 +85,16 @@ export function onActiveChat(handler) {
 
 export function setMessages(payload) {
   data.messages = payload;
+  // The open chat may have no row in the list and never grow one: a
+  // channel this account does not follow, arrived at by following a
+  // forward or a quote. The row the server sends with the history is
+  // then the only one there is, and without it the header and the
+  // composer would draw "no chat" over a screenful of messages.
+  const row = payload?.chat;
+  if (row && row.id === data.activeChatId && data.activeRow?.id !== row.id) {
+    data.activeRow = row;
+    emit('store:active-row', data.activeRow);
+  }
   emit('store:messages', payload);
 }
 

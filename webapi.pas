@@ -1608,6 +1608,25 @@ begin
 
   Res := TJSONObject.Create;
   Res.Add('chatId',       Msgs.ChatId);
+  { The open chat's own row, for the bar above the history.
+
+    The page looks the open chat up in the list it holds, and the chat
+    reached by following a forward or a quote need not be in that list
+    at all - a channel this account does not follow has a row here
+    (updateNewChat makes one for any chat TDLib mentions) but no place
+    in the list, so the list will never grow one. Without this the bar
+    concluded there was no chat and hid itself, leaving a blank strip
+    over real messages. Same reason the thread descriptor below
+    exists. }
+  if (Chats <> nil) and (Msgs.ChatId <> 0) then begin
+    CRow := Chats.Lookup(Msgs.ChatId);
+    if CRow <> nil then begin
+      { Its picture has usually never been asked for, for the same
+        reason: nothing has ever drawn this chat. }
+      Chats.EnsureAvatar(CRow);
+      Res.Add('chat', RowToJson(Chats, CRow));
+    end;
+  end;
   { Comment thread, or nothing. The page cannot work this out for
     itself: the chat now open is the DISCUSSION group, which may not
     even be in the user's chat list - so the header and the composer
