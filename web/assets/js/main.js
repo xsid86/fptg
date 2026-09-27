@@ -124,6 +124,9 @@ async function showFolderMenu(id, anchor) {
 // message, so the page already holds it - and the thread has to show
 // it at the top, or there is nothing to quote a line of the post from.
 let threadPost = null;
+// The message a pending chat switch is being made for - see
+// ui:open-source.
+let pendingJump = 0;
 
 function applyMessages(state) {
   // NOT cleared when a payload arrives without a thread. thread.open
@@ -198,6 +201,10 @@ function wireActions() {
     // A chat of one's own is not a thread; whatever post was being
     // commented on is behind us.
     threadPost = null;
+    // Set by ui:open-source just before it switched chats: the message
+    // this opening is FOR. Taken here so it cannot outlive its errand.
+    const jumpTo = pendingJump;
+    pendingJump = 0;
     if (!chat) return;
     // The header shows this chat's picture, and the list only asks for
     // the first screenful of them - so a chat opened from further down
@@ -205,7 +212,11 @@ function wireActions() {
     // URL rides back in the next chats.list, like every other avatar.
     call('chats.avatars', { ids: [chat.id] }).catch(() => {});
     try {
-      applyMessages(await call('chat.open', { id: chat.id }));
+      applyMessages(await call('chat.open',
+        jumpTo ? { id: chat.id, jumpTo } : { id: chat.id }));
+      // A standing wish, retried after every render: the message is
+      // not on the page yet at this point (see ui/history.js).
+      if (jumpTo) emit('ui:show-message', jumpTo);
     } catch (err) {
       report(err);
     }
@@ -289,18 +300,27 @@ function wireActions() {
     }
   });
 
-  on('ui:jump', (messageId) => {
-    call('chat.open', { id: store.activeChatId, jumpTo: messageId })
-      .then(applyMessages).catch(report);
-  });
-
+  // Following a quote, or a forward back to its source. Both are the
+  // same errand - put that message on screen - and it is worth having
+  // one way to run it, because the two halves are easy to get wrong
+  // separately: landing in the right chat without moving the view, or
+  // moving the view in the wrong chat.
   on('ui:open-source', ({ chatId, messageId }) => {
-    // Following a forward to its source is a chat switch, so the list
-    // selection has to move with it or the header would name one chat
-    // while the history shows another.
-    setActiveChat(chatId);
-    call('chat.open', { id: chatId, jumpTo: messageId })
-      .then(applyMessages).catch(report);
+    if (!messageId) return;
+    if (chatId && chatId !== store.activeChatId) {
+      // The jump rides WITH the opening request rather than following
+      // it. A chat opened at its newest end first would put unread
+      // messages on screen, and what is on screen is marked read - so
+      // a glance at an old quote would eat the unread count of a
+      // channel the reader follows.
+      pendingJump = messageId;
+      setActiveChat(chatId);
+      return;
+    }
+    call('chat.open', { id: store.activeChatId, jumpTo: messageId })
+      .then(applyMessages)
+      .then(() => emit('ui:show-message', messageId))
+      .catch(report);
   });
 
   on('ui:chat-action', ({ id, action }) => {

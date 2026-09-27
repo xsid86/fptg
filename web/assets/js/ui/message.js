@@ -274,7 +274,13 @@ function renderReply(msg) {
     const banner = el('button', {
         class: `message__reply accent-${msg.reply.color ?? msg.senderColor}`,
         type: 'button',
-        onclick: () => emit('ui:jump', msg.reply.id),
+        // The quoted message may well be in another chat - a comment
+        // quotes the channel's post. Where it is, is the server's to
+        // say; what to do about it is main.js's.
+        onclick: () => emit('ui:open-source', {
+            chatId: msg.reply.chatId,
+            messageId: msg.reply.id,
+        }),
     }, icon('reply'));
 
     banner.append(el('span', {

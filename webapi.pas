@@ -835,6 +835,12 @@ begin
   if ARow.ReplyMessageId <> 0 then begin
     Sub := TJSONObject.Create;
     Sub.Add('id', ARow.ReplyMessageId);
+    { Which chat the quoted message lives in. TDLib fills chat_id on
+      every reply_to, usually with the chat the reply itself is in -
+      but a comment under a channel post quotes the POST, which is in
+      the channel. Without this the page could only look for it where
+      it already was, and clicking the quote did nothing at all. }
+    Sub.Add('chatId', ARow.ReplyChatId);
     if AMsgs.ReplyPreview(ARow.ReplyChatId, ARow.ReplyMessageId,
       RUser, RChat, PreviewText) then begin
       ResolveSubject(RUser, RChat, Name, Color);
