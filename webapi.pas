@@ -156,6 +156,7 @@ type
     function  CmdChatFolderCreate(AArgs: TJSONObject): TJSONData;
     function  CmdMessagesList: TJSONData;
     function  CmdMessagesOlder: TJSONData;
+    function  CmdMessagesTrim: TJSONData;
     function  CmdMessagesRead(AArgs: TJSONObject): TJSONData;
     function  CmdThreadOpen(AArgs: TJSONObject): TJSONData;
     function  CmdThreadClose: TJSONData;
@@ -1779,6 +1780,21 @@ begin
   Result := CmdPresenceGet;
 end;
 
+{ The reader is back at the newest end, and the pages they scrolled
+  past on the way are of no use to anyone. Answers with the list, like
+  chat.open does, so the page applies the shorter history the same way
+  it applies any other change. }
+function TWebApi.CmdMessagesTrim: TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  if Msgs.Count > TRIM_AT then begin
+    Msgs.TrimOlder(TRIM_KEEP);
+  end;
+  Result := CmdMessagesList;
+end;
+
 function TWebApi.CmdMessagesRead(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -2776,6 +2792,8 @@ begin
         Reply(AConnId, ReqId, CmdThreadOpen(Args));
       end else if Cmd = 'thread.close' then begin
         Reply(AConnId, ReqId, CmdThreadClose);
+      end else if Cmd = 'messages.trim' then begin
+        Reply(AConnId, ReqId, CmdMessagesTrim);
       end else if Cmd = 'chat.join' then begin
         Reply(AConnId, ReqId, CmdChatJoin(Args));
       end else if Cmd = 'presence.get' then begin

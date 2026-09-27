@@ -267,6 +267,12 @@ function wireActions() {
 
   on('ui:react', ({ msg, emoji }) => toggleReaction(msg, emoji));
 
+  on('ui:trim-history', () => {
+    // Answers with the history, shorter - applied like any other
+    // change to it.
+    call('messages.trim').then(applyMessages).catch(report);
+  });
+
   on('ui:load-older', throttle(() => {
     call('messages.older').catch(report);
   }, 300));

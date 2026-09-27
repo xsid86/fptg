@@ -55,7 +55,13 @@ export function renderMessage(msg) {
         dataset: {messageId: String(msg.id)},
     });
 
-    card.append(renderHead(msg));
+    // A sticker has no bubble, so a strip under it is a bar of its own
+    // across the history - worth it for reactions, absurd for a
+    // comments button reading zero. On a sticker the button moves up
+    // into the head, where there is room going spare, and only once
+    // there is something to count.
+    const bare = msg.kind === 'sticker';
+    card.append(renderHead(msg, bare && msg.comments > 0));
     if (msg.reply) card.append(renderReply(msg));
     if (msg.forward) card.append(renderForward(msg));
 
@@ -67,7 +73,7 @@ export function renderMessage(msg) {
     if (msg.link) body.append(renderLinkPreview(msg));
     if (body.childNodes.length) card.append(body);
 
-    const footer = renderFooter(msg);
+    const footer = renderFooter(msg, bare);
     if (footer) card.append(footer);
     return withMenu(card, msg);
 }
@@ -190,7 +196,7 @@ function cellAspect(msg) {
 }
 
 // ------------------------------------------------------------- head
-function renderHead(msg) {
+function renderHead(msg, withComments = false) {
     const head = el('header', {class: 'message__head'});
 
     // Only the read receipt, and only on our own messages - an
@@ -208,6 +214,10 @@ function renderHead(msg) {
     head.append(el('span', {class: 'message__time', textContent: clockTime(msg.date)}));
     if (msg.editDate) {
         head.append(el('span', {class: 'message__state', textContent: 'edited'}));
+    }
+    if (withComments) {
+        head.append(el('span', {class: 'message__head-gap'}));
+        head.append(renderComments(msg));
     }
     return head;
 }
@@ -797,11 +807,12 @@ function renderPoll(msg) {
  * neither - and when it has both they belong on the same line, which
  * is where the original client puts them.
  */
-function renderFooter(msg) {
+function renderFooter(msg, commentsMoved = false) {
     const hasReactions = !!msg.reactions?.length;
     // Not "> 0": a post nobody has commented on still shows the
     // button, and that button is the only way to leave the first one.
-    const hasComments = msg.comments !== undefined;
+    // Unless it has gone into the head instead - see renderMessage.
+    const hasComments = !commentsMoved && msg.comments !== undefined;
     if (!hasReactions && !hasComments) return null;
 
     const strip = el('footer', {class: 'message__reactions'});

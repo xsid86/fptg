@@ -805,6 +805,7 @@ type
     function GetSearchActive: boolean;
     procedure SearchDone(Sender: TObject; const AResp: TTdResponse);
     procedure HistoryDone(Sender: TObject; const AResp: TTdResponse);
+    procedure PurgeFileMap(AMap: TAudioFileMap; AGone: TFPList);
     procedure ScheduleLoad(ADelayMs: integer);
     procedure RetryTick(Sender: TObject);
     procedure CheckUnreadBackfill;
@@ -1099,6 +1100,15 @@ type
     property ChatId: Int64 read FChatId;
     property Count: integer read GetCount;
     property Rows[AIndex: integer]: TMsgRow read GetRow; default;
+    { Drops everything older than the newest AKeep messages.
+
+      For a reader who has paged a long way back and then returned to
+      the end: what they scrolled past is still held, still serialised
+      to every view on every change, and of no use to anyone. Only the
+      OLDEST end is ever dropped, which is what keeps the invariant
+      this unit is built on - the loaded range runs from the newest
+      message backwards, without holes. }
+    procedure TrimOlder(AKeep: integer);
     property LoadingOlder: boolean read FLoadingOlder;
     property OldestLoaded: boolean read FOldestLoaded;
     { The frozen unread marker, 0 when this chat opened with nothing
@@ -2354,6 +2364,83 @@ begin
   FRetryTimer.Enabled := False;
   FRetryTimer.Interval := ADelayMs;
   FRetryTimer.Enabled := True;
+end;
+
+{ Forgets rows that are about to be freed.
+
+  Every one of these maps holds a RAW POINTER to a row (file_id ->
+  message, see TAudioFileMap), so an entry left behind would be written
+  through by the next updateFile for that file. The queues do not need
+  the same treatment: TQueuedDownload carries a file id and a callback,
+  and every callback looks its row up in one of these maps and leaves
+  quietly when it is not there.
+
+  All eleven maps are the same specialisation of TFPGMap, so one
+  procedure serves them all. }
+procedure TTdMessages.PurgeFileMap(AMap: TAudioFileMap; AGone: TFPList);
+var
+  I: integer;
+begin
+  for I := AMap.Count - 1 downto 0 do begin
+    if AGone.IndexOf(AMap.Data[I]) >= 0 then begin
+      AMap.Delete(I);
+    end;
+  end;
+end;
+
+procedure TTdMessages.TrimOlder(AKeep: integer);
+var
+  Drop, I: integer;
+  Row: TMsgRow;
+  Gone: TFPList;
+begin
+  if (AKeep <= 0) or (FAll.Count <= AKeep) then begin
+    Exit;
+  end;
+  { A filtered view pages by its own rule (FSearchNextFrom), and a
+    thread's range is not this chat's - neither is ours to cut. }
+  if SearchActive or (FThreadPostId <> 0) then begin
+    Exit;
+  end;
+  Drop := FAll.Count - AKeep;
+  Gone := TFPList.Create;
+  try
+    { FAll is keyed by message id, so index order IS oldest first -
+      the same fact LoadOlder's anchor relies on. }
+    for I := 0 to Drop - 1 do begin
+      Gone.Add(FAll.Data[I]);
+    end;
+    PurgeFileMap(FByFile, Gone);
+    PurgeFileMap(FAudioCoverByFile, Gone);
+    PurgeFileMap(FVoiceByFile, Gone);
+    PurgeFileMap(FDocByFile, Gone);
+    PurgeFileMap(FPhotoByFile, Gone);
+    PurgeFileMap(FLinkByFile, Gone);
+    PurgeFileMap(FPhotoBestByFile, Gone);
+    PurgeFileMap(FAnimByFile, Gone);
+    PurgeFileMap(FVideoByFile, Gone);
+    PurgeFileMap(FVideoThumbByFile, Gone);
+    PurgeFileMap(FStickerByFile, Gone);
+    for I := Drop - 1 downto 0 do begin
+      Row := FAll.Data[I];
+      FAll.Delete(I);
+      Row.Free;
+    end;
+  finally
+    Gone.Free;
+  end;
+  { There is more history below what is held now, whatever the model
+    had concluded before. }
+  FOldestLoaded := False;
+  FNoProgressRetries := 0;
+  FRetryTimer.Enabled := False;
+  { Rebuilt HERE, not on the coalescing timer. FRows still holds the
+    pointers just freed, and Count/Rows read FRows - the caller
+    serialises the list the moment this returns, so a deferred rebuild
+    means walking freed rows. That is not a theory: it was an access
+    violation on the first run. }
+  FDirty := True;
+  Rebuild(nil);
 end;
 
 procedure TTdMessages.RetryTick(Sender: TObject);

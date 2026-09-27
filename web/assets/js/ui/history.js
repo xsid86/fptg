@@ -87,6 +87,15 @@ let winNodes = [];
 let anchorId = null;
 // render() re-entered from the scroll handler would be a loop.
 let framing = false;
+// Whether the reader was at the newest end last time we looked, so
+// COMING BACK to it can be told from sitting there - see onScroll.
+let wasAtBottom = true;
+
+// How long a history has to be before returning to its end is worth
+// telling the server about. The server has the final say (it holds the
+// history and knows what it is about to drop); this only keeps the
+// page from asking after every little chat.
+const TRIM_AT = 400;
 
 const READ_DEBOUNCE_MS = 500;   // same wait the native scroller uses
 // How far above the "Unread messages" divider the view stops, so the
@@ -231,6 +240,7 @@ function paint(state) {
     wantScroll = 'pending';
     userMoved = false;
     atBottom = true;
+    wasAtBottom = true;
   }
 
   if (!state.items.length) {
@@ -528,6 +538,16 @@ function anchorIndex() {
   return best;
 }
 
+/**
+ * Back at the newest end after paging a long way back: everything
+ * above is no longer being read, and it is still being held and
+ * serialised on every change. Once per arrival, not while sitting
+ * there - and the server has the final say on whether anything goes.
+ */
+function askTrim() {
+  if ((lastState?.items.length ?? 0) > TRIM_AT) emit('ui:trim-history');
+}
+
 /** Moves the window when the reader has walked to its edge. */
 function reframe() {
   if (framing || !lastState) return;
@@ -758,8 +778,15 @@ function showWanted() {
 
 function scrollToBottom() {
   root.scrollTop = root.scrollHeight;
+  // Asked HERE as well as from the scroll handler, and for the same
+  // reason the window is: arriving at the end by our own hand need not
+  // produce a scroll event, and then nothing would ever notice that
+  // the reader has come back.
+  const arrived = !wasAtBottom;
   atBottom = true;
+  wasAtBottom = true;
   if (scrollBtn) scrollBtn.hidden = true;
+  if (arrived) askTrim();
   // The end of the chat is only BUILT if the window is down here. Sent
   // from the far end of a long history, this used to land the reader
   // in the gap - the right place in the scroller, with nothing in it -
@@ -771,6 +798,8 @@ function scrollToBottom() {
 
 function onScroll() {
   noteScrollPosition();
+  if (atBottom && !wasAtBottom) askTrim();
+  wasAtBottom = atBottom;
   // Before anything that reads positions: the window may have to move,
   // and everything below wants to look at what is actually built.
   reframe();

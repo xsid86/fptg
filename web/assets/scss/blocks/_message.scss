@@ -173,8 +173,17 @@
 // Shoves whatever follows it to the far edge of the strip. Its own
 // element rather than margin-inline-start:auto on the pill, so the
 // pill's own styling stays free of layout.
-.message__reactions-gap {
+.message__reactions-gap,
+// Pushes the comments button to the far end of a sticker's head, the
+// same way the one above does it in the strip.
+.message__head-gap {
   flex: 1 1 auto;
+}
+
+// The comments button when it rides in the head rather than in a strip
+// of its own. Shorter, so the head keeps the height it has without one.
+.message__head .comments {
+  margin-block: -$space-2;
 }
 
 // The comments pill. Deliberately built out of the same measurements as

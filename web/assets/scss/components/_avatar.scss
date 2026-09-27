@@ -10,7 +10,7 @@
   @include flex(row, center, center);
   position: relative;
   border-radius: 50%;
-  background: var(--avatar-color, var(--c-accent));
+  background: linear-gradient(to bottom, color-mix(in srgb,var(--avatar-color, var(--c-accent)) 80%, white), color-mix(in srgb,var(--avatar-color, var(--c-accent)) 80%, black));
   color: #fff;
   font-weight: $fw-bold;
   font-size: $fs-md;

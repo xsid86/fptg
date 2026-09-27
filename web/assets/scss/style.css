@@ -1055,7 +1055,7 @@ body {
   justify-content: center;
   position: relative;
   border-radius: 50%;
-  background: var(--avatar-color, var(--c-accent));
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--avatar-color, var(--c-accent)) 80%, white), color-mix(in srgb, var(--avatar-color, var(--c-accent)) 80%, black));
   color: #fff;
   font-weight: 600;
   font-size: 14px;
@@ -2301,8 +2301,13 @@ body {
   padding: 6px 11px;
 }
 
-.message__reactions-gap {
+.message__reactions-gap,
+.message__head-gap {
   flex: 1 1 auto;
+}
+
+.message__head .comments {
+  margin-block: -4px;
 }
 
 .comments {

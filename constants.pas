@@ -1318,6 +1318,16 @@ const
     asking again (a synchronous retry there once hung the app). }
   FILL_TARGET = 50;
   FILL_DELAY_MS = 30;
+  { Paging back through a chat grows the loaded history without limit,
+    and the whole of it is serialised to the page on every change -
+    measured at 455 KB for 550 messages, against 50 KB for a freshly
+    opened chat. Once the reader is back at the newest end, everything
+    they paged past is of no use to anyone: it is dropped, down to
+    TRIM_KEEP. More than the page's own render window (120), so the
+    window stays fully backed and nothing has to be fetched again just
+    because the reader nudges the wheel. }
+  TRIM_AT = 400;
+  TRIM_KEEP = 150;
   { TDLib message-id granularity: id = server_message_id shl 20 —
     confirmed from tdlib_raw.log: every real message id has its low 20
     bits zero, and adjacent messages differ by exactly this constant.
