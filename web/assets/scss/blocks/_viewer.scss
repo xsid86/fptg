@@ -33,7 +33,7 @@ $viewer-thumb-size: 64px;
 .pswp__thumbs {
   @include flex(row, center, center, $space-2);
   background: color-mix(in srgb, var(--c-dark) 55%, transparent);
-  backdrop-filter: blur(8px);
+  //backdrop-filter: blur(8px);
   height: $viewer-thumbs-height;
   inset-block-end: 0;
   inset-inline: 0;

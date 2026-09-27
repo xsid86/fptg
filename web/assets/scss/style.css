@@ -580,19 +580,10 @@ html, body {
 
 body {
   background: var(--c-bg);
-  background-position: center;
-  background-size: cover;
   color: var(--c-text);
   margin: 0;
   overflow: hidden;
 }
-body[data-scheme=dark] {
-  background-image: url(../img/bg.jpg);
-}
-body[data-scheme=light] {
-  background-image: url(../img/bg-light.jpg);
-}
-
 h1, h2, h3, h4, p, figure, blockquote {
   margin: 0;
 }
@@ -825,8 +816,7 @@ body {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   height: 100%;
@@ -874,8 +864,7 @@ body {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   height: 100%;
@@ -1159,11 +1148,10 @@ body {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
-  background: color-mix(in srgb, var(--c-bg) 75%, transparent);
+  background: var(--c-bg);
   border: 1px solid color-mix(in srgb, var(--c-text) 25%, transparent);
   max-width: 280px;
   min-width: 200px;
@@ -1385,7 +1373,6 @@ body {
   width: 36px;
   height: 36px;
   flex: 0 0 auto;
-  box-shadow: 0 2px 8px var(--c-shadow);
   color: var(--c-text-dim);
   cursor: pointer;
   opacity: 1;
@@ -1424,11 +1411,9 @@ body {
 }
 
 .chat-item {
-  backdrop-filter: blur(10px);
   background: color-mix(in srgb, var(--chat-color) 20%, var(--c-bg));
   border: 1px solid color-mix(in srgb, var(--chat-color) 50%, transparent);
   border-radius: 8px;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.1), inset 0 0 2rem color-mix(in srgb, var(--chat-color) 50%, transparent);
   --chat-color: var(--accent-color, var(--c-accent));
   cursor: pointer;
   display: flex;
@@ -1587,7 +1572,6 @@ body {
 .chat-item__folder {
   background: linear-gradient(to bottom, color-mix(in srgb, var(--chat-color) 100%, black), color-mix(in srgb, var(--chat-color) 65%, black));
   border: none;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   color: var(--c-accent-text);
 }
 
@@ -1642,8 +1626,7 @@ body {
 }
 
 .chat-header {
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   display: flex;
@@ -1656,7 +1639,6 @@ body {
   border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  box-shadow: 0 5px 5px rgba(0, 0, 0, 0.1);
   --chat-color: var(--accent-color, var(--c-accent));
   opacity: 1;
   padding: 6px 8px;
@@ -2080,7 +2062,6 @@ body {
   width: 36px;
   height: 36px;
   flex: 0 0 auto;
-  box-shadow: 0 2px 8px var(--c-shadow);
   color: var(--c-text-dim);
   cursor: pointer;
   inset-block-start: 16px;
@@ -2110,7 +2091,6 @@ body {
   width: 36px;
   height: 36px;
   flex: 0 0 auto;
-  box-shadow: 0 2px 8px var(--c-shadow);
   color: var(--c-text-dim);
   cursor: pointer;
   opacity: 1;
@@ -2133,7 +2113,6 @@ body {
   background: color-mix(in srgb, var(--sender-color) 7%, var(--c-surface));
   border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   --sender-color: var(--accent-color, var(--c-accent));
   margin-bottom: 16px;
   overflow: hidden;
@@ -2319,7 +2298,6 @@ body {
   background: linear-gradient(to bottom, color-mix(in srgb, white 90%, black), color-mix(in srgb, white 80%, black));
   border: 1px solid white;
   border-radius: 999px;
-  box-shadow: 0 0.25rem 0.25rem rgba(0, 0, 0, 0.1);
   color: var(--c-dark);
   cursor: pointer;
   flex: 0 0 auto;
@@ -2445,7 +2423,6 @@ button.message__forward:hover {
 .message:has(.media--gif) .message__head {
   border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   margin-bottom: 16px;
 }
 .message:has(.media--sticker) .message__body,
@@ -3602,7 +3579,6 @@ video:fullscreen {
   width: 48px;
   height: 48px;
   flex: 0 0 auto;
-  backdrop-filter: blur(6px);
   background: color-mix(in srgb, var(--c-dark) 45%, transparent);
   border: none;
   border-radius: 50%;
@@ -3631,7 +3607,6 @@ video:fullscreen {
   width: 48px;
   height: 48px;
   flex: 0 0 auto;
-  backdrop-filter: blur(6px);
   background: color-mix(in srgb, var(--c-dark) 35%, transparent);
   border-radius: 50%;
   color: var(--c-light);
@@ -3648,7 +3623,6 @@ video:fullscreen {
 }
 
 .media__badge {
-  backdrop-filter: blur(6px);
   background: color-mix(in srgb, var(--c-dark) 45%, transparent);
   border-radius: 4px;
   color: var(--c-light);
@@ -3680,7 +3654,6 @@ video:fullscreen {
   background: linear-gradient(to bottom, color-mix(in srgb, var(--c-audio) 20%, white), color-mix(in srgb, var(--c-audio) 40%, white));
   border: 1px solid color-mix(in srgb, var(--c-audio) 40%, white);
   border-radius: 8px;
-  box-shadow: inset 0 0 48px rgba(255, 255, 255, 0.5), 0 2px 2px rgba(0, 0, 0, 0.1);
   color: var(--c-audio);
   position: relative;
 }
@@ -4052,7 +4025,6 @@ a.media--file:hover {
   justify-content: center;
   gap: 4px;
   background: color-mix(in srgb, var(--c-dark) 55%, transparent);
-  backdrop-filter: blur(8px);
   height: 92px;
   inset-block-end: 0;
   inset-inline: 0;
@@ -4238,8 +4210,7 @@ a.media--file:hover {
 }
 
 .composer {
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   display: flex;
@@ -4460,8 +4431,7 @@ a.media--file:hover {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   background: color-mix(in srgb, var(--c-bg) 75%, transparent);
@@ -4644,7 +4614,6 @@ a.media--file:hover {
 }
 
 .picker__heading {
-  backdrop-filter: blur(30px);
   background: color-mix(in srgb, var(--c-surface) 75%, transparent);
   border-radius: 999px;
   color: var(--c-text);
@@ -4876,8 +4845,7 @@ span.picker__gif {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   padding: 8px;
@@ -4975,13 +4943,11 @@ span.picker__gif {
   align-items: flex-start;
   justify-content: flex-start;
   gap: 6px;
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   background: var(--c-surface);
   border-left: 3px solid var(--avatar-color, var(--c-accent));
-  box-shadow: 0 8px 24px var(--c-shadow);
   cursor: pointer;
   max-width: 320px;
   padding: 8px;
@@ -5103,8 +5069,7 @@ span.picker__gif {
   align-items: stretch;
   justify-content: flex-start;
   gap: 8px;
-  background: color-mix(in srgb, var(--c-bg) 20%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--c-bg);
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   max-width: 420px;

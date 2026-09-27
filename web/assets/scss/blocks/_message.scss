@@ -10,7 +10,7 @@
   background: color-mix(in srgb, var(--sender-color) 7%, var(--c-surface));
   border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
   border-radius: $radius-md;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+  //box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
   --sender-color: var(--accent-color, var(--c-accent));
   margin-bottom: $space-6;
   overflow: hidden;
@@ -196,7 +196,7 @@
   background: linear-gradient(to bottom, color-mix(in srgb, white 90%, black), color-mix(in srgb, white 80%, black));
   border: 1px solid white;
   border-radius: $radius-pill;
-  box-shadow: 0 .25rem .25rem rgba(0, 0, 0, .1);
+  //box-shadow: 0 .25rem .25rem rgba(0, 0, 0, .1);
   color: var(--c-dark);
   cursor: pointer;
   flex: 0 0 auto;
@@ -330,7 +330,7 @@ button.message__forward:hover {
   .message__head {
     border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
     border-radius: $radius-md;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+    //box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
     margin-bottom: $space-6;
   }
 

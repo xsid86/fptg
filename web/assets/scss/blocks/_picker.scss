@@ -168,7 +168,7 @@
 }
 
 .picker__heading {
-  backdrop-filter: blur(30px);
+  //backdrop-filter: blur(30px);
   background: color-mix(in srgb, var(--c-surface) 75%, transparent);
   border-radius: $radius-pill;
   color: var(--c-text);

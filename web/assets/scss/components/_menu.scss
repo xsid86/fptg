@@ -10,7 +10,7 @@
   @include flex(column, stretch, flex-start, 0);
   @include card($radius-md, var(--c-dark));
   //box-shadow: inset 0 0 $space-5 rgba(255, 255, 255, .5), 0 8px 24px rgba(0, 0, 0, .18);
-  background: color-mix(in srgb, var(--c-bg) 75%, transparent);
+  background: var(--c-bg);
   border: 1px solid color-mix(in srgb, var(--c-text) 25%, transparent);
   //border: 1px solid var(--c-border);
   max-width: 280px;

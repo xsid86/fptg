@@ -10,7 +10,7 @@
   border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  box-shadow: 0 5px 5px rgba(0, 0, 0, .1);
+  //box-shadow: 0 5px 5px rgba(0, 0, 0, .1);
   --chat-color: var(--accent-color, var(--c-accent));
   opacity: 1;
   padding: $space-3 $space-4;

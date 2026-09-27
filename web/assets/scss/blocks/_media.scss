@@ -165,7 +165,7 @@ video:fullscreen {
 .media__overlay {
   @include flex(row, center, center);
   @include size(48px);
-  backdrop-filter: blur(6px);
+  //backdrop-filter: blur(6px);
   background: color-mix(in srgb, var(--c-dark) 45%, transparent);
   border: none;
   border-radius: 50%;
@@ -192,7 +192,7 @@ video:fullscreen {
 .media__play {
   @include flex(row, center, center);
   @include size(48px);
-  backdrop-filter: blur(6px);
+  //backdrop-filter: blur(6px);
   background: color-mix(in srgb, var(--c-dark) 35%, transparent);
   border-radius: 50%;
   color: var(--c-light);
@@ -208,7 +208,7 @@ video:fullscreen {
 }
 
 .media__badge {
-  backdrop-filter: blur(6px);
+  //backdrop-filter: blur(6px);
   background: color-mix(in srgb, var(--c-dark) 45%, transparent);
   border-radius: $radius-sm;
   color: var(--c-light);
@@ -246,7 +246,7 @@ video:fullscreen {
   background: linear-gradient(to bottom, color-mix(in srgb, var(--c-audio) 20%, white), color-mix(in srgb, var(--c-audio) 40%, white));
   border: 1px solid color-mix(in srgb, var(--c-audio) 40%, white);
   border-radius: $radius-md;
-  box-shadow: inset 0 0 48px rgba(255, 255, 255, 0.5), 0 2px 2px rgba(0, 0, 0, .1);
+  //box-shadow: inset 0 0 48px rgba(255, 255, 255, 0.5), 0 2px 2px rgba(0, 0, 0, .1);
   color: var(--c-audio);
   position: relative; // a download bar belongs to the card, nothing else
 }
