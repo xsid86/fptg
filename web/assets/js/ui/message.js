@@ -4,7 +4,7 @@ import {icon} from '../util/icons.js';
 import {playSticker} from './sticker.js';
 import {customEmojiNode} from '../util/emoji.js';
 import {renderRichText} from '../util/entities.js';
-import {holdImage} from '../util/offscreen.js';
+import {holdImage, holdVideo} from '../util/offscreen.js';
 import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 
 // One message block, following framehistory.pas rather than inventing a
@@ -451,13 +451,15 @@ function renderVideo(msg, m) {
     const boxWrapper = el('div', {class: 'media__wrapper'});
     const box = el('div', {class: sizedBox('video', m)});
     if (m.url) {
-        box.append(el('video', {
+        const player = el('video', {
             class: 'media__video',
             src: m.url,
             poster: m.thumbUrl || '',
             controls: true,
             preload: 'metadata',
-        }));
+        });
+        holdVideo(player, m.url);
+        box.append(player);
     } else {
         const still = el('img', {
             class: m.thumbUrl ? 'media__img' : 'media__img is-placeholder',
@@ -518,11 +520,18 @@ function renderAnimation(msg, m) {
     if (m.url) {
         // Telegram "GIFs" are silent MP4s, which is why this is a <video>
         // and not an <img> - same fact the native side relies on.
-        box.append(el('video', {
+        const player = el('video', {
             class: 'media__video',
             src: m.url,
+            // The blurred stamp, for the moments there is no frame to
+            // show: before the first one decodes, and while the player
+            // is released off screen (util/offscreen.js). A poster is
+            // an attribute, so dropping the source does not take it.
+            poster: m.thumb || '',
             autoplay: true, loop: true, muted: true, playsInline: true,
-        }));
+        });
+        holdVideo(player, m.url, true);
+        box.append(player);
     } else {
         box.append(el('img', {
             class: m.thumb ? 'media__img' : 'media__img is-placeholder',
@@ -695,10 +704,12 @@ function renderSticker(msg, m) {
         return box;
     }
     if (m.format === 'webm') {
-        box.append(el('video', {
+        const player = el('video', {
             class: 'media__sticker',
             src: m.url, autoplay: true, loop: true, muted: true, playsInline: true,
-        }));
+        });
+        holdVideo(player, m.url, true);
+        box.append(player);
     } else if (m.format === 'tgs') {
         // A gzip-compressed Lottie animation - see ui/sticker.js, which
         // owns the unpacking, the player and the "is it on screen"

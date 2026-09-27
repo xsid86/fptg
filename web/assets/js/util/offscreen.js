@@ -27,7 +27,7 @@ import { on } from '../core/bus.js';
 // bitmaps instead of hundreds.
 const REACH = '1200px';
 
-// img -> what it draws when near, and what it falls back to when not.
+// node -> what it draws when near, and what it falls back to when not.
 const held = new WeakMap();
 // The observer holds a strong reference to everything it watches, so
 // the set of watched nodes has to be swept by hand - otherwise every
@@ -51,9 +51,11 @@ function observer() {
   return watcher;
 }
 
-function release(img, info) {
+function release(node, info) {
   if (info.off) return;
   info.off = true;
+  if (info.video) return releaseVideo(node, info);
+  const img = node;
   if (info.thumb) {
     img.src = info.thumb;
     img.classList.add('is-placeholder');
@@ -64,11 +66,39 @@ function release(img, info) {
   }
 }
 
-function restore(img, info) {
+function restore(node, info) {
   if (!info.off) return;
   info.off = false;
-  img.src = info.full;
-  img.classList.remove('is-placeholder');
+  if (info.video) return restoreVideo(node, info);
+  node.src = info.full;
+  node.classList.remove('is-placeholder');
+}
+
+// A <video> costs more than a picture and more of them are running:
+// a Telegram "GIF" and a webm sticker are autoplaying loops, so off
+// the screen they go on decoding frames nobody is looking at. Dropping
+// the source is what frees the decoder and its buffers - removing the
+// attribute alone does not, load() is what makes the element let go.
+function releaseVideo(video, info) {
+  info.at = video.currentTime;
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+}
+
+function restoreVideo(video, info) {
+  video.src = info.full;
+  // Where the reader had got to. Only meaningful for the one kind that
+  // has controls; a loop starts wherever it likes.
+  if (info.at) {
+    video.addEventListener('loadedmetadata', () => {
+      try { video.currentTime = info.at; } catch { /* past the end */ }
+    }, { once: true });
+  }
+  // Muted, so this is autoplay the browser allows. The promise is
+  // rejected when the element goes away again mid-start, which is not
+  // an error worth hearing about.
+  if (info.loop) video.play().catch(() => {});
 }
 
 /**
@@ -87,6 +117,23 @@ export function holdImage(img, full, thumb = '') {
 }
 
 /**
+ * The same for a <video>: `full` is the file, `loop` says whether it
+ * plays by itself (a GIF or a webm sticker) and so has to be started
+ * again on the way back.
+ *
+ * Safe for the same reason the pictures are: the box is sized from
+ * what TDLib said about the file, so an emptied player leaves the
+ * layout exactly where it was. A poster, where there is one, keeps
+ * standing in by itself - it is an attribute, not the source.
+ */
+export function holdVideo(video, full, loop = false) {
+  if (!video || !full) return;
+  held.set(video, { full, video: true, loop, at: 0, off: false });
+  watched.add(video);
+  observer().observe(video);
+}
+
+/**
  * Forgets pictures whose node the history has thrown away.
  *
  * Hung on the same event that makes the history rebuild its nodes -
@@ -94,11 +141,11 @@ export function holdImage(img, full, thumb = '') {
  * players in ui/sticker.js.
  */
 function sweep() {
-  for (const img of [...watched]) {
-    if (img.isConnected) continue;
-    watched.delete(img);
-    held.delete(img);
-    observer().unobserve(img);
+  for (const node of [...watched]) {
+    if (node.isConnected) continue;
+    watched.delete(node);
+    held.delete(node);
+    observer().unobserve(node);
   }
 }
 on('store:messages', sweep);
