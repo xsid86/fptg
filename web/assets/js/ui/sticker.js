@@ -126,7 +126,7 @@ on('store:chats', sweep);
  * it could not be played, so the caller can say so instead of leaving
  * an empty frame.
  */
-export async function playSticker(node, url) {
+export async function playSticker(node, url, opts = {}) {
     try {
         const [lottie, data] = await Promise.all([loadEngine(), animationData(url)]);
         // The node may have been thrown away while we were fetching.
@@ -157,7 +157,16 @@ export async function playSticker(node, url) {
             // either way: lottie builds these nodes with
             // createElementNS from parsed JSON, the same way this app
             // builds its own (see core/dom.js).
-            renderer: 'svg',
+            // Canvas for the small ones - see the note above. At badge
+            // size the gradient flaw that rules canvas out for a real
+            // sticker is invisible, and the saving is not: measured on
+            // the app's own renderer, three 16x16 emoji statuses in the
+            // chat list cost 0.17 of a core plus 0.08 in the GPU
+            // process, and hiding them took both to zero. That is what
+            // an SVG tree re-written attribute by attribute, sixty
+            // times a second, costs - whatever size it ends up drawn
+            // at.
+            renderer: opts.small ? 'canvas' : 'svg',
             loop: true,
             autoplay: true,
             animationData: data,

@@ -74,7 +74,9 @@ export function customEmojiNode(id, extraClass = '') {
     }
     if (info.format === 'tgs') {
         const frame = el('span', { class: `${cls} emoji--lottie` });
-        playSticker(frame, info.url);
+        // A custom emoji is drawn at the size of a letter. It is never
+        // the thing being looked at, and it must not cost like one.
+        playSticker(frame, info.url, { small: true });
         return frame;
     }
     return el('img', { class: cls, src: info.url, alt: '' });
