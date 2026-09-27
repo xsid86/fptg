@@ -805,6 +805,7 @@ type
     function GetSearchActive: boolean;
     procedure SearchDone(Sender: TObject; const AResp: TTdResponse);
     procedure HistoryDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ScheduleLoad(ADelayMs: integer);
     procedure RetryTick(Sender: TObject);
     procedure CheckUnreadBackfill;
     procedure SendMediaByFileId(const AContent: utf8string; ASilent: boolean);
@@ -2205,7 +2206,7 @@ begin
       FOldestLoaded := True;
       FNoProgressRetries := 0;
     end else begin
-      FRetryTimer.Enabled := True;
+      ScheduleLoad(RETRY_DELAY_MS);
     end;
     Exit;
   end;
@@ -2279,10 +2280,29 @@ begin
       FOldestLoaded := True;
       FNoProgressRetries := 0;
     end else begin
-      FRetryTimer.Enabled := True;
+      ScheduleLoad(RETRY_DELAY_MS);
     end;
   end else begin
     FNoProgressRetries := 0;
+    { A screenful, before the view is left to fend for itself.
+
+      getChatHistory answers the opening request with a SINGLE message
+      in every chat measured, and the web view's only way to notice is
+      to measure itself: it asks for more when its box turns out taller
+      than its contents. That measurement is exactly what a window
+      that is not being drawn cannot make - a hidden pane reports zero
+      height, and the check that protects against asking forever on
+      behalf of a zero-height box also means nothing is asked at all.
+      The chat then sits at one message, with too little in it to
+      scroll, and therefore nothing to trigger the next page either.
+
+      So the boundary is moved: the model does not hand over a history
+      it knows to be shorter than a page. Every step here made real
+      progress (that is the branch), so the count strictly grows and
+      this ends - at a screenful, or at the end of the chat. }
+    if (not FOldestLoaded) and (FAll.Count < FILL_TARGET) then begin
+      ScheduleLoad(FILL_DELAY_MS);
+    end;
   end;
 
   CheckUnreadBackfill;
@@ -2325,6 +2345,15 @@ begin
   end;
   Dec(FUnreadBackfill);
   LoadOlder;
+end;
+
+{ Arms the one timer both reasons share: a no-progress retry backs
+  off, a fill follows up almost at once. }
+procedure TTdMessages.ScheduleLoad(ADelayMs: integer);
+begin
+  FRetryTimer.Enabled := False;
+  FRetryTimer.Interval := ADelayMs;
+  FRetryTimer.Enabled := True;
 end;
 
 procedure TTdMessages.RetryTick(Sender: TObject);

@@ -1309,6 +1309,15 @@ const
     hung the app in a tight request/response loop). }
   MAX_NO_PROGRESS_RETRIES = 5;
   RETRY_DELAY_MS = 400;
+  { A first page is routinely ONE message - measured, not feared: in a
+    sweep of eight chats every single getChatHistory answered the
+    opening request with got=1. So the model keeps pulling until it
+    holds a screenful, instead of handing the view one message and
+    waiting to be asked again. Short, because this delay is felt on
+    every chat opening; it exists only to leave the callback before
+    asking again (a synchronous retry there once hung the app). }
+  FILL_TARGET = 50;
+  FILL_DELAY_MS = 30;
   { TDLib message-id granularity: id = server_message_id shl 20 —
     confirmed from tdlib_raw.log: every real message id has its low 20
     bits zero, and adjacent messages differ by exactly this constant.
