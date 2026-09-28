@@ -621,23 +621,29 @@ function maybeFill(state) {
  */
 function albumNode(group) {
   const key = `album:${group[0].albumId}`;
-  const hash = JSON.stringify(group);
   const known = nodes.get(key);
-  if (known && known.hash === hash) return known.node;
+  // Same rule as messageNode, one message at a time.
+  if (known && known.group?.length === group.length
+      && known.group.every((m, i) => m === group[i])) {
+    return known.node;
+  }
 
   const node = renderAlbum(group);
   if (known) {
     reanchorMenu(known.node, node);
     known.node.replaceWith(node);
   }
-  nodes.set(key, { node, hash, ids: group.map((m) => m.id) });
+  nodes.set(key, { node, group, ids: group.map((m) => m.id) });
   return node;
 }
 
 function messageNode(msg) {
-  const hash = JSON.stringify(msg);
   const known = nodes.get(msg.id);
-  if (known && known.hash === hash) return known.node;
+  // IDENTITY, not a hash. A message that did not change arrives as the
+  // very object it was before (see merged() in core/store.js), so the
+  // question "did this change" costs a pointer comparison instead of
+  // serialising every message in the window on every refresh.
+  if (known && known.msg === msg) return known.node;
 
   const node = renderMessage(msg);
   // A context menu may be anchored to the node about to be thrown
@@ -647,7 +653,7 @@ function messageNode(msg) {
     reanchorMenu(known.node, node);
     known.node.replaceWith(node);
   }
-  nodes.set(msg.id, { node, hash, ids: [msg.id] });
+  nodes.set(msg.id, { node, msg, ids: [msg.id] });
   return node;
 }
 

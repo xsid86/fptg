@@ -83,7 +83,44 @@ export function onActiveChat(handler) {
   on('store:active-row', handler);
 }
 
+/**
+ * Folds a partial answer into the list already held.
+ *
+ * The server sends the whole history only when the page has nothing to
+ * compare against - opening a chat, following a jump. Every refresh
+ * after that carries just the messages whose own JSON changed, plus
+ * the ids that have gone. Everything around the list is small and
+ * arrives whole either way.
+ *
+ * The messages that did NOT change keep their object identity, and the
+ * history leans on exactly that: same object, same node, nothing to
+ * rebuild and nothing to hash.
+ */
+function merged(payload) {
+  const held = data.messages;
+  if (!held || held.chatId !== payload.chatId) return payload;
+
+  const gone = new Set((payload.removed ?? []).map(Number));
+  const fresh = new Map((payload.items ?? []).map((m) => [m.id, m]));
+  const items = [];
+  for (const msg of held.items) {
+    if (gone.has(msg.id)) continue;
+    const next = fresh.get(msg.id);
+    if (next) {
+      items.push(next);
+      fresh.delete(msg.id);
+    } else {
+      items.push(msg);
+    }
+  }
+  // Whatever is left is new. The list runs oldest first, by id.
+  for (const msg of fresh.values()) items.push(msg);
+  items.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return { ...payload, items, full: true };
+}
+
 export function setMessages(payload) {
+  if (payload && payload.full === false) payload = merged(payload);
   data.messages = payload;
   // The open chat may have no row in the list and never grow one: a
   // channel this account does not follow, arrived at by following a

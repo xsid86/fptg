@@ -182,7 +182,9 @@ async function loadChats() {
 async function loadMessages() {
   if (store.activeChatId === null) return;
   try {
-    applyMessages(await call('messages.list'));
+    // The difference, not the whole history. The server answers in
+    // full anyway whenever it cannot tell what this page already has.
+    applyMessages(await call('messages.list', { delta: true }));
   } catch (err) {
     report(err);
   }

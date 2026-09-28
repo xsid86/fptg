@@ -61,7 +61,7 @@ procedure WebApiStop;
 implementation
 
 uses
-  Classes, SysUtils, SyncObjs, ExtCtrls, base64, fpjson, jsonparser,
+  Classes, SysUtils, SyncObjs, ExtCtrls, base64, fgl, fpjson, jsonparser,
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
   autodownload, customemoji, webui;
@@ -96,6 +96,13 @@ type
     Payload: utf8string;
   end;
 
+  { What one connection was last told about each message: id -> hash
+    of the JSON sent for it. }
+  TIdHashMap = specialize TFPGMap<Int64, QWord>;
+  { And one of those per connection, because two pages open at once are
+    at two different places in the same history. }
+  TConnSnapMap = specialize TFPGMap<Int64, TIdHashMap>;
+
   TWebApi = class
   private
     FTimer: TTimer;
@@ -121,6 +128,12 @@ type
       one. Coalescing to at most five a second is the difference
       between a panel that fills in and a panel that flickers. }
     FStickersDirty: boolean;
+    { See TConnSnapMap. Entries are never explicitly removed - there is
+      no "connection closed" signal to hang that on - so the map is
+      capped instead; a page that loses its place is told the whole
+      history again, which is the same thing that happens on its first
+      request. }
+    FSnaps: TConnSnapMap;
     procedure Tick(Sender: TObject);
     procedure Drain;
     procedure EnsureBindings;
@@ -138,6 +151,11 @@ type
     procedure MenuReactionsDone(Sender: TObject; const AResp: TTdResponse);
     procedure MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
     procedure PushEvent(const AName: utf8string; AData: TJSONObject);
+    procedure ReplyMessages(AConnId: Int64; AReqId: integer;
+      AList: TJSONData; ADelta: boolean);
+    function  SnapOf(AConnId: Int64): TIdHashMap;
+    procedure NoteSent(AConnId: Int64; AList: TJSONData);
+    function  ToDelta(AConnId: Int64; AFull: TJSONData): TJSONData;
     { NOT "Dispatch": TObject already has one (message dispatch), and
       a method of that name here hides it — the same family as
       TThread.Start, TControl.Text and TComponent.Name elsewhere in
@@ -939,6 +957,8 @@ begin
   FTimer.Enabled := True;
   FAuth := TWebAuth.Create(nil);
   FAuth.OnChanged := @AuthChanged;
+  FSnaps := TConnSnapMap.Create;
+  FSnaps.Sorted := True;
 end;
 
 destructor TWebApi.Destroy;
@@ -963,6 +983,10 @@ begin
   end;
   FQueue.Free;
   FLock.Free;
+  for I := 0 to FSnaps.Count - 1 do begin
+    FSnaps.Data[I].Free;
+  end;
+  FSnaps.Free;
   inherited Destroy;
 end;
 
@@ -1034,6 +1058,163 @@ begin
     FBoundStickers.OnChanged := nil;
   end;
   FBoundStickers := nil;
+end;
+
+{ How many connections' views are remembered. Two is the normal case
+  (the app's own window and a browser tab); the cap only exists so a
+  long run of reconnects cannot grow the map without end. }
+const
+  MAX_SNAPS = 8;
+
+{ FNV-1a, 64-bit. Any stable hash would do - this one is four lines and
+  has no table. }
+function JsonHash(const S: utf8string): QWord;
+var
+  I: integer;
+begin
+  Result := QWord(14695981039346656037);
+  for I := 1 to Length(S) do begin
+    Result := Result xor QWord(Ord(S[I]));
+    Result := Result * QWord(1099511628211);
+  end;
+end;
+
+{ Answers with a message list and remembers what went out.
+
+  Every path that produces one comes through here, and that is the
+  point: a full list sent without recording it would leave the next
+  delta measured against something the page never received. }
+procedure TWebApi.ReplyMessages(AConnId: Int64; AReqId: integer;
+  AList: TJSONData; ADelta: boolean);
+begin
+  if ADelta then begin
+    AList := ToDelta(AConnId, AList);
+  end else begin
+    NoteSent(AConnId, AList);
+  end;
+  Reply(AConnId, AReqId, AList);
+end;
+
+function TWebApi.SnapOf(AConnId: Int64): TIdHashMap;
+var
+  Idx: integer;
+begin
+  Idx := FSnaps.IndexOf(AConnId);
+  if Idx >= 0 then begin
+    Result := FSnaps.Data[Idx];
+    Exit;
+  end;
+  { Oldest out. Whoever is dropped simply gets told everything on its
+    next request, which is what a first request does anyway. }
+  while FSnaps.Count >= MAX_SNAPS do begin
+    FSnaps.Data[0].Free;
+    FSnaps.Delete(0);
+  end;
+  Result := TIdHashMap.Create;
+  Result.Sorted := True;
+  FSnaps.Add(AConnId, Result);
+end;
+
+{ Records what this connection has just been told, so the next answer
+  can be the difference. Called with the list that is actually going
+  out, whatever produced it. }
+procedure TWebApi.NoteSent(AConnId: Int64; AList: TJSONData);
+var
+  Snap: TIdHashMap;
+  Arr: TJSONArray;
+  I: integer;
+  Item: TJSONObject;
+begin
+  if (AConnId = 0) or (AList = nil) or not (AList is TJSONObject) then begin
+    Exit;
+  end;
+  Arr := JGetArr(TJSONObject(AList), 'items');
+  Snap := SnapOf(AConnId);
+  Snap.Clear;
+  if Arr = nil then begin
+    Exit;
+  end;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Items[I].JSONType <> jtObject then begin
+      Continue;
+    end;
+    Item := TJSONObject(Arr.Items[I]);
+    Snap.Add(Item.Get('id', Int64(0)), JsonHash(utf8string(Item.AsJSON)));
+  end;
+end;
+
+{ Turns a freshly built full list into what this connection has not
+  seen: the messages whose JSON differs from last time, and the ids
+  that have gone. Everything around the list - the unread marker, the
+  thread, the chat's own row - is small and rides along whole.
+
+  The list is still BUILT in full, because the only way to know that a
+  message is unchanged is to serialise it and look. What this saves is
+  the wire, the parse at the other end, and the page's reconcile - and
+  that was the expensive part: 455 KB for 550 messages, on every
+  change to the model. }
+function TWebApi.ToDelta(AConnId: Int64; AFull: TJSONData): TJSONData;
+var
+  Snap, Fresh: TIdHashMap;
+  Arr, Keep, Gone: TJSONArray;
+  I, Idx: integer;
+  Item: TJSONObject;
+  Id: Int64;
+  H: QWord;
+begin
+  Result := AFull;
+  if (AConnId = 0) or (AFull = nil) or not (AFull is TJSONObject) then begin
+    Exit;
+  end;
+  Arr := JGetArr(TJSONObject(AFull), 'items');
+  if Arr = nil then begin
+    Exit;
+  end;
+  Snap := SnapOf(AConnId);
+  Fresh := TIdHashMap.Create;
+  Fresh.Sorted := True;
+  Keep := TJSONArray.Create;
+  Gone := TJSONArray.Create;
+  try
+    I := 0;
+    while I < Arr.Count do begin
+      if Arr.Items[I].JSONType <> jtObject then begin
+        Inc(I);
+        Continue;
+      end;
+      Item := TJSONObject(Arr.Items[I]);
+      Id := Item.Get('id', Int64(0));
+      H := JsonHash(utf8string(Item.AsJSON));
+      Fresh.Add(Id, H);
+      Idx := Snap.IndexOf(Id);
+      if (Idx >= 0) and (Snap.Data[Idx] = H) then begin
+        { Unchanged - the page already has it. }
+        Arr.Delete(I);
+      end else begin
+        Keep.Add(Arr.Extract(I));
+      end;
+    end;
+    for I := 0 to Snap.Count - 1 do begin
+      if Fresh.IndexOf(Snap.Keys[I]) < 0 then begin
+        Gone.Add(Snap.Keys[I]);
+      end;
+    end;
+    { The snapshot becomes what the page will have once this arrives. }
+    Snap.Clear;
+    for I := 0 to Fresh.Count - 1 do begin
+      Snap.Add(Fresh.Keys[I], Fresh.Data[I]);
+    end;
+  finally
+    Fresh.Free;
+  end;
+  { Replaced, not added: the builder already put both of these in, and
+    fpjson is happy to carry two members of the same name while the
+    parser at the other end is not. }
+  TJSONObject(AFull).Delete(TJSONObject(AFull).IndexOfName('items'));
+  TJSONObject(AFull).Delete(TJSONObject(AFull).IndexOfName('full'));
+  TJSONObject(AFull).Add('items', Keep);
+  TJSONObject(AFull).Add('removed', Gone);
+  TJSONObject(AFull).Add('full', False);
 end;
 
 procedure TWebApi.PushEvent(const AName: utf8string; AData: TJSONObject);
@@ -1608,6 +1789,9 @@ begin
   end;
 
   Res := TJSONObject.Create;
+  { Turned to False by ToDelta on a refresh. The page replaces its
+    list on a full answer and merges on a partial one. }
+  Res.Add('full',         True);
   Res.Add('chatId',       Msgs.ChatId);
   { The open chat's own row, for the bar above the history.
 
@@ -2773,7 +2957,7 @@ begin
       end else if Cmd = 'chats.more' then begin
         Reply(AConnId, ReqId, CmdChatsMore(Args));
       end else if Cmd = 'chat.open' then begin
-        Reply(AConnId, ReqId, CmdChatOpen(Args));
+        ReplyMessages(AConnId, ReqId, CmdChatOpen(Args), False);
       end else if Cmd = 'chat.close' then begin
         Reply(AConnId, ReqId, CmdChatClose);
       end else if Cmd = 'chat.action' then begin
@@ -2785,15 +2969,18 @@ begin
       end else if Cmd = 'chat.folder.create' then begin
         Reply(AConnId, ReqId, CmdChatFolderCreate(Args));
       end else if Cmd = 'messages.list' then begin
-        Reply(AConnId, ReqId, CmdMessagesList);
+        { The page asks for the difference on a refresh and for the
+          whole thing when it has nothing to compare against. }
+        ReplyMessages(AConnId, ReqId, CmdMessagesList,
+          (Args <> nil) and Args.Get('delta', False));
       end else if Cmd = 'messages.older' then begin
         Reply(AConnId, ReqId, CmdMessagesOlder);
       end else if Cmd = 'thread.open' then begin
-        Reply(AConnId, ReqId, CmdThreadOpen(Args));
+        ReplyMessages(AConnId, ReqId, CmdThreadOpen(Args), False);
       end else if Cmd = 'thread.close' then begin
-        Reply(AConnId, ReqId, CmdThreadClose);
+        ReplyMessages(AConnId, ReqId, CmdThreadClose, False);
       end else if Cmd = 'messages.trim' then begin
-        Reply(AConnId, ReqId, CmdMessagesTrim);
+        ReplyMessages(AConnId, ReqId, CmdMessagesTrim, False);
       end else if Cmd = 'chat.join' then begin
         Reply(AConnId, ReqId, CmdChatJoin(Args));
       end else if Cmd = 'presence.get' then begin
@@ -2809,7 +2996,7 @@ begin
       end else if Cmd = 'media.ensure' then begin
         Reply(AConnId, ReqId, CmdMediaEnsure(Args));
       end else if Cmd = 'search.set' then begin
-        Reply(AConnId, ReqId, CmdSearchSet(Args));
+        ReplyMessages(AConnId, ReqId, CmdSearchSet(Args), False);
       end else if Cmd = 'stickers.list' then begin
         Reply(AConnId, ReqId, CmdStickersList(Args));
       end else if Cmd = 'stickers.set' then begin
