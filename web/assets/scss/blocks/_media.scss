@@ -173,6 +173,10 @@ video:fullscreen {
   cursor: pointer;
   inset-block-start: 50%;
   inset-inline-start: 50%;
+  // A button carries the browser's own padding (1px 6px), and the
+  // glyph below sizes itself against the CONTENT box - which made a
+  // "fill the disc" icon come out 36x46 inside a 48x48 circle.
+  padding: 0;
   position: absolute;
   transform: translate(-50%, -50%);
   @include transition;
@@ -181,8 +185,11 @@ video:fullscreen {
     background: color-mix(in srgb, var(--c-dark) 65%, transparent);
   }
 
+  // The glyph fills the disc rather than sitting as a stamp in the
+  // middle of it. Tied to the button's own size, so resizing the disc
+  // carries the icon with it.
   .icon {
-    @include size(22px);
+    @include size(100%);
   }
 }
 
