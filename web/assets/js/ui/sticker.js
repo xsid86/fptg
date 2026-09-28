@@ -127,6 +127,7 @@ on('store:chats', sweep);
  * an empty frame.
  */
 export async function playSticker(node, url, opts = {}) {
+    const badge = !!opts.badge;
     try {
         const [lottie, data] = await Promise.all([loadEngine(), animationData(url)]);
         // The node may have been thrown away while we were fetching.
@@ -157,22 +158,34 @@ export async function playSticker(node, url, opts = {}) {
             // either way: lottie builds these nodes with
             // createElementNS from parsed JSON, the same way this app
             // builds its own (see core/dom.js).
-            // Canvas for the small ones - see the note above. At badge
-            // size the gradient flaw that rules canvas out for a real
-            // sticker is invisible, and the saving is not: measured on
-            // the app's own renderer, three 16x16 emoji statuses in the
-            // chat list cost 0.17 of a core plus 0.08 in the GPU
-            // process, and hiding them took both to zero. That is what
-            // an SVG tree re-written attribute by attribute, sixty
-            // times a second, costs - whatever size it ends up drawn
-            // at.
-            renderer: opts.small ? 'canvas' : 'svg',
-            loop: true,
-            autoplay: true,
+            // A BADGE IS A STILL PICTURE. An emoji status or a custom
+            // emoji in a line of text is drawn at the size of a letter,
+            // and animating one is not free at any size: the
+            // compositor has to wake the window for every frame.
+            // Measured on the app's own renderer, sitting idle with no
+            // chat open, three 16x16 statuses in the chat list cost
+            // 0.17 of a core plus 0.08 in the GPU process - and hiding
+            // them took both to ZERO.
+            //
+            // Canvas as well as still, because lottie's SVG renderer
+            // builds its picture by rewriting a DOM tree, and that is
+            // most of what the frame above cost. The gradient flaw
+            // that rules canvas out for a real sticker is invisible at
+            // the size of a letter.
+            renderer: badge ? 'canvas' : 'svg',
+            loop: !badge,
+            autoplay: !badge,
             animationData: data,
         });
         live.set(node, anim);
-        observer().observe(node);
+        if (badge) {
+            // One frame, then nothing. NOT watched either: the watcher
+            // exists to play what comes into view, which is the one
+            // thing this must not do.
+            anim.goToAndStop(0, true);
+        } else {
+            observer().observe(node);
+        }
         return true;
     } catch (err) {
         console.error('sticker', url, err);

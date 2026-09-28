@@ -66,17 +66,22 @@ export function customEmojiNode(id, extraClass = '') {
 
     const cls = `emoji${extraClass ? ` ${extraClass}` : ''}`;
     if (info.format === 'webm') {
+        // A still first frame, for the same reason the Lottie branch
+        // below stops at one: a badge the size of a letter is not worth
+        // waking the compositor sixty times a second for. `preload`
+        // rather than `autoplay` is what puts that frame on screen.
         return el('video', {
             class: cls,
             src: info.url,
-            autoplay: true, loop: true, muted: true, playsInline: true,
+            autoplay: false, loop: false, muted: true, playsInline: true,
+            preload: 'auto',
         });
     }
     if (info.format === 'tgs') {
         const frame = el('span', { class: `${cls} emoji--lottie` });
         // A custom emoji is drawn at the size of a letter. It is never
         // the thing being looked at, and it must not cost like one.
-        playSticker(frame, info.url, { small: true });
+        playSticker(frame, info.url, { badge: true });
         return frame;
     }
     return el('img', { class: cls, src: info.url, alt: '' });
