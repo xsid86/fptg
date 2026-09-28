@@ -39,6 +39,9 @@ const parsed = new Map();
 
 // container node -> the lottie animation drawing into it
 const live = new Map();
+// The nodes whose animation runs ONCE per appearance - stickers, as
+// against the badges (which never run) and anything that loops.
+const once = new Set();
 
 let engine = null;
 let loading = null;
@@ -50,8 +53,16 @@ function observer() {
             for (const entry of entries) {
                 const anim = live.get(entry.target);
                 if (!anim) continue;
-                if (entry.isIntersecting) anim.play();
-                else anim.pause();
+                if (!entry.isIntersecting) {
+                    // Leaving parks it on its first frame, which is
+                    // also what makes the NEXT arrival a fresh
+                    // showing rather than a resumption.
+                    if (once.has(entry.target)) anim.goToAndStop(0, true);
+                    else anim.pause();
+                    continue;
+                }
+                if (once.has(entry.target)) anim.goToAndPlay(0, true);
+                else anim.play();
             }
             // NO MARGIN. An animation that is not on screen is not
             // being watched, and the compositor wakes the window for
@@ -95,6 +106,7 @@ function drop(node) {
     const anim = live.get(node);
     if (!anim) return;
     live.delete(node);
+    once.delete(node);
     observer().unobserve(node);
     anim.destroy();
 }
@@ -104,14 +116,17 @@ function drop(node) {
  *
  * THIS USED TO HANG ON store:messages ALONE, and that was a leak with
  * a sixteen-hour fuse. The CHAT LIST also holds animated custom emoji,
- * and it rebuilds every row on store:chats - which fires for a message
- * in ANY chat, while store:messages fires only for the open one. A busy
- * account with a quiet chat open therefore rebuilt the list thousands
- * of times with nothing ever sweeping, and the registry is a strong
- * map: every rebuild left its players, their parsed data and their
- * SVG trees behind. Measured: 150 list rebuilds took the JS heap
- * from 5 MB to 114 MB; the same 150 with a sweep after each left it
- * at 5 MB.
+ * and store:chats fires for a message in ANY chat while store:messages
+ * fires only for the open one. A busy account with a quiet chat open
+ * therefore refreshed the list thousands of times with nothing ever
+ * sweeping, and the registry is a strong map: every row it threw away
+ * left its player, its parsed data and its SVG tree behind. Measured:
+ * 150 list rebuilds took the JS heap from 5 MB to 114 MB; the same 150
+ * with a sweep after each left it at 5 MB.
+ *
+ * The list now reuses the rows it can (see ui/chat-list.js), so it
+ * throws far fewer away - but "far fewer" is not "none", and a row
+ * whose chat changed is still rebuilt.
  *
  * So it now hangs on both events AND runs before every new animation.
  * The last one is what makes it self-healing: whatever event does or
@@ -178,16 +193,31 @@ export async function playSticker(node, url, opts = {}) {
             // that rules canvas out for a real sticker is invisible at
             // the size of a letter.
             renderer: badge ? 'canvas' : 'svg',
-            loop: !badge,
-            autoplay: !badge,
+            // A sticker is shown, not looped: it plays once when it
+            // comes into view and then stands still. Only the things
+            // that are meant to run forever keep looping.
+            loop: !badge && !opts.once,
+            autoplay: false,
             animationData: data,
         });
         live.set(node, anim);
+        if (opts.once) {
+            once.add(node);
+            // Back to the first frame when the run is over, so what
+            // stays on screen is the sticker's own face rather than
+            // whatever pose it ended in.
+            anim.addEventListener('complete', () => anim.goToAndStop(0, true));
+        }
         if (!badge) {
             // Clicking replays it from the start, the way the original
             // client does. It is also the way back for anything the
             // rule above has stopped.
             node.addEventListener('click', () => anim.goToAndPlay(0, true));
+            // A face to wear until the observer speaks. Nothing
+            // autoplays any more, and the observer's first word about
+            // a newly watched node arrives a task later - without this
+            // there is a blank sticker-sized hole until then.
+            anim.goToAndStop(0, true);
         }
         if (badge) {
             // One frame, then nothing. NOT watched either: the watcher

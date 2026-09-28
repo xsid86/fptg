@@ -66,9 +66,13 @@ function viewObserver() {
         const info = held.get(entry.target);
         if (!info?.video || !info.loop) continue;
         if (entry.isIntersecting && !info.off) {
+          // A sticker is SHOWN once per appearance; a GIF runs for as
+          // long as it is looked at.
+          if (info.loop === 'once') entry.target.currentTime = 0;
           entry.target.play().catch(() => { /* went away mid-start */ });
         } else {
           entry.target.pause();
+          if (info.loop === 'once') entry.target.currentTime = 0;
         }
       }
     }, { rootMargin: '0px' });
@@ -140,9 +144,10 @@ export function holdImage(img, full, thumb = '') {
 }
 
 /**
- * The same for a <video>: `full` is the file, `loop` says whether it
- * plays by itself (a GIF or a webm sticker) and so has to be started
- * again on the way back.
+ * The same for a <video>: `full` is the file, and `loop` says how it
+ * runs - 'loop' for a GIF, which plays while it is looked at, 'once'
+ * for a sticker, which plays a single time per appearance. Anything
+ * else (a video with controls) is the reader's to start.
  *
  * Safe for the same reason the pictures are: the box is sized from
  * what TDLib said about the file, so an emptied player leaves the

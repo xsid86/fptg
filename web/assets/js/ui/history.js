@@ -1,4 +1,4 @@
-import { el, clear } from '../core/dom.js';
+import { el, clear, reconcile } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
 import { store, onActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
@@ -663,18 +663,6 @@ function separator(key, build) {
  * in would be shorter and would also re-insert every node - which
  * restarts media elements, the very thing this file exists to avoid.
  */
-function reconcile(parent, desired) {
-  let i = 0;
-  for (const node of desired) {
-    const current = parent.childNodes[i];
-    if (current !== node) parent.insertBefore(node, current ?? null);
-    i += 1;
-  }
-  while (parent.childNodes.length > desired.length) {
-    parent.lastChild.remove();
-  }
-}
-
 // ----------------------------------------------------------- scroll
 /**
  * Where a freshly opened chat sits, and where it stays.

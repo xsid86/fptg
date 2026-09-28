@@ -1,4 +1,4 @@
-import { el, clear } from '../core/dom.js';
+import { el, clear, reconcile } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
@@ -234,37 +234,58 @@ export function setChatFilter(text) {
 // not in it - see mountChatList.
 let topBtn = null;
 
+// chat id -> { node, hash }. See render.
+const rows = new Map();
+
+function rowNode(chat) {
+  const hash = JSON.stringify(chat);
+  const known = rows.get(chat.id);
+  if (known && known.hash === hash) return known.node;
+  const node = chatItem(chat);
+  rows.set(chat.id, { node, hash });
+  return node;
+}
+
 function render() {
   if (!root) return;
-  // Clearing the container resets its scrollTop, which threw the list
-  // back to the top on every refresh - including the one that follows
-  // changing a chat's folder.
   const keep = lastArchived === store.archived ? scrollAnchor() : null;
   lastArchived = store.archived;
-  clear(root);
-  // The list is rebuilt wholesale, so THIS list's own folder menu is
-  // now pointing at a detached button and has to go.
+  // A row whose chat changed IS rebuilt, and this list's own folder
+  // menu may have been anchored to it.
   //
-  // Only that one, though. This used to be a plain closeMenu() before
-  // the clear, and closeMenu() is global - so every refresh of the chat
-  // list also shut whatever menu was open somewhere else, including the
-  // context menu on a message. The list rebuilds on any incoming
-  // message in any chat, which is why that looked like the menu closing
-  // itself at random moments. Detachment is the honest test: the folder
-  // menu's anchor has just been thrown away, a message's has not.
+  // Only that one, though. This used to be a plain closeMenu(), and
+  // closeMenu() is global - so every refresh of the chat list also
+  // shut whatever menu was open somewhere else, including the context
+  // menu on a message. The list refreshes on any incoming message in
+  // any chat, which is why that looked like the menu closing itself at
+  // random moments. Detachment is the honest test: an anchor that has
+  // just been thrown away is gone, a message's has not.
   closeMenuIfDetached();
   const chats = store.chats.filter(matches);
   if (!chats.length) {
-    root.append(el('div', {
+    rows.clear();
+    clear(root).append(el('div', {
       class: 'chat-list__empty',
       textContent: needle ? `Nothing matches "${needle}"` : 'No chats here yet.',
     }));
     noteScrollPosition();
     return;
   }
-  const fragment = document.createDocumentFragment();
-  for (const chat of chats) fragment.append(chatItem(chat));
-  root.append(fragment);
+  // Rows are REUSED, not rebuilt. The list refreshes on a message in
+  // any chat, and rebuilding every row each time threw away whatever
+  // was living inside it - which is why the animated emoji beside a
+  // name flickered: each refresh dropped its player and started a new
+  // one, re-parsing the .tgs to show the same still frame again.
+  //
+  // Same trick as the history's messageNode: the payload is its own
+  // hash, so a row is rebuilt exactly when the chat it draws changed.
+  reconcile(root, chats.map(rowNode));
+  // Rows for chats that have dropped off the list (a filter, a switch
+  // to the archive) are of no further use.
+  const listed = new Set(chats.map((c) => c.id));
+  for (const id of [...rows.keys()]) {
+    if (!listed.has(id)) rows.delete(id);
+  }
   restoreScroll(keep);
   noteScrollPosition();
 }

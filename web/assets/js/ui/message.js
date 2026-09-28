@@ -548,7 +548,7 @@ function renderAnimation(msg, m) {
             loop: true, muted: true, playsInline: true,
             onclick: () => { player.currentTime = 0; player.play().catch(() => {}); },
         });
-        holdVideo(player, m.url, true);
+        holdVideo(player, m.url, 'loop');
         box.append(player);
     } else {
         box.append(el('img', {
@@ -727,10 +727,13 @@ function renderSticker(msg, m) {
         // it from the start.
         const player = el('video', {
             class: 'media__sticker',
-            src: m.url, loop: true, muted: true, playsInline: true,
+            src: m.url, loop: false, muted: true, playsInline: true,
             onclick: () => { player.currentTime = 0; player.play().catch(() => {}); },
+            // Back to the first frame when it finishes, so a sticker at
+            // rest wears its own face.
+            onended: () => { player.currentTime = 0; },
         });
-        holdVideo(player, m.url, true);
+        holdVideo(player, m.url, 'once');
         box.append(player);
     } else if (m.format === 'tgs') {
         // A gzip-compressed Lottie animation - see ui/sticker.js, which
@@ -740,7 +743,7 @@ function renderSticker(msg, m) {
         // hole the size of a sticker.
         const frame = el('div', {class: 'media__sticker media__sticker--lottie'});
         box.append(frame);
-        playSticker(frame, m.url).then((ok) => {
+        playSticker(frame, m.url, { once: true }).then((ok) => {
             if (ok || !frame.isConnected) return;
             frame.replaceWith(el('div', {
                 class: 'media__sticker-wait',

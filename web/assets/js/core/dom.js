@@ -40,6 +40,27 @@ export function clear(node) {
   return node;
 }
 
+/**
+ * Makes `parent`'s children be exactly `desired`, in that order, moving
+ * what is already there rather than rebuilding it.
+ *
+ * The point is what it does NOT do: a node that belongs in the list
+ * stays the same node. Anything living inside it - a running player, a
+ * half-decoded picture, a caret - survives the update, and nothing
+ * flickers. Clearing and re-appending looks equivalent and is not.
+ */
+export function reconcile(parent, desired) {
+  let i = 0;
+  for (const node of desired) {
+    const current = parent.childNodes[i];
+    if (current !== node) parent.insertBefore(node, current ?? null);
+    i += 1;
+  }
+  while (parent.childNodes.length > desired.length) {
+    parent.lastChild.remove();
+  }
+}
+
 export const qs = (selector, scope = document) => scope.querySelector(selector);
 export const qsa = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 
