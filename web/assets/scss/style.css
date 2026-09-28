@@ -1411,6 +1411,8 @@ body {
 }
 
 .chat-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 89px;
   background: color-mix(in srgb, var(--chat-color) 20%, var(--c-bg));
   border: 1px solid color-mix(in srgb, var(--chat-color) 50%, transparent);
   border-radius: 8px;

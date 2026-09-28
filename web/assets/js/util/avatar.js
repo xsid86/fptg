@@ -1,5 +1,6 @@
 import { el, clear } from '../core/dom.js';
 import { initial } from './format.js';
+import { holdImage } from './offscreen.js';
 
 /**
  * A chat's picture, drawn into a box that already carries .avatar.
@@ -25,7 +26,12 @@ export function fillAvatar(box, chat) {
   box.classList.toggle('is-deleted', !!chat.deleted);
   clear(box);
   if (chat.avatar) {
-    box.append(el('img', { class: 'avatar__img', src: chat.avatar, alt: '' }));
+    const img = el('img', { class: 'avatar__img', src: chat.avatar, alt: '' });
+    // A hundred rows means a hundred decoded pictures, and seven of
+    // them are on screen. Far-off rows fall back to the inline
+    // thumbnail they already carry, which costs no download.
+    holdImage(img, chat.avatar, chat.avatarThumb || '');
+    box.append(img);
   } else if (chat.avatarThumb) {
     box.append(el('img', { class: 'avatar__img is-blur', src: chat.avatarThumb, alt: '' }));
   } else {

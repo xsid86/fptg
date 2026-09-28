@@ -170,9 +170,12 @@ export async function playSticker(node, url, opts = {}) {
             // what the native window looked like next to us.
             //
             // The cost is a DOM per sticker instead of one canvas.
-            // Acceptable here: few stickers are on screen at once and
-            // off-screen ones are paused. If a wall of them ever bites,
-            // the answer is the rlottie-wasm swap above, not canvas.
+            // Acceptable here: few stickers are on screen at once,
+            // off-screen ones are stopped, and each visible one runs a
+            // single pass. rlottie is NOT the answer if a wall of them
+            // ever bites - it was weighed and turned down: not smooth
+            // under LCL, and in the browser it loses colours and
+            // layers. Drawing quality is the point of this renderer.
             //
             // Nothing from the file reaches the document as MARKUP
             // either way: lottie builds these nodes with

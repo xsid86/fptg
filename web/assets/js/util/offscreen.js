@@ -27,8 +27,26 @@ import { on } from '../core/bus.js';
 // bitmaps instead of hundreds.
 const REACH = '1200px';
 
+// HOW MANY PICTURES MAY HOLD THEIR FILE AT ONCE.
+//
+// The reach above is a distance, not a quantity, and a dense run of
+// small pictures - a wall of stickers, a list of a hundred avatars -
+// can put a great many of them within it. The browser's own decoded
+// image cache is sized against the machine, not against us: measured
+// at 128 MB on a long session. This is the ceiling we can actually
+// impose.
+//
+// Generous against what a screen can show (a handful) and mean against
+// what a scroll can accumulate. Nothing on screen is ever evicted, so
+// the cap gives way rather than blanking something the reader is
+// looking at.
+const HOLD_CAP = 48;
+
 // node -> what it draws when near, and what it falls back to when not.
 const held = new WeakMap();
+// The ones holding their file right now, least recently restored
+// first - a Map keeps insertion order, which is the whole trick.
+const restored = new Map();
 // The observer holds a strong reference to everything it watches, so
 // the set of watched nodes has to be swept by hand - otherwise every
 // picture the history has ever built stays alive in it, which is the
@@ -44,6 +62,7 @@ function observer() {
       for (const entry of entries) {
         const info = held.get(entry.target);
         if (!info) continue;
+        info.near = entry.isIntersecting;
         if (entry.isIntersecting) restore(entry.target, info);
         else release(entry.target, info);
       }
@@ -64,7 +83,16 @@ function viewObserver() {
     viewWatcher = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         const info = held.get(entry.target);
-        if (!info?.video || !info.loop) continue;
+        if (!info) continue;
+        // What may not be thrown out to keep under the cap.
+        info.visible = entry.isIntersecting;
+        // Leaving the screen is the moment a node BECOMES evictable,
+        // and the cap is otherwise only ever tested when something new
+        // is taken on. After a burst - a page of history arriving all
+        // at once - that could leave the set over the cap until the
+        // next arrival.
+        if (!entry.isIntersecting) prune();
+        if (!info.video || !info.loop) continue;
         if (entry.isIntersecting && !info.off) {
           // A sticker is SHOWN once per appearance; a GIF runs for as
           // long as it is looked at.
@@ -83,6 +111,7 @@ function viewObserver() {
 function release(node, info) {
   if (info.off) return;
   info.off = true;
+  restored.delete(node);
   if (info.video) return releaseVideo(node, info);
   const img = node;
   if (info.thumb) {
@@ -98,9 +127,34 @@ function release(node, info) {
 function restore(node, info) {
   if (!info.off) return;
   info.off = false;
+  // Youngest at the end, which is where the eviction below starts
+  // counting from.
+  restored.delete(node);
+  restored.set(node, info);
+  prune();
   if (info.video) return restoreVideo(node, info);
   node.src = info.full;
   node.classList.remove('is-placeholder');
+}
+
+/**
+ * Brings the number holding a file back under the cap, oldest first
+ * and never one that is on screen.
+ *
+ * If everything held is on screen the cap simply gives: a ceiling is
+ * worth having, but not at the price of a blank where the reader is
+ * looking.
+ */
+function prune() {
+  if (restored.size <= HOLD_CAP) return;
+  for (const [node, info] of restored) {
+    if (restored.size <= HOLD_CAP) return;
+    // Only what is KNOWN to be off screen. A node observed a moment
+    // ago has not been reported on yet, and evicting it would blank
+    // something the reader may well be looking at.
+    if (info.visible !== false) continue;
+    release(node, info);
+  }
 }
 
 // A <video> costs more than a picture and more of them are running:
@@ -138,9 +192,19 @@ function restoreVideo(video, info) {
  */
 export function holdImage(img, full, thumb = '') {
   if (!img || !full) return;
-  held.set(img, { full, thumb, off: false });
+  const info = { full, thumb, off: false };
+  held.set(img, info);
+  // It is built HOLDING its file, so it counts against the cap from
+  // this moment - not only if it is released and comes back. Without
+  // this the ceiling only ever saw the returners: measured, 94 held
+  // pictures against a cap of 48.
+  restored.set(img, info);
+  prune();
   watched.add(img);
   observer().observe(img);
+  // Not for playing anything - for knowing what is on screen, which is
+  // what the cap must never evict.
+  viewObserver().observe(img);
 }
 
 /**
@@ -156,10 +220,13 @@ export function holdImage(img, full, thumb = '') {
  */
 export function holdVideo(video, full, loop = false) {
   if (!video || !full) return;
-  held.set(video, { full, video: true, loop, at: 0, off: false });
+  const info = { full, video: true, loop, at: 0, off: false };
+  held.set(video, info);
+  restored.set(video, info);
+  prune();
   watched.add(video);
   observer().observe(video);
-  if (loop) viewObserver().observe(video);
+  viewObserver().observe(video);
 }
 
 /**
@@ -174,6 +241,7 @@ function sweep() {
     if (node.isConnected) continue;
     watched.delete(node);
     held.delete(node);
+    restored.delete(node);
     observer().unobserve(node);
     viewObserver().unobserve(node);
   }

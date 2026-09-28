@@ -10,6 +10,18 @@
 // the server resolved. Everything tinted in here reads from that one
 // property, so a chat's colour is applied once and never re-derived.
 .chat-item {
+  // A LIST OF A HUNDRED ROWS SHOWS SEVEN. The rest are laid out,
+  // painted and composited for nobody - measured: 113 rows, 574px of
+  // window, 10951px of list. This tells the browser to skip the work
+  // for anything off screen and to reserve its size instead.
+  //
+  // The size is exact rather than a guess: every row is 89px, measured
+  // across all 113. `auto` lets the browser replace it with the real
+  // one once a row has been drawn, so an unusual row cannot make the
+  // scrollbar lie.
+  content-visibility: auto;
+  contain-intrinsic-size: auto 89px;
+
   // Set by the .accent-* class the row also carries; the default keeps
   // the card sane if a chat ever arrives without one.
 
