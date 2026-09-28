@@ -68,14 +68,23 @@ export function customEmojiNode(id, extraClass = '') {
     if (info.format === 'webm') {
         // A still first frame, for the same reason the Lottie branch
         // below stops at one: a badge the size of a letter is not worth
-        // waking the compositor sixty times a second for. `preload`
-        // rather than `autoplay` is what puts that frame on screen.
-        return el('video', {
+        // waking the compositor sixty times a second for.
+        //
+        // AND IT HAS TO BE SEEKED THERE. `preload` fetches the data and
+        // the decoder will happily hand that frame to a canvas - but a
+        // video that has never played and never seeked has presented
+        // nothing, so the element itself draws nothing and the badge is
+        // simply absent. A seek is what makes a frame appear; the value
+        // is a hair off zero because seeking to where you already are
+        // is not a seek.
+        const player = el('video', {
             class: cls,
             src: info.url,
             autoplay: false, loop: false, muted: true, playsInline: true,
             preload: 'auto',
+            onloadeddata: () => { try { player.currentTime = 0.01; } catch { /* no data */ } },
         });
+        return player;
     }
     if (info.format === 'tgs') {
         const frame = el('span', { class: `${cls} emoji--lottie` });
