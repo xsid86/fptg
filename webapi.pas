@@ -1580,6 +1580,20 @@ begin
     end;
   end;
 
+  { OPENING A CHAT THE MODEL ALREADY HAS OPEN IS A NO-OP INSIDE THE
+    MODEL, and that is the case that left a long history standing:
+    a page reloaded and picked the same chat, a second page catching up
+    with the first, the native window having been there before either.
+    Switching between two chats cleared everything and looked right;
+    coming back to one that never left did not.
+
+    Opening is the reader saying "show me this chat", and that starts
+    at the first page. Not when a message was named, though - following
+    a quote into the chat you are already in must not throw away the
+    range that message sits in. }
+  if (Msgs.ChatId = ChatId) and (JumpTo = 0) then begin
+    Msgs.TrimOlder(TRIM_KEEP);
+  end;
   Msgs.OpenChat(ChatId, JumpTo, UnreadFrom);
   Result := CmdMessagesList;
 end;
