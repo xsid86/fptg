@@ -10,18 +10,18 @@ html, body {
 
 body {
   background: var(--c-bg);
-  //background-position: center;
-  //background-size: cover;
+  background-position: center;
+  background-size: cover;
   color: var(--c-text);
   margin: 0;
   overflow: hidden; // the app manages its own scroll regions
 
   &[data-scheme="dark"] {
-   //background-image: url(../img/bg.jpg);
+   background-image: url(../img/bg.jpg);
   }
 
   &[data-scheme="light"] {
-    //background-image: url(../img/bg-light.jpg);
+    background-image: url(../img/bg-light.jpg);
   }
 }
 

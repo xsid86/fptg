@@ -21,7 +21,7 @@
   @include card($radius-md);
   background: var(--c-surface);
   border-left: 3px solid var(--avatar-color, var(--c-accent));
-  //box-shadow: 0 8px 24px var(--c-shadow);
+  box-shadow: 0 8px 24px var(--c-shadow);
   cursor: pointer;
   max-width: 320px;
   padding: $space-4;

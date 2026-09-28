@@ -532,6 +532,7 @@ function renderVideoCell(msg, m, group) {
 }
 
 function renderAnimation(msg, m) {
+    const wrapper = el('div', {class: 'media--gif__wrapper'})
     const box = el('div', {class: sizedBox('gif', m)});
     if (m.url) {
         // Telegram "GIFs" are silent MP4s, which is why this is a <video>
@@ -546,10 +547,15 @@ function renderAnimation(msg, m) {
             // attribute, so dropping the source does not take it.
             poster: m.thumb || '',
             loop: true, muted: true, playsInline: true,
-            onclick: () => { player.currentTime = 0; player.play().catch(() => {}); },
+            onclick: () => {
+                player.currentTime = 0;
+                player.play().catch(() => {
+                });
+            },
         });
         holdVideo(player, m.url, 'loop');
         box.append(player);
+        wrapper.append(box);
     } else {
         box.append(el('img', {
             class: m.thumb ? 'media__img' : 'media__img is-placeholder',
@@ -561,7 +567,7 @@ function renderAnimation(msg, m) {
     }
     const p = progress(m);
     if (p) box.append(p);
-    return box;
+    return m.url ? wrapper : box;
 }
 
 // ------------------------------------------------- audio and voice
@@ -728,10 +734,16 @@ function renderSticker(msg, m) {
         const player = el('video', {
             class: 'media__sticker',
             src: m.url, loop: false, muted: true, playsInline: true,
-            onclick: () => { player.currentTime = 0; player.play().catch(() => {}); },
+            onclick: () => {
+                player.currentTime = 0;
+                player.play().catch(() => {
+                });
+            },
             // Back to the first frame when it finishes, so a sticker at
             // rest wears its own face.
-            onended: () => { player.currentTime = 0; },
+            onended: () => {
+                player.currentTime = 0;
+            },
         });
         holdVideo(player, m.url, 'once');
         box.append(player);
@@ -743,7 +755,7 @@ function renderSticker(msg, m) {
         // hole the size of a sticker.
         const frame = el('div', {class: 'media__sticker media__sticker--lottie'});
         box.append(frame);
-        playSticker(frame, m.url, { once: true }).then((ok) => {
+        playSticker(frame, m.url, {once: true}).then((ok) => {
             if (ok || !frame.isConnected) return;
             frame.replaceWith(el('div', {
                 class: 'media__sticker-wait',

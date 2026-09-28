@@ -99,7 +99,7 @@
   border-radius: 50%;
   @include flex(row, center, center);
   @include size(36px);
-  //box-shadow: 0 2px 8px var(--c-shadow);
+  box-shadow: 0 2px 8px var(--c-shadow);
   color: var(--c-text-dim);
   cursor: pointer;
   inset-block-start: $space-6;

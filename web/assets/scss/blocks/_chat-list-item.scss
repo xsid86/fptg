@@ -26,11 +26,11 @@
   // the card sane if a chat ever arrives without one.
 
 
-  //backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   background: color-mix(in srgb, var(--chat-color) 20%, var(--c-bg));
   border: 1px solid color-mix(in srgb, var(--chat-color) 50%, transparent);
   border-radius: $radius-md;
-  //box-shadow: 0 2px 2px rgba(0, 0, 0, .1); //inset 0 0 2rem color-mix(in srgb, var(--chat-color) 50%, transparent);
+  box-shadow: 0 2px 2px rgba(0, 0, 0, .1), inset 0 0 2rem color-mix(in srgb, var(--chat-color) 50%, transparent);
   --chat-color: var(--accent-color, var(--c-accent));
   cursor: pointer;
   display: flex;
@@ -187,7 +187,7 @@
 .chat-item__folder {
   background: linear-gradient(to bottom, color-mix(in srgb, var(--chat-color) 100%, black), color-mix(in srgb, var(--chat-color) 65%, black));
   border: none;
-  //box-shadow: 0 2px 4px rgba(0, 0, 0, .2);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .2);
   color: var(--c-accent-text);
 }
 

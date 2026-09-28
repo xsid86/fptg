@@ -5,7 +5,7 @@
   padding: $space-2 $space-3;
   border-radius: $radius-pill;
   background: var(--c-surface-2);
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   transition: border-color $dur-fast $ease, background $dur-fast $ease;
 
   &:focus-within {

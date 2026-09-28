@@ -71,8 +71,8 @@
 }
 
 @mixin card($radius: v.$radius-md, $bg: var(--c-surface)) {
-  background: var(--c-bg);// color-mix(in srgb, var(--c-bg) 90%, transparent);
-  //backdrop-filter: blur(15px);
+  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
+  backdrop-filter: blur(15px);
   border-radius: $radius;
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
 }
@@ -165,7 +165,7 @@
   border-radius: 50%;
   @include flex(row, center, center);
   @include size(36px);
-  //box-shadow: 0 2px 8px var(--c-shadow);
+  box-shadow: 0 2px 8px var(--c-shadow);
   color: var(--c-text-dim);
   cursor: pointer;
   opacity: 1;
