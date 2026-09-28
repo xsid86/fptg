@@ -36,6 +36,7 @@ const held = new WeakMap();
 const watched = new Set();
 
 let watcher = null;
+let viewWatcher = null;
 
 function observer() {
   if (!watcher) {
@@ -49,6 +50,30 @@ function observer() {
     }, { rootMargin: REACH });
   }
   return watcher;
+}
+
+/**
+ * Plays a loop only while it is ON SCREEN, which is a different
+ * question from whether its file is worth holding - hence a second
+ * observer with no margin at all. A GIF two screens away is still
+ * cheap to keep loaded and must not be running: the compositor wakes
+ * the window for every frame of it either way.
+ */
+function viewObserver() {
+  if (!viewWatcher) {
+    viewWatcher = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const info = held.get(entry.target);
+        if (!info?.video || !info.loop) continue;
+        if (entry.isIntersecting && !info.off) {
+          entry.target.play().catch(() => { /* went away mid-start */ });
+        } else {
+          entry.target.pause();
+        }
+      }
+    }, { rootMargin: '0px' });
+  }
+  return viewWatcher;
 }
 
 function release(node, info) {
@@ -95,10 +120,8 @@ function restoreVideo(video, info) {
       try { video.currentTime = info.at; } catch { /* past the end */ }
     }, { once: true });
   }
-  // Muted, so this is autoplay the browser allows. The promise is
-  // rejected when the element goes away again mid-start, which is not
-  // an error worth hearing about.
-  if (info.loop) video.play().catch(() => {});
+  // NOT started here. Coming back within reach is not the same as
+  // coming into view, and only the view observer above decides that.
 }
 
 /**
@@ -131,6 +154,7 @@ export function holdVideo(video, full, loop = false) {
   held.set(video, { full, video: true, loop, at: 0, off: false });
   watched.add(video);
   observer().observe(video);
+  if (loop) viewObserver().observe(video);
 }
 
 /**
@@ -146,6 +170,7 @@ function sweep() {
     watched.delete(node);
     held.delete(node);
     observer().unobserve(node);
+    viewObserver().unobserve(node);
   }
 }
 on('store:messages', sweep);

@@ -53,7 +53,12 @@ function observer() {
                 if (entry.isIntersecting) anim.play();
                 else anim.pause();
             }
-        }, { rootMargin: '150px' });
+            // NO MARGIN. An animation that is not on screen is not
+            // being watched, and the compositor wakes the window for
+            // every frame of it regardless. The margin used to be
+            // 150px, which bought a sticker being already in motion by
+            // the time it arrived - not worth paying for continuously.
+        }, { rootMargin: '0px' });
     }
     return watcher;
 }
@@ -178,6 +183,12 @@ export async function playSticker(node, url, opts = {}) {
             animationData: data,
         });
         live.set(node, anim);
+        if (!badge) {
+            // Clicking replays it from the start, the way the original
+            // client does. It is also the way back for anything the
+            // rule above has stopped.
+            node.addEventListener('click', () => anim.goToAndPlay(0, true));
+        }
         if (badge) {
             // One frame, then nothing. NOT watched either: the watcher
             // exists to play what comes into view, which is the one

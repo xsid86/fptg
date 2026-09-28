@@ -540,11 +540,13 @@ function renderAnimation(msg, m) {
             class: 'media__video',
             src: m.url,
             // The blurred stamp, for the moments there is no frame to
-            // show: before the first one decodes, and while the player
-            // is released off screen (util/offscreen.js). A poster is
-            // an attribute, so dropping the source does not take it.
+            // show: before the first one decodes, while the player is
+            // released off screen (util/offscreen.js), and now also
+            // whenever it is simply not on screen. A poster is an
+            // attribute, so dropping the source does not take it.
             poster: m.thumb || '',
-            autoplay: true, loop: true, muted: true, playsInline: true,
+            loop: true, muted: true, playsInline: true,
+            onclick: () => { player.currentTime = 0; player.play().catch(() => {}); },
         });
         holdVideo(player, m.url, true);
         box.append(player);
@@ -720,9 +722,13 @@ function renderSticker(msg, m) {
         return box;
     }
     if (m.format === 'webm') {
+        // Not autoplay: what starts it is coming into view, and what
+        // stops it is leaving - see util/offscreen.js. A click replays
+        // it from the start.
         const player = el('video', {
             class: 'media__sticker',
-            src: m.url, autoplay: true, loop: true, muted: true, playsInline: true,
+            src: m.url, loop: true, muted: true, playsInline: true,
+            onclick: () => { player.currentTime = 0; player.play().catch(() => {}); },
         });
         holdVideo(player, m.url, true);
         box.append(player);

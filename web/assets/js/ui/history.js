@@ -93,9 +93,12 @@ let wasAtBottom = true;
 
 // How long a history has to be before returning to its end is worth
 // telling the server about. The server has the final say (it holds the
-// history and knows what it is about to drop); this only keeps the
-// page from asking after every little chat.
-const TRIM_AT = 400;
+// history and knows what it is about to drop, and its own TRIM_AT is
+// the one that counts); this only keeps the page from asking after
+// every little chat. Kept in step with constants.pas deliberately -
+// when the two disagreed, the page never asked and the trim looked
+// broken.
+const TRIM_AT = 100;
 
 const READ_DEBOUNCE_MS = 500;   // same wait the native scroller uses
 // How far above the "Unread messages" divider the view stops, so the

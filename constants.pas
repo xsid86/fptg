@@ -1322,12 +1322,18 @@ const
     and the whole of it is serialised to the page on every change -
     measured at 455 KB for 550 messages, against 50 KB for a freshly
     opened chat. Once the reader is back at the newest end, everything
-    they paged past is of no use to anyone: it is dropped, down to
-    TRIM_KEEP. More than the page's own render window (120), so the
-    window stays fully backed and nothing has to be fetched again just
-    because the reader nudges the wheel. }
-  TRIM_AT = 400;
-  TRIM_KEEP = 150;
+    they paged past is of no use to anyone: it is dropped back to the
+    FIRST PAGE, which is what a chat is opened with in the first
+    place.
+
+    Kept deliberately small rather than "a few pages, so a nudge of
+    the wheel costs nothing": a nudge costs one getChatHistory against
+    TDLib's local database, measured at about 5ms, while the pages
+    behind it cost their weight on every single change to the model.
+    And the scrollbar is the reader's map of the chat - leaving three
+    pages in it says the history is longer than it is. }
+  TRIM_AT = FILL_TARGET * 2;
+  TRIM_KEEP = FILL_TARGET;
   { TDLib message-id granularity: id = server_message_id shl 20 —
     confirmed from tdlib_raw.log: every real message id has its low 20
     bits zero, and adjacent messages differ by exactly this constant.
