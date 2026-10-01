@@ -1,0 +1,251 @@
+@use "../abstracts" as *;
+
+// Настройки приложения (ui/settings.js).
+//
+// Модальный <dialog>: сам он занимает весь вьюпорт и прозрачен, а окно
+// внутри стоит с отступом 32px от каждого края — то есть растягивается
+// вместе с окном программы. Клик по прозрачной части (это и есть сам
+// <dialog>) закрывает настройки.
+//
+// Внутри — как у нативного окна настроек: список разделов слева,
+// содержимое раздела справа.
+.settings {
+  background: transparent;
+  border: 0;
+  color: var(--c-text);
+  height: 100%;
+  margin: 0;
+  max-height: none;
+  max-width: none;
+  padding: 0;
+  width: 100%;
+
+  &::backdrop {
+    background: color-mix(in srgb, var(--c-dark) 45%, transparent);
+    backdrop-filter: blur(30px);
+  }
+}
+
+.settings__window {
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: $radius-lg;
+  box-shadow: 0 3rem 4rem var(--c-shadow);
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  inset: $space-8;
+  overflow: hidden;
+  position: absolute;
+
+  @include respond-to("sm") {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    inset: $space-4;
+  }
+}
+
+// ------------------------------------------------------------ разделы
+.settings__nav {
+  @include flex(column, stretch, flex-start, $space-1);
+  @include scroll-area;
+  background: var(--c-surface-2);
+  border-right: 1px solid color-mix(in srgb, var(--c-border) 25%, transparent);
+  padding: $space-6 $space-4;
+
+  @include respond-to("sm") {
+    @include flex(row, center, flex-start, $space-1);
+    border-bottom: 1px solid color-mix(in srgb, var(--c-border) 25%, transparent);
+    border-right: 0;
+    overflow-x: auto;
+    padding: $space-4;
+  }
+}
+
+.settings__title {
+  font-size: $fs-lg;
+  font-weight: $fw-bold;
+  margin: 0 0 $space-4;
+  padding: 0 $space-4;
+
+  @include respond-to("sm") { display: none; }
+}
+
+.settings__tab {
+  @include flex(row, center, flex-start, $space-4);
+  @include focus-ring;
+  border-radius: $radius-md;
+  color: var(--c-text-dim);
+  font-size: $fs-md;
+  padding: $space-3 $space-4;
+  text-align: left;
+  transition: background $dur-fast $ease, color $dur-fast $ease;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--c-surface-hover);
+    color: var(--c-text);
+  }
+
+  &.is-active {
+    background: var(--c-accent);
+    color: var(--c-light);
+  }
+}
+
+// ---------------------------------------------------- содержимое раздела
+.settings__pane {
+  @include flex(column, stretch, flex-start);
+  min-height: 0;
+}
+
+.settings__head {
+  @include flex(row, center, space-between, $space-4);
+  flex: 0 0 auto;
+  padding: $space-6 $space-7 $space-4;
+}
+
+.settings__heading {
+  font-size: $fs-lg;
+  font-weight: $fw-bold;
+  margin: 0;
+}
+
+.settings__body {
+  @include scroll-area;
+  @include flex(column, stretch, flex-start, $space-7);
+  flex: 1 1 auto;
+  padding: 0 $space-7 $space-7;
+}
+
+.settings__intro {
+  color: var(--c-text-dim);
+  font-size: $fs-base;
+  line-height: $lh-base;
+  margin: 0;
+  max-width: 640px;
+}
+
+.settings__group {
+  @include flex(column, stretch, flex-start);
+  max-width: 720px;
+}
+
+.settings__group-title {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  font-weight: $fw-bold;
+  margin: 0 0 $space-2;
+}
+
+// Подпись с пояснением слева, элемент управления справа. Разделитель —
+// между строками, не после последней.
+.settings__row {
+  @include flex(row, center, space-between, $space-6);
+  padding: $space-5 0;
+
+  & + & {
+    border-top: 1px solid color-mix(in srgb, var(--c-border) 20%, transparent);
+  }
+
+  @include respond-to("sm") {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: $space-3;
+  }
+}
+
+.settings__text {
+  @include flex(column, stretch, flex-start, $space-1);
+  min-width: 0;
+}
+
+.settings__label {
+  font-size: $fs-md;
+}
+
+.settings__hint {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+  line-height: $lh-base;
+  margin: 0;
+}
+
+.settings__control {
+  @include flex(row, center, flex-end, $space-4);
+  flex: 0 0 auto;
+}
+
+// Поля ввода — тот же .field, что и поиск, но с ширинами под значение.
+.settings__field {
+  border-radius: $radius-md;
+  width: 140px;
+}
+
+.settings__field--wide {
+  width: 280px;
+}
+
+.settings__number {
+  text-align: right;
+}
+
+.settings__unit {
+  color: var(--c-text-faint);
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+}
+
+// --------------------------------------------------------- автозагрузка
+.settings__grid-wrap {
+  max-width: 720px;
+  overflow-x: auto;
+}
+
+.settings__grid {
+  border-collapse: collapse;
+  width: 100%;
+
+  th,
+  td {
+    padding: $space-4 $space-3;
+  }
+
+  thead th {
+    color: var(--c-text-dim);
+    font-size: $fs-sm;
+    font-weight: $fw-medium;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  tbody th {
+    font-size: $fs-md;
+    font-weight: $fw-regular;
+    text-align: left;
+  }
+
+  td {
+    text-align: center;
+  }
+
+  tbody tr + tr {
+    border-top: 1px solid color-mix(in srgb, var(--c-border) 20%, transparent);
+  }
+}
+
+.settings__check {
+  @include size(16px);
+  accent-color: var(--c-accent);
+  cursor: pointer;
+  margin: 0;
+}
+
+// --------------------------------------------------------------- кэш
+.settings__figure {
+  font-size: $fs-lg;
+  font-weight: $fw-medium;
+}
+
+.settings__status {
+  min-height: $space-6;
+}

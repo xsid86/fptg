@@ -102,57 +102,62 @@
           </button>
         </div>
 
-        <div class="composer__toolbar">
-          <button class="btn composer__format" type="button" title="Bold"
-                  data-fmt="bold" disabled>Bold</button>
-          <button class="btn composer__format" type="button" title="Italic"
-                  data-fmt="italic" disabled>Italic</button>
-          <button class="btn composer__format" type="button" title="Underline"
-                  data-fmt="underline" disabled>Underline</button>
-          <button class="btn composer__format" type="button" title="Strikethrough"
-                  data-fmt="strike" disabled>Strike</button>
-          <button class="btn composer__format" type="button" title="Monospace"
-                  data-fmt="mono" disabled>Mono</button>
-          <button class="btn composer__format" type="button" title="Code block"
-                  data-fmt="code" disabled>Code</button>
-          <button class="btn composer__format" type="button" title="Spoiler"
-                  data-fmt="spoiler" disabled>Spoiler</button>
-          <button class="btn composer__format" type="button" title="Quote"
-                  data-fmt="quote" disabled>Quote</button>
-          <button class="btn composer__format" type="button" title="Link"
-                  data-fmt="link" disabled>Link</button>
-          <button class="btn composer__format" type="button" title="Strip formatting"
-                  data-fmt="clear" disabled>Clear</button>
-
-          <span class="composer__spacer"></span>
-
-          <!-- The one icon in this row, and the one that earns it: a
-               smiley says "emoji" in every client there is, and the
-               panel behind it also holds stickers and GIFs, which no
-               single word covers. Kept on the right, beside the two
-               toggles: everything to the left of the spacer acts on the
-               SELECTION, and this does not. -->
-          <button class="btn btn--icon composer__emoji" id="composer-emoji"
-                  type="button" title="Emoji, stickers and GIFs" disabled>
-            <span class="icon" data-icon="smile"></span>
-            <span class="u-sr-only">Emoji, stickers and GIFs</span>
-          </button>
-
-          <label class="btn btn--toggle" title="Write in HTML instead of MarkdownV2">
-            <input type="checkbox" id="composer-html"> HTML
-          </label>
-          <label class="btn btn--toggle" title="Send without a notification">
-            <input type="checkbox" id="composer-silent"> Silent
-          </label>
-        </div>
-
         <div class="composer__row">
           <textarea class="composer__input" rows="1"
                     placeholder="Pick a chat to start writing"></textarea>
-          <button class="composer__send" type="button" title="Send">
-            <span class="icon" data-icon="send"></span>
-            <span class="u-sr-only">Send</span>
-          </button>
+        </div>
+
+        <!-- Everything that is not the text itself, in one row under the
+             box: what acts on the SELECTION on the left, what acts on the
+             MESSAGE on the right. The two groups stack when the composer
+             gets too narrow for both - see blocks/_composer.scss. -->
+        <div class="composer__bar">
+          <div class="composer__group composer__group--format">
+            <button class="btn composer__format" type="button" title="Bold"
+                    data-fmt="bold" disabled>Bold</button>
+            <button class="btn composer__format" type="button" title="Italic"
+                    data-fmt="italic" disabled>Italic</button>
+            <button class="btn composer__format" type="button" title="Underline"
+                    data-fmt="underline" disabled>Underline</button>
+            <button class="btn composer__format" type="button" title="Strikethrough"
+                    data-fmt="strike" disabled>Strike</button>
+            <button class="btn composer__format" type="button" title="Monospace"
+                    data-fmt="mono" disabled>Mono</button>
+            <button class="btn composer__format" type="button" title="Code block"
+                    data-fmt="code" disabled>Code</button>
+            <button class="btn composer__format" type="button" title="Spoiler"
+                    data-fmt="spoiler" disabled>Spoiler</button>
+            <button class="btn composer__format" type="button" title="Quote"
+                    data-fmt="quote" disabled>Quote</button>
+            <button class="btn composer__format" type="button" title="Link"
+                    data-fmt="link" disabled>Link</button>
+            <button class="btn composer__format" type="button" title="Strip formatting"
+                    data-fmt="clear" disabled>Clear</button>
+          </div>
+
+          <div class="composer__group composer__group--actions">
+            <!-- The one icon among the words, and the one that earns it: a
+                 smiley says "emoji" in every client there is, and the
+                 panel behind it also holds stickers and GIFs, which no
+                 single word covers. -->
+            <button class="btn btn--icon composer__emoji" id="composer-emoji"
+                    type="button" title="Emoji, stickers and GIFs" disabled>
+              <span class="icon" data-icon="smile"></span>
+              <span class="u-sr-only">Emoji, stickers and GIFs</span>
+            </button>
+
+            <label class="btn btn--toggle" title="Write in HTML instead of MarkdownV2">
+              <input type="checkbox" id="composer-html"> HTML
+            </label>
+            <label class="btn btn--toggle" title="Send without a notification">
+              <input type="checkbox" id="composer-silent"> Silent
+            </label>
+
+            <button class="composer__send" type="button" title="Send">
+              <span class="icon" data-icon="send"></span>
+              <span class="u-sr-only">Send</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -162,7 +167,17 @@
        show, and is empty the rest of the time. -->
   <div class="auth" id="auth" hidden></div>
 
+  <!-- Settings. A modal <dialog>: the top layer, Escape and the focus
+       trap come with showModal(). Covers the app with a 32px margin and
+       is empty until opened - see ui/settings.js. -->
+  <dialog class="settings" id="settings" aria-label="Settings"></dialog>
+
   <footer class="app__status status-bar" id="status-bar">
+    <button class="status-bar__settings" type="button" id="settings-open"
+            title="Settings">
+      <span class="icon icon--sm" data-icon="settings"></span>
+      <span class="u-sr-only">Settings</span>
+    </button>
     <div class="conn"></div>
     <button class="status-bar__presence" type="button" id="presence"></button>
     <span class="status-bar__spacer"></span>

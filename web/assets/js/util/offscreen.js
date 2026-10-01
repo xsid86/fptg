@@ -230,6 +230,32 @@ export function holdVideo(video, full, loop = false) {
 }
 
 /**
+ * Отпускает всё, что держится внутри `root`, СЕЙЧАС, а не по
+ * следующему событию истории.
+ *
+ * Для тех, кто выбрасывает узлы сам и знает когда — панель эмодзи и
+ * стикеров при смене набора или закрытии. sweep() ниже ловит только
+ * отцепленные узлы и только по store:messages/store:chats; панель ни
+ * одного из этих событий не вызывает, и её видео до тех пор продолжали
+ * держать декодер. Видео отпускается так же, как при уходе за экран:
+ * без load() элемент источник не отдаёт.
+ */
+export function forget(root) {
+  if (!root) return;
+  for (const node of [...watched]) {
+    if (node !== root && !root.contains(node)) continue;
+    const info = held.get(node);
+    if (info?.video) releaseVideo(node, info);
+    else node.removeAttribute('src');
+    watched.delete(node);
+    held.delete(node);
+    restored.delete(node);
+    observer().unobserve(node);
+    viewObserver().unobserve(node);
+  }
+}
+
+/**
  * Forgets pictures whose node the history has thrown away.
  *
  * Hung on the same event that makes the history rebuild its nodes -

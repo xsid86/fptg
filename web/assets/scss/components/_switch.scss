@@ -1,0 +1,57 @@
+@use "../abstracts" as *;
+
+// Переключатель вкл/выкл: настоящий checkbox поверх дорожки. Флажок
+// остаётся в документе (невидимым), поэтому клик, клавиатура, label
+// for и change работают как у обычного checkbox — вид меняет только
+// :checked, без единой строчки JS.
+.switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.switch__input {
+  appearance: none;
+  cursor: pointer;
+  inset: 0;
+  margin: 0;
+  position: absolute;
+  z-index: 1;
+}
+
+.switch__track {
+  @include size(36px, 20px);
+  background: var(--c-surface-active);
+  border-radius: $radius-pill;
+  position: relative;
+  @include transition;
+
+  &::after {
+    @include size(14px);
+    background: var(--c-surface);
+    border-radius: 50%;
+    box-shadow: 0 1px 2px var(--c-shadow);
+    content: "";
+    left: 3px;
+    position: absolute;
+    top: 3px;
+    @include transition;
+  }
+}
+
+.switch__input:checked + .switch__track {
+  background: var(--c-accent);
+
+  &::after { transform: translateX(16px); }
+}
+
+.switch__input:focus-visible + .switch__track {
+  outline: 1px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.switch__input:disabled {
+  cursor: default;
+
+  + .switch__track { opacity: .45; }
+}

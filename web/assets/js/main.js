@@ -11,7 +11,7 @@ import {
 import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory, invalidateHistory } from './ui/history.js';
 import {
-  mountComposer, insertAtCaret, isSilent, replyTo, editMessage,
+  mountComposer, insertAtCaret, insertCustomEmoji, isSilent, replyTo, editMessage,
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
@@ -19,6 +19,7 @@ import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
 import { mountToasts } from './ui/toasts.js';
 import { mountThemeToggle } from './ui/theme.js';
+import { mountSettings } from './ui/settings.js';
 import { openViewer } from './ui/viewer.js';
 
 // Entry point: wire the shell that index.html already contains, open
@@ -423,12 +424,17 @@ async function boot() {
   });
   mountPicker(qs('#composer-emoji'), {
     insert: insertAtCaret,
+    insertCustom: insertCustomEmoji,
     send: (payload) => emit('ui:send-media', payload),
     load: (cmd, args) => call(cmd, args),
   });
   mountStatusBar(qs('#status-bar'));
   mountToasts(qs('#toasts'));
   mountThemeToggle(qs('#theme-toggle'));
+  mountSettings(qs('#settings'), qs('#settings-open'), {
+    load: (cmd, args) => call(cmd, args),
+    report,
+  });
 
   wireSidebar();
   wireResponsive();

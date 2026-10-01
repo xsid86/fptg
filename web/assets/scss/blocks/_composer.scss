@@ -9,23 +9,42 @@
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   padding: $space-3 $space-4;
+  container: composer / inline-size;
 
   &:not(.composer--join):has(textarea[disabled]) {
     display: none;
   }
 }
 
-.composer__toolbar {
-  @include flex(row, center, flex-start, $space-1);
-  flex-wrap: wrap;
+// Ряд под полем ввода: слева то, что действует на ВЫДЕЛЕНИЕ (формат),
+// справа то, что действует на СООБЩЕНИЕ (эмодзи, режимы, отправка).
+.composer__bar {
+  @include flex(row, center, space-between, $space-4);
 
-  .btn--toggle {
-    margin-right: $space-4;
+  // Обеим группам не хватает места в одну строку — друг под другом,
+  // действия прижаты вправо, к тому краю, где кнопка Send была всегда.
+  // Порог — ширина самого композера (container query), а не окна:
+  // композер стоит правее сайдбара, и окно о нём ничего не говорит.
+  @container composer (max-width: #{$composer-bar-stack}) {
+    align-items: stretch;
+    flex-direction: column;
+    gap: $space-2;
 
-    &:last-child {
-      margin-right: 0;
+    .composer__group--actions {
+      justify-content: flex-end;
     }
   }
+}
+
+.composer__group {
+  @include flex(row, center, flex-start, $space-1);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.composer__group--actions {
+  flex: 0 0 auto;
+  gap: $space-2;
 }
 
 // Replaces the input row where the group wants you in first. Full
@@ -66,21 +85,17 @@
   }
 }
 
-// While it is showing, the box and the send button have nothing to do.
+// While it is showing, the box and the whole row under it have nothing
+// to do.
 .composer--join {
-  .composer__toolbar,
-  .composer__input,
-  .composer__send {
+  .composer__bar,
+  .composer__input {
     display: none;
   }
 }
 
-.composer__spacer {
-  flex: 1 1 auto;
-}
-
 .composer__row {
-  @include flex(column, flex-end, flex-start, $space-3);
+  @include flex(column, stretch, flex-start, $space-3);
 }
 
 .composer--join {
@@ -143,12 +158,6 @@
       width: auto;
     }
   }
-}
-
-// Sits on the right with the two toggles, so it takes their spacing
-// rather than the tight gap the format words use between themselves.
-.composer__emoji {
-  margin-right: $space-4;
 }
 
 // Format buttons are toggles, not actions: they insert markup around

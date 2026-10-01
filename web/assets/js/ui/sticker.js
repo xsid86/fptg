@@ -142,6 +142,67 @@ on('store:messages', sweep);
 on('store:chats', sweep);
 
 /**
+ * Рисует ОДИН кадр .tgs на `canvas` и сразу уничтожает плеер: от
+ * анимации остаются только пиксели холста.
+ *
+ * Для сеток, где ячеек сотня, а смотрят на одну: панель эмодзи держала
+ * по живому SVG-плееру на ячейку, и один анимированный набор кастомных
+ * эмодзи стоил процессу WebView2 около 2 ГБ (статичный — копейки,
+ * измерено пользователем в диспетчере задач). Холст размером с ячейку
+ * — это килобайты.
+ *
+ * Canvas-рендерер, а не SVG: у него изъян с градиентами (см. выше), но
+ * на размере буквы он не виден — по той же причине им рисуются значки.
+ * Плеер рисует в ПЕРЕДАННЫЙ контекст без контейнера: размер тогда
+ * берётся из самого холста (CanvasRendererBase.updateContainerSize), а
+ * destroy() без контейнера пиксели не стирает. dpr при переданном
+ * контексте по умолчанию 1 — поэтому он передаётся явно, иначе на
+ * HiDPI кадр мылится.
+ */
+export async function stillSticker(canvas, url, size) {
+    try {
+        const [lottie, data] = await Promise.all([loadEngine(), animationData(url)]);
+        if (!canvas.isConnected) return false;
+        canvas.width = size;
+        canvas.height = size;
+        const anim = lottie.loadAnimation({
+            renderer: 'canvas',
+            loop: false,
+            autoplay: false,
+            animationData: data,
+            rendererSettings: {
+                context: canvas.getContext('2d'),
+                clearCanvas: true,
+                dpr: window.devicePixelRatio || 1,
+            },
+        });
+        if (!anim.isLoaded) {
+            await new Promise((resolve) => anim.addEventListener('DOMLoaded', resolve));
+        }
+        anim.goToAndStop(0, true);
+        anim.destroy();
+        return true;
+    } catch (err) {
+        console.error('sticker still', url, err);
+        return false;
+    }
+}
+
+/**
+ * Уничтожает плееры внутри `root` сразу, не дожидаясь sweep().
+ *
+ * sweep() срабатывает по событиям истории и списка или перед следующим
+ * плеером — а панель эмодзи выбрасывает целый набор разом, и сотня
+ * отцепленных плееров с SVG-деревьями жила до случайного повода.
+ */
+export function stopStickers(root) {
+    if (!root) return;
+    for (const node of [...live.keys()]) {
+        if (node === root || root.contains(node)) drop(node);
+    }
+}
+
+/**
  * Draws the .tgs at `url` inside `node`, looping. Resolves to false if
  * it could not be played, so the caller can say so instead of leaving
  * an empty frame.

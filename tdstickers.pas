@@ -564,6 +564,12 @@ begin
       WantFile(Row.Items[I].FileId, Row.Items[I].Requested);
     end;
   end;
+  { Сигнал безусловно. Список набора теперь уходит странице (его
+    отдают только наборам с FilesWanted), а если все файлы уже лежат в
+    кэше TDLib, качать нечего — и без этого Touch страница так и не
+    узнала бы, что пора спросить заново: набор висел на «Loading…»,
+    пока сигнал не приходил от загрузки СЛЕДУЮЩЕГО набора. }
+  Touch;
 end;
 
 procedure TTdStickers.EmojiSetsDone(Sender: TObject; const AResp: TTdResponse);

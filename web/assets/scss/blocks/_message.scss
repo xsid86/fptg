@@ -338,3 +338,12 @@ button.message__forward:hover {
     padding: 0;
   }
 }
+
+.message {
+  &.message--sticker {
+    .message__reactions {
+      padding: 0;
+      background: none;
+    }
+  }
+}

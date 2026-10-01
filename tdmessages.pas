@@ -4220,6 +4220,51 @@ var
     Result := True;
   end;
 
+  { ![👍](tg://emoji?id=123) — кастомный эмодзи, синтаксис по
+    core.telegram.org/bots/api (MarkdownV2). Пропускается только точная
+    форма, которую вставляет панель эмодзи: адрес tg://emoji?id= и одни
+    цифры. Всё остальное, что начинается с '!', — обычный текст, и '!'
+    экранируется как всегда. Эмодзи внутри скобок экранируется, как
+    текст ссылки; в нём и так нечего экранировать. }
+  function TryCustomEmoji: boolean;
+  const
+    PREFIX = '](tg://emoji?id=';
+  var
+    CloseBracket, K, DigitsStart: integer;
+    Alt: string;
+  begin
+    Result := False;
+    CloseBracket := 0;
+    K := I + 2;
+    while K <= L do begin
+      if S[K] = #10 then begin
+        Break;
+      end;
+      if S[K] = ']' then begin
+        CloseBracket := K;
+        Break;
+      end;
+      Inc(K);
+    end;
+    if (CloseBracket = 0) or (CloseBracket = I + 2)
+       or (Copy(S, CloseBracket, Length(PREFIX)) <> PREFIX) then begin
+      Exit;
+    end;
+    DigitsStart := CloseBracket + Length(PREFIX);
+    K := DigitsStart;
+    while (K <= L) and (S[K] in ['0'..'9']) do begin
+      Inc(K);
+    end;
+    if (K = DigitsStart) or (K > L) or (S[K] <> ')') then begin
+      Exit;
+    end;
+    Alt := Copy(S, I + 2, CloseBracket - (I + 2));
+    Res := Res + '![' + string(EscapeMarkdownV2(utf8string(Alt))) +
+      Copy(S, CloseBracket, K - CloseBracket + 1);
+    I := K + 1;
+    Result := True;
+  end;
+
 begin
   S := string(AText);
   L := Length(S);
@@ -4234,6 +4279,9 @@ begin
       Continue;
     end;
     if (Copy(S, I, 3) = '```') and TryWrapper('```', False, True) then begin
+      Continue;
+    end;
+    if (S[I] = '!') and (I < L) and (S[I + 1] = '[') and TryCustomEmoji then begin
       Continue;
     end;
     if (S[I] = '[') and TryLink then begin
@@ -4271,6 +4319,11 @@ end;
   failure mode as the MarkdownV2 case. }
 function EscapeHtml(const AText: utf8string): utf8string;
 const
+  { Кастомный эмодзи: <tg-emoji emoji-id="123">👍</tg-emoji>, синтаксис
+    по core.telegram.org/bots/api. Открывающий тег пропускается только
+    с цифрами в emoji-id — так его вставляет панель эмодзи. }
+  EMOJI_OPEN = '<tg-emoji emoji-id="';
+  EMOJI_CLOSE = '</tg-emoji>';
   TAGS: array[0..15] of string = (
     '<b>', '</b>', '<i>', '</i>', '<u>', '</u>', '<s>', '</s>',
     '<code>', '</code>', '<pre>', '</pre>',
@@ -4319,6 +4372,24 @@ begin
       if (not Matched) and (Copy(S, I, 4) = '</a>') then begin
         Res := Res + '</a>';
         Inc(I, 4);
+        Matched := True;
+      end;
+      if (not Matched) and (Copy(S, I, Length(EMOJI_OPEN)) = EMOJI_OPEN) then begin
+        K := I + Length(EMOJI_OPEN);
+        CloseQuote := K;
+        while (CloseQuote <= L) and (S[CloseQuote] in ['0'..'9']) do begin
+          Inc(CloseQuote);
+        end;
+        if (CloseQuote > K) and (CloseQuote + 1 <= L)
+           and (S[CloseQuote] = '"') and (S[CloseQuote + 1] = '>') then begin
+          Res := Res + Copy(S, I, CloseQuote + 2 - I);
+          I := CloseQuote + 2;
+          Matched := True;
+        end;
+      end;
+      if (not Matched) and (Copy(S, I, Length(EMOJI_CLOSE)) = EMOJI_CLOSE) then begin
+        Res := Res + EMOJI_CLOSE;
+        Inc(I, Length(EMOJI_CLOSE));
         Matched := True;
       end;
     end;

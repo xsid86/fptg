@@ -40,7 +40,10 @@
 // The theme switch. It sits at the right-hand end of the status bar,
 // which is where it belongs: a setting that is always reachable but
 // never in the way of the chat.
-.status-bar__theme {
+// Кнопка настроек — та же иконка без подписи, только в левом углу,
+// перед индикатором соединения.
+.status-bar__theme,
+.status-bar__settings {
   @include flex(row, center, center, 0);
   padding: 0 $space-2;
   border: 0;

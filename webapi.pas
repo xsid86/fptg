@@ -64,7 +64,7 @@ uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fgl, fpjson, jsonparser,
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
-  autodownload, customemoji, webui;
+  autodownload, customemoji, webui, tdstorage;
 
 type
   { A request whose answer is not here yet.
@@ -144,6 +144,7 @@ type
     procedure MessagesChanged(Sender: TObject);
     procedure StickersChanged(Sender: TObject);
     procedure AuthChanged(Sender: TObject);
+    procedure StorageChanged(Sender: TObject);
     function  TakeDeferred(AConnId: Int64; AReqId: integer;
       AMessageId: Int64): PtrInt;
     procedure ReleaseDeferred(ASlot: PtrInt);
@@ -181,6 +182,10 @@ type
     function  CmdChatJoin(AArgs: TJSONObject): TJSONData;
     function  CmdPresenceGet: TJSONData;
     function  CmdPresenceSet(AArgs: TJSONObject): TJSONData;
+    function  CmdSettingsGet: TJSONData;
+    function  CmdSettingsSet(AArgs: TJSONObject): TJSONData;
+    function  CmdStorageGet: TJSONData;
+    function  CmdStorageCleanup: TJSONData;
     function  CmdMessageSend(AArgs: TJSONObject): TJSONData;
     function  CmdPollVote(AArgs: TJSONObject): TJSONData;
     function  CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
@@ -1978,6 +1983,162 @@ begin
   Result := CmdPresenceGet;
 end;
 
+{ ------------------------------------------------------------------ }
+{ settings                                                           }
+{ ------------------------------------------------------------------ }
+
+{ Всё, что показывает страница настроек, одним ответом. Пределы едут
+  вместе со значениями: они в constants.pas, и страница не должна
+  держать вторую их копию.
+
+  Сетка автозагрузки — списком включённых клеток "media.chat", а виды
+  медиа и чатов — с подписями из тех же констант, что у нативного
+  диалога: добавленный вид появится на странице сам. }
+function TWebApi.CmdSettingsGet: TJSONData;
+var
+  Res, Downloads, Cache, AutoDl, Item: TJSONObject;
+  Media, Chats, OnList: TJSONArray;
+  M, C: integer;
+begin
+  Res := TJSONObject.Create;
+  Res.Add('closeToTray', TdCloseToTray);
+  Res.Add('deviceModel', TdApp.DeviceModel);
+
+  Downloads := TJSONObject.Create;
+  Downloads.Add('concurrency', tdmessages.DownloadConcurrency);
+  Downloads.Add('concurrencyMin', DOWNLOAD_CONCURRENCY_MIN);
+  Downloads.Add('concurrencyMax', DOWNLOAD_CONCURRENCY_MAX);
+  Downloads.Add('speedKb', tdmessages.DownloadSpeedLimit);
+  Downloads.Add('speedKbMin', DOWNLOAD_SPEED_MIN_KB);
+  Downloads.Add('speedKbMax', DOWNLOAD_SPEED_MAX_KB);
+  Res.Add('downloads', Downloads);
+
+  Cache := TJSONObject.Create;
+  Cache.Add('limitMb', TdCacheLimitMB);
+  Cache.Add('limitMbMin', CACHE_LIMIT_MIN_MB);
+  Cache.Add('limitMbMax', CACHE_LIMIT_MAX_MB);
+  Cache.Add('ttlDays', TdCacheTtlDays);
+  Cache.Add('ttlDaysMin', CACHE_TTL_MIN_DAYS);
+  Cache.Add('ttlDaysMax', CACHE_TTL_MAX_DAYS);
+  Res.Add('cache', Cache);
+
+  AutoDl := TJSONObject.Create;
+  Media := TJSONArray.Create;
+  for M := 0 to High(AUTODL_MEDIA_KINDS) do begin
+    Item := TJSONObject.Create;
+    Item.Add('kind', AUTODL_MEDIA_KINDS[M]);
+    Item.Add('label', AUTODL_MEDIA_CAPTIONS[M]);
+    Media.Add(Item);
+  end;
+  Chats := TJSONArray.Create;
+  for C := 0 to High(AUTODL_CHAT_KINDS) do begin
+    Item := TJSONObject.Create;
+    Item.Add('kind', AUTODL_CHAT_KINDS[C]);
+    Item.Add('label', AUTODL_CHAT_CAPTIONS[C]);
+    Chats.Add(Item);
+  end;
+  OnList := TJSONArray.Create;
+  for M := 0 to High(AUTODL_MEDIA_KINDS) do begin
+    for C := 0 to High(AUTODL_CHAT_KINDS) do begin
+      if AutoDownloadEnabled(AUTODL_MEDIA_KINDS[M], AUTODL_CHAT_KINDS[C]) then begin
+        OnList.Add(AUTODL_MEDIA_KINDS[M] + '.' + AUTODL_CHAT_KINDS[C]);
+      end;
+    end;
+  end;
+  AutoDl.Add('media', Media);
+  AutoDl.Add('chats', Chats);
+  AutoDl.Add('on', OnList);
+  Res.Add('autodownload', AutoDl);
+
+  Result := Res;
+end;
+
+{ Одна настройка за вызов: key и value, у автозагрузки ещё media и
+  chat. Ответ — все настройки целиком, уже после зажима, так что поле,
+  в которое ввели 500 при пределе 20, покажет 20. Остальным открытым
+  страницам — то же самое событием. }
+function TWebApi.CmdSettingsSet(AArgs: TJSONObject): TJSONData;
+var
+  Key, Model: utf8string;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('settings.set needs a key');
+  end;
+  Key := AArgs.Get('key', utf8string(''));
+  if Key = 'closeToTray' then begin
+    TdSetCloseToTray(AArgs.Get('value', True));
+  end else if Key = 'deviceModel' then begin
+    { Пустое имя устройства TDLib не нужно — как и нативное поле, его
+      не сохраняем. Применяется к следующей сессии, см. SetDeviceModel. }
+    Model := utf8string(Trim(string(AArgs.Get('value', utf8string('')))));
+    if Model = '' then begin
+      raise Exception.Create('Device name cannot be empty');
+    end;
+    TdApp.SetDeviceModel(Model);
+  end else if Key = 'downloads.concurrency' then begin
+    TdSetDownloadConcurrency(AArgs.Get('value', DOWNLOAD_CONCURRENCY_DEFAULT));
+  end else if Key = 'downloads.speedKb' then begin
+    TdSetDownloadSpeedKB(AArgs.Get('value', DOWNLOAD_SPEED_DEFAULT_KB));
+  end else if Key = 'cache.limitMb' then begin
+    TdSetCacheLimitMB(AArgs.Get('value', CACHE_LIMIT_DEFAULT_MB));
+  end else if Key = 'cache.ttlDays' then begin
+    TdSetCacheTtlDays(AArgs.Get('value', CACHE_TTL_DEFAULT_DAYS));
+  end else if Key = 'autodownload' then begin
+    SetAutoDownloadEnabled(string(AArgs.Get('media', utf8string(''))),
+      string(AArgs.Get('chat', utf8string(''))), AArgs.Get('value', False));
+  end else begin
+    raise Exception.Create('unknown setting: ' + string(Key));
+  end;
+  PushEvent('settings', TJSONObject(CmdSettingsGet));
+  Result := CmdSettingsGet;
+end;
+
+{ Состояние кэша TDLib. Числа — последний известный ответ; свежие
+  запрашиваются в CmdStorageGet и приезжают событием 'storage', когда
+  TDLib ответит. }
+function StorageJson: TJSONObject;
+var
+  St: TTdStorageStats;
+begin
+  St := TdCache.Stats;
+  Result := TJSONObject.Create;
+  Result.Add('known', St.Known);
+  Result.Add('filesSize', St.FilesSize);
+  Result.Add('fileCount', St.FileCount);
+  Result.Add('databaseSize', St.DatabaseSize);
+  Result.Add('logSize', St.LogSize);
+  Result.Add('busy', TdCache.Busy);
+  Result.Add('error', TdCache.LastError);
+  Result.Add('freed', TdCache.LastFreed);
+  Result.Add('freedCount', TdCache.LastFreedCount);
+end;
+
+{ Подписка на TdCache.OnChanged ставится заново при каждом вопросе:
+  у события один слушатель, и нативная секция Storage, если её
+  открыть, забирает его себе, а при закрытии обнуляет. Страница
+  спрашивает при каждом заходе в раздел — этого хватает, чтобы
+  подписка была на месте, когда она нужна. }
+function TWebApi.CmdStorageGet: TJSONData;
+begin
+  TdCache.OnChanged := @StorageChanged;
+  TdCache.RefreshStats;
+  Result := StorageJson;
+end;
+
+{ Те же пределы, что применяются на старте, — из файла, а не из полей
+  страницы: каждое поле уже сохранило себя при изменении. }
+function TWebApi.CmdStorageCleanup: TJSONData;
+begin
+  TdCache.OnChanged := @StorageChanged;
+  TdCache.Cleanup(TdCacheLimitMB, TdCacheTtlDays);
+  Result := StorageJson;
+end;
+
+procedure TWebApi.StorageChanged(Sender: TObject);
+begin
+  PushEvent('storage', StorageJson);
+end;
+
 { The reader is back at the newest end, and the pages they scrolled
   past on the way are of no use to anyone. Answers with the list, like
   chat.open does, so the page applies the shorter history the same way
@@ -3001,6 +3162,14 @@ begin
         Reply(AConnId, ReqId, CmdPresenceGet);
       end else if Cmd = 'presence.set' then begin
         Reply(AConnId, ReqId, CmdPresenceSet(Args));
+      end else if Cmd = 'settings.get' then begin
+        Reply(AConnId, ReqId, CmdSettingsGet);
+      end else if Cmd = 'settings.set' then begin
+        Reply(AConnId, ReqId, CmdSettingsSet(Args));
+      end else if Cmd = 'storage.get' then begin
+        Reply(AConnId, ReqId, CmdStorageGet);
+      end else if Cmd = 'storage.cleanup' then begin
+        Reply(AConnId, ReqId, CmdStorageCleanup);
       end else if Cmd = 'messages.read' then begin
         Reply(AConnId, ReqId, CmdMessagesRead(Args));
       end else if Cmd = 'message.send' then begin

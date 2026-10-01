@@ -31,6 +31,13 @@ function AutoDownloadEnabled(const AMediaKind, AChatKind: string): boolean;
   the grid itself. }
 procedure ReloadAutoDownload;
 
+{ Меняет одну клетку: пишет в config.ini и сразу в кэш, так что
+  следующий же вопрос AutoDownloadEnabled получает новый ответ.
+  Неизвестный вид медиа или чата — исключение: страница прислала
+  то, чего этот билд не знает, и молча проглотить это нельзя. }
+procedure SetAutoDownloadEnabled(const AMediaKind, AChatKind: string;
+  AValue: boolean);
+
 { Which column of the grid a chat falls in - 'private', 'bots',
   'secret', 'groups' or 'channels' - or '' when the chat is not in the
   list yet. A caller with no kind downloads nothing, the same as the
@@ -100,6 +107,29 @@ end;
 
 procedure ReloadAutoDownload;
 begin
+  Load;
+end;
+
+procedure SetAutoDownloadEnabled(const AMediaKind, AChatKind: string;
+  AValue: boolean);
+var
+  M, C: integer;
+  Ini: TIniFile;
+begin
+  M := MediaIndex(AMediaKind);
+  C := ChatIndex(AChatKind);
+  if (M < 0) or (C < 0) then begin
+    raise Exception.CreateFmt('unknown auto-download cell: %s.%s',
+      [AMediaKind, AChatKind]);
+  end;
+  Ini := TIniFile.Create(TdApp.BaseDir + 'config.ini');
+  try
+    Ini.WriteBool('autodownload', AUTODL_MEDIA_KINDS[M] + '.' +
+      AUTODL_CHAT_KINDS[C], AValue);
+  finally
+    Ini.Free;
+  end;
+  { Остальные клетки — из файла: их мог поменять нативный диалог. }
   Load;
 end;
 

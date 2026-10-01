@@ -17,7 +17,7 @@ interface
 
 uses
   Windows, SysUtils, Classes, Forms, Controls, Dialogs, LCLIntf, ExtCtrls,
-  Menus, IniFiles,
+  Menus,
   constants, webview2;
 
 type
@@ -37,7 +37,6 @@ type
       As a second view it has no business owning a tray icon - the
       native main window already has one. }
     FTray: TTrayIcon;
-    FCloseToTray: boolean;
     { A real quit, as opposed to the close button with close-to-tray
       on. Set by the tray's Exit and nothing else. }
     FQuitting: boolean;
@@ -326,7 +325,9 @@ begin
 
   { The close button with close-to-tray on: out of sight, still
     running. Quit from the tray is what actually ends it. }
-  if FCloseToTray and (not FQuitting) and (FTray <> nil) then begin
+  { Спрашивается в момент закрытия, а не запоминается при старте:
+    страница настроек меняет это значение на ходу. }
+  if (not FQuitting) and (FTray <> nil) and TdCloseToTray then begin
     Result := False;
     Hide;
     Exit;
@@ -397,16 +398,6 @@ var
 begin
   if FTray <> nil then begin
     Exit;
-  end;
-
-  { The same setting, from the same file, as the native window reads -
-    so turning it off in Settings still means what it meant. }
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      FCloseToTray := ReadBool('ui', 'closetotray', True);
-    finally
-      Free;
-    end;
   end;
 
   Pop := TPopupMenu.Create(Self);

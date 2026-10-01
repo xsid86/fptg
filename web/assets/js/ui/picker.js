@@ -1,7 +1,8 @@
 import { el, clear, qs, qsa } from '../core/dom.js';
 import { icon } from '../util/icons.js';
-import { playSticker } from './sticker.js';
+import { playSticker, stillSticker, stopStickers } from './sticker.js';
 import { sideScroll } from '../util/sidescroll.js';
+import { holdVideo, forget } from '../util/offscreen.js';
 
 // The emoji / sticker / GIF panel, the one thing in the composer that
 // is an icon rather than a word - a smiley, because that is what a
@@ -89,6 +90,30 @@ function remember(char) {
   writeStore(RECENT_KEY, list.slice(0, RECENT_MAX));
 }
 
+/**
+ * Отпускает всё тяжёлое внутри `root`: Lottie-плееры, видео (декодер и
+ * буферы — только через снятие src и load()) и наблюдение offscreen.
+ *
+ * ВЫЗЫВАТЬ ДО clear(): после него узлы уже не внутри root, и найти их
+ * будет нечем. Именно так панель и текла — clear() отцеплял узлы, а
+ * плееры и видео жили дальше: несколько переключений наборов кастомных
+ * эмодзи дали 2.6 ГБ у процесса WebView2.
+ */
+function releaseMedia(root) {
+  if (!root) return;
+  stopStickers(root);
+  forget(root);
+  for (const canvas of root.querySelectorAll('canvas.picker__still')) {
+    stillJobs.delete(canvas);
+    lazy?.unobserve(canvas);
+  }
+  for (const video of root.querySelectorAll('video')) {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
+}
+
 /** The variant of an emoji for the tone currently chosen. */
 const toned = (item) => (tone > 0 && item.t ? item.t[tone - 1] : item.e);
 
@@ -97,27 +122,55 @@ const toned = (item) => (tone > 0 && item.t ? item.t[tone - 1] : item.e);
  * A Premium custom emoji, answered as an object rather than a
  * character - it has no character to be.
  *
- * Only ever offered while the panel is answering "which emoji?" for a
- * reaction. Typing one into the composer would mean writing a text
- * ENTITY, and this composer is a plain textarea whose text is parsed
- * as MarkdownV2 on the way out; the escaper would turn the markup for
- * one back into literal punctuation. So the custom sets are built only
- * in that mode, and the stylesheet keeps them out of the other.
+ * Для реакции — ответ на вопрос «какой эмодзи?». В композере — вставка
+ * разметкой сущности (composer.insertCustomEmoji): поле — простой
+ * textarea, и кастомный эмодзи в нём выглядит как ![👍](tg://emoji?id=…),
+ * так же, как жирный выглядит звёздочками. Серверный экранировщик
+ * пропускает эту форму, а не превращает её в литеральную пунктуацию.
+ * Панель при этом остаётся открытой, как и для обычных эмодзи.
  */
 function pickCustom(item) {
-  if (!oneShot) return;
-  const answer = oneShot;
-  oneShot = null;
-  hide();
-  answer({ customEmojiId: item.id, emoji: item.emoji });
+  if (oneShot) {
+    const answer = oneShot;
+    oneShot = null;
+    hide();
+    answer({ customEmojiId: item.id, emoji: item.emoji });
+    return;
+  }
+  hooks.insertCustom?.(item.id, item.emoji);
 }
 
 const customCell = (item) => el('button', {
   class: 'picker__cell picker__cell--custom',
   type: 'button',
   title: item.emoji || 'Custom emoji',
+  dataset: { id: item.id },
   onclick: () => pickCustom(item),
-}, stickerNode(item));
+  onpointerenter: (event) => goLive(event.currentTarget, item),
+  onpointerleave: (event) => stopLive(event.currentTarget),
+}, stickerNode(item, { still: true }));
+
+/**
+ * Живой плеер — только у ячейки под курсором, поверх её кадра, и
+ * уничтожается, как только курсор ушёл. Так в любой момент в сетке
+ * играет не больше одного эмодзи.
+ */
+function goLive(cell, item) {
+  if (item.format !== 'tgs' && item.format !== 'webm') return;
+  if (cell.classList.contains('is-live')) return;
+  const live = stickerNode(item);
+  live.classList.add('picker__live');
+  cell.append(live);
+  cell.classList.add('is-live');
+}
+
+function stopLive(cell) {
+  const live = qs('.picker__live', cell);
+  if (!live) return;
+  releaseMedia(live);
+  live.remove();
+  cell.classList.remove('is-live');
+}
 
 /**
  * ONE SET AT A TIME, not all of them down one list.
@@ -144,15 +197,48 @@ function wantSet(id) {
   hooks.load?.('emoji.set', { id }).catch(() => { /* the panel stays as it is */ });
 }
 
+/**
+ * Рисует набор, ДОПИСЫВАЯ то, что пришло, а не перестраивая всё.
+ *
+ * Пока файлы набора качаются, событие stickers приходит до пяти раз в
+ * секунду, и каждое раньше пересоздавало все ячейки — сотню плееров и
+ * видео за раз, а старые оставались жить. Теперь готовая ячейка
+ * остаётся как есть, новая встаёт на своё место по порядку набора, а
+ * целиком набор сносится (с освобождением) только при смене набора.
+ */
 function renderCustomSet(box, set) {
-  clear(box);
+  if (!set || box.dataset.set !== set.id) {
+    releaseMedia(box);
+    clear(box);
+    delete box.dataset.set;
+  }
   if (!set) return;
-  const cells = set.emoji.filter((e) => e.url).map(customCell);
-  box.append(el('section', { class: 'picker__section' },
-    el('h3', { class: 'picker__heading' }, set.title),
-    cells.length
-      ? el('div', { class: 'picker__grid' }, ...cells)
-      : el('p', { class: 'picker__empty' }, 'Loading…')));
+  box.dataset.set = set.id;
+
+  let section = qs('.picker__section', box);
+  if (!section) {
+    section = el('section', { class: 'picker__section' },
+      el('h3', { class: 'picker__heading' }, set.title),
+      el('div', { class: 'picker__grid' }));
+    box.append(section);
+  }
+  const grid = qs('.picker__grid', section);
+  const have = new Map(qsa('.picker__cell--custom', grid).map((c) => [c.dataset.id, c]));
+  const ready = set.emoji.filter((e) => e.url);
+  let prev = null;
+  for (const item of ready) {
+    let cell = have.get(item.id);
+    if (!cell) {
+      cell = customCell(item);
+      if (prev) prev.after(cell);
+      else grid.prepend(cell);
+    }
+    prev = cell;
+  }
+
+  const empty = qs('.picker__empty', section);
+  if (ready.length) empty?.remove();
+  else if (!empty) section.append(el('p', { class: 'picker__empty' }, 'Loading…'));
 }
 
 /**
@@ -178,7 +264,7 @@ function showSet(id) {
   standard?.classList.toggle('is-active', id === null);
   centreJump(id === null ? standard : qs('.picker__jump.is-active', panel));
   if (id === null) {
-    clear(box);
+    renderCustomSet(box, null);
     return;
   }
   renderCustomSet(box, sets.find((x) => x.id === id));
@@ -196,11 +282,23 @@ function showSet(id) {
  * a strip of letters is what this looked like before the cover was
  * fetched, and it looked like nothing at all.
  */
+function setArt(set) {
+  return set.cover?.url ? set.cover : set.emoji.find((e) => e.url);
+}
+
+/**
+ * Значок набора — НЕПОДВИЖНЫЙ: кадр, а не цикл. Три десятка наборов в
+ * полоске, каждый своим плеером или видео, крутились всё время, пока
+ * открыта панель, — ради значков, на которые никто не смотрит.
+ */
 function setIcon(set) {
-  const art = set.cover?.url ? set.cover : set.emoji.find((e) => e.url);
-  if (art) return stickerNode(art);
+  const art = setArt(set);
+  if (art) return stickerNode(art, { still: true });
   return set.cover?.emoji || set.emoji[0]?.emoji || set.title.slice(0, 1);
 }
+
+/** Что сейчас нарисовано на кнопке набора — чтобы не перерисовывать то же. */
+const setIconKey = (set) => setArt(set)?.url ?? `text:${set.title}`;
 
 /**
  * The head of the strip: a way back to the standard emoji, then one
@@ -213,24 +311,55 @@ function setIcon(set) {
 function fillCustomJumps() {
   const box = qs('.picker__jumps--custom', panel);
   if (!box) return;
-  clear(box);
-  if (!sets.length) return;
+  if (!sets.length) {
+    releaseMedia(box);
+    clear(box);
+    return;
+  }
 
-  box.append(el('button', {
-    class: `picker__jump picker__jump--standard${shownSet === null ? ' is-active' : ''}`,
-    type: 'button',
-    title: 'Standard emoji',
-    onclick: () => showSet(null),
-  }, icon('smile')));
-
-  for (const set of sets) {
-    box.append(el('button', {
-      class: `picker__jump picker__jump--custom${shownSet === set.id ? ' is-active' : ''}`,
+  // Дописывание, как и в renderCustomSet: полоска обновляется на каждое
+  // событие stickers, и пересоздавать три десятка значков пять раз в
+  // секунду значило каждый раз бросать прежние плееры и видео.
+  let standard = qs('.picker__jump--standard', box);
+  if (!standard) {
+    standard = el('button', {
+      class: 'picker__jump picker__jump--standard',
       type: 'button',
-      title: set.title,
-      dataset: { set: set.id },
-      onclick: () => showSet(set.id),
-    }, setIcon(set)));
+      title: 'Standard emoji',
+      onclick: () => showSet(null),
+    }, icon('smile'));
+    box.prepend(standard);
+  }
+  standard.classList.toggle('is-active', shownSet === null);
+
+  const have = new Map(qsa('.picker__jump--custom', box).map((b) => [b.dataset.set, b]));
+  let prev = standard;
+  for (const set of sets) {
+    let button = have.get(set.id);
+    have.delete(set.id);
+    if (!button) {
+      button = el('button', {
+        class: 'picker__jump picker__jump--custom',
+        type: 'button',
+        dataset: { set: set.id },
+        onclick: () => showSet(set.id),
+      });
+    }
+    if (prev.nextSibling !== button) prev.after(button);
+    button.title = set.title;
+    button.classList.toggle('is-active', shownSet === set.id);
+    const key = setIconKey(set);
+    if (button.dataset.art !== key) {
+      releaseMedia(button);
+      clear(button).append(setIcon(set));
+      button.dataset.art = key;
+    }
+    prev = button;
+  }
+  // Наборы, которых у аккаунта больше нет.
+  for (const button of have.values()) {
+    releaseMedia(button);
+    button.remove();
   }
 }
 
@@ -343,8 +472,8 @@ function buildEmoji(body) {
 function buildStrip() {
   if (qs('.picker__strip', panel)) return;
   const strip = el('div', { class: 'picker__strip' },
-    // Filled once the account's custom sets are known, and only while
-    // the panel is picking a reaction - see fillCustomJumps.
+    // Filled once the account's custom sets are known - see
+    // fillCustomJumps.
     el('div', { class: 'picker__jumps picker__jumps--custom' }),
     ...catalogue.groups.map((group) => el('button', {
       class: 'picker__jump',
@@ -431,19 +560,119 @@ function runEmojiSearch(text) {
  * the same three util/emoji.js already handles, for the same reason:
  * a sticker and a custom emoji are the same kind of file.
  */
-function stickerNode(item) {
-  if (item.format === 'webm') {
-    return el('video', {
-      class: 'picker__sticker', src: item.url,
-      autoplay: true, loop: true, muted: true, playsInline: true,
+// ------------------------------------------------------ still frames
+// Кадр вместо плеера. Рисуется на холст один раз и плеер (или видео)
+// сразу уничтожается — см. stillSticker в sticker.js. Лениво: только
+// когда ячейка подошла к видимой области, и не больше STILL_PARALLEL
+// одновременно — набор в сотню эмодзи иначе разом поднял бы сотню
+// плееров ради одного кадра каждый.
+const STILL_SIZE = 40;          // CSS px холста; ячейка — от 32px
+const STILL_PARALLEL = 4;
+const stillJobs = new Map();    // холст -> эмодзи, ещё не дошедшие до вида
+const stillQueue = [];
+let stillRunning = 0;
+let lazy = null;
+
+function lazyObserver() {
+  if (!lazy) {
+    // Корень — вьюпорт, а не тело панели: значки наборов в полоске
+    // лежат вне тела. Прокрутку тела наблюдатель всё равно учитывает —
+    // ячейка, срезанная им, не пересекается.
+    lazy = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const item = stillJobs.get(entry.target);
+        lazy.unobserve(entry.target);
+        stillJobs.delete(entry.target);
+        if (item) stillQueue.push([entry.target, item]);
+      }
+      pumpStill();
+    }, { rootMargin: '200px' });
+  }
+  return lazy;
+}
+
+function pumpStill() {
+  while (stillRunning < STILL_PARALLEL && stillQueue.length) {
+    const [canvas, item] = stillQueue.shift();
+    if (!canvas.isConnected) continue;
+    stillRunning += 1;
+    const job = item.format === 'tgs'
+      ? stillSticker(canvas, item.url, STILL_SIZE)
+      : videoStill(canvas, item.url);
+    job.finally(() => {
+      stillRunning -= 1;
+      pumpStill();
     });
+  }
+}
+
+/** Первый кадр webm на холст; видео отпускается сразу после. */
+function videoStill(canvas, url) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    const done = () => {
+      video.removeAttribute('src');
+      video.load();
+      resolve();
+    };
+    video.addEventListener('loadeddata', () => {
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (canvas.isConnected && vw && vh) {
+        const size = Math.round(STILL_SIZE * (window.devicePixelRatio || 1));
+        canvas.width = size;
+        canvas.height = size;
+        const k = Math.min(size / vw, size / vh);
+        canvas.getContext('2d').drawImage(video,
+          (size - vw * k) / 2, (size - vh * k) / 2, vw * k, vh * k);
+      }
+      done();
+    }, { once: true });
+    video.addEventListener('error', done, { once: true });
+    video.src = url;
+  });
+}
+
+function stillNode(item) {
+  const canvas = el('canvas', { class: 'picker__sticker picker__still' });
+  stillJobs.set(canvas, item);
+  lazyObserver().observe(canvas);
+  return canvas;
+}
+
+/**
+ * opts.still — неподвижный кадр на холсте (ячейки кастомных эмодзи и
+ * значки наборов). Без него — живой плеер: стикеры во вкладке Stickers
+ * и плеер под курсором.
+ *
+ * Видео не autoplay: его запускает и останавливает offscreen по
+ * видимости, а ушедшее далеко за край прокрутки отдаёт декодер.
+ */
+function stickerNode(item, opts = {}) {
+  if (opts.still && (item.format === 'tgs' || item.format === 'webm')) {
+    return stillNode(item);
+  }
+  if (item.format === 'webm') {
+    const video = el('video', {
+      class: 'picker__sticker', src: item.url,
+      loop: true, muted: true, playsInline: true, preload: 'metadata',
+    });
+    holdVideo(video, item.url, 'loop');
+    return video;
   }
   if (item.format === 'tgs') {
     const frame = el('span', { class: 'picker__sticker picker__sticker--lottie' });
     playSticker(frame, item.url);
     return frame;
   }
-  return el('img', { class: 'picker__sticker', src: item.url, alt: item.emoji ?? '' });
+  return el('img', {
+    class: 'picker__sticker', src: item.url, alt: item.emoji ?? '',
+    loading: 'lazy', decoding: 'async',
+  });
 }
 
 function sendMedia(kind, fileId) {
@@ -677,11 +906,13 @@ async function showTab(name) {
     // Switched away, or typed on, while it was in flight.
     if (tab !== name || query !== asked) return;
     if (name === 'gif' && upgradeGifs(pane, data?.items ?? [])) return;
+    releaseMedia(pane);
     clear(pane);
     if (name === 'stickers') buildStickers(pane, data);
     else buildGifs(pane, data);
   } catch (err) {
     if (tab !== name || query !== asked) return;
+    releaseMedia(pane);
     clear(pane).append(el('p', { class: 'picker__empty' }, String(err.message ?? err)));
   }
 }
@@ -731,10 +962,10 @@ export function pickerChanged() {
   if (!panel?.matches(':popover-open')) return;
   if (tab === 'emoji') {
     // The standard emoji never change; the custom ones arrive set by
-    // set and file by file, exactly like stickers.
-    if (panel.classList.contains('picker--emoji-only')) {
-      fillCustom().catch(console.error);
-    }
+    // set and file by file, exactly like stickers. В обоих режимах —
+    // и для реакции, и для композера: первый ответ emoji.sets приходит
+    // без содержимого наборов, и всё остальное доезжает только сюда.
+    fillCustom().catch(console.error);
     return;
   }
   const body = qs('.picker__body', panel);
@@ -787,6 +1018,19 @@ function build() {
     oneShot = null;
     anchor = mounted;
     node.classList.remove('picker--emoji-only');
+    // Закрытая панель не держит ничего живого. Открытый кастомный набор,
+    // значки наборов и вкладки Stickers/GIF при следующем открытии всё
+    // равно перезапрашиваются; сетка обычных эмодзи — это текст, она
+    // остаётся (её постройка дорогая, а памяти почти не стоит).
+    renderCustomSet(qs('.picker__custom', node), null);
+    const jumps = qs('.picker__jumps--custom', node);
+    releaseMedia(jumps);
+    if (jumps) clear(jumps);
+    for (const [name, pane] of Object.entries(panes)) {
+      if (name === 'emoji') continue;
+      releaseMedia(pane);
+      clear(pane);
+    }
   });
   document.body.append(node);
   return node;
@@ -810,10 +1054,14 @@ async function toggle() {
   panel.showPopover();
   await showTab(tab);
   if (tab === 'emoji') qs('.picker__query', panel)?.focus();
+  // Наборы кастомных эмодзи — и для реакции, и для композера. Спрашиваются
+  // при каждом открытии: что установлено у аккаунта, могло измениться.
+  fillCustom().catch(console.error);
 }
 
 /**
- * hooks: { insert(text), send({kind, fileId}), load(cmd, args) }
+ * hooks: { insert(text), insertCustom(id, emoji), send({kind, fileId}),
+ *          load(cmd, args) }
  *
  * The panel asks for data through `load` and never reaches for the
  * network itself, the same division every other ui/ module keeps: main
@@ -842,8 +1090,8 @@ export function openEmojiPicker(node, onPick) {
   toggle().then(() => {
     panel?.classList.add('picker--emoji-only');
     // The standard emoji are what the panel opens on - the custom sets
-    // are a click away in the strip, not in front of them.
+    // are a click away in the strip, not in front of them. Сами наборы
+    // подтягивает toggle().
     showSet(null);
-    fillCustom().catch(console.error);
   }).catch(console.error);
 }

@@ -64,7 +64,7 @@ $radius-pill: 999px;
 // -------------------------------------------------------------- sizes
 $avatar-sm: 24px;
 $avatar-md: 32px;   // native: AVATAR_SIZE
-$avatar-lg: 48px;   // native: CHAT_HEADER_AVATAR_SIZE / 64 there, 48 reads better here
+$avatar-lg: 64px;   // native: CHAT_HEADER_AVATAR_SIZE / 64 there, 48 reads better here
 
 $badge-h: 18px;     // native: BADGE_H
 
@@ -79,6 +79,9 @@ $header-height:     56px;
 $statusbar-height:  24px;
 $composer-min:      44px;
 $composer-max:      220px;
+// Уже этого композер складывает ряд под полем в два: формат-кнопки
+// (~505px) и действия с Send (~250px) плюс зазор в одну строку не лезут.
+$composer-bar-stack: 800px;
 $scrollbar-width:   8px;
 $message-max-width: 600px;  // native: MAX_MSG_W
 

@@ -260,10 +260,6 @@
   @include transition;
 }
 
-.picker:not(.picker--emoji-only) .picker__jumps--custom {
-  display: none;
-}
-
 .picker__jump {
   @include size(24px);
   @include flex(row, center, center);
@@ -372,17 +368,8 @@ span.picker__gif {
   }
 }
 
-// The account's installed custom (Premium) emoji.
-//
-// Shown only while the panel is answering "which emoji?" for a
-// reaction. In the composer they would have to be written as a text
-// ENTITY, and the box there is a plain textarea whose contents are
-// parsed as MarkdownV2 on the way out - the escaper turns the markup
-// for a custom emoji back into literal punctuation. Offering something
-// that would arrive as text is worse than not offering it.
-.picker:not(.picker--emoji-only) .picker__custom {
-  display: none;
-}
+// The account's installed custom (Premium) emoji. И для реакции, и для
+// композера: туда они вставляются разметкой сущности, см. pickCustom.
 
 // The image IS the label here, so the cell holds it rather than a
 // character.
@@ -394,6 +381,18 @@ span.picker__gif {
     object-fit: contain;
     width: 100%;
   }
+
+  // Под курсором поверх кадра играет живой плеер (goLive в picker.js),
+  // а кадр на это время убирается, чтобы не просвечивал по краям.
+  &.is-live .picker__still {
+    display: none;
+  }
+}
+
+// Неподвижный кадр кастомного эмодзи или значка набора: холст, на
+// который плеер нарисовал один кадр и был уничтожен.
+.picker__still {
+  display: block;
 }
 
 // A set's button wears the set's own artwork, which is an image rather

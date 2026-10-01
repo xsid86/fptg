@@ -234,6 +234,23 @@ procedure TdLoadDownloadLimits;
   to whichever account just became ready. }
 procedure TdApplyCacheLimit;
 
+{ Сеттеры тех же настроек, что пишет диалог настроек. Здесь, а не на
+  TFormMain, по тому же правилу: окна может не быть, а страница
+  настроек есть всегда. Каждый сеттер зажимает значение в допустимые
+  пределы, пишет в config.ini то, что реально действует, и применяет
+  его сразу (кроме потолка кэша — см. TdSetCacheLimitMB). }
+function  TdCloseToTray: boolean;
+procedure TdSetCloseToTray(AValue: boolean);
+procedure TdSetDownloadConcurrency(AValue: integer);
+procedure TdSetDownloadSpeedKB(AValue: integer);
+function  TdCacheLimitMB: integer;
+{ Сохраняется, но НЕ применяется: протащить значение вниз по шагам
+  значило бы удалять кэш на каждом промежуточном числе. Действует со
+  следующего старта или по кнопке очистки. }
+procedure TdSetCacheLimitMB(AValue: integer);
+function  TdCacheTtlDays: integer;
+procedure TdSetCacheTtlDays(AValue: integer);
+
 { Unsubscribes from all accounts at once. A form may have subscribed to
   one account while a different one is active by the time it's
   destroyed. }
@@ -428,14 +445,8 @@ procedure TdApplyCacheLimit;
 var
   LimitMB, TtlDays: integer;
 begin
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      LimitMB := ReadInteger('storage', 'maxcachemb', CACHE_LIMIT_DEFAULT_MB);
-      TtlDays := ReadInteger('storage', 'ttldays', CACHE_TTL_DEFAULT_DAYS);
-    finally
-      Free;
-    end;
-  end;
+  LimitMB := TdCacheLimitMB;
+  TtlDays := TdCacheTtlDays;
   if (LimitMB <= 0) and (TtlDays <= 0) then begin
     Exit;
   end;
@@ -444,6 +455,117 @@ begin
     section, which is the only place the numbers are shown. A silent
     prune at startup is the intended behavior. }
   TdCache.Cleanup(LimitMB, TtlDays);
+end;
+
+{ Все чтения — из файла, а не из кэша в памяти: файл пишут обе стороны
+  (страница и нативный диалог), и только он знает текущий ответ.
+  Читаются редко — при открытии настроек и при закрытии окна. }
+function ConfigIni: TIniFile;
+begin
+  Result := TIniFile.Create(TdApp.BaseDir + 'config.ini');
+end;
+
+function TdCloseToTray: boolean;
+begin
+  with ConfigIni do begin
+    try
+      Result := ReadBool('ui', 'closetotray', True);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TdSetCloseToTray(AValue: boolean);
+begin
+  with ConfigIni do begin
+    try
+      WriteBool('ui', 'closetotray', AValue);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TdSetDownloadConcurrency(AValue: integer);
+begin
+  tdmessages.SetDownloadConcurrency(AValue);
+  { В файл — то, что оставил зажим, а не то, что попросили. }
+  with ConfigIni do begin
+    try
+      WriteInteger('downloads', 'concurrency', tdmessages.DownloadConcurrency);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TdSetDownloadSpeedKB(AValue: integer);
+begin
+  tdmessages.SetDownloadSpeedLimit(AValue);
+  with ConfigIni do begin
+    try
+      WriteInteger('downloads', 'speedkb', tdmessages.DownloadSpeedLimit);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+function TdCacheLimitMB: integer;
+begin
+  with ConfigIni do begin
+    try
+      Result := ReadInteger('storage', 'maxcachemb', CACHE_LIMIT_DEFAULT_MB);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TdSetCacheLimitMB(AValue: integer);
+begin
+  if AValue < CACHE_LIMIT_MIN_MB then begin
+    AValue := CACHE_LIMIT_MIN_MB;
+  end;
+  if AValue > CACHE_LIMIT_MAX_MB then begin
+    AValue := CACHE_LIMIT_MAX_MB;
+  end;
+  with ConfigIni do begin
+    try
+      WriteInteger('storage', 'maxcachemb', AValue);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+function TdCacheTtlDays: integer;
+begin
+  with ConfigIni do begin
+    try
+      Result := ReadInteger('storage', 'ttldays', CACHE_TTL_DEFAULT_DAYS);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TdSetCacheTtlDays(AValue: integer);
+begin
+  if AValue < CACHE_TTL_MIN_DAYS then begin
+    AValue := CACHE_TTL_MIN_DAYS;
+  end;
+  if AValue > CACHE_TTL_MAX_DAYS then begin
+    AValue := CACHE_TTL_MAX_DAYS;
+  end;
+  with ConfigIni do begin
+    try
+      WriteInteger('storage', 'ttldays', AValue);
+    finally
+      Free;
+    end;
+  end;
 end;
 
 procedure TdUnsubscribe(const AListener: IUnknown);

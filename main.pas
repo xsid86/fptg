@@ -1023,17 +1023,9 @@ end;
 
 procedure TFormMain.SetCloseToTray(AValue: boolean);
 begin
-  if AValue = FCloseToTray then begin
-    Exit;
-  end;
+  { Владелец значения — tdcore (см. TdSetCloseToTray). }
   FCloseToTray := AValue;
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      WriteBool('ui', 'closetotray', FCloseToTray);
-    finally
-      Free;
-    end;
-  end;
+  TdSetCloseToTray(AValue);
 end;
 
 procedure TFormMain.SetAccentColor(AValue: TColor);
@@ -1181,81 +1173,27 @@ end;
 
 procedure TFormMain.SetDownloadConcurrency(AValue: integer);
 begin
-  tdmessages.SetDownloadConcurrency(AValue);
-  { Read back rather than stored as given — tdmessages clamps to
-    DOWNLOAD_CONCURRENCY_MIN/MAX, and config.ini should hold what is
-    actually in effect. }
-  AValue := tdmessages.DownloadConcurrency;
-  if AValue = FDownloadConcurrency then begin
-    Exit;
-  end;
-  FDownloadConcurrency := AValue;
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      WriteInteger('downloads', 'concurrency', FDownloadConcurrency);
-    finally
-      Free;
-    end;
-  end;
+  { tdcore зажимает, пишет в файл и применяет; поле — то, что осталось. }
+  TdSetDownloadConcurrency(AValue);
+  FDownloadConcurrency := tdmessages.DownloadConcurrency;
 end;
 
 procedure TFormMain.SetDownloadSpeedKB(AValue: integer);
 begin
-  tdmessages.SetDownloadSpeedLimit(AValue);
-  AValue := tdmessages.DownloadSpeedLimit;   { clamped, see the other setter }
-  if AValue = FDownloadSpeedKB then begin
-    Exit;
-  end;
-  FDownloadSpeedKB := AValue;
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      WriteInteger('downloads', 'speedkb', FDownloadSpeedKB);
-    finally
-      Free;
-    end;
-  end;
+  TdSetDownloadSpeedKB(AValue);
+  FDownloadSpeedKB := tdmessages.DownloadSpeedLimit;
 end;
 
 procedure TFormMain.SetCacheLimitMB(AValue: integer);
 begin
-  if AValue < CACHE_LIMIT_MIN_MB then begin
-    AValue := CACHE_LIMIT_MIN_MB;
-  end;
-  if AValue > CACHE_LIMIT_MAX_MB then begin
-    AValue := CACHE_LIMIT_MAX_MB;
-  end;
-  if AValue = FCacheLimitMB then begin
-    Exit;
-  end;
-  FCacheLimitMB := AValue;
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      WriteInteger('storage', 'maxcachemb', FCacheLimitMB);
-    finally
-      Free;
-    end;
-  end;
+  TdSetCacheLimitMB(AValue);
+  FCacheLimitMB := TdCacheLimitMB;
 end;
 
 procedure TFormMain.SetCacheTtlDays(AValue: integer);
 begin
-  if AValue < CACHE_TTL_MIN_DAYS then begin
-    AValue := CACHE_TTL_MIN_DAYS;
-  end;
-  if AValue > CACHE_TTL_MAX_DAYS then begin
-    AValue := CACHE_TTL_MAX_DAYS;
-  end;
-  if AValue = FCacheTtlDays then begin
-    Exit;
-  end;
-  FCacheTtlDays := AValue;
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
-    try
-      WriteInteger('storage', 'ttldays', FCacheTtlDays);
-    finally
-      Free;
-    end;
-  end;
+  TdSetCacheTtlDays(AValue);
+  FCacheTtlDays := TdCacheTtlDays;
 end;
 
 procedure TFormMain.SetAudioDeviceName(const AName: string);

@@ -203,6 +203,21 @@ export function insertAtCaret(text) {
   input.focus();
 }
 
+/**
+ * Кастомный эмодзи — это сущность, а не символ, поэтому в поле он
+ * попадает своей разметкой, как жирный или ссылка: textarea здесь не
+ * WYSIWYG. Синтаксис по core.telegram.org/bots/api; внутри — обычный
+ * эмодзи, его увидят клиенты, которые кастомный не покажут (без него
+ * разметка недействительна). Серверные EscapeMarkdownV2/EscapeHtml
+ * пропускают ровно эту форму: id из одних цифр.
+ */
+export function insertCustomEmoji(id, emoji) {
+  if (!/^\d+$/.test(String(id)) || !emoji) return;
+  insertAtCaret(isHtml()
+    ? `<tg-emoji emoji-id="${id}">${emoji}</tg-emoji>`
+    : `![${emoji}](tg://emoji?id=${id})`);
+}
+
 function quoteSelection() {
   const start = input.selectionStart;
   const end = input.selectionEnd;
