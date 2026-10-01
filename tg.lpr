@@ -96,7 +96,7 @@ begin
   EnsureAppId;
 
   RequireDerivedFormResource := True;
-  Application.Title := APP_TITLE;
+  Application.Title:='TG Orchestrator';
   Application.Scaled:=True;
   {$PUSH}{$WARN 5044 OFF}
   Application.MainFormOnTaskbar := True;

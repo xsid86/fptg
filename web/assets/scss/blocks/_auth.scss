@@ -34,6 +34,7 @@
   max-width: 420px;
   padding: $space-7;
   width: 100%;
+  box-shadow: 0 3rem 4rem rgba(0, 0, 0, .1);
 }
 
 .auth__title {
@@ -179,5 +180,7 @@
 }
 
 @keyframes auth-spin {
-  to { transform: rotate(1turn); }
+  to {
+    transform: rotate(1turn);
+  }
 }
