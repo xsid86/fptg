@@ -51,7 +51,7 @@ function field(label, props = {}) {
 function card(title, note, ...body) {
   return el('div', { class: 'auth__card' },
     el('h1', { class: 'auth__title' }, title),
-    note ? el('p', { class: 'auth__note' }, note) : null,
+    note ? el('p', { class: 'auth__note' }, ...[].concat(note)) : null,
     ...body);
 }
 
@@ -81,11 +81,16 @@ const link = (label, onClick) => el('button', {
 function screenApiConfig() {
   const id = field('api_id', { inputMode: 'numeric', autofocus: true });
   const hash = field('api_hash');
+  // Ссылка уходит в системный браузер: окно WebView2 отдаёт ему любой
+  // target=_blank через NewWindowRequested.
   return card('Connect this app to Telegram',
-    'Telegram gives every application its own api_id and api_hash. '
-    + 'Create one at my.telegram.org, under API development tools, '
+    ['Telegram gives every application its own api_id and api_hash. '
+    + 'Create one at ',
+    el('a', { href: 'https://my.telegram.org/apps', target: '_blank',
+      rel: 'noopener noreferrer' }, 'my.telegram.org'),
+    ', under API development tools, '
     + 'and paste the pair here. They are stored in config.ini beside '
-    + 'the program and are not sent anywhere else.',
+    + 'the program and are not sent anywhere else.'],
     form(() => hooks.send('api.save',
       { apiId: Number(text(id.input.value)), apiHash: text(hash.input.value) }),
     id.wrap, hash.wrap, submit('Save and continue')));
