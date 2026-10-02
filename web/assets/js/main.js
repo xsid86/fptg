@@ -12,6 +12,7 @@ import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory, invalidateHistory } from './ui/history.js';
 import {
   mountComposer, insertAtCaret, insertCustomEmoji, isSilent, replyTo, editMessage,
+  htmlMode, canCompose, takeReply, customEmojiMarkup,
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
@@ -20,6 +21,7 @@ import { mountStatusBar } from './ui/status-bar.js';
 import { mountToasts } from './ui/toasts.js';
 import { mountThemeToggle } from './ui/theme.js';
 import { mountSettings } from './ui/settings.js';
+import { mountAttach } from './ui/attach.js';
 import { openViewer } from './ui/viewer.js';
 
 // Entry point: wire the shell that index.html already contains, open
@@ -434,6 +436,14 @@ async function boot() {
   mountSettings(qs('#settings'), qs('#settings-open'), {
     load: (cmd, args) => call(cmd, args),
     report,
+  });
+  mountAttach(qs('#attach'), qs('#dropzone'), qs('.workspace'), {
+    call: (cmd, args) => call(cmd, args),
+    canCompose,
+    htmlMode,
+    isSilent,
+    takeReply,
+    customEmojiMarkup,
   });
 
   wireSidebar();

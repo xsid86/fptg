@@ -81,6 +81,10 @@
     <div class="workspace">
       <header class="chat-header" id="chat-header" hidden></header>
 
+      <!-- Where files are dropped. Covers the open chat only while a
+           drag with files is over it - see ui/attach.js. -->
+      <div class="dropzone" id="dropzone" hidden></div>
+
       <!-- The scroller and the box it sits in are two elements on
            purpose: the "jump to the newest" button is positioned
            against the box, and a button placed in the scroller itself
@@ -136,6 +140,15 @@
           </div>
 
           <div class="composer__group composer__group--actions">
+            <!-- Files to send. The input is the real picker and stays
+                 hidden; the paperclip only opens it. See ui/attach.js. -->
+            <button class="btn btn--icon composer__attach" id="composer-attach"
+                    type="button" title="Attach files" disabled>
+              <span class="icon" data-icon="clip"></span>
+              <span class="u-sr-only">Attach files</span>
+            </button>
+            <input type="file" id="composer-files" multiple hidden>
+
             <!-- The one icon among the words, and the one that earns it: a
                  smiley says "emoji" in every client there is, and the
                  panel behind it also holds stickers and GIFs, which no
@@ -171,6 +184,12 @@
        trap come with showModal(). Covers the app with a 32px margin and
        is empty until opened - see ui/settings.js. -->
   <dialog class="settings" id="settings" aria-label="Settings"></dialog>
+
+  <!-- Sending files: the list, a caption, Add / Cancel / Send. Built
+       on every opening - see ui/attach.js. A layer rather than a modal
+       <dialog>: the emoji panel for the caption is a popover hung on
+       <body>, and a modal dialog would make it inert. -->
+  <div class="attach-layer" id="attach" hidden></div>
 
   <footer class="app__status status-bar" id="status-bar">
     <button class="status-bar__settings" type="button" id="settings-open"

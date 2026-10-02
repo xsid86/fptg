@@ -187,6 +187,7 @@ type
     function  CmdStorageGet: TJSONData;
     function  CmdStorageCleanup: TJSONData;
     function  CmdMessageSend(AArgs: TJSONObject): TJSONData;
+    function  CmdMessageSendFiles(AArgs: TJSONObject): TJSONData;
     function  CmdPollVote(AArgs: TJSONObject): TJSONData;
     function  CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
     function  CmdSearchSet(AArgs: TJSONObject): TJSONData;
@@ -2201,6 +2202,47 @@ begin
   Result := nil;
 end;
 
+{ Файлы, уже принятые через POST /upload: страница присылает их id
+  (не пути — путь на диске она не видит), сервер находит файлы и
+  отдаёт модели. asPhoto — сжатыми фото, иначе документами; caption —
+  разметка в том же синтаксисе, что текст сообщения (html — какой).
+
+  Неизвестный id — ошибка всей команды, а не тихий пропуск: иначе
+  ушла бы часть файлов, а человек думал бы, что все. }
+function TWebApi.CmdMessageSendFiles(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Arr: TJSONArray;
+  Paths: array of utf8string;
+  I: integer;
+  Path: string;
+begin
+  Msgs := RequireMsgs;
+  if Msgs.ChatId = 0 then begin
+    raise Exception.Create('no chat is open');
+  end;
+  if AArgs = nil then begin
+    raise Exception.Create('message.sendFiles needs files');
+  end;
+  Arr := TJSONArray(AArgs.Find('files', jtArray));
+  if (Arr = nil) or (Arr.Count = 0) then begin
+    raise Exception.Create('no files to send');
+  end;
+  SetLength(Paths, Arr.Count);
+  for I := 0 to Arr.Count - 1 do begin
+    Path := UploadFilePath(Arr.Strings[I]);
+    if Path = '' then begin
+      raise Exception.Create('uploaded file not found');
+    end;
+    Paths[I] := utf8string(Path);
+  end;
+  Msgs.SendFiles(Paths, AArgs.Get('asPhoto', False),
+    utf8string(AArgs.Get('caption', '')), AArgs.Get('html', False),
+    AArgs.Get('silent', False),
+    StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
+  Result := nil;
+end;
+
 function TWebApi.CmdPollVote(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -3174,6 +3216,8 @@ begin
         Reply(AConnId, ReqId, CmdMessagesRead(Args));
       end else if Cmd = 'message.send' then begin
         Reply(AConnId, ReqId, CmdMessageSend(Args));
+      end else if Cmd = 'message.sendFiles' then begin
+        Reply(AConnId, ReqId, CmdMessageSendFiles(Args));
       end else if Cmd = 'poll.vote' then begin
         Reply(AConnId, ReqId, CmdPollVote(Args));
       end else if Cmd = 'media.ensure' then begin

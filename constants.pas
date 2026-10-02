@@ -1476,6 +1476,26 @@ const
     such a connection sits in the read loop forever holding a thread. }
   LOCAL_SERVER_WS_PING_MS = 20000;
 
+  { Приём файлов со страницы (POST /upload, localserver.pas) для
+    отправки в чат. Каждый файл ложится в свой подкаталог со случайным
+    id — под СВОИМ именем, потому что TDLib берёт имя документа из
+    пути inputFileLocal. Каталог рядом с exe и чистится при каждом
+    старте сервера: отправленные файлы удаляет модель по
+    updateMessageSendSucceeded, а остаются только брошенные.
+    Потолок — 4 ГБ, предел Telegram для Premium; без Premium TDLib
+    откажет сам и скажет почему. }
+  LOCAL_SERVER_UPLOAD_PATH = '/upload';
+  LOCAL_SERVER_UPLOAD_DIR = 'uploads';
+  LOCAL_SERVER_UPLOAD_MAX = Int64(4) * 1024 * 1024 * 1024;
+  LOCAL_SERVER_UPLOAD_CHUNK = 65536;
+  { Имя файла в пути — без того, что Windows в имени не допускает, и
+    не длиннее этого (запас под путь к каталогу до MAX_PATH). }
+  LOCAL_SERVER_UPLOAD_NAME_MAX = 120;
+
+  { sendMessageAlbum группирует 2..10 сообщений (td_api.tl). Больше
+    файлов уходит несколькими альбомами подряд. }
+  SEND_ALBUM_MAX = 10;
+
   { A SAFETY NET, not the delivery path (webapi.pas). A socket thread
     that queues a command also wakes the main thread immediately
     through TThread.Queue, so this interval only matters if something

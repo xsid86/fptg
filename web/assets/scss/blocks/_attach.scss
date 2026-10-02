@@ -1,0 +1,236 @@
+@use "../abstracts" as *;
+
+// Отправка файлов (ui/attach.js): зоны перетаскивания над открытым
+// чатом и диалог со списком файлов и подписью.
+
+// ------------------------------------------------------------ dropzone
+// Поверх всей рабочей области — шапки, истории и композера, — как у
+// нативного клиента. `hidden` прописан явно: свой display перебил бы
+// правило UA для атрибута.
+.dropzone {
+  @include flex(column, stretch, stretch, $space-4);
+  background: color-mix(in srgb, var(--c-bg) 70%, transparent);
+  inset: 0;
+  padding: $space-6;
+  position: absolute;
+  // Выше шапки чата: она в том же контексте наложения (.workspace создаёт
+  // его своим backdrop-filter) и стоит на z-index 1000 — с $z-overlay
+  // верх верхней зоны прятался под ней.
+  z-index: 1001;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.dropzone__zone {
+  @include flex(column, center, center, $space-2);
+  background: var(--c-surface);
+  border: 2px dashed color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: $radius-lg;
+  box-shadow: 0 8px 24px var(--c-shadow);
+  flex: 1 1 0;
+  text-align: center;
+  @include transition;
+
+  // Дети не ловят события перетаскивания: иначе каждый переход курсора
+  // через заголовок давал бы лишние dragenter/dragleave, а зона под
+  // курсором определялась бы по тексту, а не по зоне.
+  * {
+    pointer-events: none;
+  }
+
+  &.is-over {
+    border-color: var(--c-accent);
+  }
+}
+
+.dropzone__title {
+  color: var(--c-text-dim);
+  font-size: 22px;
+  font-weight: $fw-medium;
+
+  .is-over > & {
+    color: var(--c-accent);
+  }
+}
+
+.dropzone__note {
+  color: var(--c-text-faint);
+  font-size: $fs-md;
+
+  .is-over > & {
+    color: var(--c-accent);
+  }
+}
+
+// --------------------------------------------------------------- dialog
+// Слой, а не модальный <dialog>: панель эмодзи для подписи — popover на
+// <body>, и модальный диалог сделал бы её инертной.
+.attach-layer {
+  @include flex(row, center, center);
+  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
+  inset: 0;
+  padding: $space-6;
+  position: fixed;
+  z-index: $z-modal;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.attach {
+  @include flex(column, stretch, flex-start, $space-4);
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: $radius-lg;
+  box-shadow: 0 3rem 4rem var(--c-shadow);
+  max-height: 100%;
+  max-width: 420px;
+  padding: $space-7;
+  width: 100%;
+}
+
+.attach__title {
+  font-size: $fs-lg;
+  font-weight: $fw-bold;
+  margin: 0;
+}
+
+.attach__list {
+  @include flex(column, stretch, flex-start, $space-3);
+  @include scroll-area;
+  list-style: none;
+  margin: 0;
+  max-height: 320px;
+  padding: 0;
+}
+
+.attach__item {
+  @include flex(row, center, flex-start, $space-4);
+}
+
+.attach__thumb {
+  @include size(48px);
+  border-radius: $radius-md;
+  flex: 0 0 auto;
+  object-fit: cover;
+}
+
+// Не картинка — значок файла на круге акцента, как у документа в истории.
+.attach__thumb--file {
+  @include flex(row, center, center);
+  background: var(--c-accent);
+  border-radius: 50%;
+  color: var(--c-accent-text);
+}
+
+.attach__meta {
+  @include flex(column, stretch, flex-start, $space-1);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.attach__name {
+  @include ellipsis;
+  font-size: $fs-md;
+  font-weight: $fw-medium;
+}
+
+.attach__size {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+}
+
+.attach__remove {
+  flex: 0 0 auto;
+}
+
+.attach__compress {
+  @include flex(row, center, space-between, $space-4);
+  cursor: pointer;
+  font-size: $fs-md;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.attach__caption {
+  @include flex(row, flex-end, flex-start, $space-2);
+  border-bottom: 2px solid var(--c-accent);
+  padding-bottom: $space-2;
+}
+
+.attach__caption-input {
+  @include scrollbar(6px);
+  field-sizing: content;
+  flex: 1 1 auto;
+  font-size: $fs-base;
+  line-height: $lh-base;
+  max-height: 160px;
+  min-height: 24px;
+  resize: none;
+
+  &::placeholder {
+    color: var(--c-text-faint);
+  }
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.attach__emoji {
+  flex: 0 0 auto;
+}
+
+.attach__progress {
+  @include flex(row, center, flex-start, $space-4);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.attach__bar {
+  background: var(--c-surface-active);
+  border-radius: $radius-pill;
+  flex: 1 1 auto;
+  height: 4px;
+  overflow: hidden;
+}
+
+// Ширина — классом лестницы .w-* (base/_widths.scss), не style.
+.attach__bar-fill {
+  background: var(--c-accent);
+  display: block;
+  height: 100%;
+  @include transition;
+}
+
+.attach__percent {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  min-width: 3em;
+  text-align: right;
+}
+
+.attach__error {
+  color: var(--c-danger);
+  font-size: $fs-sm;
+  margin: 0;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.attach__buttons {
+  @include flex(row, center, flex-start, $space-2);
+}
+
+.attach__spacer {
+  flex: 1 1 auto;
+}

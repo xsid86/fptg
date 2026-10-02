@@ -84,6 +84,7 @@ type
       const AExtraHeaders: string = '');
     procedure ServeFile;
     procedure ServeMedia;
+    procedure ServeUpload;
     procedure ServeFileFrom(const AFileName, AContentType: string);
     procedure IsWebSocketRequest(out AIsWs: boolean);
     procedure ServeWebSocket;
@@ -135,6 +136,15 @@ procedure StopLocalServer;
 
 { The full URL including the token, empty when not running. }
 function LocalServerUrl: string;
+
+{ Путь к файлу, принятому через POST /upload, по его id — или '', если
+  id не того вида или такого файла нет. Страница присылает обратно
+  только id: путь на диске она не видит и подсунуть свой не может. }
+function UploadFilePath(const AId: string): string;
+
+{ Имя, под которым принятый файл ляжет на диск. В интерфейсе ради
+  проверки отдельной программой — как EscapeMarkdownV2 в tdmessages. }
+function SafeUploadName(const AName: string): string;
 
 { Installed by webapi.pas. While nil, a text frame is simply echoed —
   which is what the transport-check page exercises. }
@@ -200,6 +210,150 @@ begin
   Result := '';
   for I := 0 to High(Buf) do begin
     Result := Result + HEX[(Buf[I] shr 4) + 1] + HEX[(Buf[I] and $0F) + 1];
+  end;
+end;
+
+function UploadRoot: string;
+begin
+  Result := ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_UPLOAD_DIR + PathDelim;
+end;
+
+{ id загрузки — ровно то, что выдаёт NewToken: 32 строчные hex-цифры.
+  Всё другое отвергается до того, как станет частью пути. }
+function IsUploadId(const AId: string): boolean;
+var
+  I: integer;
+begin
+  Result := Length(AId) = LOCAL_SERVER_TOKEN_BYTES * 2;
+  if not Result then begin
+    Exit;
+  end;
+  for I := 1 to Length(AId) do begin
+    if not (AId[I] in ['0'..'9', 'a'..'f']) then begin
+      Result := False;
+      Exit;
+    end;
+  end;
+end;
+
+{ Имя, под которым файл ляжет на диск и уйдёт в Telegram. Только
+  последняя часть пути, без символов, запрещённых Windows, без хвостовых
+  точек и пробелов, не длиннее LOCAL_SERVER_UPLOAD_NAME_MAX байт (обрезка
+  по границе символа UTF-8, расширение сохраняется), и не одно из
+  зарезервированных имён устройств. }
+function SafeUploadName(const AName: string): string;
+const
+  RESERVED: array[0..21] of string = ('CON', 'PRN', 'AUX', 'NUL',
+    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9');
+var
+  I, Cut: integer;
+  S, Ext, Base: string;
+begin
+  S := StringReplace(AName, '/', '\', [rfReplaceAll]);
+  I := LastDelimiter('\', S);
+  if I > 0 then begin
+    S := Copy(S, I + 1, MaxInt);
+  end;
+  Result := '';
+  for I := 1 to Length(S) do begin
+    if (S[I] < #32) or (S[I] in ['\', '/', ':', '*', '?', '"', '<', '>', '|']) then begin
+      Result := Result + '_';
+    end else begin
+      Result := Result + S[I];
+    end;
+  end;
+  while (Result <> '') and (Result[Length(Result)] in ['.', ' ']) do begin
+    SetLength(Result, Length(Result) - 1);
+  end;
+  Result := Trim(Result);
+  if Result = '' then begin
+    Result := 'file';
+  end;
+
+  if Length(Result) > LOCAL_SERVER_UPLOAD_NAME_MAX then begin
+    Ext := ExtractFileExt(Result);
+    if Length(Ext) > 16 then begin
+      Ext := '';
+    end;
+    Base := Copy(Result, 1, Length(Result) - Length(Ext));
+    Cut := LOCAL_SERVER_UPLOAD_NAME_MAX - Length(Ext);
+    { Не резать посреди многобайтового символа: байты продолжения
+      UTF-8 имеют вид 10xxxxxx. }
+    while (Cut > 0) and ((Ord(Base[Cut + 1]) and $C0) = $80) do begin
+      Dec(Cut);
+    end;
+    Result := Copy(Base, 1, Cut) + Ext;
+  end;
+
+  Base := UpperCase(ChangeFileExt(Result, ''));
+  for I := Low(RESERVED) to High(RESERVED) do begin
+    if Base = RESERVED[I] then begin
+      Result := '_' + Result;
+      Break;
+    end;
+  end;
+end;
+
+{ Удаляет каталог загрузки целиком (в нём один файл). }
+procedure RemoveUploadDir(const ADir: string);
+var
+  SR: TSearchRec;
+begin
+  if FindFirst(IncludeTrailingPathDelimiter(ADir) + '*', faAnyFile, SR) = 0 then begin
+    try
+      repeat
+        if (SR.Attr and faDirectory) = 0 then begin
+          DeleteFile(IncludeTrailingPathDelimiter(ADir) + SR.Name);
+        end;
+      until FindNext(SR) <> 0;
+    finally
+      FindClose(SR);
+    end;
+  end;
+  RemoveDir(ADir);
+end;
+
+{ Брошенные загрузки прошлых запусков. Только каталоги с именем-id:
+  чужое в этой папке не трогается. }
+procedure ClearUploads;
+var
+  SR: TSearchRec;
+begin
+  if FindFirst(UploadRoot + '*', faDirectory, SR) = 0 then begin
+    try
+      repeat
+        if ((SR.Attr and faDirectory) <> 0) and IsUploadId(SR.Name) then begin
+          RemoveUploadDir(UploadRoot + SR.Name);
+        end;
+      until FindNext(SR) <> 0;
+    finally
+      FindClose(SR);
+    end;
+  end;
+end;
+
+function UploadFilePath(const AId: string): string;
+var
+  SR: TSearchRec;
+  Dir: string;
+begin
+  Result := '';
+  if not IsUploadId(AId) then begin
+    Exit;
+  end;
+  Dir := UploadRoot + AId + PathDelim;
+  if FindFirst(Dir + '*', faAnyFile, SR) = 0 then begin
+    try
+      repeat
+        if (SR.Attr and faDirectory) = 0 then begin
+          Result := Dir + SR.Name;
+          Exit;
+        end;
+      until FindNext(SR) <> 0;
+    finally
+      FindClose(SR);
+    end;
   end;
 end;
 
@@ -529,6 +683,79 @@ begin
   end;
   AFileName := Full;
   Result := True;
+end;
+
+{ POST /upload?name=<имя>: тело запроса потоком в
+  uploads/<id>/<имя>, в ответ — id (text/plain).
+
+  Origin проверяется и здесь, а не только на WebSocket: POST из чужой
+  вкладки браузер отправит вместе с нашей cookie, и без этой проверки
+  любая страница могла бы класть файлы на диск. Content-Length
+  обязателен — fetch и XMLHttpRequest с телом-файлом его всегда шлют,
+  а без длины нельзя ни заранее отказать в слишком большом, ни понять,
+  что тело пришло целиком. Оборванное тело стирается вместе с
+  каталогом, и ответа на него нет: соединения уже нет. }
+procedure TServerConn.ServeUpload;
+var
+  Len, Left: Int64;
+  Id, Dir, Full: string;
+  Buf: array of byte;
+  Want, Got: integer;
+  F: TFileStream;
+  Ok: boolean;
+begin
+  if not OriginAllowed then begin
+    SendSimple(403, 'Forbidden', 'forbidden');
+    Exit;
+  end;
+  Len := StrToInt64Def(HeaderValue('content-length'), -1);
+  if Len < 0 then begin
+    SendSimple(411, 'Length Required', 'length required');
+    Exit;
+  end;
+  if Len > LOCAL_SERVER_UPLOAD_MAX then begin
+    SendSimple(413, 'Payload Too Large', 'file too large');
+    Exit;
+  end;
+
+  Id := NewToken;
+  Dir := UploadRoot + Id;
+  if not ForceDirectories(Dir) then begin
+    SendSimple(500, 'Internal Server Error', 'cannot create upload directory');
+    Exit;
+  end;
+  Full := Dir + PathDelim + SafeUploadName(QueryParam('name'));
+
+  Ok := False;
+  F := TFileStream.Create(Full, fmCreate);
+  try
+    SetLength(Buf, LOCAL_SERVER_UPLOAD_CHUNK);
+    Left := Len;
+    while (Left > 0) and (not GStopping) do begin
+      if Left < LOCAL_SERVER_UPLOAD_CHUNK then begin
+        Want := integer(Left);
+      end else begin
+        Want := LOCAL_SERVER_UPLOAD_CHUNK;
+      end;
+      Got := FSock.RecvBufferEx(@Buf[0], Want, LOCAL_SERVER_HTTP_TIMEOUT_MS);
+      if Got > 0 then begin
+        F.WriteBuffer(Buf[0], Got);
+        Dec(Left, Got);
+      end;
+      if (FSock.LastError <> 0) or (Got <= 0) then begin
+        Break;
+      end;
+    end;
+    Ok := Left = 0;
+  finally
+    F.Free;
+  end;
+
+  if not Ok then begin
+    RemoveUploadDir(Dir);
+    Exit;
+  end;
+  SendSimple(200, 'OK', Id);
 end;
 
 procedure TServerConn.SendSimple(ACode: integer; const AReason, ABody: string;
@@ -890,8 +1117,10 @@ begin
       if not ReadRequest then begin
         Exit;
       end;
-      if (FMethod <> 'GET') and (FMethod <> 'HEAD') then begin
-        SendSimple(405, 'Method Not Allowed', 'only GET/HEAD');
+      { POST — только приём файлов; всё остальное читается. }
+      if not ((FMethod = 'GET') or (FMethod = 'HEAD')
+              or ((FMethod = 'POST') and (FPath = LOCAL_SERVER_UPLOAD_PATH))) then begin
+        SendSimple(405, 'Method Not Allowed', 'only GET/HEAD, POST ' + LOCAL_SERVER_UPLOAD_PATH);
         Exit;
       end;
       if not Authorized then begin
@@ -899,6 +1128,10 @@ begin
           token" — there is nothing to be gained by telling a caller
           which. }
         SendSimple(403, 'Forbidden', 'forbidden');
+        Exit;
+      end;
+      if FMethod = 'POST' then begin
+        ServeUpload;
         Exit;
       end;
       IsWebSocketRequest(IsWs);
@@ -1083,6 +1316,8 @@ begin
   end;
   GServer.Start;
   WriteUrlFile;
+  { До первой загрузки этого запуска: всё, что там лежит, — брошенное. }
+  ClearUploads;
   Result := True;
 end;
 

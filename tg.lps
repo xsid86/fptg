@@ -19,7 +19,6 @@
         <EditorIndex Value="-1"/>
         <CursorPos X="80" Y="17"/>
         <UsageCount Value="164"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="login.pas"/>
@@ -42,7 +41,6 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="splash.pas"/>
@@ -64,7 +62,6 @@
         <EditorIndex Value="19"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -136,14 +133,12 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
-        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="tg.lps"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <UsageCount Value="164"/>
-        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="tg.res"/>
@@ -153,7 +148,6 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
-        <DefaultSyntaxHighlighter Value="None"/>
       </Unit>
       <Unit>
         <Filename Value="qrrender.pas"/>
@@ -196,7 +190,6 @@
         <Filename Value="framelog.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="45"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="framewelcome.pas"/>
@@ -214,7 +207,6 @@
         <Filename Value="framewelcome.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="45"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="tdchats.pas"/>
@@ -244,7 +236,6 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="181"/>
         <UsageCount Value="150"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="avatarcache.pas"/>
@@ -360,7 +351,6 @@
         <TopLine Value="3664"/>
         <UsageCount Value="113"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="mediaviewer.pas"/>
@@ -384,7 +374,6 @@
         <Filename Value="chatheader.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="42"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="msginput.pas"/>
@@ -402,7 +391,6 @@
         <Filename Value="msginput.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="45"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="settings.pas"/>
@@ -420,7 +408,6 @@
         <Filename Value="settings.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="45"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsgeneral.pas"/>
@@ -437,7 +424,6 @@
         <Filename Value="framesettingsgeneral.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="45"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsaudio.pas"/>
@@ -451,7 +437,6 @@
         <Filename Value="framesettingsaudio.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="45"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsautodownload.pas"/>
@@ -465,7 +450,6 @@
         <Filename Value="framesettingsautodownload.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="45"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="framesettingsstorage.pas"/>
@@ -479,7 +463,6 @@
         <Filename Value="framesettingsstorage.lfm"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="36"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="tdstorage.pas"/>

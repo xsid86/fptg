@@ -82,6 +82,8 @@ $composer-max:      220px;
 // Уже этого композер складывает ряд под полем в два: формат-кнопки
 // (~505px) и действия с Send (~250px) плюс зазор в одну строку не лезут.
 $composer-bar-stack: 800px;
+// Всплывающие уведомления и кнопка «Hide all» над ними — одной ширины.
+$toast-width: 320px;
 $scrollbar-width:   8px;
 $message-max-width: 600px;  // native: MAX_MSG_W
 

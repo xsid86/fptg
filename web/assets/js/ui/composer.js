@@ -22,6 +22,7 @@ let joinBtn = null;
 // What the box last drew for: inside a thread, or outside one.
 let inThread = false;
 let emojiBtn = null;
+let attachBtn = null;
 let htmlBox = null;
 let silentBox = null;
 let banner = null;
@@ -62,6 +63,30 @@ const isHtml = () => Boolean(htmlBox?.checked);
 
 /** The Silent toggle, for anything sent from outside this module. */
 export const isSilent = () => Boolean(silentBox?.checked);
+
+/** Режим разметки (HTML или MarkdownV2) — для подписи к файлам. */
+export const htmlMode = () => isHtml();
+
+/**
+ * Можно ли сейчас что-то отправить в открытый чат — для отправки
+ * файлов (перетаскивание, вставка, скрепка). Тот же ответ, что
+ * включает поле ввода.
+ */
+export const canCompose = () => canSend;
+
+/**
+ * Забирает ответ, если он есть: id сообщения, на которое отвечают, или
+ * ''. Плашка ответа при этом гаснет — файл и есть этот ответ, как
+ * сообщение из поля. Правка (edit) не забирается: к ней файлы не
+ * относятся.
+ */
+export function takeReply() {
+  if (pending?.mode !== 'reply') return '';
+  const id = String(pending.msg.id);
+  pending = null;
+  drawBanner();
+  return id;
+}
 
 /** A line that says which message, in as few words as the message allows. */
 function describe(msg) {
@@ -135,6 +160,7 @@ function updateEnabled(chat) {
   sendBtn.disabled = !canSend;
   for (const btn of qsa('.composer__format', box)) btn.disabled = !canSend;
   if (emojiBtn) emojiBtn.disabled = !canSend;
+  if (attachBtn) attachBtn.disabled = !canSend;
 
   // A reply belongs to the chat it was written in, and so does an
   // edit. Carrying either into another chat would send it to the wrong
@@ -212,10 +238,16 @@ export function insertAtCaret(text) {
  * пропускают ровно эту форму: id из одних цифр.
  */
 export function insertCustomEmoji(id, emoji) {
-  if (!/^\d+$/.test(String(id)) || !emoji) return;
-  insertAtCaret(isHtml()
+  const markup = customEmojiMarkup(id, emoji);
+  if (markup) insertAtCaret(markup);
+}
+
+/** Разметка кастомного эмодзи по текущему режиму, или '' для негодных id. */
+export function customEmojiMarkup(id, emoji) {
+  if (!/^\d+$/.test(String(id)) || !emoji) return '';
+  return isHtml()
     ? `<tg-emoji emoji-id="${id}">${emoji}</tg-emoji>`
-    : `![${emoji}](tg://emoji?id=${id})`);
+    : `![${emoji}](tg://emoji?id=${id})`;
 }
 
 function quoteSelection() {
@@ -331,12 +363,31 @@ export function mountComposer(node) {
   });
   qs('.composer__row', box).append(joinBtn);
   emojiBtn = qs('.composer__emoji', box);
+  attachBtn = qs('.composer__attach', box);
+  // Скрепка: обычный выбор файлов. Картинки по умолчанию уходят сжатыми,
+  // как у нативного клиента; переключается в диалоге.
+  const picker = qs('#composer-files', box);
+  attachBtn?.addEventListener('click', () => picker?.click());
+  picker?.addEventListener('change', () => {
+    const files = [...picker.files];
+    // Сброс — иначе тот же файл, выбранный снова, не даст change.
+    picker.value = '';
+    if (files.length) emit('ui:attach', { files });
+  });
   htmlBox = qs('#composer-html', box);
   silentBox = qs('#composer-silent', box);
   banner = qs('.composer__banner', box);
 
   sendBtn.addEventListener('click', send);
   qs('.composer__banner-cancel', banner)?.addEventListener('click', cancelPending);
+  // Файлы из буфера обмена (снимок экрана, скопированный в проводнике
+  // файл) — в тот же диалог отправки. Текст вставляется как обычно.
+  input.addEventListener('paste', (event) => {
+    const files = [...(event.clipboardData?.files ?? [])];
+    if (!files.length || !canSend) return;
+    event.preventDefault();
+    emit('ui:attach', { files });
+  });
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && pending) {
       event.preventDefault();

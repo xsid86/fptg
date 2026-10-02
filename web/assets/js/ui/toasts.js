@@ -25,10 +25,58 @@ const LIMIT = 4;            // more than this is a wall, not a notice
 const LIFE_MS = 6000;
 
 let stack = null;
+let clearAll = null;
+// Карточка -> её таймер: сколько ей ещё жить и с какого момента идёт
+// отсчёт. Отсчёт идёт ТОЛЬКО пока окно в фокусе: карточка, пришедшая,
+// пока человек был в другой программе, иначе исчезла бы раньше, чем на
+// неё посмотрели. Наведённая (pinned) не закрывается сама вовсе.
+const life = new Map();
 
 export function mountToasts(node) {
   stack = node;
+  // Над карточками, той же ширины; видна, только пока есть что скрывать.
+  clearAll = el('button', {
+    class: 'toast-stack__clear',
+    type: 'button',
+    hidden: true,
+    onclick: () => {
+      for (const card of [...life.keys()]) drop(card);
+    },
+  }, 'Hide all');
+  stack.prepend(clearAll);
+
   on('srv:arrival', arrived);
+  window.addEventListener('blur', pauseAll);
+  window.addEventListener('focus', resumeAll);
+}
+
+function start(card) {
+  const t = life.get(card);
+  if (!t || t.pinned || t.timer) return;
+  t.since = Date.now();
+  t.timer = setTimeout(() => drop(card), t.left);
+}
+
+function pause(card) {
+  const t = life.get(card);
+  if (!t || !t.timer) return;
+  clearTimeout(t.timer);
+  t.timer = 0;
+  t.left = Math.max(0, t.left - (Date.now() - t.since));
+}
+
+function pauseAll() {
+  for (const card of life.keys()) pause(card);
+}
+
+function resumeAll() {
+  for (const card of life.keys()) start(card);
+}
+
+const cards = () => [...life.keys()];
+
+function syncClearAll() {
+  if (clearAll) clearAll.hidden = life.size === 0;
 }
 
 function arrived(data) {
@@ -77,11 +125,16 @@ function show(data) {
   });
 
   stack.append(card);
+  life.set(card, { left: LIFE_MS, since: 0, timer: 0, pinned: false });
   // The oldest go first, so the newest is always the one at hand.
-  while (stack.children.length > LIMIT) drop(stack.firstElementChild);
+  while (life.size > LIMIT) drop(cards()[0]);
+  syncClearAll();
 
-  const timer = setTimeout(() => drop(card), LIFE_MS);
-  card.addEventListener('pointerenter', () => clearTimeout(timer));
+  if (document.hasFocus()) start(card);
+  card.addEventListener('pointerenter', () => {
+    pause(card);
+    life.get(card).pinned = true;
+  });
   // Left alone after a hover rather than restarted: the reader has
   // shown interest, and a card that vanishes from under the pointer is
   // the thing that makes these infuriating.
@@ -89,5 +142,9 @@ function show(data) {
 
 function drop(card) {
   if (!card) return;
+  const t = life.get(card);
+  if (t?.timer) clearTimeout(t.timer);
+  life.delete(card);
   card.remove();
+  syncClearAll();
 }

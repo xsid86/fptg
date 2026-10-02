@@ -6,6 +6,9 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  // Опора для зоны перетаскивания файлов (blocks/_attach.scss), которая
+  // ложится поверх всей рабочей области.
+  position: relative;
 }
 
 // The box the history scrolls INSIDE, not the scroller itself. It

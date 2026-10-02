@@ -140,6 +140,16 @@ begin
   Width := 1200;
   Height := 800;
   Position := poScreenCenter;
+  { На панели задач — всегда. Окно создаётся через CreateNew, а не
+    Application.CreateForm, и главной формой приложения не становится;
+    при MainFormOnTaskbar = True и stDefault LCL делает такое окно
+    подчинённым скрытому AppHandle (TWin32WSCustomForm.CreateHandle,
+    win32wsforms.pp), а подчинённые окна Windows на панель задач не
+    выводит. stAlways оставляет его самостоятельным.
+    ДО первого обращения к Handle: здесь свойство только запоминается
+    и попадает в параметры создания окна, а поменянное потом оно
+    перепрятывает окно, к которому уже привязан WebView2. }
+  ShowInTaskBar := stAlways;
   { The runtime needs a window to attach to, and Handle is what creates
     one - reading it here rather than letting it happen later keeps the
     order explicit. }

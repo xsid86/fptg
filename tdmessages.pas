@@ -466,6 +466,24 @@ type
     EditId: Int64;    { 0 - a new message rather than an edit }
   end;
 
+  { Отправка файлов, ждущая разбора подписи (parseTextEntities) — то же,
+    что TPendingSend, плюс сами файлы и как их слать. }
+  TPendingFiles = record
+    Busy: boolean;
+    Paths: array of utf8string;
+    AsPhoto: boolean;
+    Silent: boolean;
+    ReplyTo: Int64;
+  end;
+
+  { Один запрос sendMessage/sendMessageAlbum и пути его файлов по
+    порядку: ответ TDLib приходит сообщениями в том же порядке, и только
+    так видно, какой временный файл какому сообщению принадлежит. }
+  TFileBatch = record
+    Busy: boolean;
+    Paths: array of utf8string;
+  end;
+
   { Preview of a quoted (reply_to) message — either for replies to a
     message already in the loaded history (see ReplyPreview/
     RequestReply) OR fetched separately via getRepliedMessage when it's
@@ -637,6 +655,9 @@ type
       TPendingSend. Reused rather than appended to for ever; there are
       never more than a couple in flight. }
     FSends: array of TPendingSend;
+    { То же для файлов — см. TPendingFiles и TFileBatch. }
+    FFileSends: array of TPendingFiles;
+    FFileBatches: array of TFileBatch;
 
     { Audio-file downloads — see EnsureAudioFile/ApplyAudioFile. }
     FByFile: TAudioFileMap;
@@ -811,6 +832,9 @@ type
     procedure CheckUnreadBackfill;
     procedure SendMediaByFileId(const AContent: utf8string; ASilent: boolean);
     function TakeSendSlot(ASilent: boolean; AReplyTo, AEditId: Int64): PtrInt;
+    procedure FilesParseDone(Sender: TObject; const AResp: TTdResponse);
+    procedure DoSendFiles(ASlot: PtrInt; const ACaptionJson: utf8string);
+    procedure FilesSentDone(Sender: TObject; const AResp: TTdResponse);
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
     procedure EditTextDone(Sender: TObject; const AResp: TTdResponse);
     procedure ActionOnlyDone(Sender: TObject; const AResp: TTdResponse);
@@ -914,6 +938,23 @@ type
       far side of it, see ParseEntitiesDone. }
     procedure SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean;
       ASilent: boolean; AReplyTo: Int64 = 0);
+
+    { Файлы с диска (inputFileLocal) — то, что страница загрузила через
+      POST /upload. AAsPhoto: сжатыми фото (inputMessagePhoto), иначе
+      документами без сжатия (inputMessageDocument) — поля сверены с
+      td_api.tl. Больше одного — альбомами по SEND_ALBUM_MAX
+      (sendMessageAlbum, 2..10 сообщений одного рода).
+
+      Подпись — та же разметка, что у сообщения, через тот же
+      parseTextEntities. Достаётся ПЕРВОМУ файлу у фото (так она
+      становится подписью альбома) и ПОСЛЕДНЕМУ у документов — чтобы
+      стояла после списка файлов, а не посреди него.
+
+      Временный файл удаляется, когда TDLib сообщит, что сообщение
+      ушло (updateMessageSendSucceeded); не ушедшие подчищает сервер
+      при следующем старте. }
+    procedure SendFiles(const APaths: array of utf8string; AAsPhoto: boolean;
+      const ACaption: utf8string; AIsHtml, ASilent: boolean; AReplyTo: Int64);
 
     { Replaces the text of a message already sent. Goes through the
       same parseTextEntities as a new one, so what the toolbar's
@@ -4492,6 +4533,277 @@ begin
     TakeSendSlot(ASilent, AReplyTo, 0));
 end;
 
+{ ---------------- files from the page ---------------- }
+
+{ Сообщение (временный id) -> временный файл, который оно везёт. Общая
+  для всех экземпляров: updateMessageSendSucceeded приходит той модели,
+  что открыта, а отправить могли из любой. }
+var
+  GUploadByMsg: TStringList = nil;
+
+procedure NoteUploadMessage(AMsgId: Int64; const APath: utf8string);
+begin
+  if (AMsgId = 0) or (APath = '') then begin
+    Exit;
+  end;
+  if GUploadByMsg = nil then begin
+    GUploadByMsg := TStringList.Create;
+  end;
+  GUploadByMsg.Values[IntToStr(AMsgId)] := string(APath);
+end;
+
+{ Удаляет файл и его каталог (uploads/<id>/ — в нём только этот файл). }
+procedure ForgetUploadMessage(AMsgId: Int64);
+var
+  I: integer;
+  Path: string;
+begin
+  if GUploadByMsg = nil then begin
+    Exit;
+  end;
+  I := GUploadByMsg.IndexOfName(IntToStr(AMsgId));
+  if I < 0 then begin
+    Exit;
+  end;
+  Path := GUploadByMsg.ValueFromIndex[I];
+  GUploadByMsg.Delete(I);
+  DeleteFile(Path);
+  RemoveDir(ExtractFileDir(Path));
+end;
+
+procedure TTdMessages.SendFiles(const APaths: array of utf8string; AAsPhoto: boolean;
+  const ACaption: utf8string; AIsHtml, ASilent: boolean; AReplyTo: Int64);
+var
+  Slot: PtrInt;
+  I: integer;
+  ModeObj: TJSONObject;
+  TextVal: TJSONString;
+  Body, EscapedText: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (Length(APaths) = 0) then begin
+    Exit;
+  end;
+
+  Slot := -1;
+  for I := 0 to High(FFileSends) do begin
+    if not FFileSends[I].Busy then begin
+      Slot := I;
+      Break;
+    end;
+  end;
+  if Slot < 0 then begin
+    SetLength(FFileSends, Length(FFileSends) + 1);
+    Slot := High(FFileSends);
+  end;
+  FFileSends[Slot].Busy := True;
+  SetLength(FFileSends[Slot].Paths, Length(APaths));
+  for I := 0 to High(APaths) do begin
+    FFileSends[Slot].Paths[I] := APaths[I];
+  end;
+  FFileSends[Slot].AsPhoto := AAsPhoto;
+  FFileSends[Slot].Silent := ASilent;
+  FFileSends[Slot].ReplyTo := AReplyTo;
+
+  if Trim(string(ACaption)) = '' then begin
+    DoSendFiles(Slot, '');
+    Exit;
+  end;
+
+  { Подпись — тем же путём, что текст сообщения: экранирование своих
+    знаков (см. EscapeMarkdownV2/EscapeHtml) и parseTextEntities. }
+  if AIsHtml then begin
+    EscapedText := EscapeHtml(ACaption);
+  end else begin
+    EscapedText := EscapeMarkdownV2(ACaption);
+  end;
+  ModeObj := TJSONObject.Create;
+  TextVal := TJSONString.Create(string(EscapedText));
+  try
+    if AIsHtml then begin
+      ModeObj.Strings['@type'] := 'textParseModeHTML';
+    end else begin
+      ModeObj.Strings['@type'] := 'textParseModeMarkdown';
+      ModeObj.Integers['version'] := 2;
+    end;
+    Body := '"text":' + utf8string(TextVal.AsJSON) +
+            ',"parse_mode":' + utf8string(ModeObj.AsJSON);
+  finally
+    TextVal.Free;
+    ModeObj.Free;
+  end;
+  FReq.SendRequest('parseTextEntities', Body, @FilesParseDone, Slot);
+end;
+
+procedure TTdMessages.FilesParseDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Clean: TJSONObject;
+  EntitiesArr: TJSONArray;
+begin
+  if (AResp.Tag < 0) or (AResp.Tag > High(FFileSends)) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    FFileSends[AResp.Tag].Busy := False;
+    if Assigned(FOnActionError) then begin
+      FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'parse');
+    end;
+    Exit;
+  end;
+  { Чистый formattedText без "@extra", как в ParseEntitiesDone. }
+  Clean := TJSONObject.Create;
+  try
+    Clean.Strings['@type'] := 'formattedText';
+    Clean.Strings['text'] := string(JGetStr(AResp.Obj, 'text'));
+    EntitiesArr := JGetArr(AResp.Obj, 'entities');
+    if EntitiesArr <> nil then begin
+      Clean.Add('entities', EntitiesArr.Clone as TJSONArray);
+    end;
+    DoSendFiles(AResp.Tag, utf8string(Clean.AsJSON));
+  finally
+    Clean.Free;
+  end;
+end;
+
+procedure TTdMessages.DoSendFiles(ASlot: PtrInt; const ACaptionJson: utf8string);
+var
+  Paths: array of utf8string;
+  AsPhoto, Silent: boolean;
+  ReplyTo: Int64;
+  N, CaptionAt, First, Last, I, B: integer;
+  Body, Contents, Content: utf8string;
+  PathVal: TJSONString;
+begin
+  Paths := FFileSends[ASlot].Paths;
+  AsPhoto := FFileSends[ASlot].AsPhoto;
+  Silent := FFileSends[ASlot].Silent;
+  ReplyTo := FFileSends[ASlot].ReplyTo;
+  FFileSends[ASlot].Busy := False;
+  FFileSends[ASlot].Paths := nil;
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+
+  N := Length(Paths);
+  if AsPhoto then begin
+    CaptionAt := 0;
+  end else begin
+    CaptionAt := N - 1;
+  end;
+
+  First := 0;
+  while First < N do begin
+    Last := First + SEND_ALBUM_MAX - 1;
+    if Last > N - 1 then begin
+      Last := N - 1;
+    end;
+
+    Contents := '';
+    for I := First to Last do begin
+      PathVal := TJSONString.Create(string(Paths[I]));
+      try
+        if AsPhoto then begin
+          Content := '{"@type":"inputMessagePhoto","photo":{"@type":"inputPhoto"' +
+            ',"photo":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}}';
+        end else begin
+          Content := '{"@type":"inputMessageDocument","document":{"@type":"inputDocument"' +
+            ',"document":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}}';
+        end;
+      finally
+        PathVal.Free;
+      end;
+      if (I = CaptionAt) and (ACaptionJson <> '') then begin
+        Content := Content + ',"caption":' + ACaptionJson;
+      end;
+      Content := Content + '}';
+      if Contents <> '' then begin
+        Contents := Contents + ',';
+      end;
+      Contents := Contents + Content;
+    end;
+
+    Body := '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart;
+    if Silent then begin
+      Body := Body +
+        ',"options":{"@type":"messageSendOptions","disable_notification":true}';
+    end;
+    { Ответом — только первое сообщение; остальные пачки идут следом. }
+    if (First = 0) and (ReplyTo <> 0) then begin
+      Body := Body +
+        ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +
+        utf8string(IntToStr(ReplyTo)) + '}';
+    end;
+
+    B := -1;
+    for I := 0 to High(FFileBatches) do begin
+      if not FFileBatches[I].Busy then begin
+        B := I;
+        Break;
+      end;
+    end;
+    if B < 0 then begin
+      SetLength(FFileBatches, Length(FFileBatches) + 1);
+      B := High(FFileBatches);
+    end;
+    FFileBatches[B].Busy := True;
+    SetLength(FFileBatches[B].Paths, Last - First + 1);
+    for I := First to Last do begin
+      FFileBatches[B].Paths[I - First] := Paths[I];
+    end;
+
+    { Один файл — обычное сообщение: sendMessageAlbum берёт от двух. }
+    if Last = First then begin
+      FReq.SendRequest('sendMessage',
+        Body + ',"input_message_content":' + Contents, @FilesSentDone, B);
+    end else begin
+      FReq.SendRequest('sendMessageAlbum',
+        Body + ',"input_message_contents":[' + Contents + ']', @FilesSentDone, B);
+    end;
+    First := Last + 1;
+  end;
+end;
+
+procedure TTdMessages.FilesSentDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Paths: array of utf8string;
+  Arr: TJSONArray;
+  I: integer;
+begin
+  if (AResp.Tag < 0) or (AResp.Tag > High(FFileBatches)) then begin
+    Exit;
+  end;
+  Paths := FFileBatches[AResp.Tag].Paths;
+  FFileBatches[AResp.Tag].Busy := False;
+  FFileBatches[AResp.Tag].Paths := nil;
+
+  if not AResp.Success then begin
+    if Assigned(FOnActionError) then begin
+      FOnActionError(Self, AResp.ErrorCode, AResp.ErrorMessage, 'send');
+    end;
+    Exit;
+  end;
+
+  if JGetStr(AResp.Obj, '@type') = 'messages' then begin
+    Arr := JGetArr(AResp.Obj, 'messages');
+    if Arr = nil then begin
+      Exit;
+    end;
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      if I <= High(Paths) then begin
+        NoteUploadMessage(JGetInt64(TJSONObject(Arr.Items[I]), 'id'), Paths[I]);
+      end;
+      ApplyMessage(TJSONObject(Arr.Items[I]));
+    end;
+  end else begin
+    if Length(Paths) > 0 then begin
+      NoteUploadMessage(JGetInt64(AResp.Obj, 'id'), Paths[0]);
+    end;
+    ApplyMessage(AResp.Obj);
+  end;
+end;
+
 { An edit is the same two steps as a send - parse, then act - so it
   shares the parse and differs only in what the second step is. }
 procedure TTdMessages.EditFormattedText(AMessageId: Int64;
@@ -6268,6 +6580,9 @@ begin
         simpler and more reliable than trying to reuse the same object
         under a different id. }
       OldId := JGetInt64(Obj, 'old_message_id');
+      { Если сообщение несло файл со страницы — TDLib его закачал, и
+        временная копия больше не нужна. }
+      ForgetUploadMessage(OldId);
       if OldId <> 0 then begin
         Idx := FAll.IndexOf(OldId);
         if Idx >= 0 then begin
@@ -6350,5 +6665,8 @@ procedure TTdMessages.TdError(ACode: integer; const AMessage, AContext: utf8stri
 begin
   { Authorization errors don't concern this model. }
 end;
+
+finalization
+  FreeAndNil(GUploadByMsg);
 
 end.

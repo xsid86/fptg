@@ -162,7 +162,8 @@ on('store:chats', sweep);
 export async function stillSticker(canvas, url, size) {
     try {
         const [lottie, data] = await Promise.all([loadEngine(), animationData(url)]);
-        if (!canvas.isConnected) return false;
+        // Холст может быть и не в документе — черновик, который потом
+        // перегоняется в картинку (см. makeStill в picker.js).
         canvas.width = size;
         canvas.height = size;
         const anim = lottie.loadAnimation({
@@ -185,6 +186,44 @@ export async function stillSticker(canvas, url, size) {
     } catch (err) {
         console.error('sticker still', url, err);
         return false;
+    }
+}
+
+/**
+ * Один кадр .tgs как КАРТИНКА: адрес data:image/svg+xml для <img>, или
+ * null. Плеер уничтожается сразу — от стикера остаётся одна картинка.
+ *
+ * Для стикеров, а не эмодзи: на размере плитки изъян canvas-рендерера
+ * с градиентами виден (см. playSticker), поэтому кадр строит
+ * SVG-рендерер — в ОТЦЕПЛЕННЫЙ контейнер, — и его <svg> сериализуется.
+ * Градиенты, маски и клипы ссылаются на id внутри того же <svg>,
+ * поэтому самостоятельный документ рисуется так же, как живой плеер.
+ * viewBoxOnly: в корень не пишутся ни размеры, ни инлайн-стили, и
+ * картинка вписывается в плитку по viewBox.
+ */
+export async function stillSvg(url) {
+    try {
+        const [lottie, data] = await Promise.all([loadEngine(), animationData(url)]);
+        const box = document.createElement('div');
+        const anim = lottie.loadAnimation({
+            container: box,
+            renderer: 'svg',
+            loop: false,
+            autoplay: false,
+            animationData: data,
+            rendererSettings: { viewBoxOnly: true },
+        });
+        if (!anim.isLoaded) {
+            await new Promise((resolve) => anim.addEventListener('DOMLoaded', resolve));
+        }
+        anim.goToAndStop(0, true);
+        const svg = box.querySelector('svg');
+        const markup = svg ? new XMLSerializer().serializeToString(svg) : '';
+        anim.destroy();
+        return markup ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}` : null;
+    } catch (err) {
+        console.error('sticker svg still', url, err);
+        return null;
     }
 }
 

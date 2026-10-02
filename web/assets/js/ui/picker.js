@@ -1,6 +1,6 @@
 import { el, clear, qs, qsa } from '../core/dom.js';
 import { icon } from '../util/icons.js';
-import { playSticker, stillSticker, stopStickers } from './sticker.js';
+import { playSticker, stillSticker, stillSvg, stopStickers } from './sticker.js';
 import { sideScroll } from '../util/sidescroll.js';
 import { holdVideo, forget } from '../util/offscreen.js';
 
@@ -103,9 +103,9 @@ function releaseMedia(root) {
   if (!root) return;
   stopStickers(root);
   forget(root);
-  for (const canvas of root.querySelectorAll('canvas.picker__still')) {
-    stillJobs.delete(canvas);
-    lazy?.unobserve(canvas);
+  for (const still of root.querySelectorAll('.picker__still')) {
+    stillJobs.delete(still);
+    lazy?.unobserve(still);
   }
   for (const video of root.querySelectorAll('video')) {
     video.pause();
@@ -561,17 +561,36 @@ function runEmojiSearch(text) {
  * a sticker and a custom emoji are the same kind of file.
  */
 // ------------------------------------------------------ still frames
-// Кадр вместо плеера. Рисуется на холст один раз и плеер (или видео)
-// сразу уничтожается — см. stillSticker в sticker.js. Лениво: только
-// когда ячейка подошла к видимой области, и не больше STILL_PARALLEL
-// одновременно — набор в сотню эмодзи иначе разом поднял бы сотню
-// плееров ради одного кадра каждый.
-const STILL_SIZE = 40;          // CSS px холста; ячейка — от 32px
+// Кадр вместо плеера: плеер (или видео) рисует один кадр и сразу
+// уничтожается, а в ячейке остаётся <img> с этим кадром. Лениво —
+// только когда ячейка подошла к видимой области, и не больше
+// STILL_PARALLEL одновременно: набор в сотню эмодзи иначе разом поднял
+// бы сотню плееров ради одного кадра каждый.
+//
+// Готовые кадры кэшируются по адресу файла как data URL. Вкладка
+// Stickers, набор и полоска перестраиваются на события stickers (до
+// пяти в секунду, пока качаются файлы), и без кэша каждая перестройка
+// гасила плитки и рисовала их кадры заново.
+//
+// CSS px кадра: ячейка эмодзи — от 32px, плитка стикера — от 68px
+// (минимумы колонок в blocks/_picker.scss), а растянуться обе могут
+// примерно до полутора минимумов.
+const STILL_SIZE = { emoji: 40, tile: 100 };
 const STILL_PARALLEL = 4;
-const stillJobs = new Map();    // холст -> эмодзи, ещё не дошедшие до вида
+const STILL_CACHE_MAX = 300;
+const stillCache = new Map();   // kind:url -> data URL; порядок Map — давность
+const stillJobs = new Map();    // <img> -> { item, kind }, ещё не дошедшие до вида
 const stillQueue = [];
 let stillRunning = 0;
 let lazy = null;
+
+const stillKey = (item, kind) => `${kind}:${item.url}`;
+
+function rememberStill(key, src) {
+  stillCache.delete(key);
+  stillCache.set(key, src);
+  if (stillCache.size > STILL_CACHE_MAX) stillCache.delete(stillCache.keys().next().value);
+}
 
 function lazyObserver() {
   if (!lazy) {
@@ -581,10 +600,10 @@ function lazyObserver() {
     lazy = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
-        const item = stillJobs.get(entry.target);
+        const job = stillJobs.get(entry.target);
         lazy.unobserve(entry.target);
         stillJobs.delete(entry.target);
-        if (item) stillQueue.push([entry.target, item]);
+        if (job) stillQueue.push([entry.target, job]);
       }
       pumpStill();
     }, { rootMargin: '200px' });
@@ -592,15 +611,40 @@ function lazyObserver() {
   return lazy;
 }
 
+/**
+ * Кадр как адрес картинки, или null.
+ *
+ * Стикер в плитке — SVG (stillSvg): на этом размере изъян
+ * canvas-рендерера с градиентами виден. Эмодзи — canvas-рендерер на
+ * черновой холст (stillSticker), webm — первый кадр видео на черновой
+ * холст. Холст сразу перегоняется в PNG и отпускается.
+ */
+async function makeStill(item, kind) {
+  if (item.format === 'tgs' && kind === 'tile') return stillSvg(item.url);
+  const canvas = document.createElement('canvas');
+  const ok = item.format === 'webm'
+    ? await videoStill(canvas, item.url, STILL_SIZE[kind])
+    : await stillSticker(canvas, item.url, STILL_SIZE[kind]);
+  return ok ? canvas.toDataURL('image/png') : null;
+}
+
 function pumpStill() {
   while (stillRunning < STILL_PARALLEL && stillQueue.length) {
-    const [canvas, item] = stillQueue.shift();
-    if (!canvas.isConnected) continue;
+    const [img, { item, kind }] = stillQueue.shift();
+    if (!img.isConnected) continue;
+    const key = stillKey(item, kind);
+    // Мог дорисоваться, пока ячейка стояла в очереди.
+    const ready = stillCache.get(key);
+    if (ready) {
+      img.src = ready;
+      continue;
+    }
     stillRunning += 1;
-    const job = item.format === 'tgs'
-      ? stillSticker(canvas, item.url, STILL_SIZE)
-      : videoStill(canvas, item.url);
-    job.finally(() => {
+    makeStill(item, kind).then((src) => {
+      if (!src) return;
+      rememberStill(key, src);
+      if (img.isConnected) img.src = src;
+    }).finally(() => {
       stillRunning -= 1;
       pumpStill();
     });
@@ -608,27 +652,29 @@ function pumpStill() {
 }
 
 /** Первый кадр webm на холст; видео отпускается сразу после. */
-function videoStill(canvas, url) {
+function videoStill(canvas, url, cssSize) {
   return new Promise((resolve) => {
     const video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
     video.preload = 'auto';
+    let drawn = false;
     const done = () => {
       video.removeAttribute('src');
       video.load();
-      resolve();
+      resolve(drawn);
     };
     video.addEventListener('loadeddata', () => {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
-      if (canvas.isConnected && vw && vh) {
-        const size = Math.round(STILL_SIZE * (window.devicePixelRatio || 1));
+      if (vw && vh) {
+        const size = Math.round(cssSize * (window.devicePixelRatio || 1));
         canvas.width = size;
         canvas.height = size;
         const k = Math.min(size / vw, size / vh);
         canvas.getContext('2d').drawImage(video,
           (size - vw * k) / 2, (size - vh * k) / 2, vw * k, vh * k);
+        drawn = true;
       }
       done();
     }, { once: true });
@@ -637,24 +683,29 @@ function videoStill(canvas, url) {
   });
 }
 
-function stillNode(item) {
-  const canvas = el('canvas', { class: 'picker__sticker picker__still' });
-  stillJobs.set(canvas, item);
-  lazyObserver().observe(canvas);
-  return canvas;
+function stillNode(item, kind) {
+  const img = el('img', { class: 'picker__sticker picker__still', alt: item.emoji ?? '' });
+  const ready = stillCache.get(stillKey(item, kind));
+  if (ready) {
+    img.src = ready;
+    return img;
+  }
+  stillJobs.set(img, { item, kind });
+  lazyObserver().observe(img);
+  return img;
 }
 
 /**
- * opts.still — неподвижный кадр на холсте (ячейки кастомных эмодзи и
- * значки наборов). Без него — живой плеер: стикеры во вкладке Stickers
- * и плеер под курсором.
+ * opts.still — неподвижный кадр: true или 'emoji' — для ячеек
+ * кастомных эмодзи и значков наборов, 'tile' — для плиток стикеров.
+ * Без него — живой плеер (тот, что под курсором).
  *
  * Видео не autoplay: его запускает и останавливает offscreen по
  * видимости, а ушедшее далеко за край прокрутки отдаёт декодер.
  */
 function stickerNode(item, opts = {}) {
   if (opts.still && (item.format === 'tgs' || item.format === 'webm')) {
-    return stillNode(item);
+    return stillNode(item, opts.still === 'tile' ? 'tile' : 'emoji');
   }
   if (item.format === 'webm') {
     const video = el('video', {
@@ -716,12 +767,17 @@ function buildStickers(body, data) {
     // arrived is still loading.
     if (set.loaded && !set.stickers.length) continue;
 
+    // Как у кастомных эмодзи: в плитке кадр, живой плеер — только под
+    // курсором. Вкладка держала по SVG-плееру на каждый стикер всех
+    // показанных наборов.
     const cells = set.stickers.filter((s) => s.url).map((s) => el('button', {
       class: 'picker__tile',
       type: 'button',
       title: s.emoji || set.title,
       onclick: () => sendMedia('sticker', s.fileId),
-    }, stickerNode(s)));
+      onpointerenter: (event) => goLive(event.currentTarget, s),
+      onpointerleave: (event) => stopLive(event.currentTarget),
+    }, stickerNode(s, { still: 'tile' })));
 
     const section = el('section', { class: 'picker__section' },
       el('h3', { class: 'picker__heading' }, set.title),
