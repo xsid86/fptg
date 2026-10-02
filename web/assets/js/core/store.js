@@ -128,12 +128,31 @@ export function setMessages(payload) {
   // then the only one there is, and without it the header and the
   // composer would draw "no chat" over a screenful of messages.
   const row = payload?.chat;
-  if (row && row.id === data.activeChatId && data.activeRow?.id !== row.id) {
+  if (row && row.id === data.activeChatId && rowChanged(row)) {
     data.activeRow = row;
     emit('store:active-row', data.activeRow);
   }
   emit('store:messages', payload);
 }
+
+/**
+ * Принять ли строку чата, пришедшую с историей.
+ *
+ * Другой чат — да. Тот же — только если его нет в списке и строка
+ * изменилась: у чата, до которого дошли по пересылке, аватарка
+ * докачивается уже после первого ответа и приезжает со следующим, а
+ * сравнение по одному id её отбрасывало — шапка так и стояла с размытым
+ * превью. Для чата из списка главный — список (setChats).
+ */
+function rowChanged(row) {
+  if (data.activeRow?.id !== row.id) return true;
+  if (data.chats.some((c) => c.id === row.id)) return false;
+  return JSON.stringify(data.activeRow) !== JSON.stringify(row);
+}
+
+/** Открытый чат не из списка — до него дошли по пересылке или цитате. */
+export const activeOffList = () => data.activeChatId !== null
+  && !data.chats.some((c) => c.id === data.activeChatId);
 
 /**
  * The comment thread currently open, or null.

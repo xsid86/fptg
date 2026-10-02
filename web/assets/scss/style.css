@@ -1196,8 +1196,8 @@ body {
   text-align: left;
 }
 .menu__item:hover:not(:disabled), .menu__item:active:not(:disabled) {
-  background: color-mix(in srgb, var(--c-text) 75%, transparent);
-  color: var(--c-bg);
+  background: var(--c-accent);
+  color: var(--c-light);
 }
 .menu__item:disabled {
   color: var(--c-text-faint);
@@ -6214,6 +6214,126 @@ span.picker__gif {
     position-try-fallbacks: flip-block, flip-inline;
   }
 }
+.confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 3rem 4rem var(--c-shadow);
+  color: var(--c-text);
+  max-width: calc(100vw - 32px);
+  padding: 24px 24px 11px;
+  width: 320px;
+}
+.confirm:not([open]) {
+  display: none;
+}
+.confirm::backdrop {
+  background: color-mix(in srgb, var(--c-bg) 45%, transparent);
+  backdrop-filter: blur(15px);
+}
+
+.confirm__text {
+  font-size: 14px;
+  margin: 0;
+}
+
+.confirm__note {
+  color: var(--c-text-dim);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.confirm__check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.confirm__check input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: var(--c-accent);
+  cursor: pointer;
+  flex: 0 0 auto;
+  margin: 0;
+}
+.confirm__check span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.confirm__buttons {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.confirm__button {
+  color: var(--c-accent);
+  font-weight: 500;
+}
+
+.confirm--invite {
+  align-items: center;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  text-align: center;
+  width: 380px;
+}
+.confirm--invite .confirm__buttons {
+  align-self: stretch;
+}
+
+.confirm__avatar {
+  --avatar-color: var(--accent-color);
+  width: 96px;
+  height: 96px;
+  flex: 0 0 auto;
+  flex: 0 0 auto;
+  font-size: 36px;
+}
+
+.confirm__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.confirm__count {
+  color: var(--c-text-faint);
+  font-size: 13px;
+  margin: -6px 0 0;
+}
+
+.confirm__description {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.confirm__note--center {
+  color: var(--c-text-faint);
+  text-align: center;
+}
+
 .page-check {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,114 @@
+@use "../abstracts" as *;
+
+// Подтверждение действия (сейчас — удаления сообщения, ui/msgmenu.js):
+// маленькое окно посередине, вопрос, при необходимости галочки,
+// кнопки справа внизу. Модальный <dialog> — Escape и клик мимо = отмена.
+.confirm {
+  @include flex(column, stretch, flex-start, $space-4);
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: $radius-lg;
+  box-shadow: 0 3rem 4rem var(--c-shadow);
+  color: var(--c-text);
+  max-width: calc(100vw - #{2 * $space-6});
+  padding: $space-7 $space-7 $space-5;
+  width: 320px;
+
+  &:not([open]) {
+    display: none;
+  }
+
+  &::backdrop {
+    background: color-mix(in srgb, var(--c-bg) 45%, transparent);
+    backdrop-filter: blur(15px);
+  }
+}
+
+.confirm__text {
+  font-size: $fs-md;
+  margin: 0;
+}
+
+.confirm__note {
+  color: var(--c-text-dim);
+  font-size: $fs-base;
+  line-height: $lh-base;
+  margin: 0;
+}
+
+.confirm__check {
+  @include flex(row, center, flex-start, $space-4);
+  cursor: pointer;
+  font-size: $fs-base;
+
+  input {
+    @include size(16px);
+    accent-color: var(--c-accent);
+    cursor: pointer;
+    flex: 0 0 auto;
+    margin: 0;
+  }
+
+  span {
+    @include ellipsis;
+    min-width: 0;
+  }
+}
+
+.confirm__buttons {
+  @include flex(row, center, flex-end, $space-2);
+  margin-top: $space-2;
+}
+
+.confirm__button {
+  color: var(--c-accent);
+  font-weight: $fw-medium;
+}
+
+// ---------------------------------------------------------- invite
+// Окно вступления по приглашению (ui/links.js) — как у нативного
+// клиента: всё по центру, аватарка сверху, описание с переносами.
+.confirm--invite {
+  align-items: center;
+  max-height: calc(100vh - #{2 * $space-6});
+  overflow-y: auto;
+  text-align: center;
+  width: 380px;
+
+  .confirm__buttons {
+    align-self: stretch;
+  }
+}
+
+.confirm__avatar {
+  --avatar-color: var(--accent-color);
+  @include size(96px);
+  flex: 0 0 auto;
+  font-size: 36px;
+}
+
+.confirm__title {
+  font-size: $fs-lg;
+  font-weight: $fw-bold;
+  margin: 0;
+}
+
+.confirm__count {
+  color: var(--c-text-faint);
+  font-size: $fs-base;
+  margin: (-$space-3) 0 0;
+}
+
+// Переносы строк — те, что у канала в описании.
+.confirm__description {
+  font-size: $fs-base;
+  line-height: $lh-base;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.confirm__note--center {
+  color: var(--c-text-faint);
+  text-align: center;
+}

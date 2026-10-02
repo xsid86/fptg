@@ -152,6 +152,13 @@ type
     procedure MenuReactionsDone(Sender: TObject; const AResp: TTdResponse);
     procedure MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
     procedure PeopleDone(Sender: TObject; const AResp: TTdResponse);
+    procedure LinkExternal(ASlot: PtrInt);
+    procedure LinkTypeDone(Sender: TObject; const AResp: TTdResponse);
+    procedure LinkChatDone(Sender: TObject; const AResp: TTdResponse);
+    procedure LinkInviteDone(Sender: TObject; const AResp: TTdResponse);
+    procedure LinkInvitePhotoDone(Sender: TObject; const AResp: TTdResponse);
+    procedure LinkMessageDone(Sender: TObject; const AResp: TTdResponse);
+    procedure LinkJoinDone(Sender: TObject; const AResp: TTdResponse);
     procedure PeoplePropsDone(Sender: TObject; const AResp: TTdResponse);
     procedure PushEvent(const AName: utf8string; AData: TJSONObject);
     procedure ReplyMessages(AConnId: Int64; AReqId: integer;
@@ -210,6 +217,10 @@ type
     function  CmdMessageLink(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
     function  CmdMessagePeople(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdLinkResolve(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdLinkJoin(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
     procedure PeopleQuery(AMsgs: TTdMessages; AMessageId: Int64; ASlot: PtrInt);
     function  CmdMessageReact(AArgs: TJSONObject): TJSONData;
@@ -3323,6 +3334,289 @@ begin
   ReleaseDeferred(Slot);
 end;
 
+{ ------------------------------------------------------------------ }
+{ t.me links                                                         }
+{ ------------------------------------------------------------------ }
+
+function JsonStr(const AValue: utf8string): utf8string;
+var
+  V: TJSONString;
+begin
+  V := TJSONString.Create(string(AValue));
+  try
+    Result := utf8string(V.AsJSON);
+  finally
+    V.Free;
+  end;
+end;
+
+{ Ссылка t.me (telegram.me, tg:) — открыть внутри приложения. Разбирает
+  её сам TDLib (getInternalLinkType), здесь только шаг по типу:
+    публичный чат  -> searchPublicChat           -> chatId
+    приглашение    -> checkChatInviteLink        -> chatId или invite
+    сообщение      -> getMessageLinkInfo         -> chatId, messageId
+    прочее         -> external: true, страница отдаёт ссылку браузеру.
+  Поля и методы — по td_api.tl. }
+function TWebApi.CmdLinkResolve(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Url: utf8string;
+  Slot: PtrInt;
+begin
+  Url := utf8string(AArgs.Get('url', ''));
+  if Url = '' then begin
+    raise Exception.Create('link.resolve needs a url');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('url', string(Url));
+  RequireMsgs.Request('getInternalLinkType', '"link":' + JsonStr(Url),
+    @LinkTypeDone, Slot);
+  Result := True;
+end;
+
+procedure TWebApi.LinkExternal(ASlot: PtrInt);
+var
+  Res: TJSONObject;
+begin
+  Res := TJSONObject.Create;
+  Res.Add('external', True);
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  ReleaseDeferred(ASlot);
+end;
+
+procedure TWebApi.LinkTypeDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  T: utf8string;
+  Msgs: TTdMessages;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  Msgs := TdMsgList;
+  if (not AResp.Success) or (Msgs = nil) then begin
+    LinkExternal(Slot);
+    Exit;
+  end;
+  T := JGetStr(AResp.Obj, '@type');
+  if T = 'internalLinkTypePublicChat' then begin
+    Msgs.Request('searchPublicChat',
+      '"username":' + JsonStr(JGetStr(AResp.Obj, 'chat_username')), @LinkChatDone, Slot);
+  end else if T = 'internalLinkTypeChatInvite' then begin
+    FDeferred[Slot].Held.Add('invite', string(JGetStr(AResp.Obj, 'invite_link')));
+    Msgs.Request('checkChatInviteLink',
+      '"invite_link":' + JsonStr(JGetStr(AResp.Obj, 'invite_link')), @LinkInviteDone, Slot);
+  end else if T = 'internalLinkTypeMessage' then begin
+    Msgs.Request('getMessageLinkInfo',
+      '"url":' + JsonStr(JGetStr(AResp.Obj, 'url')), @LinkMessageDone, Slot);
+  end else begin
+    LinkExternal(Slot);
+  end;
+end;
+
+procedure TWebApi.LinkChatDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('chatId', JGetInt64(AResp.Obj, 'id'));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ chat_id = 0 — до вступления доступа нет (td_api.tl): странице —
+  описание чата для вопроса «вступить?». }
+procedure TWebApi.LinkInviteDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Inv, Photo, Small, Local: TJSONObject;
+  ChatId: Int64;
+  Kind, B64: utf8string;
+  Thumb: RawByteString;
+  Msgs: TTdMessages;
+  FileId: integer;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  ChatId := JGetInt64(AResp.Obj, 'chat_id');
+  if ChatId <> 0 then begin
+    Res.Add('chatId', ChatId);
+  end else begin
+    Kind := JGetStr(JGetObj(AResp.Obj, 'type'), '@type');
+    Inv := TJSONObject.Create;
+    Inv.Add('link', FDeferred[Slot].Held.Get('invite', ''));
+    Inv.Add('title', string(JGetStr(AResp.Obj, 'title')));
+    Inv.Add('members', JGetInt(AResp.Obj, 'member_count'));
+    Inv.Add('channel', Kind = 'inviteLinkChatTypeChannel');
+    Inv.Add('request', JGetBool(AResp.Obj, 'creates_join_request'));
+    { Как окно нативного клиента: аватарка, описание, цвет буквы для
+      чата без фото. }
+    Inv.Add('description', string(JGetStr(AResp.Obj, 'description')));
+    Inv.Add('color', string(AccentKeyFor(JGetInt(AResp.Obj, 'accent_color_id'), 0)));
+    Photo := JGetObj(AResp.Obj, 'photo');
+    Small := nil;
+    if Photo <> nil then begin
+      Small := JGetObj(Photo, 'small');
+      Thumb := '';
+      B64 := JGetStr(JGetObj(Photo, 'minithumbnail'), 'data');
+      if B64 <> '' then begin
+        try
+          Thumb := DecodeStringBase64(string(B64));
+        except
+          Thumb := '';
+        end;
+      end;
+      Inv.Add('avatarThumb', string(ThumbDataUri(Thumb)));
+    end;
+    Res.Add('invite', Inv);
+
+    { Фото чата, куда доступа ещё нет: в модели чатов его строки нет, и
+      докачанное потом показать было бы некуда. Поэтому оно качается
+      СЕЙЧАС, а ответ ждёт: synchronous:true — ответ downloadFile
+      приходит, когда файл уже на диске (td_api.tl). Файл маленький. }
+    if Small <> nil then begin
+      FileId := JGetInt(Small, 'id');
+      Local := JGetObj(Small, 'local');
+      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+        Inv.Add('avatar', string(FileUrl(FileId, JGetStr(Local, 'path'))));
+      end else begin
+        Msgs := TdMsgList;
+        if (Msgs <> nil) and (FileId <> 0) then begin
+          FDeferred[Slot].Held.Add('reply', Res);
+          Msgs.Request('downloadFile',
+            '"file_id":' + utf8string(IntToStr(FileId)) +
+            ',"priority":32,"offset":0,"limit":0,"synchronous":true',
+            @LinkInvitePhotoDone, Slot);
+          Exit;
+        end;
+      end;
+    end;
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+procedure TWebApi.LinkInvitePhotoDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+  Local: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  { Ответ забирается из слота в собственность — Reply его отправит и
+    освободит; иначе ReleaseDeferred освободил бы его второй раз. }
+  Res := TJSONObject(FDeferred[Slot].Held.Extract('reply'));
+  if Res = nil then begin
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  if AResp.Success then begin
+    Local := JGetObj(AResp.Obj, 'local');
+    if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      TJSONObject(Res.Objects['invite']).Add('avatar',
+        string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path'))));
+    end;
+  end;
+  { Не скачалось — окно покажет размытое превью или букву. }
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+procedure TWebApi.LinkMessageDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Msg: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if (not AResp.Success) or (JGetInt64(AResp.Obj, 'chat_id') = 0) then begin
+    { Сообщение недоступно (закрытый чат без доступа и т.п.) — пусть
+      разбирается браузер и официальный клиент. }
+    LinkExternal(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('chatId', JGetInt64(AResp.Obj, 'chat_id'));
+  Msg := JGetObj(AResp.Obj, 'message');
+  if Msg <> nil then begin
+    Res.Add('messageId', JGetInt64(Msg, 'id'));
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ Вступление по приглашению. Ответ — chatJoinResult* в свежем TDLib и
+  просто chat в прежних; оба понимаются. }
+function TWebApi.CmdLinkJoin(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Link: utf8string;
+begin
+  Link := utf8string(AArgs.Get('link', ''));
+  if Link = '' then begin
+    raise Exception.Create('link.join needs an invite link');
+  end;
+  RequireMsgs.Request('joinChatByInviteLink', '"invite_link":' + JsonStr(Link),
+    @LinkJoinDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
+end;
+
+procedure TWebApi.LinkJoinDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+  T: utf8string;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  T := JGetStr(AResp.Obj, '@type');
+  if T = 'chat' then begin
+    Res.Add('chatId', JGetInt64(AResp.Obj, 'id'));
+  end else if T = 'chatJoinResultSuccess' then begin
+    Res.Add('chatId', JGetInt64(AResp.Obj, 'chat_id'));
+  end else if T = 'chatJoinResultRequestSent' then begin
+    Res.Add('requested', True);
+  end else begin
+    Res.Add('declined', True);
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
 function TWebApi.CmdMessageReact(AArgs: TJSONObject): TJSONData;
 var
   Id, CustomId: Int64;
@@ -3524,6 +3818,10 @@ begin
       end else if Cmd = 'message.people' then begin
         { Answers later, from the TDLib callback - see TDeferredReply. }
         CmdMessagePeople(AConnId, ReqId, Args);
+      end else if Cmd = 'link.resolve' then begin
+        CmdLinkResolve(AConnId, ReqId, Args);
+      end else if Cmd = 'link.join' then begin
+        CmdLinkJoin(AConnId, ReqId, Args);
       end else if Cmd = 'message.react' then begin
         Reply(AConnId, ReqId, CmdMessageReact(Args));
       end else if Cmd = 'message.delete' then begin

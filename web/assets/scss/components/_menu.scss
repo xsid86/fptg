@@ -39,8 +39,8 @@
 
   &:hover:not(:disabled),
   &:active:not(:disabled) {
-    background: color-mix(in srgb, var(--c-text) 75%, transparent);
-    color: var(--c-bg);
+    background: var(--c-accent);
+    color: var(--c-light);
   }
 
   &:disabled {
@@ -143,10 +143,17 @@
   scrollbar-width: none;
   user-select: none;
 
-  &::-webkit-scrollbar { display: none; }
-  &:active { cursor: grabbing; }
+  &::-webkit-scrollbar {
+    display: none;
+  }
 
-  > * { flex: 0 0 auto; }
+  &:active {
+    cursor: grabbing;
+  }
+
+  > * {
+    flex: 0 0 auto;
+  }
 }
 
 .menu__react {

@@ -4,6 +4,7 @@ import { sideScroll } from '../util/sidescroll.js';
 import { openMenu, closeMenu } from '../util/menu.js';
 import { copyText } from '../util/clipboard.js';
 import { openEmojiPicker } from './picker.js';
+import { store } from '../core/store.js';
 
 // The right-click menu on a message, and the row of reactions above it.
 //
@@ -166,28 +167,90 @@ export async function openMessageMenu(anchor, msg, at) {
 
   if (info.canDeleteSelf || info.canDeleteAll) {
     if (items.length) items.push('-');
-    // Both are offered when both are allowed, and they are different
-    // acts: one takes the message off this account's copy of the chat,
-    // the other takes it off everybody's. A single "Delete" that
-    // quietly picked one would be the wrong kind of convenient.
-    if (info.canDeleteAll) {
-      items.push({
-        label: 'Delete for everyone',
-        onSelect: () => hooks.act?.('message.delete',
-          { id: String(msg.id), revoke: true }),
-      });
-    }
-    if (info.canDeleteSelf) {
-      items.push({
-        label: info.canDeleteAll ? 'Delete for me' : 'Delete',
-        onSelect: () => hooks.act?.('message.delete',
-          { id: String(msg.id), revoke: false }),
-      });
-    }
+    // Один пункт и подтверждение, как у нативного клиента: у кого
+    // пропадёт сообщение — у себя или у всех — решается в диалоге, а не
+    // выбором между двумя похожими пунктами без вопроса.
+    items.push({
+      label: 'Delete',
+      onSelect: () => confirmDelete(msg, info),
+    });
   }
 
   if (!items.length && !info.reactions?.length) return;
   openMenu(anchor, items, { header: reactionStrip(anchor, msg, info), at });
+}
+
+// ------------------------------------------------------ delete confirm
+// Выбор «удалить и у собеседника» с «Remember my choice» — в этом
+// браузере: у нативного окна своего такого диалога нет, делить нечего.
+const REVOKE_KEY = 'tg.delete.revoke';
+
+function rememberedRevoke() {
+  try {
+    return window.localStorage.getItem(REVOKE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function rememberRevoke(on) {
+  try {
+    window.localStorage.setItem(REVOKE_KEY, on ? '1' : '0');
+  } catch { /* приватный режим — просто не запомнится */ }
+}
+
+/**
+ * Подтверждение удаления. Три вида, по тому, что разрешает сообщение
+ * (messageProperties):
+ *   * только у себя — вопрос и Cancel / Delete;
+ *   * только у всех (супергруппа, канал — revoke там всегда) — вопрос и
+ *     пояснение, что удалится у всех;
+ *   * и так, и так (личка, свои в обычной группе) — галочка «Also delete
+ *     for <собеседник>» (в группе — «for everyone») и «Remember my choice».
+ * Модальный <dialog>: Escape и клик мимо — Cancel.
+ */
+function confirmDelete(msg, info) {
+  const chat = store.activeChat;
+  const both = info.canDeleteSelf && info.canDeleteAll;
+  const personal = ['private', 'bot', 'secret'].includes(chat?.kind);
+
+  const body = [el('p', { class: 'confirm__text' }, 'Delete this message?')];
+  let revokeBox = null;
+  let rememberBox = null;
+  if (both) {
+    revokeBox = el('input', { type: 'checkbox', checked: rememberedRevoke() });
+    rememberBox = el('input', { type: 'checkbox' });
+    body.push(
+      el('label', { class: 'confirm__check' }, revokeBox,
+        el('span', {}, personal && chat?.title ? `Also delete for ${chat.title}` : 'Also delete for everyone')),
+      el('label', { class: 'confirm__check' }, rememberBox, el('span', {}, 'Remember my choice')));
+  } else if (info.canDeleteAll) {
+    body.push(el('p', { class: 'confirm__note' },
+      'This message will be deleted for everyone in this chat.'));
+  }
+
+  const dialog = el('dialog', { class: 'confirm', 'aria-label': 'Delete message' });
+  const close = () => dialog.close();
+  const del = el('button', {
+    class: 'btn confirm__button', type: 'button',
+    onclick: () => {
+      const revoke = both ? revokeBox.checked : !!info.canDeleteAll;
+      if (both && rememberBox.checked) rememberRevoke(revokeBox.checked);
+      hooks.act?.('message.delete', { id: String(msg.id), revoke });
+      close();
+    },
+  }, 'Delete');
+  dialog.append(...body, el('div', { class: 'confirm__buttons' },
+    el('button', { class: 'btn confirm__button', type: 'button', onclick: close }, 'Cancel'),
+    del));
+  // Клик по затемнению вокруг окна — сам <dialog>.
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) close();
+  });
+  dialog.addEventListener('close', () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+  del.focus();
 }
 
 /** Clicking a reaction already on the message toggles this account's own. */

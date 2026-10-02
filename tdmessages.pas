@@ -1034,6 +1034,10 @@ type
     procedure QueryAddedReactions(AMessageId: Int64; const AReactionJson: utf8string;
       ACallback: TTdResponseEvent; ATag: PtrInt);
     procedure QueryViewers(AMessageId: Int64; ACallback: TTdResponseEvent; ATag: PtrInt);
+    { Запрос TDLib, не привязанный к открытому чату (разбор ссылок t.me,
+      вступление по приглашению): тело — уже готовый JSON без скобок. }
+    procedure Request(const AMethod, ABody: utf8string; ACallback: TTdResponseEvent;
+      ATag: PtrInt);
     procedure QueryReadDate(AMessageId: Int64; ACallback: TTdResponseEvent; ATag: PtrInt);
     procedure QueryProperties(AMessageId: Int64; ACallback: TTdResponseEvent;
       ATag: PtrInt);
@@ -5189,6 +5193,15 @@ begin
   { Сотня — предел запроса; для всплывающего списка этого с избытком. }
   FReq.SendRequest('getMessageAddedReactions',
     Body + ',"offset":"","limit":100', ACallback, ATag);
+end;
+
+procedure TTdMessages.Request(const AMethod, ABody: utf8string;
+  ACallback: TTdResponseEvent; ATag: PtrInt);
+begin
+  if FReq = nil then begin
+    Exit;
+  end;
+  FReq.SendRequest(AMethod, ABody, ACallback, ATag);
 end;
 
 procedure TTdMessages.QueryViewers(AMessageId: Int64; ACallback: TTdResponseEvent;

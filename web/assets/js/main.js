@@ -1,7 +1,7 @@
 import { qs } from './core/dom.js';
 import { on, emit } from './core/bus.js';
 import { connect, call } from './core/net.js';
-import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat } from './core/store.js';
+import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat, activeOffList } from './core/store.js';
 import { setCustomEmoji } from './util/emoji.js';
 import { loadIcons, hydrateIcons } from './util/icons.js';
 import { openMenu } from './util/menu.js';
@@ -23,6 +23,7 @@ import { mountThemeToggle } from './ui/theme.js';
 import { mountSettings } from './ui/settings.js';
 import { mountAttach } from './ui/attach.js';
 import { mountPeople } from './ui/people.js';
+import { mountLinks } from './ui/links.js';
 import { openViewer } from './ui/viewer.js';
 
 // Entry point: wire the shell that index.html already contains, open
@@ -449,6 +450,14 @@ async function boot() {
     report,
   });
   mountPeople({ load: (args) => call('message.people', args) });
+  mountLinks({
+    call: (cmd, args) => call(cmd, args),
+    openChat: (id) => setActiveChat(id),
+    // Тот же путь, что у перехода по пересылке: чат открывается сразу
+    // на нужном сообщении.
+    openMessage: (chatId, messageId) => emit('ui:open-source', { chatId, messageId }),
+    report,
+  });
   mountAttach(qs('#attach'), qs('#dropzone'), qs('.workspace'), {
     call: (cmd, args) => call(cmd, args),
     canCompose,
@@ -465,7 +474,13 @@ async function boot() {
   // The server pushes signals, never data: "the list changed", "the
   // open chat changed". What to fetch, and how often, is the page's
   // decision - see throttle above.
-  on('srv:chats', refreshChats);
+  on('srv:chats', () => {
+    refreshChats();
+    // Открытого чата нет в списке — его строка (и аватарка, докачанная
+    // сейчас) приезжает только с историей, а не со списком. Разностный
+    // messages.list дешёвый.
+    if (activeOffList()) refreshMessages();
+  });
   on('srv:messages', refreshMessages);
   on('srv:auth', () => { refreshAuth().catch(report); });
   // Not throttled here: the server already coalesces this one to a tick,
