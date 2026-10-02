@@ -19,6 +19,7 @@ let root = null;
 let column = null;
 let scrollBtn = null;
 let threadBtn = null;
+let floatDate = null;
 // A message the view owes the reader - see the ui:show-message
 // handler. Null when there is nothing outstanding.
 let wantMessage = null;
@@ -135,6 +136,11 @@ export function mountHistory(node) {
     onclick: () => emit('ui:thread-close'),
   }, icon('chevron-left'));
   root.parentElement.append(threadBtn);
+
+  // Дата дня, который сейчас наверху, — поверх истории, а не в ней. См.
+  // updateFloatDate.
+  floatDate = el('div', { class: 'history__float-date', hidden: true }, el('span'));
+  root.parentElement.append(floatDate);
 
   root.addEventListener('scroll', onScroll, { passive: true });
   // What ends the opening hold. All four are things only a person
@@ -316,8 +322,10 @@ function paint(state) {
     const msg = items[i];
     const day = dateLabel(msg.date);
     if (day !== lastDay) {
+      // data-day — по нему плавающая дата (updateFloatDate) отличает
+      // дневные разделители от «Discussion starts here».
       desired.push(separator(`day:${day}`, () =>
-        el('div', { class: 'history__date' }, el('span', { textContent: day }))));
+        el('div', { class: 'history__date', dataset: { day } }, el('span', { textContent: day }))));
       lastDay = day;
     }
 
@@ -752,6 +760,56 @@ function noteScrollPosition() {
   const distance = root.scrollHeight - root.scrollTop - root.clientHeight;
   atBottom = distance < 40;
   if (scrollBtn) scrollBtn.hidden = atBottom;
+  updateFloatDate();
+}
+
+// Расстояние плавающей даты от верха истории (= от шапки) — то же, что
+// top у .history__float-date в blocks/_history.scss.
+const FLOAT_DATE_TOP = 16;
+
+/**
+ * Плавающая дата: день, сообщения которого сейчас наверху, — одним
+ * ярлыком на 16px ниже шапки.
+ *
+ * Не position: sticky на самих разделителях — они все на одном уровне
+ * и в конце концов склеивались в пачку. Ярлык один, лежит поверх
+ * истории (как кнопка «вниз»), а скрипт решает, что на нём написано и
+ * виден ли он:
+ *   * день — у последнего дневного разделителя, ушедшего выше линии
+ *     ярлыка. Окно истории (виртуализация) всегда начинается с
+ *     разделителя своего первого сообщения, так что он есть всегда;
+ *   * ярлык прячется, пока настоящий разделитель этого дня ещё виден
+ *     на своём месте, и когда следующий подъезжает к ярлыку снизу — там
+ *     уже стоит настоящий, и два одинаковых рядом не нужны.
+ * Сдвигать ярлык не приходится, поэтому и style не нужен.
+ */
+function updateFloatDate() {
+  if (!floatDate || !root) return;
+  const top = root.getBoundingClientRect().top;
+  const line = top + FLOAT_DATE_TOP;
+  const chip = floatDate.firstElementChild;
+  const chipHeight = floatDate.hidden ? 24 : (chip.getBoundingClientRect().height || 24);
+
+  let current = null;
+  let next = null;
+  for (const sep of column.querySelectorAll('.history__date[data-day]')) {
+    const label = sep.firstElementChild.getBoundingClientRect();
+    if (label.top < line) current = { sep, label };
+    else {
+      next = label;
+      break;
+    }
+  }
+
+  const show = !!current
+    // Свой разделитель дня ещё виден — дата и так на экране.
+    && current.label.bottom <= top
+    // Следующий день подъезжает к ярлыку — на этом месте уже он.
+    && !(next && next.top < line + chipHeight + 4);
+  if (show && chip.textContent !== current.sep.dataset.day) {
+    chip.textContent = current.sep.dataset.day;
+  }
+  floatDate.hidden = !show;
 }
 
 /**

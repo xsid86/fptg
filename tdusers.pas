@@ -5,7 +5,7 @@ unit tdusers;
 interface
 
 uses
-  Classes, constants, SysUtils, fgl, fpjson,
+  Classes, constants, SysUtils, fgl, fpjson, base64,
   tdauth, tdsession, tdreq;
 
 type
@@ -25,6 +25,14 @@ type
       written for — so without this the history would label every
       deleted account by its raw id. }
     Deleted: boolean;
+    { Маленькое фото профиля (user.profile_photo.small) — для списков
+      людей на странице: кто поставил реакцию, кто прочитал. Качается
+      по требованию (TTdUsers.EnsurePhoto); пока его нет — Minithumb,
+      крошечный jpeg прямо из объекта пользователя. }
+    PhotoFileId: integer;
+    PhotoPath: utf8string;
+    Minithumb: RawByteString;
+    PhotoRequested: boolean;
     function DisplayName: utf8string;
   end;
 
@@ -58,6 +66,8 @@ type
     procedure ApplyUser(AUser: TJSONObject);
     procedure RequestUser(AId: Int64);
     procedure GetUserDone(Sender: TObject; const AResp: TTdResponse);
+    procedure PhotoDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyFile(AFile: TJSONObject);
   public
     constructor Create(AOwner: TComponent; const ASession: ITdSession;
       AReq: TTdRequests); reintroduce;
@@ -72,6 +82,11 @@ type
       (also issues getUser on a miss, independently — it does not rely
       on DisplayName having already been called for the same id). }
     function AccentColorId(AUserId: Int64): integer;
+    { Строка пользователя или nil; на промахе — getUser, ответ придёт
+      через OnChanged. }
+    function Find(AUserId: Int64): TUserRow;
+    { Скачивает маленькое фото профиля, если его ещё нет. }
+    procedure EnsurePhoto(ARow: TUserRow);
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -188,6 +203,8 @@ var
   Id: Int64;
   R: TUserRow;
   Idx: integer;
+  Photo, Small, Local: TJSONObject;
+  B64: utf8string;
 begin
   if AUser = nil then begin
     Exit;
@@ -207,6 +224,36 @@ begin
   end;
   R.FirstName := JGetStr(AUser, 'first_name');
   R.LastName := JGetStr(AUser, 'last_name');
+
+  { profile_photo: small (file) и minithumbnail (base64 jpeg), поля по
+    td_api.tl. Другое фото — прежний запрос уже не о нём. }
+  Photo := JGetObj(AUser, 'profile_photo');
+  if Photo = nil then begin
+    R.PhotoFileId := 0;
+    R.PhotoPath := '';
+    R.Minithumb := '';
+    R.PhotoRequested := False;
+  end else begin
+    Small := JGetObj(Photo, 'small');
+    if R.PhotoFileId <> JGetInt(Small, 'id') then begin
+      R.PhotoRequested := False;
+      R.PhotoPath := '';
+    end;
+    R.PhotoFileId := JGetInt(Small, 'id');
+    Local := JGetObj(Small, 'local');
+    if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      R.PhotoPath := JGetStr(Local, 'path');
+    end;
+    B64 := JGetStr(JGetObj(Photo, 'minithumbnail'), 'data');
+    R.Minithumb := '';
+    if B64 <> '' then begin
+      try
+        R.Minithumb := DecodeStringBase64(string(B64));
+      except
+        R.Minithumb := '';
+      end;
+    end;
+  end;
   R.AccentColorId := JGetInt(AUser, 'accent_color_id');
   R.Deleted := JGetStr(JGetObj(AUser, 'type'), '@type') = 'userTypeDeleted';
 
@@ -234,6 +281,77 @@ begin
   ClearPending(Int64(AResp.Tag));
   if AResp.Success then begin
     ApplyUser(AResp.Obj);
+  end;
+end;
+
+function TTdUsers.Find(AUserId: Int64): TUserRow;
+begin
+  Result := Lookup(AUserId);
+  if (Result = nil) and (AUserId <> 0) then begin
+    RequestUser(AUserId);
+  end;
+end;
+
+procedure TTdUsers.EnsurePhoto(ARow: TUserRow);
+begin
+  if (ARow = nil) or (FReq = nil) or (ARow.PhotoFileId = 0)
+     or (ARow.PhotoPath <> '') or ARow.PhotoRequested then begin
+    Exit;
+  end;
+  ARow.PhotoRequested := True;
+  { Приоритет 1, как у аватарок чатов: не мешать сообщениям. }
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(ARow.PhotoFileId)) +
+    ',"priority":1,"offset":0,"limit":0,"synchronous":false',
+    @PhotoDone, ARow.PhotoFileId);
+end;
+
+procedure TTdUsers.PhotoDone(Sender: TObject; const AResp: TTdResponse);
+var
+  I: integer;
+begin
+  { Уже скачанный файл приходит прямо в ответе. }
+  if AResp.Success then begin
+    ApplyFile(AResp.Obj);
+    Exit;
+  end;
+  for I := 0 to FAll.Count - 1 do begin
+    if FAll.Data[I].PhotoFileId = integer(AResp.Tag) then begin
+      FAll.Data[I].PhotoRequested := False;
+    end;
+  end;
+end;
+
+{ Путь — всем пользователям с этим файлом (см. «Один файл TDLib бывает у
+  нескольких чатов» в ARCHITECTURE.md — здесь то же правило). }
+procedure TTdUsers.ApplyFile(AFile: TJSONObject);
+var
+  FileId, I: integer;
+  Local: TJSONObject;
+  Path: utf8string;
+  Changed: boolean;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Local := JGetObj(AFile, 'local');
+  if (FileId = 0) or (Local = nil) or not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+  Changed := False;
+  for I := 0 to FAll.Count - 1 do begin
+    if (FAll.Data[I].PhotoFileId = FileId) and (FAll.Data[I].PhotoPath <> Path) then begin
+      FAll.Data[I].PhotoPath := Path;
+      Changed := True;
+    end;
+  end;
+  if Changed and Assigned(FOnChanged) then begin
+    FOnChanged(Self);
   end;
 end;
 
@@ -276,6 +394,8 @@ begin
   end;
   if JGetStr(AData, '@type') = 'updateUser' then begin
     ApplyUser(JGetObj(AData, 'user'));
+  end else if JGetStr(AData, '@type') = 'updateFile' then begin
+    ApplyFile(JGetObj(AData, 'file'));
   end;
 end;
 

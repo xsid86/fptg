@@ -442,6 +442,10 @@ type
       updateMessageInteractionInfo, see TdUpdate. Display only, for
       now: no UI to add/remove a reaction of your own yet. }
     Reactions: TMsgReactionArray;
+    { interaction_info.reactions.can_get_added_reactions (td_api.tl):
+      можно ли спросить, кто поставил реакции. Без него страница список
+      не предлагает вовсе — и не спрашивает зря. }
+    CanSeeReactors: boolean;
     { content.poll — meaningful for Kind=mckPoll only. Refreshed the
       ordinary way, through ApplyContentUpdate: every vote changes the
       content object itself, so unlike Reactions this needs no update
@@ -1020,6 +1024,17 @@ type
       one caller, and never again. The caller (webapi) holds the
       request it has to answer and resolves it when the response
       arrives. }
+    { Кто поставил реакцию (getMessageAddedReactions; AReactionJson —
+      объект ReactionType или '' для всех), кто из участников группы
+      прочитал своё сообщение (getMessageViewers) и когда собеседник в
+      личке прочитал (getMessageReadDate). Поля и ограничения — по
+      td_api.tl: первое — при can_get_added_reactions, второе — при
+      can_get_viewers, третье — при can_get_read_date; иначе TDLib
+      отвечает ошибкой, и её видит страница. }
+    procedure QueryAddedReactions(AMessageId: Int64; const AReactionJson: utf8string;
+      ACallback: TTdResponseEvent; ATag: PtrInt);
+    procedure QueryViewers(AMessageId: Int64; ACallback: TTdResponseEvent; ATag: PtrInt);
+    procedure QueryReadDate(AMessageId: Int64; ACallback: TTdResponseEvent; ATag: PtrInt);
     procedure QueryProperties(AMessageId: Int64; ACallback: TTdResponseEvent;
       ATag: PtrInt);
     procedure QueryAvailableReactions(AMessageId: Int64;
@@ -4098,6 +4113,8 @@ begin
     pagination pages, a repeated getChatHistory) while its reaction
     counts have moved on since the last time it was seen. }
   ExtractReactions(JGetObj(AMsg, 'interaction_info'), R.Reactions);
+  R.CanSeeReactors := JGetBool(JGetObj(JGetObj(AMsg, 'interaction_info'), 'reactions'),
+    'can_get_added_reactions');
   ExtractReplyInfo(JGetObj(AMsg, 'interaction_info'), R);
 
   ContentObj := JGetObj(AMsg, 'content');
@@ -5154,6 +5171,46 @@ begin
       Body + ',"disable_notification":true,"only_for_self":false',
       @ActionOnlyDone);
   end;
+end;
+
+procedure TTdMessages.QueryAddedReactions(AMessageId: Int64;
+  const AReactionJson: utf8string; ACallback: TTdResponseEvent; ATag: PtrInt);
+var
+  Body: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+  Body := '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId));
+  if AReactionJson <> '' then begin
+    Body := Body + ',"reaction_type":' + AReactionJson;
+  end;
+  { Сотня — предел запроса; для всплывающего списка этого с избытком. }
+  FReq.SendRequest('getMessageAddedReactions',
+    Body + ',"offset":"","limit":100', ACallback, ATag);
+end;
+
+procedure TTdMessages.QueryViewers(AMessageId: Int64; ACallback: TTdResponseEvent;
+  ATag: PtrInt);
+begin
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+  FReq.SendRequest('getMessageViewers',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId)), ACallback, ATag);
+end;
+
+procedure TTdMessages.QueryReadDate(AMessageId: Int64; ACallback: TTdResponseEvent;
+  ATag: PtrInt);
+begin
+  if (FReq = nil) or (FChatId = 0) then begin
+    Exit;
+  end;
+  FReq.SendRequest('getMessageReadDate',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+    ',"message_id":' + utf8string(IntToStr(AMessageId)), ACallback, ATag);
 end;
 
 procedure TTdMessages.QueryProperties(AMessageId: Int64;
@@ -6803,6 +6860,8 @@ begin
         R := Lookup(JGetInt64(Obj, 'message_id'));
         if R <> nil then begin
           ExtractReactions(JGetObj(Obj, 'interaction_info'), R.Reactions);
+          R.CanSeeReactors := JGetBool(JGetObj(JGetObj(Obj, 'interaction_info'), 'reactions'),
+            'can_get_added_reactions');
           ExtractReplyInfo(JGetObj(Obj, 'interaction_info'), R);
           Touch;
         end;

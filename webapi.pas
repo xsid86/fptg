@@ -151,6 +151,8 @@ type
     procedure MenuPropsDone(Sender: TObject; const AResp: TTdResponse);
     procedure MenuReactionsDone(Sender: TObject; const AResp: TTdResponse);
     procedure MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
+    procedure PeopleDone(Sender: TObject; const AResp: TTdResponse);
+    procedure PeoplePropsDone(Sender: TObject; const AResp: TTdResponse);
     procedure PushEvent(const AName: utf8string; AData: TJSONObject);
     procedure ReplyMessages(AConnId: Int64; AReqId: integer;
       AList: TJSONData; ADelta: boolean);
@@ -207,6 +209,9 @@ type
       AArgs: TJSONObject): boolean;
     function  CmdMessageLink(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
+    function  CmdMessagePeople(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    procedure PeopleQuery(AMsgs: TTdMessages; AMessageId: Int64; ASlot: PtrInt);
     function  CmdMessageReact(AArgs: TJSONObject): TJSONData;
     function  CmdMessageDelete(AArgs: TJSONObject): TJSONData;
     function  CmdMessageEdit(AArgs: TJSONObject): TJSONData;
@@ -458,6 +463,9 @@ begin
     object itself, with no download at all. }
   Result.Add('avatar',   string(FileUrl(ARow.PhotoFileId, ARow.PhotoPath)));
   Result.Add('avatarThumb', string(ThumbDataUri(ARow.Minithumb)));
+  { Анимированная аватарка (MPEG4), когда она скачана; запрашивается
+    вместе с обычной — chats.avatars и шапка открытого чата. }
+  Result.Add('avatarAnim', string(FileUrl(ARow.AnimFileId, ARow.AnimPath)));
 end;
 
 { ------------------------------------------------------------------ }
@@ -947,6 +955,7 @@ begin
 
   if Length(ARow.Reactions) > 0 then begin
     Result.Add('reactions', ReactionsJson(ARow.Reactions));
+    Result.Add('canSeeReactors', ARow.CanSeeReactors);
   end;
   if ARow.Kind = mckPoll then begin
     Result.Add('poll', PollJson(ARow.Poll));
@@ -1542,6 +1551,7 @@ begin
     CRow := Chats.Lookup(Arr.Int64s[I]);
     if CRow <> nil then begin
       Chats.EnsureAvatar(CRow);
+      Chats.EnsureAvatarAnim(CRow);
       { The custom emoji of the rows on screen, fetched here for the
         same reason the avatars are: bounded by what is visible rather
         than by how many chats exist. The URLs themselves ride back in
@@ -1842,6 +1852,7 @@ begin
       { Its picture has usually never been asked for, for the same
         reason: nothing has ever drawn this chat. }
       Chats.EnsureAvatar(CRow);
+      Chats.EnsureAvatarAnim(CRow);
       Res.Add('chat', RowToJson(Chats, CRow));
     end;
   end;
@@ -3071,6 +3082,247 @@ begin
   Result := True;
 end;
 
+{ ------------------------------------------------------------------ }
+{ who reacted, who read                                              }
+{ ------------------------------------------------------------------ }
+
+{ Один человек для всплывающего списка: имя, аватарка (или крошечное
+  превью из объекта, пока она качается — и качание начинается здесь
+  же), цвет на случай буквы и время (реакции, прочтения). }
+function UserPersonJson(AUserId, ADate: Int64): TJSONObject;
+var
+  Users: TTdUsers;
+  U: TUserRow;
+begin
+  Result := TJSONObject.Create;
+  Users := TdUserList;
+  U := nil;
+  if Users <> nil then begin
+    U := Users.Find(AUserId);
+  end;
+  if U <> nil then begin
+    Users.EnsurePhoto(U);
+    Result.Add('name', string(U.DisplayName));
+    Result.Add('avatar', string(FileUrl(U.PhotoFileId, U.PhotoPath)));
+    Result.Add('avatarThumb', string(ThumbDataUri(U.Minithumb)));
+    Result.Add('color', string(AccentKeyFor(U.AccentColorId, AUserId)));
+  end else begin
+    Result.Add('name', '');
+    Result.Add('avatar', '');
+    Result.Add('avatarThumb', '');
+    Result.Add('color', string(AccentKeyFor(-1, AUserId)));
+  end;
+  Result.Add('date', ADate);
+end;
+
+{ Реакцию может поставить и чат — канал или анонимный админ группы. }
+function ChatPersonJson(AChatId, ADate: Int64): TJSONObject;
+var
+  Chats: TTdChats;
+  R: TChatRow;
+begin
+  Result := TJSONObject.Create;
+  Chats := TdChatList;
+  R := nil;
+  if Chats <> nil then begin
+    R := Chats.Lookup(AChatId);
+  end;
+  if R <> nil then begin
+    Chats.EnsureAvatar(R);
+    Result.Add('name', string(R.Title));
+    Result.Add('avatar', string(FileUrl(R.PhotoFileId, R.PhotoPath)));
+    Result.Add('avatarThumb', string(ThumbDataUri(R.Minithumb)));
+    Result.Add('color', string(AccentKey(R)));
+  end else begin
+    Result.Add('name', '');
+    Result.Add('avatar', '');
+    Result.Add('avatarThumb', '');
+    Result.Add('color', string(AccentKeyFor(-1, AChatId)));
+  end;
+  Result.Add('date', ADate);
+end;
+
+function SenderPersonJson(ASender: TJSONObject; ADate: Int64): TJSONObject;
+begin
+  if JGetStr(ASender, '@type') = 'messageSenderChat' then begin
+    Result := ChatPersonJson(JGetInt64(ASender, 'chat_id'), ADate);
+  end else begin
+    Result := UserPersonJson(JGetInt64(ASender, 'user_id'), ADate);
+  end;
+end;
+
+{ Кто поставил реакцию (what = reactions; emoji или customEmojiId — какую
+  именно) или кто прочитал (what = viewers). В личке «кто прочитал» —
+  это собеседник и время: getMessageReadDate, его id держится в слоте до
+  ответа. Ответ отложенный: TDLib спрашивается заново на каждое
+  наведение — это вопрос к серверу Telegram, и устаревает он сразу. }
+function TWebApi.CmdMessagePeople(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Id, CustomId: Int64;
+  Slot: PtrInt;
+  What, ReactionJson: utf8string;
+  Emoji: TJSONString;
+begin
+  Msgs := RequireMsgs;
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if Id = 0 then begin
+    raise Exception.Create('message.people needs a message id');
+  end;
+  What := utf8string(AArgs.Get('what', ''));
+  Slot := TakeDeferred(AConnId, AReqId, Id);
+
+  if What = 'reactions' then begin
+    ReactionJson := '';
+    CustomId := StrToInt64Def(utf8string(AArgs.Get('customEmojiId', '')), 0);
+    if CustomId <> 0 then begin
+      ReactionJson := '{"@type":"reactionTypeCustomEmoji","custom_emoji_id":"' +
+        utf8string(IntToStr(CustomId)) + '"}';
+    end else if AArgs.Get('emoji', '') <> '' then begin
+      Emoji := TJSONString.Create(AArgs.Get('emoji', ''));
+      try
+        ReactionJson := '{"@type":"reactionTypeEmoji","emoji":' + utf8string(Emoji.AsJSON) + '}';
+      finally
+        Emoji.Free;
+      end;
+    end;
+    Msgs.QueryAddedReactions(Id, ReactionJson, @PeopleDone, Slot);
+  end else begin
+    Chats := TdChatList;
+    Row := nil;
+    if Chats <> nil then begin
+      Row := Chats.Lookup(Msgs.ChatId);
+    end;
+    FDeferred[Slot].Held := TJSONObject.Create;
+    if (Row <> nil) and (Row.Kind = ckPrivate) and (Row.UserId <> 0) then begin
+      FDeferred[Slot].Held.Add('peer', Row.UserId);
+    end;
+    { Сначала — можно ли (can_get_viewers / can_get_read_date в
+      getMessageProperties). Страница, которой это уже сказали, шлёт
+      checked и получает список сразу; та, которой сказали «нельзя»,
+      больше не спрашивает вовсе. }
+    if AArgs.Get('checked', False) then begin
+      PeopleQuery(Msgs, Id, Slot);
+    end else begin
+      Msgs.QueryProperties(Id, @PeoplePropsDone, Slot);
+    end;
+  end;
+  Result := True;
+end;
+
+{ Сам вопрос «кто прочитал»: личка — время прочтения собеседником,
+  группа — список прочитавших. }
+procedure TWebApi.PeopleQuery(AMsgs: TTdMessages; AMessageId: Int64; ASlot: PtrInt);
+begin
+  if (FDeferred[ASlot].Held <> nil) and (FDeferred[ASlot].Held.Get('peer', Int64(0)) <> 0) then begin
+    AMsgs.QueryReadDate(AMessageId, @PeopleDone, ASlot);
+  end else begin
+    AMsgs.QueryViewers(AMessageId, @PeopleDone, ASlot);
+  end;
+end;
+
+procedure TWebApi.PeoplePropsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Msgs: TTdMessages;
+  Allowed: boolean;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  Allowed := False;
+  if AResp.Success then begin
+    if (FDeferred[Slot].Held <> nil) and (FDeferred[Slot].Held.Get('peer', Int64(0)) <> 0) then begin
+      Allowed := JGetBool(AResp.Obj, 'can_get_read_date');
+    end else begin
+      Allowed := JGetBool(AResp.Obj, 'can_get_viewers');
+    end;
+  end;
+  Msgs := TdMsgList;
+  if (not Allowed) or (Msgs = nil) then begin
+    Res := TJSONObject.Create;
+    Res.Add('allowed', False);
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  PeopleQuery(Msgs, FDeferred[Slot].MessageId, Slot);
+end;
+
+procedure TWebApi.PeopleDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  T: utf8string;
+  Res, Item: TJSONObject;
+  Items, Arr: TJSONArray;
+  I: integer;
+  Peer: Int64;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+
+  Res := TJSONObject.Create;
+  Items := TJSONArray.Create;
+  T := JGetStr(AResp.Obj, '@type');
+  if T = 'addedReactions' then begin
+    Arr := JGetArr(AResp.Obj, 'reactions');
+    if Arr <> nil then begin
+      for I := 0 to Arr.Count - 1 do begin
+        if not (Arr.Items[I] is TJSONObject) then begin
+          Continue;
+        end;
+        Item := TJSONObject(Arr.Items[I]);
+        Items.Add(SenderPersonJson(JGetObj(Item, 'sender_id'), JGetInt64(Item, 'date')));
+      end;
+    end;
+    Res.Add('total', JGetInt(AResp.Obj, 'total_count'));
+  end else if T = 'messageViewers' then begin
+    Arr := JGetArr(AResp.Obj, 'viewers');
+    if Arr <> nil then begin
+      for I := 0 to Arr.Count - 1 do begin
+        if not (Arr.Items[I] is TJSONObject) then begin
+          Continue;
+        end;
+        Item := TJSONObject(Arr.Items[I]);
+        Items.Add(UserPersonJson(JGetInt64(Item, 'user_id'), JGetInt64(Item, 'view_date')));
+      end;
+    end;
+    Res.Add('total', Items.Count);
+  end else begin
+    { messageReadDate* — личка. }
+    Peer := 0;
+    if FDeferred[Slot].Held <> nil then begin
+      Peer := FDeferred[Slot].Held.Get('peer', Int64(0));
+    end;
+    if T = 'messageReadDateRead' then begin
+      Items.Add(UserPersonJson(Peer, JGetInt64(AResp.Obj, 'read_date')));
+    end else if T = 'messageReadDateUnread' then begin
+      Res.Add('note', 'Not read yet');
+    end else if T = 'messageReadDateTooOld' then begin
+      Res.Add('note', 'Read, but too long ago to tell when');
+    end else begin
+      Res.Add('note', 'Hidden by privacy settings');
+    end;
+    Res.Add('total', Items.Count);
+  end;
+  Res.Add('items', Items);
+  Res.Add('allowed', True);
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
 function TWebApi.CmdMessageReact(AArgs: TJSONObject): TJSONData;
 var
   Id, CustomId: Int64;
@@ -3269,6 +3521,9 @@ begin
         CmdMessageMenu(AConnId, ReqId, Args);
       end else if Cmd = 'message.link' then begin
         CmdMessageLink(AConnId, ReqId, Args);
+      end else if Cmd = 'message.people' then begin
+        { Answers later, from the TDLib callback - see TDeferredReply. }
+        CmdMessagePeople(AConnId, ReqId, Args);
       end else if Cmd = 'message.react' then begin
         Reply(AConnId, ReqId, CmdMessageReact(Args));
       end else if Cmd = 'message.delete' then begin

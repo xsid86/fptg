@@ -64,6 +64,32 @@
   }
 }
 
+// Плавающая дата (updateFloatDate в ui/history.js): тот же ярлык, что
+// у разделителя, но один и поверх истории, на 16px ниже шапки. top
+// держать в согласии с FLOAT_DATE_TOP там же. `hidden` прописан явно:
+// свой display перебил бы правило UA для атрибута.
+.history__float-date {
+  @include flex(row, center, center);
+  inset-block-start: $space-6;
+  inset-inline: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 3;
+
+  > span {
+    background: var(--c-surface-2);
+    border-radius: $radius-pill;
+    box-shadow: 0 2px 8px var(--c-shadow);
+    color: var(--c-text-dim);
+    font-size: $fs-sm;
+    padding: $space-1 $space-4;
+  }
+
+  &[hidden] {
+    display: none;
+  }
+}
+
 // The "jump to the newest message" button. Floats over the history in
 // the bottom corner and only exists while the bottom is off screen -
 // the same rule the native scroller applies. The look is the

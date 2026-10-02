@@ -126,6 +126,15 @@ type
     PhotoPath:          utf8string;   { local path, if already downloaded }
     Minithumb:          RawByteString;{ raw JPEG from minithumbnail }
     AvatarRequested:    boolean;      { downloadFile already sent }
+    { Анимированная аватарка (см. EnsureAvatarAnim). PhotoHasAnim — из
+      chatPhotoInfo.has_animation; файл — small_animation из полной
+      информации пользователя или группы. }
+    PhotoHasAnim:       boolean;
+    AnimFileId:         integer;
+    AnimPath:           utf8string;
+    AnimRequested:      boolean;      { полная информация уже запрошена }
+    { chatTypeBasicGroup.basic_group_id — для getBasicGroupFullInfo. }
+    BasicGroupId:       Int64;
     { -1 if not received yet. 0..6 are the reserved "base" colors
       (red/orange/violet/green/cyan/blue/pink), 7+ are resolved via
       TTdAccentColors (tdaccentcolors.pas) from updateAccentColors.
@@ -200,6 +209,7 @@ type
     FReq:     TTdRequests;
     FAll:   TChatMap;     { every known chat, by id }
     FByFile: TFileMap;    { avatar file_id -> chat }
+    FByAnimFile: TFileMap; { файл анимированной аватарки -> чат }
     { Bots are identified by user, not chat: a chat's type is always
       chatTypePrivate. updateUser updates arrive on their own. }
     FBots:   TBotMap;
@@ -275,6 +285,9 @@ type
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
     procedure DownloadDone(Sender: TObject; const AResp: TTdResponse);
     procedure ApplyFile(AFile: TJSONObject);
+    procedure AnimInfoDone(Sender: TObject; const AResp: TTdResponse);
+    procedure AnimDownloadDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyAnimFile(AFile: TJSONObject);
     function IsCustomEmojiPending(AId: Int64): boolean;
     procedure MarkCustomEmojiPending(AId: Int64);
     procedure ClearCustomEmojiPending(AId: Int64);
@@ -369,6 +382,9 @@ type
       rows — downloading everything at once would be pointless. Repeat
       calls are harmless. }
     procedure EnsureAvatar(ARow: TChatRow);
+    { Анимированная аватарка, если она у чата есть: полная информация,
+      из неё — MPEG4, его скачивание. Звать там же, где EnsureAvatar. }
+    procedure EnsureAvatarAnim(ARow: TChatRow);
     { Custom (Premium) emoji in ARow.LastGlyphs, plus the peer's own
       Premium "emoji status" (ARow.EmojiStatusCustomEmojiId) if it has
       one — same idea as TTdMessages.EnsureCustomEmojiForRow
@@ -609,6 +625,14 @@ begin
   Result := 0;
   if (AType <> nil) and (JGetStr(AType, '@type') = 'chatTypeSupergroup') then begin
     Result := JGetInt64(AType, 'supergroup_id');
+  end;
+end;
+
+function ChatBasicGroupId(AType: TJSONObject): Int64;
+begin
+  Result := 0;
+  if (AType <> nil) and (JGetStr(AType, '@type') = 'chatTypeBasicGroup') then begin
+    Result := JGetInt64(AType, 'basic_group_id');
   end;
 end;
 
@@ -860,6 +884,7 @@ begin
   FAll := TChatMap.Create;
   FAll.Sorted := True;
   FByFile := TFileMap.Create;
+  FByAnimFile := TFileMap.Create;
   FByFile.Sorted := True;
   FBots := TBotMap.Create;
   FBots.Sorted := True;
@@ -893,6 +918,7 @@ begin
   FPremiumUsers.Free;
   FDeletedUsers.Free;
   FByFile.Free;
+  FByAnimFile.Free;
   FAll.Free;
   inherited Destroy;
 end;
@@ -1128,6 +1154,145 @@ begin
     @DownloadDone, ARow.PhotoFileId);
 end;
 
+{ ---------------- animated avatars ---------------- }
+
+{ Анимированная аватарка: в объекте чата (chatPhotoInfo) о ней есть
+  только has_animation, сам MPEG4 — в chatPhoto, а chatPhoto приходит
+  лишь в полной информации (td_api.tl): userFullInfo для лички,
+  supergroupFullInfo / basicGroupFullInfo для групп и каналов. Берётся
+  small_animation (160x160) — список и шапка больше не показывают, —
+  а если его нет, animation.
+
+  Просится там же, где обычная аватарка, — для строк на экране и для
+  шапки открытого чата, — а не для всего списка: полная информация —
+  запрос на каждый чат. }
+procedure TTdChats.EnsureAvatarAnim(ARow: TChatRow);
+begin
+  if (ARow = nil) or (FReq = nil) or (not ARow.PhotoHasAnim)
+     or ARow.AnimRequested or (ARow.AnimPath <> '') then begin
+    Exit;
+  end;
+  { Tag — id чата: ответ полной информации своего чата не называет. }
+  if (ARow.Kind = ckPrivate) and (ARow.UserId <> 0) then begin
+    ARow.AnimRequested := True;
+    FReq.SendRequest('getUserFullInfo',
+      '"user_id":' + utf8string(IntToStr(ARow.UserId)), @AnimInfoDone, PtrInt(ARow.Id));
+  end else if ARow.SupergroupId <> 0 then begin
+    ARow.AnimRequested := True;
+    FReq.SendRequest('getSupergroupFullInfo',
+      '"supergroup_id":' + utf8string(IntToStr(ARow.SupergroupId)), @AnimInfoDone, PtrInt(ARow.Id));
+  end else if ARow.BasicGroupId <> 0 then begin
+    ARow.AnimRequested := True;
+    FReq.SendRequest('getBasicGroupFullInfo',
+      '"basic_group_id":' + utf8string(IntToStr(ARow.BasicGroupId)), @AnimInfoDone, PtrInt(ARow.Id));
+  end;
+end;
+
+procedure TTdChats.AnimInfoDone(Sender: TObject; const AResp: TTdResponse);
+var
+  R: TChatRow;
+  Photo, Anim, FileObj, Local: TJSONObject;
+  Path: utf8string;
+begin
+  R := Lookup(Int64(AResp.Tag));
+  if R = nil then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    R.AnimRequested := False;
+    Exit;
+  end;
+  { У пользователя три фото: personal_photo — то, что ВЫ поставили
+    контакту, оно и показывается; иначе его собственное photo; иначе
+    public_photo. У групп — одно photo. }
+  Photo := JGetObj(AResp.Obj, 'personal_photo');
+  if Photo = nil then begin
+    Photo := JGetObj(AResp.Obj, 'photo');
+  end;
+  if Photo = nil then begin
+    Photo := JGetObj(AResp.Obj, 'public_photo');
+  end;
+  if Photo = nil then begin
+    Exit;
+  end;
+  Anim := JGetObj(Photo, 'small_animation');
+  if Anim = nil then begin
+    Anim := JGetObj(Photo, 'animation');
+  end;
+  if Anim = nil then begin
+    Exit;
+  end;
+  FileObj := JGetObj(Anim, 'file');
+  if FileObj = nil then begin
+    Exit;
+  end;
+  R.AnimFileId := JGetInt(FileObj, 'id');
+  Local := JGetObj(FileObj, 'local');
+  if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+    Path := JGetStr(Local, 'path');
+    if Path <> '' then begin
+      R.AnimPath := Path;
+      Touch;
+      Exit;
+    end;
+  end;
+  if R.AnimFileId = 0 then begin
+    Exit;
+  end;
+  if FByAnimFile.IndexOf(R.AnimFileId) < 0 then begin
+    FByAnimFile.Add(R.AnimFileId, R);
+  end;
+  { Приоритет 1, как у обычной аватарки: не мешать сообщениям. }
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(R.AnimFileId)) +
+    ',"priority":1,"offset":0,"limit":0,"synchronous":false',
+    @AnimDownloadDone, R.AnimFileId);
+end;
+
+procedure TTdChats.AnimDownloadDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  { Файл, уже лежащий на диске, приходит прямо в ответе. }
+  if AResp.Success then begin
+    ApplyAnimFile(AResp.Obj);
+  end;
+end;
+
+{ Как ApplyFile: анимация канала и его группы обсуждений — тоже один файл. }
+procedure TTdChats.ApplyAnimFile(AFile: TJSONObject);
+var
+  Idx, FileId, I: integer;
+  Local: TJSONObject;
+  Path: utf8string;
+  Changed: boolean;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  FileId := JGetInt(AFile, 'id');
+  Idx := FByAnimFile.IndexOf(FileId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  Local := JGetObj(AFile, 'local');
+  if (Local = nil) or not JGetBool(Local, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(Local, 'path');
+  if Path = '' then begin
+    Exit;
+  end;
+  Changed := False;
+  for I := 0 to FAll.Count - 1 do begin
+    if (FAll.Data[I].AnimFileId = FileId) and (FAll.Data[I].AnimPath <> Path) then begin
+      FAll.Data[I].AnimPath := Path;
+      Changed := True;
+    end;
+  end;
+  if Changed then begin
+    Touch;
+  end;
+end;
+
 procedure TTdChats.DownloadDone(Sender: TObject; const AResp: TTdResponse);
 var
   Idx: integer;
@@ -1139,19 +1304,30 @@ begin
     ApplyFile(AResp.Obj);
     Exit;
   end;
-  { Failure — clear the flag so another attempt can be made. }
-  Idx := FByFile.IndexOf(integer(AResp.Tag));
-  if Idx >= 0 then begin
-    FByFile.Data[Idx].AvatarRequested := False;
+  { Failure — clear the flag so another attempt can be made. У ВСЕХ
+    строк с этим файлом — см. ApplyFile. }
+  for Idx := 0 to FAll.Count - 1 do begin
+    if FAll.Data[Idx].PhotoFileId = integer(AResp.Tag) then begin
+      FAll.Data[Idx].AvatarRequested := False;
+    end;
   end;
 end;
 
+{ Путь — КАЖДОЙ строке с этим файлом, а не одной из карты.
+
+  Один файл бывает у нескольких чатов: у канала и его группы обсуждений
+  TDLib отдаёт одно и то же фото (в tdlib_raw.log у «X_SID Stuff»
+  -1002175282897 и -2072175282897 — оба small.id = 1254). Карта FByFile
+  хранит «файл -> один чат», и вторая строка в неё не попадала; путь
+  получала только первая, а вторая так и стояла с размытым превью —
+  пометка «запрошено» уже стояла, и повторного запроса не было. Карта
+  остаётся воротами: «этот файл мы просили». }
 procedure TTdChats.ApplyFile(AFile: TJSONObject);
 var
-  Idx, FileId: integer;
+  Idx, FileId, I: integer;
   Local: TJSONObject;
-  R: TChatRow;
   Path: utf8string;
+  Changed: boolean;
 begin
   if AFile = nil then begin
     Exit;
@@ -1171,12 +1347,16 @@ begin
     Exit;
   end;
 
-  R := FByFile.Data[Idx];
-  if R.PhotoPath = Path then begin
-    Exit;
+  Changed := False;
+  for I := 0 to FAll.Count - 1 do begin
+    if (FAll.Data[I].PhotoFileId = FileId) and (FAll.Data[I].PhotoPath <> Path) then begin
+      FAll.Data[I].PhotoPath := Path;
+      Changed := True;
+    end;
   end;
-  R.PhotoPath := Path;
-  Touch;
+  if Changed then begin
+    Touch;
+  end;
 end;
 
 function TTdChats.IsCustomEmojiPending(AId: Int64): boolean;
@@ -2096,15 +2276,23 @@ begin
     ARow.PhotoPath := '';
     ARow.Minithumb := '';
     ARow.AvatarRequested := False;
+    ARow.PhotoHasAnim := False;
+    ARow.AnimFileId := 0;
+    ARow.AnimPath := '';
+    ARow.AnimRequested := False;
     Exit;
   end;
 
   Small := JGetObj(APhoto, 'small');
   if ARow.PhotoFileId <> JGetInt(Small, 'id') then begin
     { The photo changed — any earlier request is no longer about this
-      file. }
+      file. Анимация — тоже: она от прежнего фото. }
     ARow.AvatarRequested := False;
+    ARow.AnimFileId := 0;
+    ARow.AnimPath := '';
+    ARow.AnimRequested := False;
   end;
+  ARow.PhotoHasAnim := JGetBool(APhoto, 'has_animation');
   ARow.PhotoFileId := JGetInt(Small, 'id');
   ARow.PhotoPath := JGetStr(JGetObj(Small, 'local'), 'path');
 
@@ -2227,6 +2415,7 @@ begin
   R.Kind := KindFromType(JGetObj(AChat, 'type'));
   R.UserId := ChatUserId(JGetObj(AChat, 'type'));
   R.SupergroupId := ChatSupergroupId(JGetObj(AChat, 'type'));
+  R.BasicGroupId := ChatBasicGroupId(JGetObj(AChat, 'type'));
   R.UnreadCount := JGetInt(AChat, 'unread_count');
   R.UnreadMentionCount := JGetInt(AChat, 'unread_mention_count');
   R.IsMarkedAsUnread := JGetBool(AChat, 'is_marked_as_unread');
@@ -2305,6 +2494,7 @@ begin
       ApplyUnreadCount(Obj);
     end else if T = 'updateFile' then begin
       ApplyFile(JGetObj(Obj, 'file'));
+      ApplyAnimFile(JGetObj(Obj, 'file'));
       ApplyCustomEmojiFile(JGetObj(Obj, 'file'));
     end else if T = 'updateChatReadOutbox' then begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));

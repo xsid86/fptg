@@ -7,6 +7,7 @@ import {renderRichText} from '../util/entities.js';
 import {holdImage, holdVideo} from '../util/offscreen.js';
 import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 import {addRing, xferText, xferLeft} from '../util/xfer.js';
+import {peopleOnHover} from './people.js';
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -206,7 +207,13 @@ function renderHead(msg, withComments = false) {
     // it said nothing the message itself was not already showing: a
     // photo above a little photo glyph.
     const receipt = RECEIPT_ICON[msg.receipt];
-    if (receipt) head.append(icon(receipt, 'message__receipt'));
+    if (receipt) {
+        // Наведение — кто прочитал (ui/people.js). Обёртка нужна: у
+        // самой иконки pointer-events: none.
+        const hit = el('span', {class: 'message__receipt-hit'}, icon(receipt, 'message__receipt'));
+        peopleOnHover(hit, {id: String(msg.id), what: 'viewers'}, 'Seen by');
+        head.append(hit);
+    }
 
     head.append(el('span', {
         class: 'message__sender',
@@ -944,10 +951,13 @@ function fillReactions(strip, msg) {
         // reaction costs stars and a custom one is a Premium sticker
         // this page cannot offer yet.
         const clickable = r.kind === 'emoji';
+        // Подсказка — в aria-label, а не title: по наведению всплывает
+        // список тех, кто поставил реакцию, и нативная подсказка легла
+        // бы поверх него.
         const pill = el(clickable ? 'button' : 'span', {
             class: `reaction${r.chosen ? ' is-chosen' : ''}`,
             type: clickable ? 'button' : null,
-            title: clickable
+            'aria-label': clickable
                 ? (r.chosen ? 'Remove this reaction' : 'React with this')
                 : null,
             onclick: clickable
@@ -968,6 +978,19 @@ function fillReactions(strip, msg) {
                 ?? el('span', {class: 'reaction__emoji', textContent: '•'}));
         }
         pill.append(String(r.count));
+        // Кто поставил — у всех, кроме платных: их список Telegram не
+        // отдаёт (getMessageAddedReactions, td_api.tl).
+        // И только там, где Telegram его вообще отдаёт
+        // (can_get_added_reactions — приходит с самим сообщением, без
+        // запроса): иначе наведение ничего не делает.
+        if (!msg.canSeeReactors) {
+            // список не предлагается
+        } else if (r.kind === 'emoji') {
+            peopleOnHover(pill, {id: String(msg.id), what: 'reactions', emoji: r.emoji}, 'Reacted');
+        } else if (r.kind !== 'paid' && r.customEmojiId) {
+            peopleOnHover(pill, {id: String(msg.id), what: 'reactions',
+                customEmojiId: String(r.customEmojiId)}, 'Reacted');
+        }
         strip.append(pill);
     }
 }

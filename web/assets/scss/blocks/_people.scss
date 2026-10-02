@@ -1,0 +1,83 @@
+@use "../abstracts" as *;
+
+// Кто поставил реакцию, кто прочитал (ui/people.js): всплывающий список
+// у чипа реакции или у галочки прочтения.
+.people {
+  @include card($radius-md, var(--c-surface));
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  box-shadow: 0 8px 24px var(--c-shadow);
+  color: var(--c-text);
+  max-height: 320px;
+  max-width: 280px;
+  min-width: 180px;
+  overflow: hidden auto;
+  padding: $space-3 0;
+}
+
+.people__title {
+  color: var(--c-text-dim);
+  font-size: $fs-xs;
+  font-weight: $fw-bold;
+  padding: 0 $space-4 $space-2;
+}
+
+.people__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.people__item {
+  @include flex(row, center, flex-start, $space-3);
+  font-size: $fs-sm;
+  padding: $space-2 $space-4;
+}
+
+// 16x16 и цвет круга с буквой — цвет человека (класс .accent-*).
+.people__avatar {
+  --avatar-color: var(--accent-color);
+  @include size(16px);
+  flex: 0 0 auto;
+  font-size: 9px;
+}
+
+.people__name {
+  @include ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.people__time {
+  color: var(--c-text-faint);
+  flex: 0 0 auto;
+  font-size: $fs-xs;
+}
+
+.people__note {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+  margin: 0;
+  padding: 0 $space-4;
+}
+
+// У галочки прочтения — своя цель для наведения: у самой иконки
+// pointer-events: none (components/_icon.scss).
+.message__receipt-hit {
+  display: inline-flex;
+}
+
+// Место — над тем, на что навели, как у панели эмодзи.
+@supports (anchor-name: --probe) {
+  .is-people-anchor {
+    anchor-name: --people-anchor;
+  }
+
+  .people {
+    inset: auto;
+    margin: 0 0 $space-2 0;
+    position-anchor: --people-anchor;
+    position-area: block-start span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline;
+  }
+}

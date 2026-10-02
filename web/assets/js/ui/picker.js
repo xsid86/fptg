@@ -156,9 +156,15 @@ const customCell = (item) => el('button', {
  * играет не больше одного эмодзи.
  */
 function goLive(cell, item) {
-  if (item.format !== 'tgs' && item.format !== 'webm') return;
-  if (cell.classList.contains('is-live')) return;
-  const live = stickerNode(item);
+  if (item.format !== 'tgs' && item.format !== 'webm' && item.format !== 'mp4') return;
+  if (!item.url || cell.classList.contains('is-live')) return;
+  // GIF — это mp4 без звука: под курсором просто играющее видео.
+  const live = item.format === 'mp4'
+    ? el('video', {
+      class: 'picker__gif', src: item.url,
+      autoplay: true, loop: true, muted: true, playsInline: true,
+    })
+    : stickerNode(item);
   live.classList.add('picker__live');
   cell.append(live);
   cell.classList.add('is-live');
@@ -575,7 +581,7 @@ function runEmojiSearch(text) {
 // CSS px кадра: ячейка эмодзи — от 32px, плитка стикера — от 68px
 // (минимумы колонок в blocks/_picker.scss), а растянуться обе могут
 // примерно до полутора минимумов.
-const STILL_SIZE = { emoji: 40, tile: 100 };
+const STILL_SIZE = { emoji: 40, tile: 100, gif: 160 };
 const STILL_PARALLEL = 4;
 const STILL_CACHE_MAX = 300;
 const stillCache = new Map();   // kind:url -> data URL; порядок Map — давность
@@ -622,7 +628,7 @@ function lazyObserver() {
 async function makeStill(item, kind) {
   if (item.format === 'tgs' && kind === 'tile') return stillSvg(item.url);
   const canvas = document.createElement('canvas');
-  const ok = item.format === 'webm'
+  const ok = item.format === 'webm' || item.format === 'mp4'
     ? await videoStill(canvas, item.url, STILL_SIZE[kind])
     : await stillSticker(canvas, item.url, STILL_SIZE[kind]);
   return ok ? canvas.toDataURL('image/png') : null;
@@ -668,12 +674,13 @@ function videoStill(canvas, url, cssSize) {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       if (vw && vh) {
+        // Холст — в пропорциях кадра, вписанного в cssSize: у GIF кадр
+        // не квадратный, и поля вокруг него в плитке были бы видны.
         const size = Math.round(cssSize * (window.devicePixelRatio || 1));
-        canvas.width = size;
-        canvas.height = size;
         const k = Math.min(size / vw, size / vh);
-        canvas.getContext('2d').drawImage(video,
-          (size - vw * k) / 2, (size - vh * k) / 2, vw * k, vh * k);
+        canvas.width = Math.max(1, Math.round(vw * k));
+        canvas.height = Math.max(1, Math.round(vh * k));
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
         drawn = true;
       }
       done();
@@ -683,8 +690,8 @@ function videoStill(canvas, url, cssSize) {
   });
 }
 
-function stillNode(item, kind) {
-  const img = el('img', { class: 'picker__sticker picker__still', alt: item.emoji ?? '' });
+function stillNode(item, kind, cls = 'picker__sticker') {
+  const img = el('img', { class: `${cls} picker__still`, alt: item.emoji ?? '' });
   const ready = stillCache.get(stillKey(item, kind));
   if (ready) {
     img.src = ready;
@@ -795,33 +802,46 @@ function buildStickers(body, data) {
   }
 }
 
-const gifVideo = (src) => el('video', {
-  class: 'picker__gif', src,
-  loop: true, muted: true, playsInline: true,
-});
-
 /**
- * What one tile can show, best first.
+ * What one tile can show.
  *
  * Telegram gives only SOME saved animations a thumbnail that moves:
  * measured on a real account, 134 of them came back with 68 mpeg4
- * thumbnails, 60 still jpegs and 6 with no thumbnail at all. So a
- * still frame is never the whole answer - for the rest the animation
- * itself is what has to be fetched, which is what the official clients
- * do as well. Until it arrives the still frame holds the place.
+ * thumbnails, 60 still jpegs and 6 with no thumbnail at all.
+ *
+ * Плитка — КАДР, как у стикеров: каждая видимая плитка раньше была
+ * своим играющим <video>, а их в панели за сотню. Кадр — неподвижное
+ * превью (jpeg), а нет его — первый кадр видео, перегнанный в картинку
+ * (stillNode, кэш кадров). Играет только плитка под курсором — тем, что
+ * движется: самой анимацией, а пока её нет — движущимся превью.
  */
+const gifLive = (g) => g.playUrl || (g.thumbFormat === 'mpeg4' ? g.url : '') || '';
+
+function gifStill(g) {
+  if (g.url && g.thumbFormat !== 'mpeg4') return { kind: 'img', url: g.url };
+  const video = gifLive(g);
+  if (video) return { kind: 'video', url: video };
+  return null;
+}
+
 const gifKey = (g) => {
-  if (g.playUrl) return `p${g.playUrl}`;
-  if (g.url) return `${g.thumbFormat === 'mpeg4' ? 'v' : 'i'}${g.url}`;
-  return '';
+  const still = gifStill(g);
+  return still ? `${still.kind}:${still.url}` : '';
 };
 
 function gifNode(g) {
-  if (g.playUrl) return gifVideo(g.playUrl);
-  if (g.thumbFormat === 'mpeg4' && g.url) return gifVideo(g.url);
-  if (g.url) return el('img', { class: 'picker__gif', src: g.url, alt: '' });
-  return el('span', { class: 'picker__gif' });
+  const still = gifStill(g);
+  if (!still) return el('span', { class: 'picker__gif picker__still' });
+  if (still.kind === 'img') {
+    return el('img', {
+      class: 'picker__gif picker__still', src: still.url, alt: '',
+      loading: 'lazy', decoding: 'async',
+    });
+  }
+  return stillNode({ format: 'mp4', url: still.url }, 'gif', 'picker__gif');
 }
+
+const gifTileItem = (tile) => ({ format: 'mp4', url: tile.dataset.live || '' });
 
 /**
  * Plays what is on screen and pauses what is not, and asks the server
@@ -835,11 +855,6 @@ function watchGifs(box) {
   const seen = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       entry.target.dataset.seen = entry.isIntersecting ? 'yes' : 'no';
-      const video = qs('video', entry.target);
-      if (video) {
-        if (entry.isIntersecting) video.play().catch(() => { /* not fatal */ });
-        else video.pause();
-      }
       if (!entry.isIntersecting || entry.target.dataset.still !== 'yes') continue;
       delete entry.target.dataset.still;
       hooks.load?.('gifs.ensure', { fileId: Number(entry.target.dataset.file) })
@@ -874,13 +889,18 @@ function upgradeGifs(pane, items) {
     // for ever - which is exactly what a search full of results looked
     // like. Comparing the source also means an unchanged tile is left
     // alone, so a video that is already playing is not restarted.
+    // Что играть под курсором — всегда самое свежее: анимация приходит
+    // позже превью, а кадр плитки от этого меняться не обязан.
+    tile.dataset.live = gifLive(g);
+    if (gifLive(g)) tile.dataset.still = 'no';
     if (!key || tile.dataset.src === key) continue;
     tile.dataset.src = key;
-    if (g.playUrl || g.thumbFormat === 'mpeg4') tile.dataset.still = 'no';
-    tile.replaceChildren(gifNode(g));
-    // Only what the viewer is actually looking at starts playing; the
-    // observer sees to the rest when they scroll into view.
-    if (tile.dataset.seen === 'yes') qs('video', tile)?.play().catch(() => {});
+    // Меняется только кадр; живое видео под курсором, если оно есть,
+    // остаётся.
+    const old = qs('.picker__still', tile);
+    releaseMedia(old);
+    if (old) old.replaceWith(gifNode(g));
+    else tile.prepend(gifNode(g));
   }
   return true;
 }
@@ -901,9 +921,12 @@ function buildGifs(body, data) {
       dataset: {
         file: String(g.fileId),
         src: gifKey(g),
-        still: g.playUrl || g.thumbFormat === 'mpeg4' ? 'no' : 'yes',
+        live: gifLive(g),
+        still: gifLive(g) ? 'no' : 'yes',
       },
       onclick: () => sendMedia('animation', g.fileId),
+      onpointerenter: (event) => goLive(event.currentTarget, gifTileItem(event.currentTarget)),
+      onpointerleave: (event) => stopLive(event.currentTarget),
     }, gifNode(g))));
   body.append(box);
   watchGifs(box);

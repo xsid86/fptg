@@ -237,12 +237,62 @@ let topBtn = null;
 // chat id -> { node, hash }. See render.
 const rows = new Map();
 
+// ------------------------------------------------- avatars on demand
+// Аватарки просятся для строк, которые ВИДНЫ, — как у нативного списка,
+// который зовёт EnsureAvatar из отрисовки ячейки. Раньше просились
+// только первые 40 чатов при загрузке списка, и всё ниже так и стояло
+// с размытым превью, пока чат не откроют.
+//
+// Строки, вошедшие в кадр, копятся и уходят одной пачкой (chats.avatars
+// через main.js). Чат просится снова, только если его аватарка с тех
+// пор поменялась (сменилось фото), — сервер и так ничего не делает
+// дважды, но незачем спрашивать его на каждой прокрутке.
+const AVATAR_BATCH_MS = 150;
+const asked = new Map();          // chat id -> состояние аватарки, когда просили
+const rowChat = new WeakMap();    // строка -> её чат
+const pendingAvatars = new Set();
+let avatarTimer = 0;
+let seen = null;
+
+const avatarState = (chat) =>
+  `${chat.avatar || ''}|${chat.avatarThumb ? 't' : ''}|${chat.avatarAnim || ''}`;
+
+function flushAvatars() {
+  avatarTimer = 0;
+  if (!pendingAvatars.size) return;
+  emit('ui:avatars', [...pendingAvatars]);
+  pendingAvatars.clear();
+}
+
+function seenObserver() {
+  if (!seen) {
+    seen = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const chat = rowChat.get(entry.target);
+        if (!chat) continue;
+        const state = avatarState(chat);
+        if (asked.get(chat.id) === state) continue;
+        asked.set(chat.id, state);
+        pendingAvatars.add(chat.id);
+      }
+      if (pendingAvatars.size && !avatarTimer) {
+        avatarTimer = setTimeout(flushAvatars, AVATAR_BATCH_MS);
+      }
+    }, { root, rootMargin: '200px 0px' });
+  }
+  return seen;
+}
+
 function rowNode(chat) {
   const hash = JSON.stringify(chat);
   const known = rows.get(chat.id);
   if (known && known.hash === hash) return known.node;
+  if (known) seen?.unobserve(known.node);
   const node = chatItem(chat);
   rows.set(chat.id, { node, hash });
+  rowChat.set(node, chat);
+  seenObserver().observe(node);
   return node;
 }
 
@@ -263,6 +313,7 @@ function render() {
   closeMenuIfDetached();
   const chats = store.chats.filter(matches);
   if (!chats.length) {
+    for (const { node } of rows.values()) seen?.unobserve(node);
     rows.clear();
     clear(root).append(el('div', {
       class: 'chat-list__empty',
@@ -283,8 +334,10 @@ function render() {
   // Rows for chats that have dropped off the list (a filter, a switch
   // to the archive) are of no further use.
   const listed = new Set(chats.map((c) => c.id));
-  for (const id of [...rows.keys()]) {
-    if (!listed.has(id)) rows.delete(id);
+  for (const [id, { node }] of [...rows]) {
+    if (listed.has(id)) continue;
+    seen?.unobserve(node);
+    rows.delete(id);
   }
   restoreScroll(keep);
   noteScrollPosition();

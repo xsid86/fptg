@@ -22,6 +22,7 @@ import { mountToasts } from './ui/toasts.js';
 import { mountThemeToggle } from './ui/theme.js';
 import { mountSettings } from './ui/settings.js';
 import { mountAttach } from './ui/attach.js';
+import { mountPeople } from './ui/people.js';
 import { openViewer } from './ui/viewer.js';
 
 // Entry point: wire the shell that index.html already contains, open
@@ -294,6 +295,12 @@ function wireActions() {
     call('message.cancelTransfer', args).catch(report);
   });
 
+  // Аватарки строк, вошедших в кадр списка (ui/chat-list.js). Сами
+  // адреса приедут со следующим chats.list, как и раньше.
+  on('ui:avatars', (ids) => {
+    call('chats.avatars', { ids }).catch(() => {});
+  });
+
   on('ui:vote', (args) => {
     call('poll.vote', args).catch(report);
   });
@@ -441,6 +448,7 @@ async function boot() {
     load: (cmd, args) => call(cmd, args),
     report,
   });
+  mountPeople({ load: (args) => call('message.people', args) });
   mountAttach(qs('#attach'), qs('#dropzone'), qs('.workspace'), {
     call: (cmd, args) => call(cmd, args),
     canCompose,

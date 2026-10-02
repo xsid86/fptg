@@ -4,6 +4,7 @@
 // left, a search field and a row of filter toggles on the right.
 .chat-header {
   @include card;
+  backdrop-filter: none;
   @include flex(row, center, flex-start, $space-4);
   background: color-mix(in srgb, var(--chat-color) 20%, transparent);
   border: none;
