@@ -91,6 +91,10 @@ function WebUiIsShowing: boolean;
 { Shows ATitle/AText as a Windows notification from the tray icon. }
 procedure WebUiNotify(const ATitle, AText: utf8string);
 
+{ Главное веб-окно или nil — владелец окон поверх него (мини-приложения,
+  miniapp.pas), чтобы те держались над ним и не выходили на панель задач. }
+function WebUiForm: TForm;
+
 { Says that this window IS the application rather than a second view
   of it.
 
@@ -116,6 +120,11 @@ var
 function WebUiIsShowing: boolean;
 begin
   Result := (GForm <> nil) and GForm.IsShowing;
+end;
+
+function WebUiForm: TForm;
+begin
+  Result := GForm;
 end;
 
 procedure WebUiNotify(const ATitle, AText: utf8string);

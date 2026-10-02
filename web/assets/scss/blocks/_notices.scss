@@ -1,0 +1,57 @@
+@use "../abstracts" as *;
+
+// Уведомления (ui/notices.js): стопка сверху по центру окна, каждое —
+// акцентная плашка, скругление 16px, без рамки, крестик 16x16 в правом
+// верхнем углу в 8px от краёв. Сами не исчезают.
+//
+// Ловят указатель только сами плашки: стопка — колонка через всё окно,
+// и ловить клики ею значило бы мёртвую полосу посреди приложения.
+.notices {
+  @include flex(column, center, flex-start, $space-3);
+  inset-block-start: $space-6;
+  inset-inline: $space-6;
+  pointer-events: none;
+  position: fixed;
+  z-index: 45;
+}
+
+.notice {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--c-accent) 80%, white), color-mix(in srgb, var(--c-accent) 80%, black));
+  border: 0;
+  border-radius: 8px;
+  box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .5);
+  color: var(--c-accent-text);
+  max-width: 480px;
+  // Справа — место под крестик: 8px отступа + 16px крестика + 8px до текста.
+  padding: $space-4 32px $space-4 $space-6;
+  pointer-events: all;
+  position: relative;
+  width: max-content;
+}
+
+.notice__text {
+  font-size: $fs-base;
+  line-height: $lh-base;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.notice__close {
+  @include flex(row, center, center);
+  @include size(16px);
+  @include focus-ring(var(--c-accent-text), 2px);
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  inset-block-start: 8px;
+  inset-inline-end: 8px;
+  opacity: .8;
+  padding: 0;
+  position: absolute;
+
+  &:hover {
+    opacity: 1;
+  }
+}

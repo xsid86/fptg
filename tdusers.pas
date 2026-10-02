@@ -33,6 +33,9 @@ type
     PhotoPath: utf8string;
     Minithumb: RawByteString;
     PhotoRequested: boolean;
+    { Первое активное имя (usernames.active_usernames[0]) или '' — для
+      «@бот запрос» кнопок switchInline. }
+    Username: utf8string;
     function DisplayName: utf8string;
   end;
 
@@ -205,6 +208,7 @@ var
   Idx: integer;
   Photo, Small, Local: TJSONObject;
   B64: utf8string;
+  Names: TJSONArray;
 begin
   if AUser = nil then begin
     Exit;
@@ -224,6 +228,11 @@ begin
   end;
   R.FirstName := JGetStr(AUser, 'first_name');
   R.LastName := JGetStr(AUser, 'last_name');
+  R.Username := '';
+  Names := JGetArr(JGetObj(AUser, 'usernames'), 'active_usernames');
+  if (Names <> nil) and (Names.Count > 0) and (Names.Items[0].JSONType = jtString) then begin
+    R.Username := utf8string(Names.Items[0].AsString);
+  end;
 
   { profile_photo: small (file) и minithumbnail (base64 jpeg), поля по
     td_api.tl. Другое фото — прежний запрос уже не о нём. }

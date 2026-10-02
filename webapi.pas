@@ -64,7 +64,7 @@ uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fgl, fpjson, jsonparser,
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
-  autodownload, customemoji, webui, tdstorage;
+  autodownload, customemoji, webui, tdstorage, miniapp;
 
 type
   { A request whose answer is not here yet.
@@ -134,6 +134,8 @@ type
       history again, which is the same thing that happens on its first
       request. }
     FSnaps: TConnSnapMap;
+    { Имя инлайн-бота (в нижнем регистре) -> его id, см. CmdInlineQuery. }
+    FInlineBots: TStringList;
     procedure Tick(Sender: TObject);
     procedure Drain;
     procedure EnsureBindings;
@@ -159,6 +161,14 @@ type
     procedure LinkInvitePhotoDone(Sender: TObject; const AResp: TTdResponse);
     procedure LinkMessageDone(Sender: TObject; const AResp: TTdResponse);
     procedure LinkJoinDone(Sender: TObject; const AResp: TTdResponse);
+    procedure BotCallbackDone(Sender: TObject; const AResp: TTdResponse);
+    procedure BotInfoDone(Sender: TObject; const AResp: TTdResponse);
+    procedure WebAppOpenDone(Sender: TObject; const AResp: TTdResponse);
+    procedure SimpleDone(Sender: TObject; const AResp: TTdResponse);
+    procedure SharePhoneMeDone(Sender: TObject; const AResp: TTdResponse);
+    procedure InlineBotDone(Sender: TObject; const AResp: TTdResponse);
+    procedure InlineResultsDone(Sender: TObject; const AResp: TTdResponse);
+    procedure InlineAsk(AMsgs: TTdMessages; ABot: Int64; ASlot: PtrInt);
     procedure PeoplePropsDone(Sender: TObject; const AResp: TTdResponse);
     procedure PushEvent(const AName: utf8string; AData: TJSONObject);
     procedure ReplyMessages(AConnId: Int64; AReqId: integer;
@@ -222,6 +232,23 @@ type
       AArgs: TJSONObject): boolean;
     function  CmdLinkJoin(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
+    function  CmdBotCallback(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdBotInfo(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdBotUserChat(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdWebAppOpen(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdBotShareUsers(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdBotShareChat(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdBotSharePhone(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdInlineQuery(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdInlineSend(AArgs: TJSONObject): TJSONData;
     procedure PeopleQuery(AMsgs: TTdMessages; AMessageId: Int64; ASlot: PtrInt);
     function  CmdMessageReact(AArgs: TJSONObject): TJSONData;
     function  CmdMessageDelete(AArgs: TJSONObject): TJSONData;
@@ -852,8 +879,167 @@ begin
   end;
 end;
 
+{ Ряды кнопок клавиатуры — и инлайн (под сообщением), и обычной (над
+  полем ввода), в одном виде для страницы: text, kind и то, что нужно
+  этому виду. Виды — по td_api.tl (TDLib 1.8.67):
+    url / loginUrl -> url (открыть ссылку)
+    webApp         -> webapp, url (Mini App — второй этап)
+    callback       -> callback, data (base64, как его отдаёт TDLib)
+    user           -> user, userId
+    copyText       -> copy, copy
+    keyboardButtonTypeText -> text (отправить текст кнопки)
+  Прочее (оплата, игры, запросы телефона и т.п.) — unsupported: страница
+  рисует кнопку, но говорит, что этого пока нет. }
+function KeyboardRowsJson(ARows: TJSONArray): TJSONArray;
+var
+  I, J: integer;
+  Row: TJSONArray;
+  Btn, BType, O, Sub: TJSONObject;
+  OutRow: TJSONArray;
+  T: utf8string;
+begin
+  Result := TJSONArray.Create;
+  if ARows = nil then begin
+    Exit;
+  end;
+  for I := 0 to ARows.Count - 1 do begin
+    if not (ARows.Items[I] is TJSONArray) then begin
+      Continue;
+    end;
+    Row := TJSONArray(ARows.Items[I]);
+    OutRow := TJSONArray.Create;
+    for J := 0 to Row.Count - 1 do begin
+      if not (Row.Items[J] is TJSONObject) then begin
+        Continue;
+      end;
+      Btn := TJSONObject(Row.Items[J]);
+      BType := JGetObj(Btn, 'type');
+      T := JGetStr(BType, '@type');
+      O := TJSONObject.Create;
+      O.Add('text', string(JGetStr(Btn, 'text')));
+      if (T = 'inlineKeyboardButtonTypeUrl') or (T = 'inlineKeyboardButtonTypeLoginUrl') then begin
+        O.Add('kind', 'url');
+        O.Add('url', string(JGetStr(BType, 'url')));
+      end else if (T = 'inlineKeyboardButtonTypeWebApp') or (T = 'keyboardButtonTypeWebApp') then begin
+        O.Add('kind', 'webapp');
+        O.Add('url', string(JGetStr(BType, 'url')));
+      end else if T = 'inlineKeyboardButtonTypeCallback' then begin
+        O.Add('kind', 'callback');
+        O.Add('data', string(JGetStr(BType, 'data')));
+      end else if T = 'inlineKeyboardButtonTypeUser' then begin
+        O.Add('kind', 'user');
+        O.Add('userId', string(IntToStr(JGetInt64(BType, 'user_id'))));
+      end else if T = 'inlineKeyboardButtonTypeSwitchInline' then begin
+        { «@бот запрос» — в этот чат (targetChatCurrent) или в выбранный
+          (targetChatChosen, с разрешёнными видами чатов). Ссылка
+          (targetChatInternalLink) — пока нет. }
+        O.Add('kind', 'switchInline');
+        O.Add('query', string(JGetStr(BType, 'query')));
+        Sub := JGetObj(BType, 'target_chat');
+        if JGetStr(Sub, '@type') = 'targetChatCurrent' then begin
+          O.Add('target', 'current');
+        end else if JGetStr(Sub, '@type') = 'targetChatChosen' then begin
+          O.Add('target', 'chosen');
+          Sub := JGetObj(Sub, 'types');
+          O.Add('users', JGetBool(Sub, 'allow_user_chats'));
+          O.Add('bots', JGetBool(Sub, 'allow_bot_chats'));
+          O.Add('groups', JGetBool(Sub, 'allow_group_chats'));
+          O.Add('channels', JGetBool(Sub, 'allow_channel_chats'));
+        end else begin
+          O.Strings['kind'] := 'unsupported';
+        end;
+      end else if T = 'inlineKeyboardButtonTypeCopyText' then begin
+        O.Add('kind', 'copy');
+        O.Add('copy', string(JGetStr(BType, 'text')));
+      end else if T = 'keyboardButtonTypeText' then begin
+        O.Add('kind', 'text');
+      end else if T = 'keyboardButtonTypeRequestUsers' then begin
+        { Кого можно выбрать: max_quantity (0 — один), и ограничение на
+          ботов: restrict_user_is_bot + user_is_bot. Премиум-ограничение
+          страница не проверит — его проверит Telegram и откажет. }
+        O.Add('kind', 'requestUsers');
+        O.Add('buttonId', JGetInt(BType, 'id'));
+        O.Add('max', JGetInt(BType, 'max_quantity'));
+        if JGetBool(BType, 'restrict_user_is_bot') then begin
+          O.Add('bots', JGetBool(BType, 'user_is_bot'));
+        end;
+      end else if T = 'keyboardButtonTypeRequestChat' then begin
+        O.Add('kind', 'requestChat');
+        O.Add('buttonId', JGetInt(BType, 'id'));
+        O.Add('channel', JGetBool(BType, 'chat_is_channel'));
+      end else if T = 'keyboardButtonTypeRequestPhoneNumber' then begin
+        O.Add('kind', 'requestPhone');
+      end else begin
+        O.Add('kind', 'unsupported');
+      end;
+      OutRow.Add(O);
+    end;
+    Result.Add(OutRow);
+  end;
+end;
+
+{ Клавиатура над полем ввода из сырого reply_markup, или nil, если это
+  не replyMarkupShowKeyboard. }
+function ReplyKeyboardJson(const ARaw: utf8string; AMsgId: Int64): TJSONObject;
+var
+  Data: TJSONData;
+  M: TJSONObject;
+begin
+  Result := nil;
+  if ARaw = '' then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARaw));
+  except
+    Exit;
+  end;
+  try
+    if not (Data is TJSONObject) then begin
+      Exit;
+    end;
+    M := TJSONObject(Data);
+    if JGetStr(M, '@type') <> 'replyMarkupShowKeyboard' then begin
+      Exit;
+    end;
+    Result := TJSONObject.Create;
+    Result.Add('msgId', AMsgId);
+    Result.Add('rows', KeyboardRowsJson(JGetArr(M, 'rows')));
+    Result.Add('oneTime', JGetBool(M, 'one_time'));
+    Result.Add('placeholder', string(JGetStr(M, 'input_field_placeholder')));
+  finally
+    Data.Free;
+  end;
+end;
+
+{ Инлайн-кнопки сообщения из сырого reply_markup, или nil. }
+function InlineKeyboardJson(const ARaw: utf8string): TJSONArray;
+var
+  Data: TJSONData;
+begin
+  Result := nil;
+  if ARaw = '' then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARaw));
+  except
+    Exit;
+  end;
+  try
+    if (Data is TJSONObject)
+       and (JGetStr(TJSONObject(Data), '@type') = 'replyMarkupInlineKeyboard') then begin
+      Result := KeyboardRowsJson(JGetArr(TJSONObject(Data), 'rows'));
+    end;
+  finally
+    Data.Free;
+  end;
+end;
+
 function MsgToJson(AMsgs: TTdMessages; ARow: TMsgRow; ALastReadOutbox: Int64): TJSONObject;
 var
+  BotUser: TUserRow;
+  Kb: TJSONArray;
   Name, Color, PreviewText: utf8string;
   RUser, RChat: Int64;
   Sub: TJSONObject;
@@ -979,11 +1165,37 @@ begin
   if Media <> nil then begin
     Result.Add('media', Media);
   end;
+  { Кнопки бота под сообщением (replyMarkupInlineKeyboard). }
+  Kb := InlineKeyboardJson(ARow.ReplyMarkupRaw);
+  if Kb <> nil then begin
+    Result.Add('keyboard', Kb);
+    { Для кнопок switchInline: «@имя запрос». }
+    if (ARow.SenderUserId <> 0) and (TdUserList <> nil) then begin
+      BotUser := TdUserList.Find(ARow.SenderUserId);
+      if (BotUser <> nil) and (BotUser.Username <> '') then begin
+        Result.Add('botUsername', string(BotUser.Username));
+      end;
+    end;
+  end;
 end;
 
 { ------------------------------------------------------------------ }
 { TWebApi                                                            }
 { ------------------------------------------------------------------ }
+
+{ Ссылка t.me из мини-приложения — странице: та откроет её тем же путём,
+  что ссылку в сообщении (ui/links.js). }
+procedure MiniAppLinkToPage(const AUrl: utf8string);
+var
+  D: TJSONObject;
+begin
+  if GApi = nil then begin
+    Exit;
+  end;
+  D := TJSONObject.Create;
+  D.Add('url', string(AUrl));
+  GApi.PushEvent('openLink', D);
+end;
 
 constructor TWebApi.Create;
 begin
@@ -998,6 +1210,8 @@ begin
   FAuth.OnChanged := @AuthChanged;
   FSnaps := TConnSnapMap.Create;
   FSnaps.Sorted := True;
+  FInlineBots := TStringList.Create;
+  MiniAppTgLink := @MiniAppLinkToPage;
 end;
 
 destructor TWebApi.Destroy;
@@ -1026,6 +1240,7 @@ begin
     FSnaps.Data[I].Free;
   end;
   FSnaps.Free;
+  FInlineBots.Free;
   inherited Destroy;
 end;
 
@@ -1805,6 +2020,8 @@ end;
 function TWebApi.CmdMessagesList: TJSONData;
 var
   Msgs: TTdMessages;
+  KbRaw: utf8string;
+  ReplyKb: TJSONObject;
   Chats: TTdChats;
   CRow: TChatRow;
   Arr: TJSONArray;
@@ -1865,6 +2082,17 @@ begin
       Chats.EnsureAvatar(CRow);
       Chats.EnsureAvatarAnim(CRow);
       Res.Add('chat', RowToJson(Chats, CRow));
+      { Клавиатура бота над полем ввода: своя разметка чата, а нет её —
+        у загруженного сообщения, на которое указывает чат. }
+      KbRaw := CRow.ReplyMarkupRaw;
+      if (KbRaw = '') and (CRow.ReplyMarkupMsgId <> 0)
+         and (Msgs.IndexOfId(CRow.ReplyMarkupMsgId) >= 0) then begin
+        KbRaw := Msgs.Rows[Msgs.IndexOfId(CRow.ReplyMarkupMsgId)].ReplyMarkupRaw;
+      end;
+      ReplyKb := ReplyKeyboardJson(KbRaw, CRow.ReplyMarkupMsgId);
+      if ReplyKb <> nil then begin
+        Res.Add('replyKeyboard', ReplyKb);
+      end;
     end;
   end;
   { Comment thread, or nothing. The page cannot work this out for
@@ -3617,6 +3845,519 @@ begin
   ReleaseDeferred(Slot);
 end;
 
+{ ------------------------------------------------------------------ }
+{ bots: keyboards, callbacks, commands                               }
+{ ------------------------------------------------------------------ }
+
+{ Нажатие callback-кнопки: getCallbackQueryAnswer, ответ бота — text,
+  alert (show_alert), url. Бот может и не ответить вовремя — тогда
+  TDLib вернёт ошибку, и страница её не показывает. }
+function TWebApi.CmdBotCallback(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Id: Int64;
+begin
+  Msgs := RequireMsgs;
+  Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
+  if (Id = 0) or (Msgs.ChatId = 0) then begin
+    raise Exception.Create('bot.callback needs a message id');
+  end;
+  Msgs.Request('getCallbackQueryAnswer',
+    '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"message_id":' + utf8string(IntToStr(Id)) +
+    ',"payload":{"@type":"callbackQueryPayloadData","data":' +
+    JsonStr(utf8string(AArgs.Get('data', ''))) + '}',
+    @BotCallbackDone, TakeDeferred(AConnId, AReqId, Id));
+  Result := True;
+end;
+
+procedure TWebApi.BotCallbackDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('text', string(JGetStr(AResp.Obj, 'text')));
+  Res.Add('alert', JGetBool(AResp.Obj, 'show_alert'));
+  Res.Add('url', string(JGetStr(AResp.Obj, 'url')));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ Команды бота и его кнопка меню — из userFullInfo.bot_info (td_api.tl):
+  commands (command, description), menu_button (text, url). Только для
+  лички с ботом: в группах у каждого бота свои, это позже. }
+function TWebApi.CmdBotInfo(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Chats: TTdChats;
+  Row: TChatRow;
+  Slot: PtrInt;
+begin
+  Chats := RequireChats;
+  Row := Chats.Lookup(AArgs.Get('chatId', Int64(0)));
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  if (Row = nil) or (Row.Kind <> ckPrivate) or (Row.UserId = 0) then begin
+    Reply(AConnId, AReqId, TJSONObject.Create);
+    ReleaseDeferred(Slot);
+    Result := True;
+    Exit;
+  end;
+  RequireMsgs.Request('getUserFullInfo',
+    '"user_id":' + utf8string(IntToStr(Row.UserId)), @BotInfoDone, Slot);
+  Result := True;
+end;
+
+procedure TWebApi.BotInfoDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Info, Menu, C: TJSONObject;
+  Arr, Cmds: TJSONArray;
+  I: integer;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  if AResp.Success then begin
+    Info := JGetObj(AResp.Obj, 'bot_info');
+    if Info <> nil then begin
+      Cmds := TJSONArray.Create;
+      Arr := JGetArr(Info, 'commands');
+      if Arr <> nil then begin
+        for I := 0 to Arr.Count - 1 do begin
+          if not (Arr.Items[I] is TJSONObject) then begin
+            Continue;
+          end;
+          C := TJSONObject.Create;
+          C.Add('command', string(JGetStr(TJSONObject(Arr.Items[I]), 'command')));
+          C.Add('description', string(JGetStr(TJSONObject(Arr.Items[I]), 'description')));
+          Cmds.Add(C);
+        end;
+      end;
+      Res.Add('commands', Cmds);
+      Menu := JGetObj(Info, 'menu_button');
+      if Menu <> nil then begin
+        C := TJSONObject.Create;
+        C.Add('text', string(JGetStr(Menu, 'text')));
+        C.Add('url', string(JGetStr(Menu, 'url')));
+        Res.Add('menuButton', C);
+      end;
+    end;
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ Кнопка «пользователь»: личка с ним (createPrivateChat), чтобы её открыть. }
+function TWebApi.CmdBotUserChat(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+begin
+  RequireMsgs.Request('createPrivateChat',
+    '"user_id":' + utf8string(AArgs.Get('userId', '0')) + ',"force":false',
+    @LinkChatDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
+end;
+
+{ ------------------------------------------------------------------ }
+{ mini apps                                                          }
+{ ------------------------------------------------------------------ }
+
+
+{ Запуск мини-приложения. source: inline (кнопка под сообщением — бот
+  это отправитель сообщения), menu (кнопка меню бота в личке), keyboard
+  (кнопка клавиатуры — getWebAppUrl, без launch_id; данные приложения
+  уходят боту через sendWebAppData). theme — цвета страницы под именами
+  themeParameters ('#rrggbb'): TDLib получает их целыми RGB, а само
+  приложение — в theme_changed под своими именами (bg_color и т.д.).
+  Методы и поля — td_api.tl коммита d1085f9 (TDLib 1.8.67). }
+function TWebApi.CmdWebAppOpen(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Source, Url, Params, Key, Hex: utf8string;
+  Bot: Int64;
+  Idx, I, V: integer;
+  Slot: PtrInt;
+  Theme, Ints, Held: TJSONObject;
+begin
+  Msgs := RequireMsgs;
+  Source := utf8string(AArgs.Get('source', ''));
+  Url := utf8string(AArgs.Get('url', ''));
+  Bot := 0;
+  if Source = 'inline' then begin
+    Idx := Msgs.IndexOfId(StrToInt64Def(utf8string(AArgs.Get('msgId', '')), 0));
+    if Idx >= 0 then begin
+      Bot := Msgs.Rows[Idx].SenderUserId;
+    end;
+  end else begin
+    Chats := RequireChats;
+    Row := Chats.Lookup(Msgs.ChatId);
+    if (Row <> nil) and (Row.Kind = ckPrivate) then begin
+      Bot := Row.UserId;
+    end;
+  end;
+  if Bot = 0 then begin
+    raise Exception.Create('No bot to open this app for');
+  end;
+
+  Ints := TJSONObject.Create;
+  Held := TJSONObject.Create;
+  try
+    Ints.Add('@type', 'themeParameters');
+    Theme := TJSONObject.Create;
+    if AArgs.Find('theme') is TJSONObject then begin
+      for I := 0 to TJSONObject(AArgs.Find('theme')).Count - 1 do begin
+        Key := utf8string(TJSONObject(AArgs.Find('theme')).Names[I]);
+        Hex := utf8string(TJSONObject(AArgs.Find('theme')).Items[I].AsString);
+        if (Length(Hex) = 7) and (Hex[1] = '#')
+           and TryStrToInt('$' + string(Copy(Hex, 2, 6)), V) then begin
+          Ints.Add(string(Key), V);
+          Theme.Add(StringReplace(string(Key), 'background', 'bg', []), string(Hex));
+        end;
+      end;
+    end;
+    Params := '{"@type":"webAppOpenParameters","theme":' + utf8string(Ints.AsJSON) +
+      ',"application_name":' + JsonStr(MINIAPP_APP_NAME) +
+      ',"mode":{"@type":"webAppOpenModeFullSize"}}';
+    Held.Add('theme', Theme);
+    Held.Add('bot', Bot);
+    Held.Add('title', AArgs.Get('title', ''));
+    Held.Add('buttonText', AArgs.Get('buttonText', ''));
+  finally
+    Ints.Free;
+  end;
+
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := Held;
+  if Source = 'keyboard' then begin
+    Msgs.Request('getWebAppUrl',
+      '"bot_user_id":' + utf8string(IntToStr(Bot)) + ',"url":' + JsonStr(Url) +
+      ',"parameters":' + Params, @WebAppOpenDone, Slot);
+  end else begin
+    Msgs.Request('openWebApp',
+      '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+      ',"bot_user_id":' + utf8string(IntToStr(Bot)) + ',"url":' + JsonStr(Url) +
+      ',"parameters":' + Params, @WebAppOpenDone, Slot);
+  end;
+  Result := True;
+end;
+
+{ Ответ — webAppInfo (launch_id, url: webAppUrl) у openWebApp или сам
+  webAppUrl у getWebAppUrl; окно открывается здесь, странице — ok. }
+procedure TWebApi.WebAppOpenDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Held, UrlObj, Res: TJSONObject;
+  Url: utf8string;
+  Launch: Int64;
+  Theme: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Held := FDeferred[Slot].Held;
+  if JGetStr(AResp.Obj, '@type') = 'webAppInfo' then begin
+    Launch := JGetInt64(AResp.Obj, 'launch_id');
+    UrlObj := JGetObj(AResp.Obj, 'url');
+  end else begin
+    Launch := 0;
+    UrlObj := AResp.Obj;
+  end;
+  Url := JGetStr(UrlObj, 'url');
+  if Url = '' then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, 'The bot sent no app address');
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Theme := TJSONObject(Held.Find('theme').Clone);
+  OpenMiniApp(Url, utf8string(Held.Get('title', '')), Held.Get('bot', Int64(0)), Launch,
+    utf8string(Held.Get('buttonText', '')), Theme);
+  Res := TJSONObject.Create;
+  Res.Add('ok', True);
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ Кнопки-запросы клавиатуры бота: поделиться пользователями, чатом,
+  своим номером. Источник кнопки — сообщение с клавиатурой
+  (keyboardButtonSourceMessage, td_api.tl 1.8.67: в этой версии
+  shareUsersWithBot/shareChatWithBot принимают source, а не
+  chat_id/message_id). }
+function KeyboardSource(AChatId, AMsgId: Int64): utf8string;
+begin
+  Result := '{"@type":"keyboardButtonSourceMessage","chat_id":' +
+    utf8string(IntToStr(AChatId)) + ',"message_id":' + utf8string(IntToStr(AMsgId)) + '}';
+end;
+
+{ Общий ответ «сделано / ошибка» для отложенных команд без данных. }
+procedure TWebApi.SimpleDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('ok', True);
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+function TWebApi.CmdBotShareUsers(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Arr: TJSONArray;
+  Ids: utf8string;
+  I: integer;
+begin
+  Msgs := RequireMsgs;
+  Ids := '';
+  Arr := TJSONArray(AArgs.Find('userIds', jtArray));
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if Ids <> '' then begin
+        Ids := Ids + ',';
+      end;
+      Ids := Ids + utf8string(IntToStr(StrToInt64Def(Arr.Strings[I], 0)));
+    end;
+  end;
+  Msgs.Request('shareUsersWithBot',
+    '"source":' + KeyboardSource(Msgs.ChatId, StrToInt64Def(utf8string(AArgs.Get('msgId', '')), 0)) +
+    ',"button_id":' + utf8string(IntToStr(AArgs.Get('buttonId', 0))) +
+    ',"shared_user_ids":[' + Ids + '],"only_check":false',
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
+end;
+
+function TWebApi.CmdBotShareChat(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  Msgs.Request('shareChatWithBot',
+    '"source":' + KeyboardSource(Msgs.ChatId, StrToInt64Def(utf8string(AArgs.Get('msgId', '')), 0)) +
+    ',"button_id":' + utf8string(IntToStr(AArgs.Get('buttonId', 0))) +
+    ',"shared_chat_id":' + utf8string(IntToStr(StrToInt64Def(utf8string(AArgs.Get('chatId', '')), 0))) +
+    ',"only_check":false',
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
+end;
+
+{ «Поделиться номером»: как у клиентов Telegram — свой контакт
+  сообщением в чат с ботом. Сначала getMe (номер и имя), потом
+  sendMessage с inputMessageContact. }
+function TWebApi.CmdBotSharePhone(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+begin
+  RequireMsgs.Request('getMe', '', @SharePhoneMeDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
+end;
+
+procedure TWebApi.SharePhoneMeDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Msgs: TTdMessages;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  Msgs := TdMsgList;
+  if (not AResp.Success) or (Msgs = nil) or (Msgs.ChatId = 0) then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, 'Could not read your phone number');
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Msgs.Request('sendMessage',
+    '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"input_message_content":{"@type":"inputMessageContact","contact":{"@type":"contact"' +
+    ',"phone_number":' + JsonStr(JGetStr(AResp.Obj, 'phone_number')) +
+    ',"first_name":' + JsonStr(JGetStr(AResp.Obj, 'first_name')) +
+    ',"last_name":' + JsonStr(JGetStr(AResp.Obj, 'last_name')) +
+    ',"vcard":"","user_id":' + utf8string(IntToStr(JGetInt64(AResp.Obj, 'id'))) + '}}',
+    @SimpleDone, Slot);
+end;
+
+{ ------------------------------------------------------------------ }
+{ inline mode: "@bot query" in the composer                          }
+{ ------------------------------------------------------------------ }
+
+{ Результат инлайн-запроса для страницы: id, вид, заголовок, описание.
+  Поля — по td_api.tl (inlineQueryResult*). Картинок пока нет: список
+  текстом, как у нативного клиента для статей. }
+function InlineResultJson(AItem: TJSONObject): TJSONObject;
+var
+  T, Title, Desc: utf8string;
+  Sub: TJSONObject;
+begin
+  T := JGetStr(AItem, '@type');
+  Title := JGetStr(AItem, 'title');
+  Desc := JGetStr(AItem, 'description');
+  if T = 'inlineQueryResultGame' then begin
+    Sub := JGetObj(AItem, 'game');
+    Title := JGetStr(Sub, 'title');
+    Desc := JGetStr(Sub, 'description');
+  end else if T = 'inlineQueryResultContact' then begin
+    Sub := JGetObj(AItem, 'contact');
+    Title := utf8string(Trim(string(JGetStr(Sub, 'first_name') + ' ' + JGetStr(Sub, 'last_name'))));
+    Desc := JGetStr(Sub, 'phone_number');
+  end else if T = 'inlineQueryResultVenue' then begin
+    Sub := JGetObj(AItem, 'venue');
+    Title := JGetStr(Sub, 'title');
+    Desc := JGetStr(Sub, 'address');
+  end else if T = 'inlineQueryResultAudio' then begin
+    Sub := JGetObj(AItem, 'audio');
+    Title := JGetStr(Sub, 'title');
+    Desc := JGetStr(Sub, 'performer');
+  end else if T = 'inlineQueryResultSticker' then begin
+    Title := JGetStr(JGetObj(AItem, 'sticker'), 'emoji');
+  end;
+  Result := TJSONObject.Create;
+  Result.Add('id', string(JGetStr(AItem, 'id')));
+  { inlineQueryResultArticle -> article и т.д. }
+  Result.Add('kind', LowerCase(Copy(string(T), Length('inlineQueryResult') + 1, MaxInt)));
+  Result.Add('title', string(Title));
+  Result.Add('description', string(Desc));
+end;
+
+{ Имя бота -> id: searchPublicChat, у лички id чата = id пользователя.
+  Кэш — чтобы не искать заново на каждую набранную букву. }
+function TWebApi.CmdInlineQuery(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Name: utf8string;
+  Slot: PtrInt;
+  I: integer;
+begin
+  Msgs := RequireMsgs;
+  Name := utf8string(LowerCase(AArgs.Get('username', '')));
+  if Name = '' then begin
+    raise Exception.Create('inline.query needs a bot username');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('name', string(Name));
+  FDeferred[Slot].Held.Add('query', AArgs.Get('query', ''));
+  FDeferred[Slot].Held.Add('offset', AArgs.Get('offset', ''));
+  I := FInlineBots.IndexOfName(string(Name));
+  if I >= 0 then begin
+    InlineAsk(Msgs, StrToInt64Def(FInlineBots.ValueFromIndex[I], 0), Slot);
+  end else begin
+    Msgs.Request('searchPublicChat', '"username":' + JsonStr(Name), @InlineBotDone, Slot);
+  end;
+  Result := True;
+end;
+
+procedure TWebApi.InlineAsk(AMsgs: TTdMessages; ABot: Int64; ASlot: PtrInt);
+begin
+  AMsgs.Request('getInlineQueryResults',
+    '"bot_user_id":' + utf8string(IntToStr(ABot)) +
+    ',"chat_id":' + utf8string(IntToStr(AMsgs.ChatId)) +
+    ',"query":' + JsonStr(utf8string(FDeferred[ASlot].Held.Get('query', ''))) +
+    ',"offset":' + JsonStr(utf8string(FDeferred[ASlot].Held.Get('offset', ''))),
+    @InlineResultsDone, ASlot);
+end;
+
+procedure TWebApi.InlineBotDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Bot: Int64;
+  Msgs: TTdMessages;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  Bot := 0;
+  if AResp.Success and (JGetStr(JGetObj(AResp.Obj, 'type'), '@type') = 'chatTypePrivate') then begin
+    Bot := JGetInt64(JGetObj(AResp.Obj, 'type'), 'user_id');
+  end;
+  Msgs := TdMsgList;
+  if (Bot = 0) or (Msgs = nil) then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, 'No such bot');
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  FInlineBots.Values[FDeferred[Slot].Held.Get('name', '')] := IntToStr(Bot);
+  InlineAsk(Msgs, Bot, Slot);
+end;
+
+procedure TWebApi.InlineResultsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+  Items, Arr: TJSONArray;
+  I: integer;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Items := TJSONArray.Create;
+  Arr := JGetArr(AResp.Obj, 'results');
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if Arr.Items[I] is TJSONObject then begin
+        Items.Add(InlineResultJson(TJSONObject(Arr.Items[I])));
+      end;
+    end;
+  end;
+  Res := TJSONObject.Create;
+  { inline_query_id — int64, у TDLib строкой; странице — тоже строкой. }
+  Res.Add('queryId', string(JGetStr(AResp.Obj, 'inline_query_id')));
+  if Res.Get('queryId', '') = '' then begin
+    Res.Strings['queryId'] := IntToStr(JGetInt64(AResp.Obj, 'inline_query_id'));
+  end;
+  Res.Add('nextOffset', string(JGetStr(AResp.Obj, 'next_offset')));
+  Res.Add('results', Items);
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ Выбранный результат — в открытый чат (sendInlineQueryResultMessage,
+  уже готовый TTdMessages.SendInlineResult). }
+function TWebApi.CmdInlineSend(AArgs: TJSONObject): TJSONData;
+begin
+  RequireMsgs.SendInlineResult(StrToInt64Def(utf8string(AArgs.Get('queryId', '')), 0),
+    utf8string(AArgs.Get('resultId', '')), AArgs.Get('silent', False));
+  Result := nil;
+end;
+
 function TWebApi.CmdMessageReact(AArgs: TJSONObject): TJSONData;
 var
   Id, CustomId: Int64;
@@ -3822,6 +4563,24 @@ begin
         CmdLinkResolve(AConnId, ReqId, Args);
       end else if Cmd = 'link.join' then begin
         CmdLinkJoin(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.callback' then begin
+        CmdBotCallback(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.info' then begin
+        CmdBotInfo(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.userChat' then begin
+        CmdBotUserChat(AConnId, ReqId, Args);
+      end else if Cmd = 'webapp.open' then begin
+        CmdWebAppOpen(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.shareUsers' then begin
+        CmdBotShareUsers(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.shareChat' then begin
+        CmdBotShareChat(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.sharePhone' then begin
+        CmdBotSharePhone(AConnId, ReqId, Args);
+      end else if Cmd = 'inline.query' then begin
+        CmdInlineQuery(AConnId, ReqId, Args);
+      end else if Cmd = 'inline.send' then begin
+        Reply(AConnId, ReqId, CmdInlineSend(Args));
       end else if Cmd = 'message.react' then begin
         Reply(AConnId, ReqId, CmdMessageReact(Args));
       end else if Cmd = 'message.delete' then begin

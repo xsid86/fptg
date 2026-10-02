@@ -135,6 +135,12 @@ type
     AnimRequested:      boolean;      { полная информация уже запрошена }
     { chatTypeBasicGroup.basic_group_id — для getBasicGroupFullInfo. }
     BasicGroupId:       Int64;
+    { Клавиатура бота над полем ввода: id сообщения, чья она
+      (chat.reply_markup_message_id), и сама разметка, если её принёс
+      updateChatReplyMarkup (в 1.8.67 он несёт сообщение целиком). Нет
+      разметки — мост ищет её у загруженного сообщения по id. }
+    ReplyMarkupMsgId:   Int64;
+    ReplyMarkupRaw:     utf8string;
     { -1 if not received yet. 0..6 are the reserved "base" colors
       (red/orange/violet/green/cyan/blue/pink), 7+ are resolved via
       TTdAccentColors (tdaccentcolors.pas) from updateAccentColors.
@@ -2416,6 +2422,7 @@ begin
   R.UserId := ChatUserId(JGetObj(AChat, 'type'));
   R.SupergroupId := ChatSupergroupId(JGetObj(AChat, 'type'));
   R.BasicGroupId := ChatBasicGroupId(JGetObj(AChat, 'type'));
+  R.ReplyMarkupMsgId := JGetInt64(AChat, 'reply_markup_message_id');
   R.UnreadCount := JGetInt(AChat, 'unread_count');
   R.UnreadMentionCount := JGetInt(AChat, 'unread_mention_count');
   R.IsMarkedAsUnread := JGetBool(AChat, 'is_marked_as_unread');
@@ -2466,6 +2473,23 @@ begin
       R := Lookup(JGetInt64(Obj, 'chat_id'));
       if R <> nil then begin
         ApplyPositions(R, JGetArr(Obj, 'positions'));
+        Touch;
+      end;
+    end else if T = 'updateChatReplyMarkup' then begin
+      R := Lookup(JGetInt64(Obj, 'chat_id'));
+      if R <> nil then begin
+        if JGetObj(Obj, 'reply_markup_message') <> nil then begin
+          R.ReplyMarkupMsgId := JGetInt64(JGetObj(Obj, 'reply_markup_message'), 'id');
+          if JGetObj(JGetObj(Obj, 'reply_markup_message'), 'reply_markup') <> nil then begin
+            R.ReplyMarkupRaw := utf8string(
+              JGetObj(JGetObj(Obj, 'reply_markup_message'), 'reply_markup').AsJSON);
+          end else begin
+            R.ReplyMarkupRaw := '';
+          end;
+        end else begin
+          R.ReplyMarkupMsgId := 0;
+          R.ReplyMarkupRaw := '';
+        end;
         Touch;
       end;
     end else if T = 'updateChatTitle' then begin

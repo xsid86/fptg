@@ -1,0 +1,190 @@
+@use "../abstracts" as *;
+
+// Кнопки ботов (ui/bots.js): инлайн под сообщением, клавиатура над
+// полем ввода, кнопка Menu с командами.
+
+// ---------------------------------------------------- под сообщением
+.message__keyboard {
+  @include flex(column, stretch, flex-start, $space-1);
+  padding: $space-2 $space-3 $space-3;
+}
+
+.message__kb-row {
+  @include flex(row, stretch, flex-start, $space-1);
+}
+
+.message__kb-btn,
+.composer__kb-btn {
+  @include flex(row, center, center, $space-2);
+  @include focus-ring;
+  background: color-mix(in srgb, var(--sender-color, var(--c-accent)) 14%, transparent);
+  border: 0;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  flex: 1 1 0;
+  font-size: $fs-sm;
+  font-weight: $fw-medium;
+  min-width: 0;
+  padding: $space-3 $space-4;
+  position: relative;
+  @include transition;
+
+  &:hover {
+    background: color-mix(in srgb, var(--sender-color, var(--c-accent)) 24%, transparent);
+  }
+}
+
+.message__kb-btn-text,
+.composer__kb-btn-text {
+  @include ellipsis;
+  min-width: 0;
+}
+
+// Ссылка или Mini App — значок у правого края, по вертикали посередине.
+.message__kb-btn-mark,
+.composer__kb-btn-mark {
+  color: var(--c-text-faint);
+  inset-block-start: 50%;
+  inset-inline-end: $space-3;
+  position: absolute;
+  transform: translateY(-50%);
+}
+
+// ------------------------------------------------- над полем ввода
+.composer__keyboard {
+  @include flex(column, stretch, flex-start, $space-1);
+  @include scroll-area;
+  max-height: 220px;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.composer__kb-row {
+  @include flex(row, stretch, flex-start, $space-1);
+}
+
+.composer__kb-toggle.is-active {
+  color: var(--c-accent);
+}
+
+// Menu — как у нативного клиента: залитая кнопка с текстом.
+.composer__menu {
+  background: var(--c-accent);
+  border-radius: $radius-pill;
+  color: var(--c-accent-text);
+  font-weight: $fw-medium;
+  padding: $space-2 $space-5;
+
+  &:hover {
+    background: var(--c-accent-hover);
+  }
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.composer__kb-toggle[hidden] {
+  display: none;
+}
+
+// Текст ответа бота в окне show_alert — обычного цвета, с переносами.
+.confirm__note--plain {
+  color: var(--c-text);
+  white-space: pre-line;
+}
+
+// ---------------------------------------------- выбор для кнопок-запросов
+// «Выбрать получателя подарка» и т.п. — окно подтверждения со списком
+// своих чатов.
+.share {
+  max-height: calc(100vh - #{2 * $space-6});
+  width: 360px;
+}
+
+.share__search {
+  border-radius: $radius-md;
+}
+
+.share__list {
+  @include scroll-area;
+  list-style: none;
+  margin: 0;
+  max-height: 360px;
+  padding: 0;
+}
+
+.share__item[hidden] {
+  display: none;
+}
+
+.share__label {
+  @include flex(row, center, flex-start, $space-4);
+  border-radius: $radius-md;
+  cursor: pointer;
+  padding: $space-2 $space-3;
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+
+  input {
+    accent-color: var(--c-accent);
+    flex: 0 0 auto;
+    margin: 0;
+  }
+}
+
+.share__avatar {
+  --avatar-color: var(--accent-color);
+  flex: 0 0 auto;
+}
+
+.share__name {
+  @include ellipsis;
+  font-size: $fs-base;
+  min-width: 0;
+}
+
+// ------------------------------------------------------- inline mode
+// Результаты «@бот запрос» над полем ввода.
+.composer__inline {
+  @include flex(column, stretch, flex-start, $space-1);
+  @include scroll-area;
+  max-height: 260px;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.composer__inline-item {
+  @include flex(column, stretch, flex-start, $space-1);
+  @include focus-ring;
+  background: none;
+  border: 0;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-3 $space-4;
+  text-align: left;
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+}
+
+.composer__inline-title {
+  @include ellipsis;
+  font-size: $fs-base;
+  font-weight: $fw-medium;
+}
+
+.composer__inline-desc {
+  @include line-clamp(2);
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}

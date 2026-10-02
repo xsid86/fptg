@@ -1496,6 +1496,16 @@ const
     файлов уходит несколькими альбомами подряд. }
   SEND_ALBUM_MAX = 10;
 
+  { Окно мини-приложения бота (miniapp.pas): размер — как у окна
+    Telegram Desktop, высоты полос — шапки с Back/Settings/Reload и
+    кнопок приложения внизу. MINIAPP_APP_NAME — application_name в
+    webAppOpenParameters (td_api.tl: 0-64 латинских букв, цифр и _). }
+  MINIAPP_WIDTH = 420;
+  MINIAPP_HEIGHT = 720;
+  MINIAPP_BAR_H = 36;
+  MINIAPP_BUTTON_H = 44;
+  MINIAPP_APP_NAME = 'TGOrchestrator';
+
   { A SAFETY NET, not the delivery path (webapi.pas). A socket thread
     that queues a command also wakes the main thread immediately
     through TThread.Queue, so this interval only matters if something

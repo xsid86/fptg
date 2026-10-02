@@ -64,6 +64,31 @@ type
     function put_AreDefaultContextMenusEnabled(v: BOOL): HRESULT; stdcall;    { 11 }
   end;
 
+  { --- ICoreWebView2WebMessageReceivedEventArgs: slots 0..2 ---
+    Для мини-приложений (miniapp.pas): страница шлёт
+    chrome.webview.postMessage, хост читает строку. Порядок и GUID — из
+    WebView2.h SDK 1.0.4191.47 (0f99a40c-...). }
+  ICoreWebView2WebMessageReceivedEventArgs = interface(IUnknown)
+    ['{0F99A40C-E962-4207-9E92-E3D542EFF849}']
+    function get_Source(out value: PWideChar): HRESULT; stdcall;               { 0 }
+    function get_WebMessageAsJson(out value: PWideChar): HRESULT; stdcall;     { 1 }
+    function TryGetWebMessageAsString(out value: PWideChar): HRESULT; stdcall; { 2 }
+  end;
+
+  ICoreWebView2WebMessageReceivedEventHandler = interface(IUnknown)
+    ['{57213F19-00E6-49FA-8E07-898EA01ECBD2}']
+    function Invoke(sender: ICoreWebView2;
+      args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT; stdcall;
+  end;
+
+  { AddScriptToExecuteOnDocumentCreated отвечает асинхронно; навигация
+    ждёт этого ответа, иначе первый документ мог бы открыться без
+    скрипта. GUID b99369f3-... из того же заголовка. }
+  ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler = interface(IUnknown)
+    ['{B99369F3-9B11-47B5-BC6F-8E7895FCEA17}']
+    function Invoke(errorCode: HRESULT; AId: PWideChar): HRESULT; stdcall;
+  end;
+
   { --- ICoreWebView2NewWindowRequestedEventArgs: slots 0..3 --- }
   ICoreWebView2NewWindowRequestedEventArgs = interface(IUnknown)
     ['{34ACB11C-FC37-4418-9132-F9C21D1EAFB9}']
@@ -139,14 +164,17 @@ type
     function remove_PermissionRequested(a: Pointer): HRESULT; stdcall;        { 21 slot only }
     function add_ProcessFailed(a, b: Pointer): HRESULT; stdcall;              { 22 slot only }
     function remove_ProcessFailed(a: Pointer): HRESULT; stdcall;              { 23 slot only }
-    function AddScriptToExecuteOnDocumentCreated(a, b: Pointer): HRESULT; stdcall;    { 24 }
+    function AddScriptToExecuteOnDocumentCreated(javaScript: PWideChar;
+      handler: ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler): HRESULT; stdcall; { 24 }
     function RemoveScriptToExecuteOnDocumentCreated(a: Pointer): HRESULT; stdcall;    { 25 }
     function ExecuteScript(a, b: Pointer): HRESULT; stdcall;                  { 26 slot only }
     function CapturePreview(a, b, c: Pointer): HRESULT; stdcall;              { 27 slot only }
     function Reload: HRESULT; stdcall;                                        { 28 }
-    function PostWebMessageAsJson(a: Pointer): HRESULT; stdcall;              { 29 slot only }
+    function PostWebMessageAsJson(webMessageAsJson: PWideChar): HRESULT; stdcall; { 29 }
     function PostWebMessageAsString(a: Pointer): HRESULT; stdcall;            { 30 slot only }
-    function add_WebMessageReceived(a, b: Pointer): HRESULT; stdcall;         { 31 slot only }
+    function add_WebMessageReceived(
+      handler: ICoreWebView2WebMessageReceivedEventHandler;
+      out token: TEventToken): HRESULT; stdcall;                              { 31 }
     function remove_WebMessageReceived(a: Pointer): HRESULT; stdcall;         { 32 slot only }
     function CallDevToolsProtocolMethod(a, b, c: Pointer): HRESULT; stdcall;  { 33 slot only }
     function get_BrowserProcessId(a: Pointer): HRESULT; stdcall;              { 34 slot only }
@@ -233,6 +261,7 @@ type
 type
   TWebView2NavigateEvent = procedure(Sender: TObject; const AUri: utf8string) of object;
   TWebView2ErrorEvent = procedure(Sender: TObject; const AMessage: string) of object;
+  TWebView2TextEvent = procedure(Sender: TObject; const AText: UnicodeString) of object;
   { AHandled left False lets the key through to the page as usual. }
   TWebView2KeyEvent = procedure(Sender: TObject; AVirtualKey: word;
     var AHandled: boolean) of object;
@@ -256,12 +285,16 @@ type
     FOnUnavailable: TWebView2ErrorEvent;
     FOnAcceleratorKey: TWebView2KeyEvent;
     FOnFullScreenElement: TWebView2StateEvent;
+    FStartupScript: UnicodeString;
+    FOnWebMessage: TWebView2TextEvent;
     procedure EnvironmentReady(AResult: HRESULT; AEnv: ICoreWebView2Environment);
     procedure ControllerReady(AResult: HRESULT; ACtrl: ICoreWebView2Controller);
     function ExternalUriRequested(const AUri: UnicodeString): boolean;
     function AcceleratorKey(AVirtualKey: word): boolean;
     procedure FullScreenElementChanged;
     procedure ReportUnavailable(const AMessage: string);
+    procedure StartupScriptAdded;
+    procedure WebMessage(const AText: UnicodeString);
   public
     constructor Create(AHost: HWND);
     destructor Destroy; override;
@@ -288,6 +321,16 @@ type
       already sized the element to the view; whether the WINDOW follows
       is the host's decision. }
     property OnFullScreenElement: TWebView2StateEvent read FOnFullScreenElement write FOnFullScreenElement;
+    { Скрипт, который ставится в каждый документ ДО его собственных
+      скриптов (AddScriptToExecuteOnDocumentCreated). Задавать сразу
+      после Create: навигация ждёт, пока он встанет. }
+    property StartupScript: UnicodeString read FStartupScript write FStartupScript;
+    { Строка из chrome.webview.postMessage страницы. }
+    property OnWebMessage: TWebView2TextEvent read FOnWebMessage write FOnWebMessage;
+    { Сообщение странице (chrome.webview, событие message, e.data — уже
+      разобранный JSON). }
+    procedure PostJson(const AJson: utf8string);
+    procedure Reload;
   end;
 
 { True when a WebView2 runtime is installed. Checked before building a
@@ -376,6 +419,25 @@ type
       args: ICoreWebView2AcceleratorKeyPressedEventArgs): HRESULT; stdcall;
   end;
 
+  TWebMessageHandler = class(TInterfacedObject,
+    ICoreWebView2WebMessageReceivedEventHandler)
+  private
+    FOwner: TWebView2;
+  public
+    constructor Create(AOwner: TWebView2);
+    function Invoke(sender: ICoreWebView2;
+      args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT; stdcall;
+  end;
+
+  TScriptAddedHandler = class(TInterfacedObject,
+    ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler)
+  private
+    FOwner: TWebView2;
+  public
+    constructor Create(AOwner: TWebView2);
+    function Invoke(errorCode: HRESULT; AId: PWideChar): HRESULT; stdcall;
+  end;
+
   TFullScreenHandler = class(TInterfacedObject,
     ICoreWebView2ContainsFullScreenElementChangedEventHandler)
   private
@@ -384,6 +446,46 @@ type
     constructor Create(AOwner: TWebView2);
     function Invoke(sender: ICoreWebView2; args: IUnknown): HRESULT; stdcall;
   end;
+
+constructor TWebMessageHandler.Create(AOwner: TWebView2);
+begin
+  inherited Create;
+  FOwner := AOwner;
+end;
+
+function TWebMessageHandler.Invoke(sender: ICoreWebView2;
+  args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT; stdcall;
+var
+  P: PWideChar;
+  S: UnicodeString;
+begin
+  Result := S_OK;
+  if (FOwner = nil) or (args = nil) then begin
+    Exit;
+  end;
+  P := nil;
+  { Только строки: мост шлёт JSON строкой. Не-строка — не наше. }
+  if Succeeded(args.TryGetWebMessageAsString(P)) and (P <> nil) then begin
+    S := UnicodeString(P);
+    { Строку выделил рантайм — освобождать вызывающему. }
+    CoTaskMemFree(P);
+    FOwner.WebMessage(S);
+  end;
+end;
+
+constructor TScriptAddedHandler.Create(AOwner: TWebView2);
+begin
+  inherited Create;
+  FOwner := AOwner;
+end;
+
+function TScriptAddedHandler.Invoke(errorCode: HRESULT; AId: PWideChar): HRESULT; stdcall;
+begin
+  if FOwner <> nil then begin
+    FOwner.StartupScriptAdded;
+  end;
+  Result := S_OK;
+end;
 
 constructor TEnvHandler.Create(AOwner: TWebView2);
 begin
@@ -595,15 +697,21 @@ begin
   FWebView.add_NewWindowRequested(TNewWindowHandler.Create(Self), Token);
   FWebView.add_ContainsFullScreenElementChanged(TFullScreenHandler.Create(Self), Token);
   FController.add_AcceleratorKeyPressed(TAccelHandler.Create(Self), Token);
+  if Assigned(FOnWebMessage) then begin
+    FWebView.add_WebMessageReceived(TWebMessageHandler.Create(Self), Token);
+  end;
 
   Windows.GetClientRect(FHost, @R);
   FController.put_Bounds(R);
   FController.put_IsVisible(True);
 
-  FReady := True;
-  if FPendingUrl <> '' then begin
-    FWebView.Navigate(PWideChar(FPendingUrl));
-    FPendingUrl := '';
+  { Стартовый скрипт — до навигации: ждём его ответа, и только потом
+    идём на адрес (StartupScriptAdded). Без скрипта — как раньше. }
+  if FStartupScript <> '' then begin
+    FWebView.AddScriptToExecuteOnDocumentCreated(PWideChar(FStartupScript),
+      TScriptAddedHandler.Create(Self));
+  end else begin
+    StartupScriptAdded;
   end;
   { The page takes the keyboard as soon as it exists. Nothing else in
     this window can want it - the whole client area is the runtime's
@@ -640,6 +748,36 @@ begin
   Active := False;
   if Succeeded(FWebView.get_ContainsFullScreenElement(Active)) then begin
     FOnFullScreenElement(Self, Active);
+  end;
+end;
+
+procedure TWebView2.StartupScriptAdded;
+begin
+  FReady := True;
+  if (FPendingUrl <> '') and (FWebView <> nil) then begin
+    FWebView.Navigate(PWideChar(FPendingUrl));
+    FPendingUrl := '';
+  end;
+end;
+
+procedure TWebView2.WebMessage(const AText: UnicodeString);
+begin
+  if Assigned(FOnWebMessage) then begin
+    FOnWebMessage(Self, AText);
+  end;
+end;
+
+procedure TWebView2.PostJson(const AJson: utf8string);
+begin
+  if FReady and (FWebView <> nil) then begin
+    FWebView.PostWebMessageAsJson(PWideChar(UnicodeString(AJson)));
+  end;
+end;
+
+procedure TWebView2.Reload;
+begin
+  if FReady and (FWebView <> nil) then begin
+    FWebView.Reload;
   end;
 end;
 

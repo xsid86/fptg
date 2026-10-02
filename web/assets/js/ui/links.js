@@ -116,7 +116,7 @@ async function follow(href) {
       return;
     }
     if (joined?.requested) {
-      hooks.report('Join request sent');
+      hooks.notice('Join request sent');
       return;
     }
     if (!joined?.chatId) return;
@@ -127,7 +127,17 @@ async function follow(href) {
   else hooks.openChat(target.chatId);
 }
 
-/** hooks: { call(cmd, args), openChat(id), openMessage(chatId, messageId), report(err) } */
+/**
+ * Открыть ссылку так же, как по клику в тексте: t.me — внутри
+ * приложения, прочее — в браузере. Для кнопок ботов (ui/bots.js).
+ */
+export function openLink(href) {
+  if (!href) return;
+  if (TELEGRAM_LINK.test(href)) follow(href).catch(console.error);
+  else openOutside(href);
+}
+
+/** hooks: { call(cmd, args), openChat(id), openMessage(chatId, messageId), report(err), notice(text) } */
 export function mountLinks(options) {
   hooks = options ?? {};
   // В фазе перехвата: раньше, чем ссылка уйдёт по target=_blank, и

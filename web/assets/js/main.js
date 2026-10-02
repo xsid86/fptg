@@ -23,7 +23,9 @@ import { mountThemeToggle } from './ui/theme.js';
 import { mountSettings } from './ui/settings.js';
 import { mountAttach } from './ui/attach.js';
 import { mountPeople } from './ui/people.js';
-import { mountLinks } from './ui/links.js';
+import { mountLinks, openLink } from './ui/links.js';
+import { mountBots } from './ui/bots.js';
+import { mountNotices, notice } from './ui/notices.js';
 import { openViewer } from './ui/viewer.js';
 
 // Entry point: wire the shell that index.html already contains, open
@@ -292,6 +294,10 @@ function wireActions() {
     call('media.ensure', args).catch(() => {});
   });
 
+  // Ссылка t.me из окна мини-приложения (miniapp.pas) — тем же путём,
+  // что ссылка в сообщении.
+  on('srv:openLink', (data) => openLink(data?.url));
+
   on('ui:cancel-transfer', (args) => {
     call('message.cancelTransfer', args).catch(report);
   });
@@ -450,6 +456,18 @@ async function boot() {
     report,
   });
   mountPeople({ load: (args) => call('message.people', args) });
+  mountNotices(qs('#notices'));
+  mountBots(qs('#composer'), {
+    call: (cmd, args) => call(cmd, args),
+    report,
+    notice,
+    openChat: (id) => setActiveChat(id),
+    // Кнопка клавиатуры бота и команда из меню — обычное сообщение от
+    // своего имени. HTML, а не MarkdownV2: текст кнопки не должен
+    // превратиться в разметку из-за звёздочки.
+    send: (text) => emit('ui:send', { text, html: true, silent: isSilent(), replyTo: '' }),
+    silent: isSilent,
+  });
   mountLinks({
     call: (cmd, args) => call(cmd, args),
     openChat: (id) => setActiveChat(id),
@@ -457,6 +475,7 @@ async function boot() {
     // на нужном сообщении.
     openMessage: (chatId, messageId) => emit('ui:open-source', { chatId, messageId }),
     report,
+    notice,
   });
   mountAttach(qs('#attach'), qs('#dropzone'), qs('.workspace'), {
     call: (cmd, args) => call(cmd, args),

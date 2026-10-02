@@ -8,6 +8,7 @@ import {holdImage, holdVideo} from '../util/offscreen.js';
 import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 import {addRing, xferText, xferLeft} from '../util/xfer.js';
 import {peopleOnHover} from './people.js';
+import {renderInlineKeyboard} from './bots.js';
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -77,6 +78,8 @@ export function renderMessage(msg) {
 
     const footer = renderFooter(msg, bare);
     if (footer) card.append(footer);
+    // Кнопки бота под сообщением (ui/bots.js).
+    if (msg.keyboard?.length) card.append(renderInlineKeyboard(msg));
     return withMenu(card, msg);
 }
 

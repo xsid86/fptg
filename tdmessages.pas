@@ -175,6 +175,10 @@ type
     AlbumId:         Int64;
     Kind:            TMsgContentKind;
     ContentRaw:      utf8string;
+    { message.reply_markup как есть (JSON) — кнопки бота: инлайн под
+      сообщением или клавиатура над полем ввода. Разбирает мост
+      (webapi.pas, KeyboardRowsJson); '' — кнопок нет. }
+    ReplyMarkupRaw:  utf8string;
     PlainText:       utf8string;
     Entities:        TMsgEntityArray;
     Delivery:        TMsgDeliveryState;
@@ -4116,6 +4120,13 @@ begin
     re-delivered byte-for-byte identical in content (overlapping
     pagination pages, a repeated getChatHistory) while its reaction
     counts have moved on since the last time it was seen. }
+  { До проверки «содержимое не изменилось» ниже: кнопки меняются и без
+    смены содержимого. }
+  if JGetObj(AMsg, 'reply_markup') <> nil then begin
+    R.ReplyMarkupRaw := utf8string(JGetObj(AMsg, 'reply_markup').AsJSON);
+  end else begin
+    R.ReplyMarkupRaw := '';
+  end;
   ExtractReactions(JGetObj(AMsg, 'interaction_info'), R.Reactions);
   R.CanSeeReactors := JGetBool(JGetObj(JGetObj(AMsg, 'interaction_info'), 'reactions'),
     'can_get_added_reactions');
@@ -6862,6 +6873,13 @@ begin
         R := Lookup(JGetInt64(Obj, 'message_id'));
         if R <> nil then begin
           R.EditDate := JGetInt64(Obj, 'edit_date');
+          { Боты меняют кнопки правкой (td_api.tl: updateMessageEdited
+            несёт reply_markup). }
+          if JGetObj(Obj, 'reply_markup') <> nil then begin
+            R.ReplyMarkupRaw := utf8string(JGetObj(Obj, 'reply_markup').AsJSON);
+          end else begin
+            R.ReplyMarkupRaw := '';
+          end;
           Touch;
         end;
       end;
