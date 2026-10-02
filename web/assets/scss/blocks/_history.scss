@@ -77,10 +77,10 @@
   z-index: 3;
 
   > span {
-    background: var(--c-surface-2);
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--c-accent) 80%, white), color-mix(in srgb, var(--c-accent) 80%, black));
     border-radius: $radius-pill;
     box-shadow: 0 2px 8px var(--c-shadow);
-    color: var(--c-text-dim);
+    color: var(--c-light);
     font-size: $fs-sm;
     padding: $space-1 $space-4;
   }

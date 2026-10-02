@@ -1998,10 +1998,10 @@ body {
   z-index: 3;
 }
 .history__float-date > span {
-  background: var(--c-surface-2);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--c-accent) 80%, white), color-mix(in srgb, var(--c-accent) 80%, black));
   border-radius: 999px;
   box-shadow: 0 2px 8px var(--c-shadow);
-  color: var(--c-text-dim);
+  color: var(--c-light);
   font-size: 12px;
   padding: 2px 8px;
 }
