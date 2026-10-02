@@ -388,6 +388,14 @@ type
       instead of discarding them). }
     VideoDownloadedSize:         Int64;
     VideoTotalSize:              Int64;
+    { Ход передачи ОСНОВНОГО файла сообщения — любого вида, вверх или
+      вниз (см. ApplyXferFile). Для кольца вокруг значка на странице. }
+    XferDone:   Int64;
+    XferTotal:  Int64;
+    XferUp:     boolean;
+    XferActive: boolean;
+    { Файл, который передаётся, — его и отменяет CancelTransfer. }
+    XferFileId: integer;
     { messageSticker.sticker — Kind=mckSticker only. The same
       double-"sticker" JSON naming (content.sticker.sticker is the
       downloadable TDLib file object, content.sticker is the metadata)
@@ -835,6 +843,7 @@ type
     procedure FilesParseDone(Sender: TObject; const AResp: TTdResponse);
     procedure DoSendFiles(ASlot: PtrInt; const ACaptionJson: utf8string);
     procedure FilesSentDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyXferUpdate(AFile: TJSONObject);
     procedure SendTextDone(Sender: TObject; const AResp: TTdResponse);
     procedure EditTextDone(Sender: TObject; const AResp: TTdResponse);
     procedure ActionOnlyDone(Sender: TObject; const AResp: TTdResponse);
@@ -955,6 +964,13 @@ type
       при следующем старте. }
     procedure SendFiles(const APaths: array of utf8string; AAsPhoto: boolean;
       const ACaption: utf8string; AIsHtml, ASilent: boolean; AReplyTo: Int64);
+
+    { Отмена передачи по клику на кольцо. Скачивание — cancelDownloadFile
+      (td_api.tl) плюс снятие из нашей очереди и сброс пометки
+      «запрошено», чтобы следующий клик снова начинал загрузку. Закачка
+      исходящего — удаление самого сообщения, как у нативного клиента:
+      cancelPreliminaryUploadFile — только для предварительной загрузки. }
+    procedure CancelTransfer(AMessageId: Int64);
 
     { Replaces the text of a message already sent. Goes through the
       same parseTextEntities as a new one, so what the toolbar's
@@ -3825,6 +3841,158 @@ begin
   end;
 end;
 
+{ ---------------- transfer progress (any media) ---------------- }
+
+{ Основной файл содержимого — тот, ход передачи которого показывает
+  страница: документ, трек, голосовое, видео, GIF; у фото — самый
+  большой размер (его TDLib закачивает при отправке). nil — у вида нет
+  файла, ход которого стоит показывать (стикер, текст). Пути по
+  td_api.tl: messageDocument.document.document, messageAudio.audio.audio,
+  messageVoiceNote.voice_note.voice, messageVideo.video.video,
+  messageAnimation.animation.animation, messagePhoto.photo.sizes[].photo. }
+function MainFileObj(AContent: TJSONObject; const AType: utf8string): TJSONObject;
+var
+  Inner: TJSONObject;
+  Sizes: TJSONArray;
+begin
+  Result := nil;
+  if AContent = nil then begin
+    Exit;
+  end;
+  if AType = 'messageDocument' then begin
+    Inner := JGetObj(AContent, 'document');
+    if Inner <> nil then Result := JGetObj(Inner, 'document');
+  end else if AType = 'messageAudio' then begin
+    Inner := JGetObj(AContent, 'audio');
+    if Inner <> nil then Result := JGetObj(Inner, 'audio');
+  end else if AType = 'messageVoiceNote' then begin
+    Inner := JGetObj(AContent, 'voice_note');
+    if Inner <> nil then Result := JGetObj(Inner, 'voice');
+  end else if AType = 'messageVideo' then begin
+    Inner := JGetObj(AContent, 'video');
+    if Inner <> nil then Result := JGetObj(Inner, 'video');
+  end else if AType = 'messageAnimation' then begin
+    Inner := JGetObj(AContent, 'animation');
+    if Inner <> nil then Result := JGetObj(Inner, 'animation');
+  end else if AType = 'messagePhoto' then begin
+    Inner := JGetObj(AContent, 'photo');
+    if Inner <> nil then begin
+      Sizes := JGetArr(Inner, 'sizes');
+      if (Sizes <> nil) and (Sizes.Count > 0)
+         and (Sizes.Items[Sizes.Count - 1] is TJSONObject) then begin
+        Result := JGetObj(TJSONObject(Sizes.Items[Sizes.Count - 1]), 'photo');
+      end;
+    end;
+  end;
+end;
+
+{ Доля в сотых — по ней решается, стоит ли перерисовывать: updateFile
+  приходит на каждый пакет, а странице хватает шага в процент. }
+function XferBucket(ADone, ATotal: Int64): integer;
+begin
+  if ATotal <= 0 then begin
+    Result := -1;
+  end else begin
+    Result := integer((ADone * 100) div ATotal);
+  end;
+end;
+
+{ Состояние передачи строки из объекта file. True — изменилось видимое:
+  началась или кончилась передача, сменилось направление или процент.
+
+  Закачка (remote.is_uploading_active) важнее скачивания: исходящий
+  файл сначала лежит у нас целиком, и local говорит «готово», пока
+  remote ещё идёт. size бывает 0, пока TDLib не знает точного размера, —
+  тогда expected_size, его же оценка. }
+function ApplyXferFile(ARow: TMsgRow; AFile: TJSONObject; AInFlight: boolean): boolean;
+var
+  Local, Remote: TJSONObject;
+  Total, Done: Int64;
+  Up, Active: boolean;
+begin
+  Result := False;
+  if (ARow = nil) or (AFile = nil) then begin
+    Exit;
+  end;
+  Local := JGetObj(AFile, 'local');
+  Remote := JGetObj(AFile, 'remote');
+  Total := JGetInt64(AFile, 'size');
+  if Total <= 0 then begin
+    Total := JGetInt64(AFile, 'expected_size');
+  end;
+  Up := False;
+  Active := False;
+  Done := 0;
+  if (Remote <> nil) and JGetBool(Remote, 'is_uploading_active') then begin
+    Up := True;
+    Active := True;
+    Done := JGetInt64(Remote, 'uploaded_size');
+  end else if (Local <> nil) and (JGetBool(Local, 'is_downloading_active')
+      or (AInFlight and not JGetBool(Local, 'is_downloading_completed'))) then begin
+    { AInFlight — файл в нашей очереди загрузок. С ограничением скорости
+      TDLib между окнами говорит is_downloading_active = false, и без
+      этого кольцо мигало бы на каждом окне. }
+    Active := True;
+    Done := JGetInt64(Local, 'downloaded_size');
+  end else if Local <> nil then begin
+    Done := JGetInt64(Local, 'downloaded_size');
+  end;
+
+  Result := (Active <> ARow.XferActive) or (Up <> ARow.XferUp)
+    or (XferBucket(Done, Total) <> XferBucket(ARow.XferDone, ARow.XferTotal));
+  ARow.XferActive := Active;
+  ARow.XferUp := Up;
+  ARow.XferDone := Done;
+  ARow.XferTotal := Total;
+  ARow.XferFileId := JGetInt(AFile, 'id');
+end;
+
+procedure ResetXfer(ARow: TMsgRow);
+begin
+  ARow.XferActive := False;
+  ARow.XferUp := False;
+  ARow.XferDone := 0;
+  ARow.XferTotal := 0;
+  ARow.XferFileId := 0;
+end;
+
+{ Строка, у которой этот файл — один из медиафайлов. У фото их два:
+  превью, которое качается для показа, и оригинал, который уходит при
+  отправке; ход показывается того, что сейчас передаётся. }
+function RowHasFile(ARow: TMsgRow; AFileId: integer): boolean;
+begin
+  Result := (AFileId <> 0) and (
+       (ARow.DocFileId = AFileId) or (ARow.AudioFileId = AFileId)
+    or (ARow.VoiceFileId = AFileId) or (ARow.VideoFileId = AFileId)
+    or (ARow.AnimFileId = AFileId) or (ARow.PhotoFileId = AFileId)
+    or (ARow.PhotoBestFileId = AFileId));
+end;
+
+procedure TTdMessages.ApplyXferUpdate(AFile: TJSONObject);
+var
+  Id, I: integer;
+  Changed, InFlight: boolean;
+begin
+  if AFile = nil then begin
+    Exit;
+  end;
+  Id := JGetInt(AFile, 'id');
+  if Id = 0 then begin
+    Exit;
+  end;
+  InFlight := (ActiveDownloadIndex(Id) >= 0) or (QueuedDownloadIndex(Id) >= 0);
+  Changed := False;
+  for I := 0 to FAll.Count - 1 do begin
+    if RowHasFile(FAll.Data[I], Id)
+       and ApplyXferFile(FAll.Data[I], AFile, InFlight) then begin
+      Changed := True;
+    end;
+  end;
+  if Changed then begin
+    Touch;
+  end;
+end;
+
 procedure TTdMessages.ApplyMessage(AMsg: TJSONObject);
 var
   R: TMsgRow;
@@ -3972,6 +4140,14 @@ begin
   ExtractStickerMeta(ContentObj, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
   ExtractPollMeta(ContentObj, T, R.Poll);
+  { Состояние передачи — из самого сообщения: исходящее приходит уже
+    закачивающимся, а файл, начатый в прошлый раз, — недокачанным. }
+  if MainFileObj(ContentObj, T) <> nil then begin
+    ApplyXferFile(R, MainFileObj(ContentObj, T),
+      ActiveDownloadIndex(JGetInt(MainFileObj(ContentObj, T), 'id')) >= 0);
+  end else begin
+    ResetXfer(R);
+  end;
 
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
@@ -4013,6 +4189,12 @@ begin
   ExtractStickerMeta(ANewContent, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
   ExtractPollMeta(ANewContent, T, R.Poll);
+  if MainFileObj(ANewContent, T) <> nil then begin
+    ApplyXferFile(R, MainFileObj(ANewContent, T),
+      ActiveDownloadIndex(JGetInt(MainFileObj(ANewContent, T), 'id')) >= 0);
+  end else begin
+    ResetXfer(R);
+  end;
   if R.LayoutCache <> nil then begin
     R.LayoutCache.Free;
     R.LayoutCache := nil;
@@ -4569,6 +4751,52 @@ begin
   GUploadByMsg.Delete(I);
   DeleteFile(Path);
   RemoveDir(ExtractFileDir(Path));
+end;
+
+procedure TTdMessages.CancelTransfer(AMessageId: Int64);
+var
+  R: TMsgRow;
+  FileId, Q, I: integer;
+begin
+  R := Lookup(AMessageId);
+  if (R = nil) or (FReq = nil) or not R.XferActive then begin
+    Exit;
+  end;
+
+  if R.XferUp then begin
+    DeleteMessage(AMessageId, True);
+    { Временная копия больше не нужна. Если TDLib ещё держит файл,
+      Windows не даст удалить — тогда его подчистит старт сервера. }
+    ForgetUploadMessage(AMessageId);
+    Exit;
+  end;
+
+  FileId := R.XferFileId;
+  if FileId = 0 then begin
+    Exit;
+  end;
+  Q := QueuedDownloadIndex(FileId);
+  if Q >= 0 then begin
+    for I := Q to High(FQueuedDownloads) - 1 do begin
+      FQueuedDownloads[I] := FQueuedDownloads[I + 1];
+    end;
+    SetLength(FQueuedDownloads, Length(FQueuedDownloads) - 1);
+  end;
+  FReq.SendRequest('cancelDownloadFile',
+    '"file_id":' + utf8string(IntToStr(FileId)) + ',"only_if_pending":false', nil);
+  ReleaseDownloadSlot(FileId);
+
+  { Иначе Ensure*File решит, что файл уже запрошен, и повторный клик
+    ничего не сделает. }
+  if R.DocFileId = FileId then R.DocDownloadRequested := False;
+  if R.AudioFileId = FileId then R.AudioDownloadRequested := False;
+  if R.VoiceFileId = FileId then R.VoiceDownloadRequested := False;
+  if R.VideoFileId = FileId then R.VideoDownloadRequested := False;
+  if R.AnimFileId = FileId then R.AnimDownloadRequested := False;
+  if R.PhotoFileId = FileId then R.PhotoDownloadRequested := False;
+  if R.PhotoBestFileId = FileId then R.PhotoBestDownloadRequested := False;
+  ResetXfer(R);
+  Touch;
 end;
 
 procedure TTdMessages.SendFiles(const APaths: array of utf8string; AAsPhoto: boolean;
@@ -6555,6 +6783,10 @@ begin
       { Last, after everyone has read the file: this is what lets the
         next queued download start (see RequestFileDownload). }
       NoteFileDownloadState(JGetObj(Obj, 'file'));
+      { Кольцо — ПОСЛЕ слота: «в очереди ли файл» решает, идёт ли
+        передача, а остановленный (отменён, сбой) освобождается как раз
+        строкой выше. До неё кольцо застревало бы. }
+      ApplyXferUpdate(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));

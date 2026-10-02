@@ -6,6 +6,7 @@ import {customEmojiNode} from '../util/emoji.js';
 import {renderRichText} from '../util/entities.js';
 import {holdImage, holdVideo} from '../util/offscreen.js';
 import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
+import {addRing, xferText, xferLeft} from '../util/xfer.js';
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -410,12 +411,41 @@ function ensure(msg, what) {
     emit('ui:ensure-media', {id: msg.id, what});
 }
 
-/** A progress line for a download in flight, or nothing. */
+/**
+ * Клик по кольцу: скачивание останавливается, исходящее удаляется, как
+ * у нативного клиента (TTdMessages.CancelTransfer). Пока передача идёт,
+ * в кольце крестик — так видно, что клик отменит, а не скачает.
+ */
+function cancelTransfer(msg) {
+    emit('ui:cancel-transfer', {id: msg.id});
+}
+
+/**
+ * «Сколько из скольких» в углу картинки, пока файл передаётся (вниз или
+ * вверх), или ничего. Само кольцо — на кнопке посередине (overlay /
+ * xferOverlay); раньше здесь была линейная полоска только для фото и
+ * видео и только на скачивание.
+ */
 function progress(m) {
-    if (!m.total || m.got >= m.total) return null;
-    const bar = el('div', {class: 'media__progress'},
-        el('div', {class: `media__progress-fill w-${Math.round((m.got / m.total) * 20) * 5}`}));
-    return bar;
+    if (!m.xfer) return null;
+    return el('span', {class: 'media__xfer u-tabular', textContent: xferText(m.xfer)});
+}
+
+/**
+ * Кольцо поверх картинки, у которой файл уже есть, но ещё уходит —
+ * исходящее фото, видео, GIF. Клик отменяет отправку; дальше по
+ * картинке (просмотрщик) он не идёт.
+ */
+function xferOverlay(msg, m) {
+    return addRing(el('button', {
+        class: 'media__overlay',
+        type: 'button',
+        title: 'Cancel',
+        onclick: (event) => {
+            event.stopPropagation();
+            cancelTransfer(msg);
+        },
+    }, icon('close')), m.xfer);
 }
 
 /**
@@ -427,7 +457,20 @@ function progress(m) {
  * was the web's own invention, and at four cards a screen it read as a
  * fog over the history rather than as a button.
  */
-function overlay(name, onclick) {
+function overlay(name, onclick, m, msg) {
+    // Пока файл качается — кольцо хода вокруг кнопки и крестик в нём:
+    // клик отменяет загрузку.
+    if (m?.xfer) {
+        return addRing(el('button', {
+            class: 'media__overlay',
+            type: 'button',
+            title: 'Cancel',
+            onclick: (event) => {
+                event.stopPropagation();
+                cancelTransfer(msg);
+            },
+        }, icon('close')), m.xfer);
+    }
     return el('button', {
         class: 'media__overlay',
         type: 'button',
@@ -453,9 +496,10 @@ function renderPhoto(msg, m, group) {
     if (m.url) {
         box.classList.add('is-clickable');
         box.addEventListener('click', () => emit('ui:view', {msg, group}));
+        if (m.xfer) box.append(xferOverlay(msg, m));
     } else {
         box.classList.add('is-pending');
-        box.append(overlay('download', () => ensure(msg, 'preview')));
+        box.append(overlay('download', () => ensure(msg, 'preview'), m, msg));
     }
     const p = progress(m);
     if (p) box.append(p);
@@ -476,6 +520,7 @@ function renderVideo(msg, m) {
         });
         holdVideo(player, m.url);
         box.append(player);
+        if (m.xfer) box.append(xferOverlay(msg, m));
     } else {
         const still = el('img', {
             class: m.thumbUrl ? 'media__img' : 'media__img is-placeholder',
@@ -486,7 +531,7 @@ function renderVideo(msg, m) {
         if (m.thumbUrl) holdImage(still, m.thumbUrl, m.thumb);
         box.append(still);
         box.classList.add('is-pending');
-        box.append(overlay('download', () => ensure(msg, 'full')));
+        box.append(overlay('download', () => ensure(msg, 'full'), m, msg));
         if (m.duration) {
             box.append(el('span', {class: 'media__badge', textContent: duration(m.duration)}));
         }
@@ -518,12 +563,15 @@ function renderVideoCell(msg, m, group) {
     box.append(still);
     // The badge says what the click will do: play what is here, or
     // fetch what is not.
-    box.append(el('span', {class: 'media__play'}, icon(m.url ? 'play' : 'download')));
+    let glyph = m.url ? 'play' : 'download';
+    if (m.xfer) glyph = 'close';
+    box.append(addRing(el('span', {class: 'media__play'}, icon(glyph)), m.xfer));
     if (m.duration) {
         box.append(el('span', {class: 'media__badge', textContent: duration(m.duration)}));
     }
     box.addEventListener('click', () => {
-        if (m.url) emit('ui:view', {msg, group});
+        if (m.xfer) cancelTransfer(msg);
+        else if (m.url) emit('ui:view', {msg, group});
         else ensure(msg, 'full');
     });
     const p = progress(m);
@@ -555,6 +603,7 @@ function renderAnimation(msg, m) {
         });
         holdVideo(player, m.url, 'loop');
         box.append(player);
+        if (m.xfer) box.append(xferOverlay(msg, m));
         wrapper.append(box);
     } else {
         box.append(el('img', {
@@ -562,7 +611,7 @@ function renderAnimation(msg, m) {
             src: m.thumb || '', alt: '', loading: 'lazy',
         }));
         box.classList.add('is-pending');
-        box.append(overlay('download', () => ensure(msg, 'full')));
+        box.append(overlay('download', () => ensure(msg, 'full'), m, msg));
         box.append(el('span', {class: 'media__badge', textContent: 'GIF'}));
     }
     const p = progress(m);
@@ -615,8 +664,20 @@ function audioCard(msg, m, coverIcon, title) {
         track,
         el('div', {class: 'audio__times'}, elapsed, remaining)));
 
-    const p = progress(m);
-    if (p) box.append(p);
+    // Кольцо — вокруг кнопки, «сколько из скольких» и «сколько осталось» —
+    // на месте двух времён: пока файл не здесь, проигрывать нечего.
+    if (m.xfer) {
+        addRing(button, m.xfer);
+        elapsed.textContent = xferText(m.xfer);
+        remaining.textContent = xferLeft(m.xfer);
+        // Кнопка только отменяет: качать уже качается, а играть свой
+        // недоотправленный файл незачем.
+        setGlyph('close');
+        button.title = 'Cancel';
+        track.classList.add('is-idle');
+        button.addEventListener('click', () => cancelTransfer(msg));
+        return box;
+    }
 
     if (!m.url) {
         setGlyph('download');
@@ -698,7 +759,14 @@ function renderVoice(msg, m) {
  */
 function renderFile(msg, m) {
     const name = m.fileName || 'File';
-    const box = m.url
+    // Пока файл передаётся, вся карточка — отмена (как и её кольцо).
+    const box = m.xfer
+        ? el('div', {
+            class: 'media media--file is-clickable',
+            title: 'Cancel',
+            onclick: () => cancelTransfer(msg),
+        })
+        : m.url
         ? el('a', {
             class: 'media media--file is-clickable',
             href: m.url,
@@ -711,13 +779,15 @@ function renderFile(msg, m) {
             onclick: () => ensure(msg, 'full'),
         });
 
-    box.append(el('span', {class: 'file__icon'}, icon(m.url ? 'file' : 'download')));
+    // Пока файл передаётся — стрелка (вверх при отправке) в кольце хода и
+    // «сколько из скольких · сколько осталось» на месте размера.
+    let glyph = m.url ? 'file' : 'download';
+    if (m.xfer) glyph = 'close';
+    box.append(addRing(el('span', {class: 'file__icon'}, icon(glyph)), m.xfer));
     box.append(el('div', {class: 'file__body'},
         el('div', {class: 'file__name', textContent: name}),
-        el('div', {class: 'file__size', textContent: fileSize(m.size)})));
-
-    const p = progress(m);
-    if (p) box.append(p);
+        el('div', {class: 'file__size u-tabular',
+            textContent: m.xfer ? `${xferText(m.xfer)} · ${xferLeft(m.xfer)}` : fileSize(m.size)})));
     return box;
 }
 

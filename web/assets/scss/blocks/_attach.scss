@@ -25,7 +25,8 @@
 
 .dropzone__zone {
   @include flex(column, center, center, $space-2);
-  background: var(--c-surface);
+  background: color-mix(in srgb, var(--c-bg) 45%, transparent);
+  backdrop-filter: blur(15px);
   border: 2px dashed color-mix(in srgb, var(--c-border) 40%, transparent);
   border-radius: $radius-lg;
   box-shadow: 0 8px 24px var(--c-shadow);
@@ -69,7 +70,8 @@
 // <body>, и модальный диалог сделал бы её инертной.
 .attach-layer {
   @include flex(row, center, center);
-  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
+  background: color-mix(in srgb, var(--c-bg) 45%, transparent);
+  backdrop-filter: blur(15px);
   inset: 0;
   padding: $space-6;
   position: fixed;
@@ -124,6 +126,11 @@
   background: var(--c-accent);
   border-radius: 50%;
   color: var(--c-accent-text);
+
+  .icon {
+    width: 32px;
+    height: 32px;
+  }
 }
 
 .attach__meta {

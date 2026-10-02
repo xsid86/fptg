@@ -1404,6 +1404,70 @@ body {
   opacity: 0.45;
 }
 
+.file__icon.xfer,
+.audio__play.xfer {
+  position: relative;
+}
+
+.xfer__ring {
+  height: calc(100% + 8px);
+  inset-block-start: -4px;
+  inset-inline-start: -4px;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  transform: rotate(-90deg);
+  width: calc(100% + 8px);
+}
+
+.xfer__track,
+.xfer__fill {
+  fill: none;
+  stroke-width: 6;
+}
+
+.xfer__track {
+  stroke: color-mix(in srgb, var(--c-accent) 20%, transparent);
+}
+
+.xfer__fill {
+  stroke: var(--c-accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.media__overlay .xfer__track,
+.media__play .xfer__track {
+  stroke: color-mix(in srgb, var(--c-light) 25%, transparent);
+}
+.media__overlay .xfer__fill,
+.media__play .xfer__fill {
+  stroke: var(--c-light);
+}
+
+.xfer.is-up .icon:has(use[href="#i-download"]) {
+  transform: rotate(180deg);
+}
+
+.xfer .icon:has(use[href="#i-close"]) {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.media__xfer {
+  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
+  border-radius: 4px;
+  color: var(--c-light);
+  font-size: 11px;
+  inset-block-end: 4px;
+  inset-inline-start: 4px;
+  line-height: normal;
+  padding: 0 4px;
+  pointer-events: none;
+  position: absolute;
+}
+
 .chat-list {
   display: flex;
   flex-direction: column;
@@ -5754,7 +5818,8 @@ span.picker__gif {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background: var(--c-surface);
+  background: color-mix(in srgb, var(--c-bg) 45%, transparent);
+  backdrop-filter: blur(15px);
   border: 2px dashed color-mix(in srgb, var(--c-border) 40%, transparent);
   border-radius: 10px;
   box-shadow: 0 8px 24px var(--c-shadow);
@@ -5791,7 +5856,8 @@ span.picker__gif {
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
+  background: color-mix(in srgb, var(--c-bg) 45%, transparent);
+  backdrop-filter: blur(15px);
   inset: 0;
   padding: 16px;
   position: fixed;
@@ -5882,6 +5948,10 @@ span.picker__gif {
   background: var(--c-accent);
   border-radius: 50%;
   color: var(--c-accent-text);
+}
+.attach__thumb--file .icon {
+  width: 32px;
+  height: 32px;
 }
 
 .attach__meta {

@@ -84,6 +84,9 @@ $composer-max:      220px;
 $composer-bar-stack: 800px;
 // Всплывающие уведомления и кнопка «Hide all» над ними — одной ширины.
 $toast-width: 320px;
+// Крестик отмены в кольце хода передачи (components/_xfer.scss) — меньше
+// значка, на месте которого стоит: на всю кнопку он кричит.
+$xfer-cancel-icon: 22px;
 $scrollbar-width:   8px;
 $message-max-width: 600px;  // native: MAX_MSG_W
 

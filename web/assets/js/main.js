@@ -290,6 +290,10 @@ function wireActions() {
     call('media.ensure', args).catch(() => {});
   });
 
+  on('ui:cancel-transfer', (args) => {
+    call('message.cancelTransfer', args).catch(report);
+  });
+
   on('ui:vote', (args) => {
     call('poll.vote', args).catch(report);
   });

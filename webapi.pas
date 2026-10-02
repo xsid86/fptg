@@ -188,6 +188,7 @@ type
     function  CmdStorageCleanup: TJSONData;
     function  CmdMessageSend(AArgs: TJSONObject): TJSONData;
     function  CmdMessageSendFiles(AArgs: TJSONObject): TJSONData;
+    function  CmdCancelTransfer(AArgs: TJSONObject): TJSONData;
     function  CmdPollVote(AArgs: TJSONObject): TJSONData;
     function  CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
     function  CmdSearchSet(AArgs: TJSONObject): TJSONData;
@@ -679,6 +680,8 @@ end;
   with media.ensure when it decides to, which is the web equivalent of
   the native "first click downloads". }
 function MediaJson(AMsgs: TTdMessages; ARow: TMsgRow): TJSONObject;
+var
+  Xfer: TJSONObject;
 begin
   Result := nil;
   case ARow.Kind of
@@ -751,6 +754,16 @@ begin
       Result.Add('h', ARow.StickerHeight);
       Result.Add('url', string(FileUrl(ARow.StickerFileId, ARow.StickerLocalPath)));
     end;
+  end;
+  { Ход передачи основного файла — только пока она идёт: страница
+    рисует по нему кольцо вокруг значка и «сколько из скольких». up —
+    закачка (исходящее), иначе скачивание. }
+  if (Result <> nil) and ARow.XferActive then begin
+    Xfer := TJSONObject.Create;
+    Xfer.Add('done', ARow.XferDone);
+    Xfer.Add('total', ARow.XferTotal);
+    Xfer.Add('up', ARow.XferUp);
+    Result.Add('xfer', Xfer);
   end;
 end;
 
@@ -2243,6 +2256,17 @@ begin
   Result := nil;
 end;
 
+{ Клик по кольцу хода: скачивание останавливается, исходящее с
+  незакончившейся закачкой удаляется (см. TTdMessages.CancelTransfer). }
+function TWebApi.CmdCancelTransfer(AArgs: TJSONObject): TJSONData;
+begin
+  if AArgs = nil then begin
+    raise Exception.Create('message.cancelTransfer needs a message id');
+  end;
+  RequireMsgs.CancelTransfer(AArgs.Get('id', Int64(0)));
+  Result := nil;
+end;
+
 function TWebApi.CmdPollVote(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -3218,6 +3242,8 @@ begin
         Reply(AConnId, ReqId, CmdMessageSend(Args));
       end else if Cmd = 'message.sendFiles' then begin
         Reply(AConnId, ReqId, CmdMessageSendFiles(Args));
+      end else if Cmd = 'message.cancelTransfer' then begin
+        Reply(AConnId, ReqId, CmdCancelTransfer(Args));
       end else if Cmd = 'poll.vote' then begin
         Reply(AConnId, ReqId, CmdPollVote(Args));
       end else if Cmd = 'media.ensure' then begin

@@ -1,0 +1,85 @@
+@use "../abstracts" as *;
+
+// Ход передачи файла (util/xfer.js): кольцо вокруг значка и плашка
+// «сколько из скольких» на картинке.
+//
+// Кольцо — SVG поверх значка с запасом в 4px по кругу, повёрнутое так,
+// чтобы ход шёл от верхней точки по часовой. Долю задаёт атрибут
+// stroke-dashoffset (pathLength="100"), стиль — только цвет и толщину.
+
+// Опора для кольца там, где значок стоит в потоке. Кнопки поверх
+// картинки (.media__overlay, .media__play) и так позиционированы
+// абсолютно — общий position: relative их бы сдвинул.
+.file__icon.xfer,
+.audio__play.xfer {
+  position: relative;
+}
+
+.xfer__ring {
+  height: calc(100% + 8px);
+  inset-block-start: -4px;
+  inset-inline-start: -4px;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  transform: rotate(-90deg);
+  width: calc(100% + 8px);
+}
+
+.xfer__track,
+.xfer__fill {
+  fill: none;
+  stroke-width: 6;
+}
+
+.xfer__track {
+  stroke: color-mix(in srgb, var(--c-accent) 20%, transparent);
+}
+
+.xfer__fill {
+  stroke: var(--c-accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset $dur-base $ease;
+}
+
+// На тёмном круге поверх картинки — светлое кольцо, как сам значок.
+.media__overlay,
+.media__play {
+  .xfer__track {
+    stroke: color-mix(in srgb, var(--c-light) 25%, transparent);
+  }
+
+  .xfer__fill {
+    stroke: var(--c-light);
+  }
+}
+
+// Закачка: стрелка «вниз» разворачивается вверх. Сейчас во время
+// передачи в кольце крестик (клик отменяет), так что правило
+// срабатывает, только если стрелка там окажется снова.
+.xfer.is-up .icon:has(use[href="#i-download"]) {
+  transform: rotate(180deg);
+}
+
+// Крестик отмены — свой размер, а не размер значка, на месте которого
+// стоит (на кнопке поверх картинки это вся кнопка, в значке файла —
+// 42px). Специфичность выше, чем у `.media__overlay .icon` и
+// `.file__icon .icon`, — за счёт :has.
+.xfer .icon:has(use[href="#i-close"]) {
+  @include size($xfer-cancel-icon);
+}
+
+// «12.3 MB / 58.1 MB» в углу картинки. Слева внизу — справа вверху
+// стоит плашка длительности (.media__badge).
+.media__xfer {
+  background: color-mix(in srgb, var(--c-dark) 45%, transparent);
+  border-radius: $radius-sm;
+  color: var(--c-light);
+  font-size: $fs-xs;
+  inset-block-end: $space-2;
+  inset-inline-start: $space-2;
+  line-height: normal;
+  padding: 0 $space-2;
+  pointer-events: none;
+  position: absolute;
+}
