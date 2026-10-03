@@ -191,13 +191,20 @@ export function invalidateHistory() {
   if (lastState) render(lastState);
 }
 
+// Заглушка пустой истории. Запоминается, потому что сверка узлов в
+// paint знает только узлы сообщений: пока фильтр ждал ответа, список был
+// пуст и заглушка встала в колонку, а пришедшие результаты легли вокруг
+// неё — «Nothing found» посреди найденного.
+let emptyNode = null;
+
 function renderEmpty(title, note) {
   nodes.clear();
   clear(column);
-  column.append(el('div', { class: 'workspace__empty' },
+  emptyNode = el('div', { class: 'workspace__empty' },
     icon('chat', 'icon--lg'),
     el('div', { textContent: title }),
-    note ? el('div', { class: 'u-faint', textContent: note }) : null));
+    note ? el('div', { class: 'u-faint', textContent: note }) : null);
+  column.append(emptyNode);
   if (scrollBtn) scrollBtn.hidden = true;
 }
 
@@ -264,6 +271,10 @@ function paint(state) {
       renderEmpty('No messages here yet', null);
     }
     return;
+  }
+  if (emptyNode) {
+    emptyNode.remove();
+    emptyNode = null;
   }
 
   // Anchor: remember the distance from the bottom, because prepending

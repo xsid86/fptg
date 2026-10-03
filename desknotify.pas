@@ -76,6 +76,11 @@ type
     TargetY: double;
     Alpha: double;          { 0..255 }
     LifeLeft: integer;      { мс до начала исчезновения }
+    { Мышь двигалась за текущий цикл показа. Не двигалась — человека,
+      скорее всего, нет у экрана: по концу цикла карточка не тает, а
+      ждёт (Waiting) первого движения и начинает цикл заново. }
+    Moved: boolean;
+    Waiting: boolean;
     Closing: boolean;
     { Образец из настроек: ChatId у него 0, и слиянию по чату он не
       подлежит — образцов в стопке несколько. }
@@ -106,6 +111,8 @@ var
   GLimit: integer = DESKNOTIFY_LIMIT_DEFAULT;
   GTitleFont: integer = DESKNOTIFY_TITLE_FONT_DEFAULT;
   GTextFont: integer = DESKNOTIFY_TEXT_FONT_DEFAULT;
+  GCursor: TPoint;
+  GCursorKnown: boolean = False;
 
 function Sc(AValue: integer): integer;
 begin
@@ -414,17 +421,35 @@ begin
   end;
 end;
 
+{ Сдвинулась ли мышь с прошлого тика. Именно мышь, по просьбе
+  пользователя, а не GetLastInputInfo (тот считает и клавиатуру).
+  GetCursorPos не отвечает на защищённом рабочем столе (экран
+  блокировки) — это «не двигалась», и карточки ждут. }
+function CursorMoved: boolean;
+var
+  P: TPoint;
+begin
+  Result := False;
+  if not GetCursorPos(P) then begin
+    Exit;
+  end;
+  Result := GCursorKnown and ((P.X <> GCursor.X) or (P.Y <> GCursor.Y));
+  GCursor := P;
+  GCursorKnown := True;
+end;
+
 procedure TTicker.Tick(Sender: TObject);
 var
   Now64: QWord;
   Dt, I: integer;
   C: TCard;
-  Paused: boolean;
+  Paused, Moved: boolean;
   Fade, Slide, Gap: double;
 begin
   Now64 := GetTickCount64;
   Dt := Min(Now64 - GLastTick, DESKNOTIFY_TICK_MAX_MS);
   GLastTick := Now64;
+  Moved := CursorMoved;
 
   { Курсор над любой карточкой держит всю стопку: читающему не нужно,
     чтобы соседняя уехала из-под глаз. }
@@ -451,10 +476,26 @@ begin
       end;
     end else begin
       C.Alpha := Min(255, C.Alpha + Fade);
-      if not Paused then begin
+      if C.Waiting then begin
+        { Цикл кончился без движения мыши. Первое движение запускает
+          его СНАЧАЛА и само считается движением этого цикла: человек
+          вернулся, и полного показа ему хватит. }
+        if Moved then begin
+          C.Waiting := False;
+          C.LifeLeft := DESKNOTIFY_LIFE_MS;
+          C.Moved := True;
+        end;
+      end else if not Paused then begin
+        if Moved then begin
+          C.Moved := True;
+        end;
         Dec(C.LifeLeft, Dt);
         if C.LifeLeft <= 0 then begin
-          C.Closing := True;
+          if C.Moved then begin
+            C.Closing := True;
+          end else begin
+            C.Waiting := True;
+          end;
         end;
       end;
     end;
@@ -626,6 +667,8 @@ begin
   C.Avatar := RenderAvatarBmp(APhotoPath, AMinithumb, ATitle, AChatId,
     Sc(DESKNOTIFY_AVATAR), True);
   C.LifeLeft := DESKNOTIFY_LIFE_MS;
+  C.Moved := False;
+  C.Waiting := False;
 
   TrimToLimit;
   Relayout;
