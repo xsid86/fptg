@@ -555,6 +555,14 @@ type
     JumpTo/JumpDone. }
   TTdMessagesJumpEvent = procedure(Sender: TObject; AMessageId: Int64) of object;
 
+  { Прыжок к сообщению в полёте: в каком чате, к какому id и сколько раз
+    уже повторён (JumpDone, JUMP_RETRY_MAX). }
+  TJumpState = record
+    ChatId: Int64;
+    Target: Int64;
+    Retries: integer;
+  end;
+
   { TTdMessages
 
     The history of one open chat. Unlike TTdChats, the model is not a
@@ -657,6 +665,7 @@ type
     FOnLoadingChanged: TTdMessagesEvent;
     FOnActionError: TTdMessagesErrorEvent;
     FOnJumpReady: TTdMessagesJumpEvent;
+    FJump: TJumpState;
 
     { Previews of quoted (reply_to) messages not yet in FAll — see
       ReplyPreview/RequestReply/GetRepliedDone. Deliberately kept
@@ -860,6 +869,7 @@ type
     procedure ParseEntitiesDone(Sender: TObject; const AResp: TTdResponse);
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
     procedure JumpDone(Sender: TObject; const AResp: TTdResponse);
+    procedure RequestJump(AMessageId: Int64);
     function IsReplyPending(AId: Int64): boolean;
     procedure MarkReplyPending(AId: Int64);
     procedure ClearReplyPending(AId: Int64);
@@ -5453,6 +5463,14 @@ begin
     Clear;
     NotifyChanged;
   end;
+  FJump.ChatId := FChatId;
+  FJump.Target := AMessageId;
+  FJump.Retries := 0;
+  RequestJump(AMessageId);
+end;
+
+procedure TTdMessages.RequestJump(AMessageId: Int64);
+begin
   { offset:-(N) means "N more messages NEWER than from_message_id"
     (official docs.core.telegram.org/tdlib, getChatHistory.offset), in
     addition to AMessageId itself and older ones, up to limit. This
@@ -5507,6 +5525,17 @@ begin
     hence a synchronous Rebuild here, instead of waiting for the timer
     as in the normal update flow. }
   Rebuild(nil);
+
+  { Цели в ответе нет — TDLib отдал только локальное (см.
+    JUMP_RETRY_MAX). Тот же запрос ещё раз, пока прыжок всё ещё этот:
+    чат не сменился и новый прыжок его не перебил. Готовность —
+    только когда цель на месте или повторы кончились. }
+  if (Lookup(TargetId) = nil) and (FJump.ChatId = FChatId)
+    and (FJump.Target = TargetId) and (FJump.Retries < JUMP_RETRY_MAX) then begin
+    Inc(FJump.Retries);
+    RequestJump(TargetId);
+    Exit;
+  end;
 
   if Assigned(FOnJumpReady) then begin
     FOnJumpReady(Self, TargetId);

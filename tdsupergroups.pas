@@ -32,6 +32,8 @@ type
     JoinByRequest: boolean;
     { Derived from the same status this row already reads. }
     IsMember:    boolean;
+    { chatMemberStatusBanned: вступить нельзя, кнопку не показывать. }
+    IsBanned:    boolean;
     { True when CanSend was derived from an EXPLICIT personal signal
       (being the creator, an administrator's own posting rights, a
       Restricted member's own permissions override, or not being a
@@ -100,6 +102,11 @@ type
       "you must join" about a group whose status has not loaded would
       be a guess. }
     function MustJoinToSend(AId: Int64; out AByRequest: boolean): boolean;
+    { Аккаунт не состоит в группе или канале и может вступить: статус
+      Left (или Restricted без членства), не Banned. Неизвестная группа —
+      False и запрос getSupergroup; ответ придёт updateSupergroup.
+      AByRequest — вступление через одобрение администратора. }
+    function CanJoin(AId: Int64; out AByRequest: boolean): boolean;
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -283,6 +290,7 @@ begin
   Row.JoinToSend := NewJoinToSend;
   Row.JoinByRequest := NewJoinByRequest;
   Row.IsMember := NewIsMember;
+  Row.IsBanned := StatusType = 'chatMemberStatusBanned';
 
   if Assigned(FOnChanged) then begin
     FOnChanged(Self);
@@ -300,6 +308,24 @@ begin
   end;
   AByRequest := Row.JoinByRequest;
   Result := Row.JoinToSend and (not Row.IsMember);
+end;
+
+function TTdSupergroups.CanJoin(AId: Int64; out AByRequest: boolean): boolean;
+var
+  Row: TSupergroupRow;
+begin
+  Result := False;
+  AByRequest := False;
+  if AId = 0 then begin
+    Exit;
+  end;
+  Row := Lookup(AId);
+  if Row = nil then begin
+    RequestGroup(AId);
+    Exit;
+  end;
+  AByRequest := Row.JoinByRequest;
+  Result := (not Row.IsMember) and (not Row.IsBanned);
 end;
 
 procedure TTdSupergroups.RequestGroup(AId: Int64);

@@ -4430,7 +4430,7 @@ a.media--file:hover {
   justify-content: space-between;
   gap: 8px;
 }
-@container composer (max-width: 800px) {
+@container composer (max-width: 600px) {
   .composer__bar {
     align-items: stretch;
     flex-direction: column;

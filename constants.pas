@@ -1334,6 +1334,11 @@ const
     pages in it says the history is longer than it is. }
   TRIM_AT = FILL_TARGET * 2;
   TRIM_KEEP = FILL_TARGET;
+  { Повторы прыжка к сообщению, если цели в ответе не оказалось. Первый
+    getChatHistory по чату, которого нет в локальной базе, отдаёт то,
+    что лежит локально, — живой лог: 1 сообщение (total_count 1),
+    СТАРШЕ цели; повтор того же запроса уже вернул 34 с целью. }
+  JUMP_RETRY_MAX = 3;
   { TDLib message-id granularity: id = server_message_id shl 20 —
     confirmed from tdlib_raw.log: every real message id has its low 20
     bits zero, and adjacent messages differ by exactly this constant.

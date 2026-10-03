@@ -1,6 +1,6 @@
 import { qs, qsa, el } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
-import { store, onActiveChat, openThread } from '../core/store.js';
+import { store, onActiveChat, openThread, chatJoin } from '../core/store.js';
 
 // The message box, and the same formatting toolbar msginput.pas has.
 //
@@ -21,6 +21,7 @@ let sendBtn = null;
 let joinBtn = null;
 // What the box last drew for: inside a thread, or outside one.
 let inThread = false;
+let lastJoin = 'null';
 let emojiBtn = null;
 let attachBtn = null;
 let htmlBox = null;
@@ -153,9 +154,13 @@ function updateEnabled(chat) {
   // Some discussion groups want you in before you may write. That is
   // not "you may not write here" - it is a different answer and it
   // gets different words, see below.
-  const mustJoin = !!thread?.mustJoin;
+  // Канал или группа, где аккаунт не состоит (пришёл по пересылке):
+  // та же кнопка вместо поля ввода — «Join channel» / «Join group».
+  const join = thread ? null : chatJoin();
+  const joinChat = !!join?.can;
+  const mustJoin = !!thread?.mustJoin || joinChat;
   canSend = thread ? (thread.canSend !== false && !mustJoin)
-    : (Boolean(chat) && chat.canSend !== false);
+    : (Boolean(chat) && chat.canSend !== false && !joinChat);
   input.disabled = !canSend;
   sendBtn.disabled = !canSend;
   for (const btn of qsa('.composer__format', box)) btn.disabled = !canSend;
@@ -174,8 +179,15 @@ function updateEnabled(chat) {
   // answer. The input row gives way to the button that does it.
   box.classList.toggle('composer--join', mustJoin);
   joinBtn.hidden = !mustJoin;
-  joinBtn.textContent = thread?.byRequest
-    ? 'Apply to join the group' : 'Join the group';
+  // Нажатая кнопка гаснет до ответа; новое состояние её возвращает.
+  if (!mustJoin) joinBtn.disabled = false;
+  if (joinChat) {
+    const what = join.channel ? 'channel' : 'group';
+    joinBtn.textContent = join.byRequest ? `Apply to join the ${what}` : `Join ${what}`;
+  } else {
+    joinBtn.textContent = thread?.byRequest
+      ? 'Apply to join the group' : 'Join the group';
+  }
 
   if (thread) {
     if (mustJoin) {
@@ -413,9 +425,12 @@ export function mountComposer(node) {
   // redraws from the message payload too, which is where the thread
   // lives.
   on('store:messages', (state) => {
+    // Ветка и «можно вступить» — оба едут со списком сообщений.
     const now = !!state?.thread;
-    if (now === inThread) return;
+    const joinKey = JSON.stringify(state?.join ?? null);
+    if (now === inThread && joinKey === lastJoin) return;
     inThread = now;
+    lastJoin = joinKey;
     updateEnabled(store.activeChat);
   });
   updateEnabled(null);

@@ -167,3 +167,11 @@ export const activeOffList = () => data.activeChatId !== null
 export function openThread() {
   return data.messages?.thread ?? null;
 }
+
+/**
+ * Можно ли вступить в открытый чат: { can, byRequest, channel } или
+ * null. Едет со списком сообщений, как и ветка.
+ */
+export function chatJoin() {
+  return data.messages?.join ?? null;
+}

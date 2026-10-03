@@ -64,7 +64,8 @@ uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fgl, fpjson, jsonparser,
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
-  autodownload, customemoji, webui, tdstorage, miniapp, desknotify;
+  autodownload, customemoji, webui, tdstorage, miniapp, desknotify,
+  tdsupergroups;
 
 type
   { A request whose answer is not here yet.
@@ -115,6 +116,13 @@ type
     FBoundChats: TTdChats;
     FBoundMsgs:  TTdMessages;
     FBoundStickers: TTdStickers;
+    { Статус аккаунта в группах и каналах — для кнопки вступления
+      (messages.list -> join). Один обработчик, как у стикеров: больше
+      OnChanged супергрупп никто не слушает. }
+    FBoundGroups: TTdSupergroups;
+    { updateSupergroup на старте приходят пачкой — в событие страницы
+      сводятся таймером, как стикеры. }
+    FGroupsDirty: boolean;
     { Watches the sign-in flow. Owned here, alive for the life of the
       bridge: unlike the models it exists before any account does,
       because "there is no account yet" is one of the things the page
@@ -146,6 +154,7 @@ type
       const APreview: utf8string);
     procedure MessagesChanged(Sender: TObject);
     procedure StickersChanged(Sender: TObject);
+    procedure GroupsChanged(Sender: TObject);
     procedure AuthChanged(Sender: TObject);
     procedure StorageChanged(Sender: TObject);
     function  TakeDeferred(AConnId: Int64; AReqId: integer;
@@ -1298,6 +1307,13 @@ begin
       Sticks.OnChanged := @StickersChanged;
     end;
   end;
+
+  if TdSupergroupList <> FBoundGroups then begin
+    FBoundGroups := TdSupergroupList;
+    if FBoundGroups <> nil then begin
+      FBoundGroups.OnChanged := @GroupsChanged;
+    end;
+  end;
 end;
 
 { Unsubscribes, but only from objects that are still the current ones.
@@ -1318,6 +1334,10 @@ begin
     FBoundStickers.OnChanged := nil;
   end;
   FBoundStickers := nil;
+  if (FBoundGroups <> nil) and (FBoundGroups = TdSupergroupList) then begin
+    FBoundGroups.OnChanged := nil;
+  end;
+  FBoundGroups := nil;
 end;
 
 { How many connections' views are remembered. Two is the normal case
@@ -1518,6 +1538,11 @@ begin
   FStickersDirty := True;
 end;
 
+procedure TWebApi.GroupsChanged(Sender: TObject);
+begin
+  FGroupsDirty := True;
+end;
+
 procedure TWebApi.AuthChanged(Sender: TObject);
 begin
   { Every transition to Ready, not just the first: each TDLib client
@@ -1631,6 +1656,12 @@ begin
   if FStickersDirty then begin
     FStickersDirty := False;
     PushEvent('stickers', nil);
+  end;
+  { Сменился чей-то статус в группе — страница перечитает список
+    сообщений, а с ним и join (вступили — кнопка уходит). }
+  if FGroupsDirty then begin
+    FGroupsDirty := False;
+    MessagesChanged(nil);
   end;
 end;
 
@@ -2060,6 +2091,8 @@ var
   I: integer;
   LastReadOutbox: Int64;
   MustJoin, ByRequest: boolean;
+  Join: TJSONObject;
+  JoinOk: boolean;
 begin
   Msgs := RequireMsgs;
 
@@ -2174,6 +2207,21 @@ begin
     end;
     Res.Add('thread', Sub);
   end;
+  { Канал или группа, в которых аккаунт не состоит (до них дошли по
+    пересылке или ссылке), — страница ставит на место поля ввода кнопку
+    вступления. В ветке комментариев своё правило — thread.mustJoin. }
+  Join := TJSONObject.Create;
+  JoinOk := False;
+  ByRequest := False;
+  CRow := Chats.Lookup(Msgs.ChatId);
+  if (Msgs.ThreadChatId = 0) and (CRow <> nil) and (CRow.SupergroupId <> 0)
+     and (TdSupergroupList <> nil) then begin
+    JoinOk := TdSupergroupList.CanJoin(CRow.SupergroupId, ByRequest);
+  end;
+  Join.Add('can', JoinOk);
+  Join.Add('byRequest', ByRequest);
+  Join.Add('channel', (CRow <> nil) and (CRow.Kind = ckChannel));
+  Res.Add('join', Join);
   Res.Add('unreadFrom',   Msgs.UnreadFromId);
   Res.Add('unreadReady',  Msgs.UnreadReady);
   Res.Add('unreadCovered', Msgs.UnreadCovered);
