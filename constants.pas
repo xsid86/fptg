@@ -1502,7 +1502,63 @@ const
     webAppOpenParameters (td_api.tl: 0-64 латинских букв, цифр и _). }
   MINIAPP_WIDTH = 420;
   MINIAPP_HEIGHT = 720;
-  MINIAPP_BAR_H = 36;
+  { Шапка: отступ MINIAPP_BAR_PAD по краям и между кнопками, кнопки
+    высотой MINIAPP_BAR_BUTTON_H, по бокам текста — MINIAPP_BAR_BUTTON_PAD. }
+  MINIAPP_BAR_PAD = 8;
+  MINIAPP_BAR_BUTTON_H = 28;
+  MINIAPP_BAR_BUTTON_PAD = 12;
+  MINIAPP_BAR_BUTTON_RADIUS = 4;   { скругление кнопок шапки (TBCButton) }
+
+  { desknotify.pas — карточки уведомлений на рабочем столе. Размеры —
+    в пикселях при 96 dpi, модуль масштабирует их сам. }
+  DESKNOTIFY_CLASS: PWideChar = 'TGODeskNotifyCard';
+  DESKNOTIFY_WIDTH = 320;
+  DESKNOTIFY_HEIGHT = 80;
+  DESKNOTIFY_PAD = 10;             { край карточки -> аватарка }
+  DESKNOTIFY_AVATAR = 60;
+  DESKNOTIFY_TEXT_GAP = 12;        { аватарка -> текст }
+  DESKNOTIFY_FONT = 'Segoe UI';
+  { Размер шрифта (высота строки в пикселях при 96 dpi) — настройка,
+    отдельно у заголовка и у текста. Обе строки вместе центрируются по
+    высоте карточки; при 24+24 они ещё помещаются в DESKNOTIFY_HEIGHT. }
+  DESKNOTIFY_FONT_MIN = 10;
+  DESKNOTIFY_FONT_MAX = 24;
+  DESKNOTIFY_TITLE_FONT_DEFAULT = 17;
+  DESKNOTIFY_TEXT_FONT_DEFAULT = 17;
+  DESKNOTIFY_LINE_GAP = 6;         { заголовок -> текст }
+  DESKNOTIFY_CLOSE_ZONE = 28;      { квадрат клика по крестику в углу }
+  DESKNOTIFY_CLOSE_SIZE = 9;       { сам нарисованный крестик }
+  DESKNOTIFY_CLOSE_ALPHA = 150;    { крестик без наведения — приглушён }
+  DESKNOTIFY_MARGIN = 8;           { от края рабочей области }
+  DESKNOTIFY_GAP = 8;              { между карточками }
+  { Сколько карточек одновременно — настройка; больше — старшие уходят. }
+  DESKNOTIFY_LIMIT_MIN = 1;
+  DESKNOTIFY_LIMIT_MAX = 5;
+  DESKNOTIFY_LIMIT_DEFAULT = 4;
+  DESKNOTIFY_LIFE_MS = 6000;
+  DESKNOTIFY_FADE_MS = 150;
+  DESKNOTIFY_SLIDE_PX_PER_S = 900;
+  DESKNOTIFY_TICK_MS = 15;
+  DESKNOTIFY_TICK_MAX_MS = 100;    { после зависания — не прыгать скачком }
+  DESKNOTIFY_TEXT_MAX = 200;       { символов до подгонки по ширине }
+  DESKNOTIFY_ELLIPSIS = #$E2#$80#$A6;   { «…» байтами UTF-8: литерал при codepage utf8 стал бы WideString }
+  { Углы экрана: коды для config.ini и страницы. Первая буква — верх или
+    низ, вторая — лево или право; desknotify.pas разбирает их так же. }
+  DESKNOTIFY_CORNERS: array[0..3] of string = ('tl', 'tr', 'bl', 'br');
+  DESKNOTIFY_CORNER_DEFAULT = 3;   { правый нижний, как у Telegram Desktop }
+  DESKNOTIFY_SAMPLE_TEXT = 'This is how notifications will look';
+  DESKNOTIFY_THEME_KEY = 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize';
+  DESKNOTIFY_THEME_VALUE = 'AppsUseLightTheme';
+  { Цвета — как у Telegram Desktop: дневная и ночная (синяя) темы. }
+  DESKNOTIFY_LIGHT_BG = $FFFFFF;
+  DESKNOTIFY_LIGHT_BORDER = $DEDEDE;
+  DESKNOTIFY_LIGHT_TITLE = $222222;
+  DESKNOTIFY_LIGHT_TEXT = $666666;
+  DESKNOTIFY_DARK_BG = $2B2117;      { #17212B }
+  DESKNOTIFY_DARK_BORDER = $21160E;  { #0E1621 }
+  DESKNOTIFY_DARK_TITLE = $FFFFFF;
+  DESKNOTIFY_DARK_TEXT = $BBB2AA;    { #AAB2BB }
+  MINIAPP_BAR_H = MINIAPP_BAR_PAD + MINIAPP_BAR_BUTTON_H + MINIAPP_BAR_PAD;
   MINIAPP_BUTTON_H = 44;
   MINIAPP_APP_NAME = 'TGOrchestrator';
 

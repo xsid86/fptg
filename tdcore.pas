@@ -250,6 +250,20 @@ function  TdCacheLimitMB: integer;
 procedure TdSetCacheLimitMB(AValue: integer);
 function  TdCacheTtlDays: integer;
 procedure TdSetCacheTtlDays(AValue: integer);
+{ Уведомления на рабочем столе (desknotify.pas): включены ли и в каком
+  углу экрана — индекс в DESKNOTIFY_CORNERS. }
+function  TdDeskNotify: boolean;
+procedure TdSetDeskNotify(AValue: boolean);
+function  TdDeskNotifyCorner: integer;
+procedure TdSetDeskNotifyCorner(AValue: integer);
+{ Сколько карточек одновременно, DESKNOTIFY_LIMIT_MIN..MAX. }
+function  TdDeskNotifyLimit: integer;
+procedure TdSetDeskNotifyLimit(AValue: integer);
+{ Размер шрифта заголовка и текста, DESKNOTIFY_FONT_MIN..MAX. }
+function  TdDeskNotifyTitleFont: integer;
+procedure TdSetDeskNotifyTitleFont(AValue: integer);
+function  TdDeskNotifyTextFont: integer;
+procedure TdSetDeskNotifyTextFont(AValue: integer);
 
 { Unsubscribes from all accounts at once. A form may have subscribed to
   one account while a different one is active by the time it's
@@ -549,6 +563,146 @@ begin
       Free;
     end;
   end;
+end;
+
+function TdDeskNotify: boolean;
+begin
+  with ConfigIni do begin
+    try
+      Result := ReadBool('notify', 'enabled', True);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TdSetDeskNotify(AValue: boolean);
+begin
+  with ConfigIni do begin
+    try
+      WriteBool('notify', 'enabled', AValue);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+{ В файле — код угла, а не индекс: файл читают и руками. Неизвестный
+  код — угол по умолчанию. }
+function TdDeskNotifyCorner: integer;
+var
+  Code: string;
+  I: integer;
+begin
+  Result := DESKNOTIFY_CORNER_DEFAULT;
+  with ConfigIni do begin
+    try
+      Code := ReadString('notify', 'corner', DESKNOTIFY_CORNERS[DESKNOTIFY_CORNER_DEFAULT]);
+    finally
+      Free;
+    end;
+  end;
+  for I := Low(DESKNOTIFY_CORNERS) to High(DESKNOTIFY_CORNERS) do begin
+    if DESKNOTIFY_CORNERS[I] = Code then begin
+      Result := I;
+    end;
+  end;
+end;
+
+procedure TdSetDeskNotifyCorner(AValue: integer);
+begin
+  if (AValue < Low(DESKNOTIFY_CORNERS)) or (AValue > High(DESKNOTIFY_CORNERS)) then begin
+    AValue := DESKNOTIFY_CORNER_DEFAULT;
+  end;
+  with ConfigIni do begin
+    try
+      WriteString('notify', 'corner', DESKNOTIFY_CORNERS[AValue]);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+function TdDeskNotifyLimit: integer;
+begin
+  with ConfigIni do begin
+    try
+      Result := ReadInteger('notify', 'limit', DESKNOTIFY_LIMIT_DEFAULT);
+    finally
+      Free;
+    end;
+  end;
+  if (Result < DESKNOTIFY_LIMIT_MIN) or (Result > DESKNOTIFY_LIMIT_MAX) then begin
+    Result := DESKNOTIFY_LIMIT_DEFAULT;
+  end;
+end;
+
+procedure TdSetDeskNotifyLimit(AValue: integer);
+begin
+  if AValue < DESKNOTIFY_LIMIT_MIN then begin
+    AValue := DESKNOTIFY_LIMIT_MIN;
+  end;
+  if AValue > DESKNOTIFY_LIMIT_MAX then begin
+    AValue := DESKNOTIFY_LIMIT_MAX;
+  end;
+  with ConfigIni do begin
+    try
+      WriteInteger('notify', 'limit', AValue);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+function ReadDeskNotifyFont(const AKey: string; ADefault: integer): integer;
+begin
+  with ConfigIni do begin
+    try
+      Result := ReadInteger('notify', AKey, ADefault);
+    finally
+      Free;
+    end;
+  end;
+  if (Result < DESKNOTIFY_FONT_MIN) or (Result > DESKNOTIFY_FONT_MAX) then begin
+    Result := ADefault;
+  end;
+end;
+
+procedure WriteDeskNotifyFont(const AKey: string; AValue: integer);
+begin
+  if AValue < DESKNOTIFY_FONT_MIN then begin
+    AValue := DESKNOTIFY_FONT_MIN;
+  end;
+  if AValue > DESKNOTIFY_FONT_MAX then begin
+    AValue := DESKNOTIFY_FONT_MAX;
+  end;
+  with ConfigIni do begin
+    try
+      WriteInteger('notify', AKey, AValue);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+function TdDeskNotifyTitleFont: integer;
+begin
+  Result := ReadDeskNotifyFont('titlefont', DESKNOTIFY_TITLE_FONT_DEFAULT);
+end;
+
+procedure TdSetDeskNotifyTitleFont(AValue: integer);
+begin
+  WriteDeskNotifyFont('titlefont', AValue);
+end;
+
+function TdDeskNotifyTextFont: integer;
+begin
+  Result := ReadDeskNotifyFont('textfont', DESKNOTIFY_TEXT_FONT_DEFAULT);
+end;
+
+procedure TdSetDeskNotifyTextFont(AValue: integer);
+begin
+  WriteDeskNotifyFont('textfont', AValue);
 end;
 
 procedure TdSetCacheTtlDays(AValue: integer);

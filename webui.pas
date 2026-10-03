@@ -65,9 +65,8 @@ type
     procedure Open(const AUrl: utf8string);
     { Builds the tray icon. Called once, by SetWebUiPrimary. }
     procedure SetupTray;
-    { A Windows notification from the tray icon. No-op without a tray,
-      which means: only while this window is the application. }
-    procedure Notify(const ATitle, AText: utf8string);
+    { Показать окно и вывести вперёд — как двойной клик по трею. }
+    procedure Reveal;
     { Is the user actually looking at this window? Visible is not
       enough - a window behind three others is as unseen as a hidden
       one, and that is exactly when a notification has to leave the
@@ -88,8 +87,9 @@ function ShowWebUi(const AUrl: utf8string): boolean;
   else - the cases where a notification belongs to the system rather
   than to the page. }
 function WebUiIsShowing: boolean;
-{ Shows ATitle/AText as a Windows notification from the tray icon. }
-procedure WebUiNotify(const ATitle, AText: utf8string);
+{ Показывает веб-окно и выводит его вперёд (клик по уведомлению на
+  рабочем столе, desknotify.pas). }
+procedure WebUiReveal;
 
 { Главное веб-окно или nil — владелец окон поверх него (мини-приложения,
   miniapp.pas), чтобы те держались над ним и не выходили на панель задач. }
@@ -127,10 +127,10 @@ begin
   Result := GForm;
 end;
 
-procedure WebUiNotify(const ATitle, AText: utf8string);
+procedure WebUiReveal;
 begin
   if GForm <> nil then begin
-    GForm.Notify(ATitle, AText);
+    GForm.Reveal;
   end;
 end;
 
@@ -454,27 +454,17 @@ begin
     and (GetForegroundWindow = Handle);
 end;
 
-procedure TFormWebUi.Notify(const ATitle, AText: utf8string);
-begin
-  if FTray = nil then begin
-    Exit;
-  end;
-  FTray.BalloonTitle := string(ATitle);
-  FTray.BalloonHint := string(AText);
-  FTray.BalloonFlags := bfNone;
-  FTray.BalloonTimeout := 5000;
-  { Where the widgetset cannot raise a shell notification, LCL falls
-    back to a TPopupNotifier window of its own (customtrayicon.inc) -
-    so something is shown either way. }
-  FTray.ShowBalloonHint;
-end;
-
 procedure TFormWebUi.TrayShowClick(Sender: TObject);
 begin
-  TrayDblClick(Sender);
+  Reveal;
 end;
 
 procedure TFormWebUi.TrayDblClick(Sender: TObject);
+begin
+  Reveal;
+end;
+
+procedure TFormWebUi.Reveal;
 begin
   if not Visible then begin
     Show;

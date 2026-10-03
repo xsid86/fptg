@@ -4410,7 +4410,7 @@ a.media--file:hover {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  gap: 4px;
+  gap: 6px;
   background: var(--c-surface);
   border: none;
   border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
@@ -4439,6 +4439,10 @@ a.media--file:hover {
   .composer__bar .composer__group--actions {
     justify-content: flex-end;
   }
+}
+.composer__bar .btn {
+  font-size: 11px;
+  padding: 2px 4px;
 }
 
 .composer__group {
@@ -4559,8 +4563,8 @@ a.media--file:hover {
 }
 
 .composer__send {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   display: flex;
   flex-direction: row;
@@ -4570,7 +4574,7 @@ a.media--file:hover {
   background: var(--c-accent);
   border-radius: 8px;
   color: var(--c-accent-text);
-  padding: 0 1rem;
+  padding: 0 0.5rem;
   width: auto;
 }
 .composer__send:hover {
@@ -4588,6 +4592,10 @@ a.media--file:hover {
   position: relative;
   white-space: nowrap;
   width: auto;
+}
+.composer__send .icon {
+  width: 16px;
+  height: 16px;
 }
 
 .composer__format.is-active {
@@ -5814,6 +5822,59 @@ span.picker__gif {
   accent-color: var(--c-accent);
   cursor: pointer;
   margin: 0;
+}
+
+.settings__corners {
+  border: 2px solid color-mix(in srgb, var(--c-border) 60%, transparent);
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  height: 112px;
+  padding: 8px;
+  width: 176px;
+}
+
+.settings__corner:focus {
+  outline: none !important;
+}
+.settings__corner:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.settings__corner {
+  background: color-mix(in srgb, var(--c-text) 15%, transparent);
+  border-radius: 4px;
+  cursor: pointer;
+  height: 18px;
+  transition: background 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 56px;
+}
+.settings__corner:hover {
+  background: color-mix(in srgb, var(--c-text) 30%, transparent);
+}
+.settings__corner.is-active {
+  background: var(--c-accent);
+}
+
+.settings__corner--tl {
+  align-self: start;
+  justify-self: start;
+}
+
+.settings__corner--tr {
+  align-self: start;
+  justify-self: end;
+}
+
+.settings__corner--bl {
+  align-self: end;
+  justify-self: start;
+}
+
+.settings__corner--br {
+  align-self: end;
+  justify-self: end;
 }
 
 .settings__figure {

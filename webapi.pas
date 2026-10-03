@@ -64,7 +64,7 @@ uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fgl, fpjson, jsonparser,
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
-  autodownload, customemoji, webui, tdstorage, miniapp;
+  autodownload, customemoji, webui, tdstorage, miniapp, desknotify;
 
 type
   { A request whose answer is not here yet.
@@ -141,6 +141,7 @@ type
     procedure EnsureBindings;
     procedure DropBindings;
     procedure ChatsChanged(Sender: TObject);
+    procedure DeskCardClick(AChatId: Int64);
     procedure ChatArrived(Sender: TObject; ARow: TChatRow;
       const APreview: utf8string);
     procedure MessagesChanged(Sender: TObject);
@@ -1212,12 +1213,17 @@ begin
   FSnaps.Sorted := True;
   FInlineBots := TStringList.Create;
   MiniAppTgLink := @MiniAppLinkToPage;
+  DeskNotifyOnClick := @DeskCardClick;
+  SetDeskNotifyCorner(TdDeskNotifyCorner);
+  SetDeskNotifyLimit(TdDeskNotifyLimit);
+  SetDeskNotifyFonts(TdDeskNotifyTitleFont, TdDeskNotifyTextFont);
 end;
 
 destructor TWebApi.Destroy;
 var
   I: integer;
 begin
+  DeskNotifyOnClick := nil;
   FTimer.Enabled := False;
   FTimer.Free;
   FreeAndNil(FAuth);
@@ -1534,20 +1540,19 @@ end;
 { A message arrived somewhere. The model has already ruled out our own
   messages and muted chats; what is left is WHERE to say so.
 
-  Two places, and the window decides which. While the web window is the
-  one on screen, the page draws its own card - that is the half that
-  looks like a real client, with the chat's picture on it and a click
-  that opens the chat. When the window is in the tray, minimised or
-  simply behind something else, the page would be talking to nobody, so
-  it goes to the tray icon and becomes a Windows notification instead.
+  Для окна WebView2 — карточкой на рабочем столе, как у Telegram
+  Desktop (desknotify.pas): всегда, кроме случая, когда окно перед
+  глазами и этот чат в нём открыт. Только при живом веб-окне — без него
+  клику некуда вести. Страница в нашем окне свою карточку не рисует.
 
-  Both are sent for the SAME arrival, never neither: a page open in an
-  ordinary browser is not this window, and it is told either way - it
-  decides for itself whether it is visible (see ui/toasts.js). }
+  Событие arrival уходит странице всё равно: страница в обычном
+  браузере рисовать на рабочем столе не может, и карточку внутри себя
+  она решает показать сама (ui/toasts.js). }
 procedure TWebApi.ChatArrived(Sender: TObject; ARow: TChatRow;
   const APreview: utf8string);
 var
   Data: TJSONObject;
+  M: TTdMessages;
 begin
   if ARow = nil then begin
     Exit;
@@ -1562,9 +1567,35 @@ begin
   Data.Add('avatar', string(FileUrl(ARow.PhotoFileId, ARow.PhotoPath)));
   PushEvent('arrival', Data);
 
-  if not WebUiIsShowing then begin
-    WebUiNotify(ARow.Title, APreview);
+  if (WebUiForm <> nil) and TdDeskNotify then begin
+    M := TdMsgList;
+    if not (WebUiIsShowing and (M <> nil) and (M.ChatId = ARow.Id)) then begin
+      ShowDeskNotify(ARow.Id, ARow.Title, APreview, ARow.PhotoPath, ARow.Minithumb);
+    end;
   end;
+end;
+
+{ Клик по карточке на рабочем столе: окно вперёд, чат открывает
+  страница — выбор чата живёт в ней (store.setActiveChat). }
+procedure TWebApi.DeskCardClick(AChatId: Int64);
+var
+  Data: TJSONObject;
+begin
+  WebUiReveal;
+  { 0 — образец из настроек, открывать нечего. }
+  if AChatId = 0 then begin
+    Exit;
+  end;
+  Data := TJSONObject.Create;
+  Data.Add('chatId', AChatId);
+  PushEvent('openChat', Data);
+end;
+
+{ Образец карточки — при смене угла и при включении: сразу видно, где и
+  как они будут появляться (так делает и Telegram Desktop). }
+procedure ShowDeskNotifySample;
+begin
+  ShowDeskNotifySamples(APP_TITLE, DESKNOTIFY_SAMPLE_TEXT);
 end;
 
 procedure TWebApi.Enqueue(AConnId: Int64; const AText: utf8string);
@@ -2260,13 +2291,25 @@ end;
   диалога: добавленный вид появится на странице сам. }
 function TWebApi.CmdSettingsGet: TJSONData;
 var
-  Res, Downloads, Cache, AutoDl, Item: TJSONObject;
+  Res, Downloads, Cache, AutoDl, Item, Notify: TJSONObject;
   Media, Chats, OnList: TJSONArray;
   M, C: integer;
 begin
   Res := TJSONObject.Create;
   Res.Add('closeToTray', TdCloseToTray);
   Res.Add('deviceModel', TdApp.DeviceModel);
+
+  Notify := TJSONObject.Create;
+  Notify.Add('enabled', TdDeskNotify);
+  Notify.Add('corner', DESKNOTIFY_CORNERS[TdDeskNotifyCorner]);
+  Notify.Add('limit', TdDeskNotifyLimit);
+  Notify.Add('limitMin', DESKNOTIFY_LIMIT_MIN);
+  Notify.Add('limitMax', DESKNOTIFY_LIMIT_MAX);
+  Notify.Add('titleFont', TdDeskNotifyTitleFont);
+  Notify.Add('textFont', TdDeskNotifyTextFont);
+  Notify.Add('fontMin', DESKNOTIFY_FONT_MIN);
+  Notify.Add('fontMax', DESKNOTIFY_FONT_MAX);
+  Res.Add('notify', Notify);
 
   Downloads := TJSONObject.Create;
   Downloads.Add('concurrency', tdmessages.DownloadConcurrency);
@@ -2323,7 +2366,8 @@ end;
   страницам — то же самое событием. }
 function TWebApi.CmdSettingsSet(AArgs: TJSONObject): TJSONData;
 var
-  Key, Model: utf8string;
+  Key, Model, Code: utf8string;
+  I, Corner: integer;
 begin
   if AArgs = nil then begin
     raise Exception.Create('settings.set needs a key');
@@ -2339,6 +2383,37 @@ begin
       raise Exception.Create('Device name cannot be empty');
     end;
     TdApp.SetDeviceModel(Model);
+  end else if Key = 'notify.enabled' then begin
+    TdSetDeskNotify(AArgs.Get('value', True));
+    if TdDeskNotify then begin
+      ShowDeskNotifySample;
+    end;
+  end else if Key = 'notify.corner' then begin
+    Code := AArgs.Get('value', utf8string(''));
+    Corner := -1;
+    for I := Low(DESKNOTIFY_CORNERS) to High(DESKNOTIFY_CORNERS) do begin
+      if DESKNOTIFY_CORNERS[I] = Code then begin
+        Corner := I;
+      end;
+    end;
+    if Corner < 0 then begin
+      raise Exception.Create('unknown corner: ' + string(Code));
+    end;
+    TdSetDeskNotifyCorner(Corner);
+    SetDeskNotifyCorner(Corner);
+    ShowDeskNotifySample;
+  end else if Key = 'notify.titleFont' then begin
+    TdSetDeskNotifyTitleFont(AArgs.Get('value', DESKNOTIFY_TITLE_FONT_DEFAULT));
+    SetDeskNotifyFonts(TdDeskNotifyTitleFont, TdDeskNotifyTextFont);
+    ShowDeskNotifySample;
+  end else if Key = 'notify.textFont' then begin
+    TdSetDeskNotifyTextFont(AArgs.Get('value', DESKNOTIFY_TEXT_FONT_DEFAULT));
+    SetDeskNotifyFonts(TdDeskNotifyTitleFont, TdDeskNotifyTextFont);
+    ShowDeskNotifySample;
+  end else if Key = 'notify.limit' then begin
+    TdSetDeskNotifyLimit(AArgs.Get('value', DESKNOTIFY_LIMIT_DEFAULT));
+    SetDeskNotifyLimit(TdDeskNotifyLimit);
+    ShowDeskNotifySample;
   end else if Key = 'downloads.concurrency' then begin
     TdSetDownloadConcurrency(AArgs.Get('value', DOWNLOAD_CONCURRENCY_DEFAULT));
   end else if Key = 'downloads.speedKb' then begin

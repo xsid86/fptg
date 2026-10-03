@@ -240,6 +240,44 @@
   margin: 0;
 }
 
+// ------------------------------------------------- угол уведомлений
+// Схема экрана: рамка, в каждом углу — карточка в миниатюре
+// (ui/settings.js, cornerControl). Выбранная — цвета акцента.
+.settings__corners {
+  border: 2px solid color-mix(in srgb, var(--c-border) 60%, transparent);
+  border-radius: $radius-md;
+  display: grid;
+  gap: $space-6;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  height: 112px;
+  padding: $space-4;
+  width: 176px;
+}
+
+.settings__corner {
+  @include focus-ring;
+  background: color-mix(in srgb, var(--c-text) 15%, transparent);
+  border-radius: $radius-sm;
+  cursor: pointer;
+  height: 18px;
+  transition: background $dur-fast $ease;
+  width: 56px;
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-text) 30%, transparent);
+  }
+
+  &.is-active {
+    background: var(--c-accent);
+  }
+}
+
+.settings__corner--tl { align-self: start; justify-self: start; }
+.settings__corner--tr { align-self: start; justify-self: end; }
+.settings__corner--bl { align-self: end; justify-self: start; }
+.settings__corner--br { align-self: end; justify-self: end; }
+
 // --------------------------------------------------------------- кэш
 .settings__figure {
   font-size: $fs-lg;

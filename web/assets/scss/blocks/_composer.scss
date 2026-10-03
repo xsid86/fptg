@@ -36,6 +36,11 @@
       justify-content: flex-end;
     }
   }
+
+  .btn {
+    font-size: 11px;
+    padding: 2px 4px;
+  }
 }
 
 .composer__group {
@@ -132,12 +137,12 @@
 }
 
 .composer__send {
-  @include size(36px);
+  @include size(32px);
   @include flex(row, center, center, $space-3);
   background: var(--c-accent);
   border-radius: $radius-md;
   color: var(--c-accent-text);
-  padding: 0 1rem;
+  padding: 0 .5rem;
   width: auto;
 
   &:hover {
@@ -159,6 +164,11 @@
       white-space: nowrap;
       width: auto;
     }
+  }
+
+  .icon {
+    width: 16px;
+    height: 16px;
   }
 }
 

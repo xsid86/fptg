@@ -298,6 +298,13 @@ function wireActions() {
   // что ссылка в сообщении.
   on('srv:openLink', (data) => openLink(data?.url));
 
+  // Клик по уведомлению на рабочем столе (desknotify.pas). Событие
+  // уходит всем подключённым страницам, а относится только к той, что
+  // в нашем окне WebView2: вкладка обычного браузера чат не меняет.
+  on('srv:openChat', (data) => {
+    if (window.chrome?.webview && data?.chatId) setActiveChat(data.chatId);
+  });
+
   on('ui:cancel-transfer', (args) => {
     call('message.cancelTransfer', args).catch(report);
   });

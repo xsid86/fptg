@@ -81,6 +81,10 @@ function syncClearAll() {
 
 function arrived(data) {
   if (!stack || !data) return;
+  // В нашем окне WebView2 уведомления рисует сервер — карточками на
+  // рабочем столе, как Telegram Desktop (desknotify.pas). Свои карточки
+  // остаются странице, открытой в обычном браузере.
+  if (window.chrome?.webview) return;
   // Nobody is looking at this page: the window is minimised, or it is
   // another tab. Pascal has already raised a system notification for
   // the window it belongs to - a card queued up here would only be

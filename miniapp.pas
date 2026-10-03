@@ -32,7 +32,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, ExtCtrls, StdCtrls, Graphics, Dialogs,
-  LCLIntf, LCLType, fpjson, jsonparser;
+  LCLIntf, LCLType, fpjson, jsonparser, BCButton, BCTypes;
 
 type
   TMiniAppLinkEvent = procedure(const AUrl: utf8string);
@@ -84,13 +84,24 @@ type
     FView: TWebView2;
     FHost: TPanel;
     FBar: TPanel;
-    FBack: TButton;
-    FSettings: TButton;
-    FReload: TButton;
+    { TBCButton (BGRAControls), а не TButton: системную кнопку Windows
+      рисует темой, и её цвет из LCL не задать, — а шапка должна быть в
+      цветах темы приложения (светлой или тёмной), со скруглением. }
+    FBack: TBCButton;
+    FSettings: TBCButton;
+    FReload: TBCButton;
+    FBarColor: TColor;      { фон шапки }
+    FButtonColor: TColor;   { фон кнопок }
+    FHoverColor: TColor;    { фон кнопки под курсором }
+    FPressColor: TColor;    { фон нажатой кнопки }
+    FTextColor: TColor;
     FMainBtn: TPanel;
     FSecondBtn: TPanel;
     FReqIds: TStringList;     { req_id приложения по индексу запроса к TDLib }
     procedure HostResize(Sender: TObject);
+    procedure ApplyTheme;
+    function MakeBarButton(const ACaption: string; AAlign: TAlign;
+      AClick: TNotifyEvent): TBCButton;
     procedure ViewMessage(Sender: TObject; const AText: UnicodeString);
     procedure ViewExternal(Sender: TObject; const AUri: utf8string);
     procedure BackClick(Sender: TObject);
@@ -253,10 +264,12 @@ begin
   FBar.Align := alTop;
   FBar.Height := MINIAPP_BAR_H;
   FBar.BevelOuter := bvNone;
-  FBack := MakeButton(Self, FBar, 'Back', alLeft, @BackClick);
+  FBar.ParentBackground := False;
+  ApplyTheme;
+  FBack := MakeBarButton('Back', alLeft, @BackClick);
   FBack.Visible := False;
-  FReload := MakeButton(Self, FBar, 'Reload', alRight, @ReloadClick);
-  FSettings := MakeButton(Self, FBar, 'Settings', alRight, @SettingsClick);
+  FReload := MakeBarButton('Reload', alRight, @ReloadClick);
+  FSettings := MakeBarButton('Settings', alRight, @SettingsClick);
   FSettings.Visible := False;
 
   { Снизу вверх: главная кнопка у самого края, дополнительная над ней. }
@@ -309,6 +322,97 @@ begin
     Result := MessageDlg(Caption, 'Changes that you made may not be saved. Close anyway?',
       mtConfirmation, [mbYes, mbNo], 0) = mrYes;
   end;
+end;
+
+{ Смесь двух цветов RGB: APercent второго. Системные (clBtnFace и т.п.)
+  не смешиваются — их значения не RGB. }
+function MixColor(A, B: TColor; APercent: integer): TColor;
+begin
+  if (A and $FF000000 <> 0) or (B and $FF000000 <> 0) then begin
+    Result := A;
+    Exit;
+  end;
+  Result := RGBToColor(
+    (Red(A) * (100 - APercent) + Red(B) * APercent) div 100,
+    (Green(A) * (100 - APercent) + Green(B) * APercent) div 100,
+    (Blue(A) * (100 - APercent) + Blue(B) * APercent) div 100);
+end;
+
+{ Цвета шапки — из темы, которую окно и так получило для theme_changed
+  (страница, светлая или тёмная): фон — фон приложения
+  (secondary_bg_color), кнопки — поверхность (bg_color), текст —
+  text_color. Под курсором кнопка смешивается с текстом на 12%, нажатая —
+  на 20%. }
+procedure TFormMiniApp.ApplyTheme;
+var
+  TextColor: TColor;
+begin
+  FBarColor := clBtnFace;
+  FButtonColor := clWindow;
+  TextColor := clWindowText;
+  if FTheme <> nil then begin
+    if HexColor(JStr(FTheme, 'secondary_bg_color')) <> clNone then begin
+      FBarColor := HexColor(JStr(FTheme, 'secondary_bg_color'));
+    end;
+    if HexColor(JStr(FTheme, 'bg_color')) <> clNone then begin
+      FButtonColor := HexColor(JStr(FTheme, 'bg_color'));
+    end;
+    if HexColor(JStr(FTheme, 'text_color')) <> clNone then begin
+      TextColor := HexColor(JStr(FTheme, 'text_color'));
+    end;
+  end;
+  FHoverColor := MixColor(FButtonColor, TextColor, 12);
+  FPressColor := MixColor(FButtonColor, TextColor, 20);
+  FTextColor := TextColor;
+  FBar.Color := FBarColor;
+  FBar.Font.Color := TextColor;
+end;
+
+{ Одно состояние кнопки: сплошной фон, без рамки, текст цвета темы. }
+procedure StyleState(AState: TBCButtonState; ABack, AText: TColor);
+begin
+  AState.Background.Style := bbsColor;
+  AState.Background.Color := ABack;
+  AState.Border.Style := bboNone;
+  AState.FontEx.Color := AText;
+  AState.FontEx.Shadow := False;
+end;
+
+function TFormMiniApp.MakeBarButton(const ACaption: string; AAlign: TAlign;
+  AClick: TNotifyEvent): TBCButton;
+var
+  Bmp: TBitmap;
+  W: integer;
+begin
+  Result := TBCButton.Create(Self);
+  Result.Parent := FBar;
+  Result.Align := AAlign;
+  Result.Caption := ACaption;
+  Result.Cursor := crHandPoint;
+  Result.Rounding.RoundX := MINIAPP_BAR_BUTTON_RADIUS;
+  Result.Rounding.RoundY := MINIAPP_BAR_BUTTON_RADIUS;
+  StyleState(Result.StateNormal, FButtonColor, FTextColor);
+  StyleState(Result.StateHover, FHoverColor, FTextColor);
+  StyleState(Result.StateClicked, FPressColor, FTextColor);
+  { Отступы 8px: сверху и снизу у всех, у левой кнопки — слева, у правых
+    — справа (так и до края, и между соседями ровно 8). }
+  Result.BorderSpacing.Top := MINIAPP_BAR_PAD;
+  Result.BorderSpacing.Bottom := MINIAPP_BAR_PAD;
+  if AAlign = alLeft then begin
+    Result.BorderSpacing.Left := MINIAPP_BAR_PAD;
+  end else begin
+    Result.BorderSpacing.Right := MINIAPP_BAR_PAD;
+  end;
+  { Ширина — по тексту: холст битмапа меряет без окна. }
+  Bmp := TBitmap.Create;
+  try
+    Bmp.Canvas.Font.Assign(FBar.Font);
+    W := Bmp.Canvas.TextWidth(ACaption);
+  finally
+    Bmp.Free;
+  end;
+  Result.Width := W + 2 * MINIAPP_BAR_BUTTON_PAD;
+  Result.OnClick := AClick;
 end;
 
 procedure TFormMiniApp.HostResize(Sender: TObject);

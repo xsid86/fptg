@@ -17,6 +17,7 @@ import { fileSize } from '../util/format.js';
 
 const SECTIONS = [
   { id: 'general', label: 'General', icon: 'settings', render: renderGeneral },
+  { id: 'notifications', label: 'Notifications', icon: 'bell', render: renderNotifications },
   { id: 'downloads', label: 'Downloads', icon: 'download', render: renderDownloads },
   { id: 'autodownload', label: 'Auto download', icon: 'image', render: renderAutoDownload },
   { id: 'storage', label: 'Storage', icon: 'archive', render: renderStorage },
@@ -81,6 +82,41 @@ function numberControl(id, { value, min, max, unit }, onCommit) {
     unit ? el('span', { class: 'settings__unit' }, unit) : null);
 }
 
+// Углы экрана — коды те же, что у сервера (DESKNOTIFY_CORNERS).
+const CORNERS = [
+  { id: 'tl', label: 'Top left' },
+  { id: 'tr', label: 'Top right' },
+  { id: 'bl', label: 'Bottom left' },
+  { id: 'br', label: 'Bottom right' },
+];
+
+/**
+ * Выбор угла: схема экрана, в каждом углу — карточка в миниатюре, как
+ * в Telegram Desktop. Выбранная — цвета акцента.
+ */
+function cornerControl(id, value, onCommit) {
+  const box = el('div', {
+    class: 'settings__corners', id, role: 'group', 'aria-label': 'Screen corner',
+  }, ...CORNERS.map((c) => el('button', {
+    class: `settings__corner settings__corner--${c.id}`,
+    type: 'button',
+    title: c.label,
+    'aria-label': c.label,
+    'data-corner': c.id,
+    onclick: () => onCommit(c.id, box),
+  })));
+  markCorner(box, value);
+  return box;
+}
+
+function markCorner(box, value) {
+  for (const spot of box.children) {
+    const on = spot.dataset.corner === value;
+    spot.classList.toggle('is-active', on);
+    spot.setAttribute('aria-pressed', String(on));
+  }
+}
+
 function textControl(id, value, onCommit) {
   const input = el('input', {
     class: 'field__input', type: 'text', id, value, autocomplete: 'off',
@@ -125,6 +161,47 @@ function renderGeneral() {
         textControl(device, data.deviceModel, (value, input) => commit(
           { key: 'deviceModel', value }, input,
           (node, d) => { node.value = d.deviceModel; })))),
+  ];
+}
+
+function renderNotifications() {
+  const n = data.notify;
+  const enabled = uid();
+  const corner = uid();
+  const limit = uid();
+  const titleFont = uid();
+  const textFont = uid();
+  const font = (id, key, value) => numberControl(id,
+    { value, min: n.fontMin, max: n.fontMax, unit: 'px' },
+    (v, input) => commit({ key: `notify.${key}`, value: v }, input,
+      (node, d) => { node.value = String(d.notify[key]); }));
+  return [
+    group(null,
+      row(enabled, 'Desktop notifications',
+        'Pop-ups for new messages in chats that are not muted. Not shown '
+        + 'for the chat that is open while the window is in front.',
+        switchControl(enabled, n.enabled, (checked, input) => commit(
+          { key: 'notify.enabled', value: checked }, input,
+          (node, d) => { node.checked = d.notify.enabled; }))),
+      row(corner, 'Position',
+        'The corner of the screen they appear in. A sample shows up '
+        + 'there when you pick one.',
+        cornerControl(corner, n.corner, (value, box) => commit(
+          { key: 'notify.corner', value }, box,
+          (node, d) => markCorner(node, d.notify.corner)))),
+      row(limit, 'At the same time',
+        `How many can be on screen at once (${n.limitMin}–${n.limitMax}). `
+        + 'Older ones make way for new ones.',
+        numberControl(limit, { value: n.limit, min: n.limitMin, max: n.limitMax },
+          (value, input) => commit({ key: 'notify.limit', value }, input,
+            (node, d) => { node.value = String(d.notify.limit); })))),
+    group('Text',
+      row(titleFont, 'Title size',
+        `The chat name (${n.fontMin}–${n.fontMax}).`,
+        font(titleFont, 'titleFont', n.titleFont)),
+      row(textFont, 'Message size',
+        `The message preview (${n.fontMin}–${n.fontMax}).`,
+        font(textFont, 'textFont', n.textFont))),
   ];
 }
 
