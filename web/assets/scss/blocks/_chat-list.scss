@@ -46,3 +46,44 @@
   color: var(--c-text-dim);
   padding: $space-6;
 }
+
+// ------------------------------------------------------------ контакты
+// ui/chat-list.js, renderContacts: строка контакта — аватарка, имя,
+// статус («online» — цветом акцента).
+.contact-row {
+  @include flex(row, center, flex-start, $space-5);
+  @include focus-ring;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-3 $space-4;
+  text-align: left;
+  width: 100%;
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+}
+
+.contact-row__avatar {
+  flex: 0 0 auto;
+}
+
+.contact-row__text {
+  @include flex(column, stretch, flex-start, $space-1);
+  min-width: 0;
+}
+
+.contact-row__name {
+  @include ellipsis;
+  font-weight: $fw-medium;
+}
+
+.contact-row__status {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+
+  &.is-online {
+    color: var(--c-accent);
+  }
+}

@@ -65,7 +65,7 @@ uses
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
   autodownload, customemoji, webui, tdstorage, miniapp, desknotify,
-  tdsupergroups, tdattachbots;
+  tdsupergroups, tdattachbots, servicetext;
 
 type
   { A request whose answer is not here yet.
@@ -209,6 +209,16 @@ type
     function  CmdSendChecklist(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     function  CmdSendArticle(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     function  CmdAttachBots: TJSONData;
+    function  CmdContactsList(AConnId: Int64; AReqId: integer): boolean;
+    procedure ContactsIdsDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ContactUserDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdChatGreeting(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure GreetingSticker(ASlot: PtrInt; ARes, ASticker: TJSONObject);
+    procedure GreetingFinish(ASlot: PtrInt);
+    procedure GreetingFullDone(Sender: TObject; const AResp: TTdResponse);
+    procedure GreetingStickersDone(Sender: TObject; const AResp: TTdResponse);
+    procedure GreetingFileDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdGreetingSend(AArgs: TJSONObject): TJSONData;
     procedure SharePhoneMeDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineBotDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineResultsDone(Sender: TObject; const AResp: TTdResponse);
@@ -1248,6 +1258,58 @@ begin
   end;
 end;
 
+{ Имя пользователя для сервисных строк («X added Y»): модель
+  пользователей; '' — не знаем. }
+function ServiceUserName(AUserId: Int64): utf8string;
+var
+  Users: TTdUsers;
+  U: TUserRow;
+begin
+  Result := '';
+  Users := TdUserList;
+  if Users = nil then begin
+    Exit;
+  end;
+  U := Users.Find(AUserId);
+  if U <> nil then begin
+    Result := U.DisplayName;
+  end;
+end;
+
+{ Текст сервисного сообщения строки (servicetext) или ''. AActor — имя
+  отправителя; канал — по виду открытого чата. }
+function RowServiceText(AMsgs: TTdMessages; ARow: TMsgRow; const AActor: utf8string): utf8string;
+var
+  Data: TJSONData;
+  Chats: TTdChats;
+  CRow: TChatRow;
+  IsChannel: boolean;
+begin
+  Result := '';
+  if (ARow.Kind <> mckOther) or (ARow.ContentRaw = '') then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARow.ContentRaw));
+  except
+    Exit;
+  end;
+  try
+    if not (Data is TJSONObject) then begin
+      Exit;
+    end;
+    IsChannel := False;
+    Chats := TdChatList;
+    if Chats <> nil then begin
+      CRow := Chats.Lookup(AMsgs.ChatId);
+      IsChannel := (CRow <> nil) and (CRow.Kind = ckChannel);
+    end;
+    Result := ServiceMessageText(TJSONObject(Data), AActor, IsChannel, @ServiceUserName);
+  finally
+    Data.Free;
+  end;
+end;
+
 { Геопозиция сообщения — из сырого content (td_api.tl коммита d1085f9):
   messageLocation (location), messageVenue (venue: location, title,
   address), messageLiveLocation (location: liveLocation — его location,
@@ -1290,6 +1352,8 @@ begin
     Result := TJSONObject.Create;
     Result.Add('lat', Loc.Get('latitude', 0.0));
     Result.Add('lon', Loc.Get('longitude', 0.0));
+    { horizontal_accuracy — радиус неопределённости в метрах; 0 — неизвестен. }
+    Result.Add('accuracy', Loc.Get('horizontal_accuracy', 0.0));
     Result.Add('title', string(JGetStr(Venue, 'title')));
     Result.Add('address', string(JGetStr(Venue, 'address')));
     Result.Add('live', T = 'messageLiveLocation');
@@ -1308,6 +1372,7 @@ var
   Sub: TJSONObject;
   Media: TJSONObject;
   Loc: TJSONObject;
+  ServiceLine: utf8string;
 begin
   Result := TJSONObject.Create;
   Result.Add('id',       ARow.Id);
@@ -1338,6 +1403,17 @@ begin
   Result.Add('receipt',  string(ReceiptStr(MessageReceipt(ARow, ALastReadOutbox))));
 
   ResolveSubject(ARow.SenderUserId, ARow.SenderChatId, Name, Color);
+  { Сервисное сообщение (создание группы, вход, закреп…): страница рисует
+    его строкой посередине, а не пузырём, и в меню оставляет только
+    удаление. Текст — servicetext, с именем отправителя. }
+  if Result.Strings['kind'] = 'other' then begin
+    ServiceLine := RowServiceText(AMsgs, ARow, Name);
+    if ServiceLine <> '' then begin
+      Result.Add('service', True);
+      Result.Strings['text'] := string(ServiceLine);
+      Result.Arrays['entities'] := TJSONArray.Create;
+    end;
+  end;
   Result.Add('senderId',    ARow.SenderUserId + ARow.SenderChatId);
   Result.Add('senderName',  string(Name));
   Result.Add('senderColor', string(Color));
@@ -5519,6 +5595,298 @@ begin
   ReleaseDeferred(Slot);
 end;
 
+{ ------------------------------------------------------------------ }
+{ контакты (кнопка Contacts над списком чатов)                       }
+{ ------------------------------------------------------------------ }
+
+{ contacts.list: getContacts (td_api.tl: users — user_ids) -> getUser по
+  каждому id, все сразу; ответы собираются в Held['items'], счётчик —
+  Held['left']. Дошёл до нуля — ответ странице; порядок наводит она. }
+function TWebApi.CmdContactsList(AConnId: Int64; AReqId: integer): boolean;
+var
+  Msgs: TTdMessages;
+  Slot: PtrInt;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('items', TJSONArray.Create);
+  FDeferred[Slot].Held.Add('left', 0);
+  Msgs.Request('getContacts', '', @ContactsIdsDone, Slot);
+end;
+
+procedure TWebApi.ContactsIdsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Ids: TJSONArray;
+  I: integer;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Ids := JGetArr(AResp.Obj, 'user_ids');
+  if (Ids = nil) or (Ids.Count = 0) then begin
+    Res := TJSONObject.Create;
+    Res.Add('contacts', TJSONArray.Create);
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  FDeferred[Slot].Held.Integers['left'] := Ids.Count;
+  for I := 0 to Ids.Count - 1 do begin
+    RequireMsgs.Request('getUser', '"user_id":' + utf8string(IntToStr(Ids.Items[I].AsInt64)),
+      @ContactUserDone, Slot);
+  end;
+end;
+
+{ Один контакт: имя, имя пользователя, телефон, аватарка (на диске — адрес,
+  нет — minithumbnail и докачка через модель пользователей), цвет, статус
+  (userStatus* — хвост имени типа и was_online для Offline). }
+procedure TWebApi.ContactUserDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Item, Photo, Small, Local, Status: TJSONObject;
+  Id: Int64;
+  B64: utf8string;
+  Thumb: RawByteString;
+  Left: integer;
+  Res: TJSONObject;
+  Users: TTdUsers;
+  URow: TUserRow;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  if AResp.Success then begin
+    Id := JGetInt64(AResp.Obj, 'id');
+    Item := TJSONObject.Create;
+    Item.Add('userId', string(IntToStr(Id)));
+    Item.Add('title', string(TrimU(JGetStr(AResp.Obj, 'first_name') + ' ' +
+      JGetStr(AResp.Obj, 'last_name'))));
+    Item.Add('username', string(JGetStr(JGetObj(AResp.Obj, 'usernames'), 'editable_username')));
+    Item.Add('phone', string(JGetStr(AResp.Obj, 'phone_number')));
+    Item.Add('color', string(AccentKeyFor(JGetInt(AResp.Obj, 'accent_color_id'), Id)));
+    Item.Add('avatar', '');
+    Item.Add('avatarThumb', '');
+    { Фото есть, но ещё качается — страница перезапросит список
+      (OnChanged модели пользователей занят нативным окном истории). }
+    Item.Add('photoPending', False);
+    Photo := JGetObj(AResp.Obj, 'profile_photo');
+    if Photo <> nil then begin
+      B64 := JGetStr(JGetObj(Photo, 'minithumbnail'), 'data');
+      if B64 <> '' then begin
+        try
+          Thumb := DecodeStringBase64(string(B64));
+          Item.Strings['avatarThumb'] := string(ThumbDataUri(Thumb));
+        except
+          { Битое превью — без него. }
+        end;
+      end;
+      Small := JGetObj(Photo, 'small');
+      Local := JGetObj(Small, 'local');
+      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+        Item.Strings['avatar'] := string(FileUrl(JGetInt(Small, 'id'), JGetStr(Local, 'path')));
+      end else begin
+        { Докачка — модель пользователей (как для людей в окне реакций);
+          картинка появится при следующем запросе списка. }
+        Item.Booleans['photoPending'] := True;
+        Users := TdUserList;
+        if Users <> nil then begin
+          URow := Users.Find(Id);
+          if URow <> nil then begin
+            Users.EnsurePhoto(URow);
+          end;
+        end;
+      end;
+    end;
+    Status := JGetObj(AResp.Obj, 'status');
+    Item.Add('status', string(JGetStr(Status, '@type')));
+    Item.Add('wasOnline', JGetInt64(Status, 'was_online'));
+    TJSONArray(FDeferred[Slot].Held.Arrays['items']).Add(Item);
+  end;
+  Left := FDeferred[Slot].Held.Integers['left'] - 1;
+  FDeferred[Slot].Held.Integers['left'] := Left;
+  if Left > 0 then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('contacts', FDeferred[Slot].Held.Extract('items'));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ ------------------------------------------------------------------ }
+{ приветствие в пустом личном чате                                   }
+{ ------------------------------------------------------------------ }
+
+{ chat.greeting — что показать в пустой личке (td_api.tl коммита
+  d1085f9): userFullInfo.bot_info (description, short_description) —
+  карточка бота с кнопкой Start; business_info.start_page (title,
+  message, sticker) — стартовая страница бизнес-аккаунта; иначе —
+  случайный стикер из getGreetingStickers, как у нативного клиента.
+  Стикер качается до ответа (synchronous), чтобы его было чем показать. }
+function TWebApi.CmdChatGreeting(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Chats: TTdChats;
+  Row: TChatRow;
+  Slot: PtrInt;
+begin
+  Result := True;
+  Chats := RequireChats;
+  Row := Chats.Lookup(AArgs.Get('chatId', Int64(0)));
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  if (Row = nil) or (Row.Kind <> ckPrivate) or (Row.UserId = 0) or Chats.IsSelfChat(Row) then begin
+    Reply(AConnId, AReqId, TJSONObject.Create);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  RequireMsgs.Request('getUserFullInfo', '"user_id":' + utf8string(IntToStr(Row.UserId)),
+    @GreetingFullDone, Slot);
+end;
+
+{ Стикер для страницы: id файла, размеры, эмодзи, формат (stickerFormat*
+  хвостом) и адрес, если файл уже на диске; иначе — Held['fileId'] для
+  докачки. }
+procedure TWebApi.GreetingSticker(ASlot: PtrInt; ARes, ASticker: TJSONObject);
+var
+  S, FileObj, Local: TJSONObject;
+  Fmt: utf8string;
+begin
+  FileObj := JGetObj(ASticker, 'sticker');
+  S := TJSONObject.Create;
+  S.Add('fileId', JGetInt(FileObj, 'id'));
+  S.Add('w', JGetInt(ASticker, 'width'));
+  S.Add('h', JGetInt(ASticker, 'height'));
+  S.Add('emoji', string(JGetStr(ASticker, 'emoji')));
+  Fmt := JGetStr(JGetObj(ASticker, 'format'), '@type');
+  if Fmt = 'stickerFormatTgs' then begin
+    S.Add('format', 'tgs');
+  end else if Fmt = 'stickerFormatWebm' then begin
+    S.Add('format', 'webm');
+  end else begin
+    S.Add('format', 'webp');
+  end;
+  S.Add('url', '');
+  Local := JGetObj(FileObj, 'local');
+  if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+    S.Strings['url'] := string(FileUrl(JGetInt(FileObj, 'id'), JGetStr(Local, 'path')));
+  end else begin
+    FDeferred[ASlot].Held.Add('fileId', JGetInt(FileObj, 'id'));
+  end;
+  ARes.Add('sticker', S);
+end;
+
+{ Ответ — или после докачки стикера. }
+procedure TWebApi.GreetingFinish(ASlot: PtrInt);
+var
+  Res: TJSONObject;
+  FileId: integer;
+begin
+  FileId := FDeferred[ASlot].Held.Get('fileId', 0);
+  if FileId <> 0 then begin
+    FDeferred[ASlot].Held.Delete('fileId');
+    RequireMsgs.Request('downloadFile',
+      '"file_id":' + utf8string(IntToStr(FileId)) +
+      ',"priority":32,"offset":0,"limit":0,"synchronous":true',
+      @GreetingFileDone, ASlot);
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[ASlot].Held.Extract('reply'));
+  if Res = nil then begin
+    Res := TJSONObject.Create;
+  end;
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  ReleaseDeferred(ASlot);
+end;
+
+procedure TWebApi.GreetingFullDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Bot, Start: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('reply', Res);
+  Bot := JGetObj(AResp.Obj, 'bot_info');
+  if Bot <> nil then begin
+    Res.Add('kind', 'bot');
+    Res.Add('description', string(JGetStr(Bot, 'description')));
+    Res.Add('shortDescription', string(JGetStr(Bot, 'short_description')));
+    GreetingFinish(Slot);
+    Exit;
+  end;
+  Start := JGetObj(JGetObj(AResp.Obj, 'business_info'), 'start_page');
+  if (Start <> nil) and ((JGetStr(Start, 'title') <> '') or (JGetStr(Start, 'message') <> '')) then begin
+    Res.Add('kind', 'intro');
+    Res.Add('title', string(JGetStr(Start, 'title')));
+    Res.Add('message', string(JGetStr(Start, 'message')));
+    if JGetObj(Start, 'sticker') <> nil then begin
+      GreetingSticker(Slot, Res, JGetObj(Start, 'sticker'));
+    end;
+    GreetingFinish(Slot);
+    Exit;
+  end;
+  Res.Add('kind', 'greeting');
+  RequireMsgs.Request('getGreetingStickers', '', @GreetingStickersDone, Slot);
+end;
+
+procedure TWebApi.GreetingStickersDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr: TJSONArray;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[Slot].Held.Objects['reply']);
+  Arr := JGetArr(AResp.Obj, 'stickers');
+  if (Arr <> nil) and (Arr.Count > 0) then begin
+    GreetingSticker(Slot, Res, TJSONObject(Arr.Items[Random(Arr.Count)]));
+  end;
+  GreetingFinish(Slot);
+end;
+
+procedure TWebApi.GreetingFileDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Local: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[Slot].Held.Find('reply'));
+  if AResp.Success and (Res <> nil) and (Res.Find('sticker') is TJSONObject) then begin
+    Local := JGetObj(AResp.Obj, 'local');
+    if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      TJSONObject(Res.Objects['sticker']).Strings['url'] :=
+        string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
+    end;
+  end;
+  GreetingFinish(Slot);
+end;
+
+{ Клик по приветственному стикеру — он уходит в открытый чат. }
+function TWebApi.CmdGreetingSend(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  Msgs.SendSticker(AArgs.Get('fileId', 0), AArgs.Get('w', 0), AArgs.Get('h', 0),
+    utf8string(AArgs.Get('emoji', '')), False);
+  Result := nil;
+end;
+
 { Кнопка «пользователь»: личка с ним (createPrivateChat), чтобы её открыть. }
 function TWebApi.CmdBotUserChat(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
@@ -6155,6 +6523,12 @@ begin
         CmdSendArticle(AConnId, ReqId, Args);
       end else if Cmd = 'map.thumb' then begin
         CmdMapThumb(AConnId, ReqId, Args);
+      end else if Cmd = 'chat.greeting' then begin
+        CmdChatGreeting(AConnId, ReqId, Args);
+      end else if Cmd = 'greeting.send' then begin
+        Reply(AConnId, ReqId, CmdGreetingSend(Args));
+      end else if Cmd = 'contacts.list' then begin
+        CmdContactsList(AConnId, ReqId);
       end else if Cmd = 'attach.bots' then begin
         Reply(AConnId, ReqId, CmdAttachBots);
       end else if Cmd = 'account.get' then begin

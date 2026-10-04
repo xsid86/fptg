@@ -600,8 +600,15 @@ async function press(msg, button) {
       let answer;
       try {
         answer = await hooks.call('bot.callback', { id: String(msg.id), data: button.data });
-      } catch {
-        return;            // бот не ответил вовремя — молчим, как и клиент
+      } catch (error) {
+        // Молча — кнопка выглядела мёртвой. Живой лог: TDLib отвечает
+        // ошибкой 502 «The bot is not responding», когда бот за ~15 с не
+        // ответил на нажатие; это и говорим.
+        // Таймаут команды страницы (15 с) срабатывает на долю секунды
+        // раньше ответа TDLib (~15,2 с по логу) — это тот же случай.
+        const text = error instanceof Error ? error.message : String(error);
+        notify(/timed out|not responding/i.test(text) ? 'The bot is not responding' : text);
+        return;
       }
       handleAnswer(answer);
       return;

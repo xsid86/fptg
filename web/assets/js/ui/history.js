@@ -5,6 +5,7 @@ import { icon } from '../util/icons.js';
 import { reanchorMenu, closeMenuIfDetached } from '../util/menu.js';
 import { dateLabel } from '../util/format.js';
 import { renderMessage, renderMessageReusing, renderAlbum } from './message.js';
+import { greetingNode } from './greeting.js';
 
 // The message history.
 //
@@ -197,6 +198,14 @@ export function invalidateHistory() {
 // неё — «Nothing found» посреди найденного.
 let emptyNode = null;
 
+function renderGreeting(id) {
+  nodes.clear();
+  clear(column);
+  emptyNode = greetingNode(id);
+  column.append(emptyNode);
+  if (scrollBtn) scrollBtn.hidden = true;
+}
+
 function renderEmpty(title, note) {
   nodes.clear();
   clear(column);
@@ -268,7 +277,8 @@ function paint(state) {
     } else if (state.loadingOlder) {
       renderEmpty('Loading…', null);
     } else {
-      renderEmpty('No messages here yet', null);
+      // Пустой чат — приветствие, как у нативного клиента (ui/greeting.js).
+      renderGreeting(state.chatId);
     }
     return;
   }

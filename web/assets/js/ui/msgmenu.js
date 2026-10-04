@@ -129,6 +129,14 @@ export async function openMessageMenu(anchor, msg, at) {
   }
 
   const items = [];
+  // Сервисное сообщение: из всего меню — только удаление.
+  if (msg.service) {
+    if (info.canDeleteSelf || info.canDeleteAll) {
+      items.push({ label: 'Delete', onSelect: () => confirmDelete(msg, info) });
+    }
+    if (items.length) openMenu(anchor, items, { at });
+    return;
+  }
   if (info.canReply) {
     items.push({ label: 'Reply', onSelect: () => hooks.reply?.(msg) });
   }

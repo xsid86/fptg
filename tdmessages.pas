@@ -1942,6 +1942,11 @@ begin
   if Assigned(FOnLoadingChanged) then begin
     FOnLoadingChanged(Self);
   end;
+  { И общий сигнал изменения: OnLoadingChanged никто не слушает, а веб
+    узнаёт loadingOlder только из messages.list по Touch. Пустая страница
+    истории (пустой канал) снимала флаг и выходила без Touch — «Loading
+    older messages…» висело вечно. }
+  Touch;
 end;
 
 procedure TTdMessages.LoadOlder;

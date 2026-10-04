@@ -814,8 +814,10 @@ function renderPane() {
         class: 'btn btn--icon', type: 'button', title: 'Close',
         onclick: close,
       }, icon('close'), el('span', { class: 'u-sr-only' }, 'Close'))),
+    // Колонка содержимого — по центру панели (blocks/_settings.scss).
     el('div', { class: 'settings__body' },
-      ...(data ? section.render() : [el('p', { class: 'settings__hint' }, 'Loading…')])));
+      el('div', { class: 'settings__content' },
+        ...(data ? section.render() : [el('p', { class: 'settings__hint' }, 'Loading…')]))));
 }
 
 function select(id) {

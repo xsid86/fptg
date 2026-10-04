@@ -2464,6 +2464,60 @@ body {
   padding: 16px;
 }
 
+.contact-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 11px;
+}
+.contact-row:focus {
+  outline: none !important;
+}
+.contact-row:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.contact-row {
+  border-radius: 8px;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: 6px 8px;
+  text-align: left;
+  width: 100%;
+}
+.contact-row:hover {
+  background: var(--c-surface-hover);
+}
+
+.contact-row__avatar {
+  flex: 0 0 auto;
+}
+
+.contact-row__text {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.contact-row__name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.contact-row__status {
+  color: var(--c-text-faint);
+  font-size: 12px;
+}
+.contact-row__status.is-online {
+  color: var(--c-accent);
+}
+
 .chat-item {
   content-visibility: auto;
   contain-intrinsic-size: auto 89px;
@@ -3200,6 +3254,52 @@ body {
   inset-inline-end: 16px;
 }
 
+.history__column:has(> .greeting) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.greeting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  background: color-mix(in srgb, var(--c-bg) 60%, transparent);
+  border-radius: 10px;
+  max-width: 320px;
+  padding: 16px 24px;
+  text-align: center;
+}
+
+.greeting__title {
+  font-weight: 500;
+}
+
+.greeting__text {
+  color: var(--c-text-dim);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.greeting__sticker:focus {
+  outline: none !important;
+}
+.greeting__sticker:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.greeting__sticker {
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.greeting__start {
+  align-self: stretch;
+}
+
 .message {
   background: color-mix(in srgb, var(--sender-color) 7%, var(--c-surface));
   border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
@@ -3527,6 +3627,24 @@ button.message__forward:hover {
 .message.message--sticker .message__reactions {
   padding: 0;
   background: none;
+}
+
+.message-service {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  margin: 8px 0;
+}
+
+.message-service__text {
+  background: color-mix(in srgb, var(--c-bg) 70%, transparent);
+  border-radius: 999px;
+  color: var(--c-text-dim);
+  font-size: 12px;
+  max-width: 80%;
+  padding: 4px 11px;
+  text-align: center;
 }
 
 .code {
@@ -6707,13 +6825,19 @@ span.picker__gif {
   background-color: var(--c-text-faint);
 }
 .settings__body {
+  flex: 1 1 auto;
+  padding: 0 24px 24px;
+}
+
+.settings__content {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
   gap: 24px;
-  flex: 1 1 auto;
-  padding: 0 24px 24px;
+  margin: 0 auto;
+  max-width: 720px;
+  width: 100%;
 }
 
 .settings__intro {

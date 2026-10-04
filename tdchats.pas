@@ -462,6 +462,9 @@ function MessagePreview(AContent: TJSONObject; out AGlyphs: TPreviewGlyphArray):
 
 implementation
 
+uses
+  servicetext;
+
 function ChatKindToStr(AKind: TChatKind): string;
 begin
   case AKind of
@@ -829,8 +832,13 @@ begin
   end else if T = 'messageCall' then begin
     Result := 'Call';
   end else begin
-    { Unknown kind — show the raw type, more useful than a blank. }
-    Result := T;
+    { Сервисное (создание группы, вход, закреп…) — тем же текстом, что
+      строка в истории, но без имени: «Pinned a message». Совсем
+      неизвестное — сырой тип, это полезнее пустоты. }
+    Result := ServiceMessageText(AContent, '', False, nil);
+    if Result = '' then begin
+      Result := T;
+    end;
   end;
 
   { A line break has no place in a one-line preview. }

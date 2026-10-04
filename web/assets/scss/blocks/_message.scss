@@ -347,3 +347,21 @@ button.message__forward:hover {
     }
   }
 }
+
+// ------------------------------------------------------- сервисные
+// ui/message.js: создание группы, вход и выход участников, закреп… —
+// строка посередине истории, как дата между днями, без пузыря.
+.message-service {
+  @include flex(row, center, center);
+  margin: $space-4 0;
+}
+
+.message-service__text {
+  background: color-mix(in srgb, var(--c-bg) 70%, transparent);
+  border-radius: $radius-pill;
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  max-width: 80%;
+  padding: $space-2 $space-5;
+  text-align: center;
+}

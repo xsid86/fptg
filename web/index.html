@@ -57,6 +57,12 @@
       <div class="sidebar__head">
         <h1 class="sidebar__title">Chats</h1>
         <span class="sidebar__spacer"></span>
+        <!-- Contacts: the list below shows the account's contacts instead
+             of its chats. See ui/chat-list.js, showContacts. -->
+        <label class="btn btn--toggle" title="Show contacts">
+          <input type="checkbox" id="chats-contacts">
+          Contacts
+        </label>
         <label class="btn btn--toggle" title="Show archived chats">
           <input type="checkbox" id="chats-archived">
           Archive

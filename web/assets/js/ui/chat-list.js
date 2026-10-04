@@ -296,8 +296,110 @@ function rowNode(chat) {
   return node;
 }
 
+// --------------------------------------------------------- contacts
+// Кнопка Contacts над списком: тот же контейнер показывает контакты
+// аккаунта (contacts.list в мосте). Фильтр из поля поиска действует и
+// здесь — по имени, имени пользователя и телефону. Клик — личка с
+// человеком (ui:open-contact, main.js).
+let contactsMode = false;
+let contacts = [];
+
+/** Показать контакты вместо чатов (или обновить уже показанные). */
+export function showContacts(list) {
+  if (!contactsMode) {
+    for (const { node } of rows.values()) seen?.unobserve(node);
+    rows.clear();
+  }
+  contactsMode = true;
+  contacts = list ?? [];
+  render();
+}
+
+/** Вернуть список чатов. */
+export function hideContacts() {
+  if (!contactsMode) return;
+  contactsMode = false;
+  contacts = [];
+  contactsDrawn = '';
+  if (root) clear(root);
+  render();
+}
+
+export const contactsShown = () => contactsMode;
+
+/** «В сети» / «был(а) …» по userStatus* (td_api.tl). */
+function statusText(c) {
+  switch (c.status) {
+    case 'userStatusOnline':
+      return 'online';
+    case 'userStatusOffline': {
+      const when = new Date(c.wasOnline * 1000);
+      const today = new Date();
+      if (when.toDateString() === today.toDateString()) {
+        return `last seen at ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      }
+      return `last seen ${when.toLocaleDateString()}`;
+    }
+    case 'userStatusRecently':
+      return 'last seen recently';
+    case 'userStatusLastWeek':
+      return 'last seen within a week';
+    case 'userStatusLastMonth':
+      return 'last seen within a month';
+    default:
+      return 'last seen a long time ago';
+  }
+}
+
+function contactMatches(c) {
+  if (!needle) return true;
+  return [c.title, c.username, c.phone].some((v) => (v ?? '').toLowerCase().includes(needle));
+}
+
+// Что показано сейчас: список чатов перерисовывается на каждое событие
+// где угодно, а строки контактов от этого не меняются — без проверки они
+// пересоздавались бы, и аватарки мигали.
+let contactsDrawn = '';
+
+function renderContacts() {
+  const key = JSON.stringify([needle, contacts]);
+  if (key === contactsDrawn && root.childElementCount) return;
+  contactsDrawn = key;
+  const list = contacts.filter(contactMatches).sort((a, b) => {
+    const ao = a.status === 'userStatusOnline' ? 0 : 1;
+    const bo = b.status === 'userStatusOnline' ? 0 : 1;
+    if (ao !== bo) return ao - bo;
+    return (a.title || '').localeCompare(b.title || '');
+  });
+  if (!list.length) {
+    clear(root).append(el('div', {
+      class: 'chat-list__empty',
+      textContent: needle ? `Nothing matches "${needle}"` : 'No contacts yet.',
+    }));
+    return;
+  }
+  clear(root).append(...list.map((c) => {
+    const avatar = el('span', { class: `avatar avatar--md contact-row__avatar accent-${c.color}` });
+    fillAvatar(avatar, { id: c.userId, title: c.title, avatar: c.avatar, avatarThumb: c.avatarThumb });
+    return el('button', {
+      class: 'contact-row', type: 'button',
+      onclick: () => emit('ui:open-contact', { userId: c.userId }),
+    },
+    avatar,
+    el('span', { class: 'contact-row__text' },
+      el('span', { class: 'contact-row__name' }, c.title || c.username || c.phone || '(no name)'),
+      el('span', {
+        class: `contact-row__status${c.status === 'userStatusOnline' ? ' is-online' : ''}`,
+      }, statusText(c))));
+  }));
+}
+
 function render() {
   if (!root) return;
+  if (contactsMode) {
+    renderContacts();
+    return;
+  }
   const keep = lastArchived === store.archived ? scrollAnchor() : null;
   lastArchived = store.archived;
   // A row whose chat changed IS rebuilt, and this list's own folder

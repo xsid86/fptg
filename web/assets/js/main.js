@@ -7,6 +7,7 @@ import { loadIcons, hydrateIcons } from './util/icons.js';
 import { openMenu } from './util/menu.js';
 import {
   mountChatList, showListLoading, showListError, setChatFilter,
+  showContacts, hideContacts, contactsShown,
 } from './ui/chat-list.js';
 import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory, invalidateHistory } from './ui/history.js';
@@ -26,6 +27,7 @@ import { mountPeople } from './ui/people.js';
 import { mountLinks, openLink } from './ui/links.js';
 import { mountBots, redrawBotKeyboard } from './ui/bots.js';
 import { mountAttachMenu } from './ui/attachmenu.js';
+import { mountGreeting } from './ui/greeting.js';
 import { setMapFetcher, setMapProvider, setMapSaver } from './util/maps.js';
 import { mountNotices, notice } from './ui/notices.js';
 import { openViewer } from './ui/viewer.js';
@@ -403,9 +405,70 @@ function wireActions() {
   });
 }
 
+// Контакты вместо чатов (кнопка Contacts). Список спрашивается при
+// включении и обновляется вместе со списком чатов — не чаще, чем раз в
+// CONTACTS_REFRESH_MS: докачанные аватарки и статусы «в сети» приезжают
+// только с новым запросом (contacts.list — getUser по каждому).
+const CONTACTS_REFRESH_MS = 5000;
+// Аватарки, которые ещё качаются (photoPending): список перезапрашивается
+// с этой паузой, пока такие есть, но не больше CONTACTS_PHOTO_TRIES раз
+// за включение (живой лог: 46 файлов скачались меньше чем за 40 с).
+const CONTACTS_PHOTO_RETRY_MS = 2000;
+const CONTACTS_PHOTO_TRIES = 20;
+let contactsAsked = 0;
+let contactsTries = 0;
+let contactsTimer = 0;
+
+function loadContacts() {
+  contactsAsked = Date.now();
+  clearTimeout(contactsTimer);
+  call('contacts.list')
+    .then((r) => {
+      if (!(contactsShown() || qs('#chats-contacts').checked)) return;
+      const list = r?.contacts ?? [];
+      showContacts(list);
+      if (list.some((c) => c.photoPending) && contactsTries < CONTACTS_PHOTO_TRIES) {
+        contactsTries += 1;
+        contactsTimer = setTimeout(() => { if (contactsShown()) loadContacts(); }, CONTACTS_PHOTO_RETRY_MS);
+      }
+    })
+    .catch(report);
+}
+
+function setContactsMode(on) {
+  qs('#chats-contacts').checked = on;
+  qs('.sidebar__title').textContent = on ? 'Contacts' : 'Chats';
+  contactsTries = 0;
+  clearTimeout(contactsTimer);
+  if (on) loadContacts();
+  else hideContacts();
+}
+
 function wireSidebar() {
   qs('#chats-archived').addEventListener('change', (event) => {
+    // Архив и контакты — один из двух.
+    if (event.target.checked && contactsShown()) setContactsMode(false);
     setArchived(event.target.checked);
+  });
+  qs('#chats-contacts').addEventListener('change', (event) => {
+    if (event.target.checked && qs('#chats-archived').checked) {
+      qs('#chats-archived').checked = false;
+      setArchived(false);
+    }
+    setContactsMode(event.target.checked);
+  });
+  on('srv:chats', () => {
+    if (contactsShown() && Date.now() - contactsAsked > CONTACTS_REFRESH_MS) loadContacts();
+  });
+  // Клик по контакту: личка с ним (createPrivateChat — bot.userChat),
+  // список возвращается к чатам.
+  on('ui:open-contact', ({ userId }) => {
+    call('bot.userChat', { userId })
+      .then((r) => {
+        setContactsMode(false);
+        if (r?.chatId) setActiveChat(r.chatId);
+      })
+      .catch(report);
   });
   on('store:archived', loadChats);
 
@@ -490,6 +553,7 @@ async function boot() {
   // сохраняет галочка «Remember my choice» в окне выбора.
   setMapSaver((id) => call('settings.set', { key: 'maps.provider', value: id }).catch(report));
   on('srv:settings', (data) => setMapProvider(data?.mapsProvider ?? ''));
+  mountGreeting({ call: (cmd, args) => call(cmd, args), report });
   mountAttachMenu(qs('#composer'), {
     call: (cmd, args) => call(cmd, args),
     report,

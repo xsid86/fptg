@@ -86,6 +86,14 @@ function takeVideo(url) {
 }
 
 export function renderMessage(msg) {
+    // Сервисное сообщение (создание группы, вход, закреп…) — строка
+    // посередине истории, без пузыря и заголовка.
+    if (msg.service) {
+        return withMenu(el('div', {
+            class: 'message-service',
+            dataset: {messageId: String(msg.id)},
+        }, el('span', {class: 'message-service__text'}, msg.text || '')), msg);
+    }
     const card = el('article', {
         class: [
             'message',
@@ -844,6 +852,11 @@ function renderFile(msg, m) {
     return box;
 }
 
+/** Стикер вне сообщения — приветствие пустого чата (ui/greeting.js). */
+export function stickerNode(m) {
+    return renderSticker(null, m);
+}
+
 function renderSticker(msg, m) {
     const box = el('div', {class: 'media media--sticker'});
     if (!m.url) {
@@ -908,6 +921,14 @@ function renderLocation(msg) {
     const info = [];
     if (l.title) info.push(el('span', {class: 'location__title'}, l.title));
     if (l.address) info.push(el('span', {class: 'location__address'}, l.address));
+    // У простой геопозиции текста нет — в content только координаты и
+    // точность (живой лог); их и подписываем. Адрес по координатам не
+    // ищется: для этого их пришлось бы отправить стороннему сервису.
+    if (!l.title && !l.address) {
+        const acc = l.accuracy > 0 ? ` · ±${Math.round(l.accuracy)} m` : '';
+        info.push(el('span', {class: 'location__address u-tabular'},
+            `${Number(l.lat).toFixed(6)}, ${Number(l.lon).toFixed(6)}${acc}`));
+    }
     if (l.live) {
         info.push(el('span', {class: 'location__live'},
             l.expiresIn > 0 ? 'Live location' : 'Live location ended'));

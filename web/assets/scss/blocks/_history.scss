@@ -149,3 +149,42 @@
   inset-block-end: $space-6;
   inset-inline-end: $space-6;
 }
+
+// --------------------------------------------------------- приветствие
+// ui/greeting.js: карточка посреди пустого личного чата — как у нативного
+// клиента, полупрозрачная поверх фона.
+// Колонка сама высоты не имеет — пока в ней приветствие, она растягивается
+// на всю высоту истории и ставит карточку посередине.
+.history__column:has(> .greeting) {
+  @include flex(column, center, center);
+  min-height: 100%;
+}
+
+.greeting {
+  @include flex(column, center, flex-start, $space-4);
+  background: color-mix(in srgb, var(--c-bg) 60%, transparent);
+  border-radius: $radius-lg;
+  max-width: 320px;
+  padding: $space-6 $space-7;
+  text-align: center;
+}
+
+.greeting__title {
+  font-weight: $fw-medium;
+}
+
+.greeting__text {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  white-space: pre-wrap;
+}
+
+.greeting__sticker {
+  @include focus-ring;
+  border-radius: $radius-md;
+  cursor: pointer;
+}
+
+.greeting__start {
+  align-self: stretch;
+}
