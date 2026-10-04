@@ -240,6 +240,202 @@
   margin: 0;
 }
 
+// --------------------------------------------------------- мой аккаунт
+// Шапка раздела: большая аватарка с кнопкой смены фото в углу, имя,
+// под ним телефон и имя пользователя (ui/settings.js, accountHeader).
+.settings__profile {
+  @include flex(column, center, flex-start, $space-3);
+  padding: $space-6 0 $space-7;
+}
+
+.settings__avatar-wrap {
+  position: relative;
+}
+
+.settings__avatar {
+  --avatar-color: var(--accent-color);
+  @include size(96px);
+  font-size: $fs-lg;
+}
+
+.settings__photo {
+  background: var(--c-accent);
+  border-radius: $radius-pill;
+  bottom: 0;
+  color: var(--c-light);
+  position: absolute;
+  right: 0;
+}
+
+.settings__profile-name {
+  font-size: $fs-lg;
+  font-weight: $fw-medium;
+}
+
+.settings__select {
+  @include focus-ring;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: $radius-md;
+  color: var(--c-text);
+  padding: $space-3 $space-4;
+}
+
+.settings__inline {
+  @include flex(row, center, flex-end, $space-4);
+}
+
+.settings__value {
+  color: var(--c-text-dim);
+}
+
+.settings__avatar-btn {
+  @include focus-ring;
+  border-radius: $radius-pill;
+  cursor: pointer;
+  display: block;
+}
+
+// Кнопка-ссылка: телефон, «Name color», «Reset profile color».
+.settings__link {
+  @include flex(row, center, flex-end, $space-3);
+  color: var(--c-accent);
+}
+
+.settings__back {
+  @include flex(row, center, flex-start, $space-3);
+  align-self: flex-start;
+  color: var(--c-accent);
+  margin-bottom: $space-5;
+}
+
+// --------------------------------------------------------- выбор цвета
+// Кружок цвета: две половинки по диагонали (--swatch-1/2) и точка
+// третьего цвета в центре (--swatch-3, прозрачная у двухцветных).
+// Значения — классы .swatch-aN / .swatch-pN (base/_palette.scss).
+.color-swatch {
+  @include size(36px);
+  @include focus-ring;
+  background: linear-gradient(135deg, var(--swatch-1, var(--c-border)) 50%,
+    var(--swatch-2, var(--c-border)) 50%);
+  border-radius: $radius-pill;
+  cursor: pointer;
+  position: relative;
+
+  &::after {
+    @include size(12px);
+    background: var(--swatch-3, transparent);
+    border-radius: $radius-pill;
+    content: "";
+    left: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  &.is-active {
+    box-shadow: 0 0 0 2px var(--c-bg), 0 0 0 4px var(--swatch-1, var(--c-accent));
+  }
+}
+
+.color-swatch--small {
+  @include size(20px);
+  cursor: inherit;
+
+  &::after {
+    @include size(6px);
+  }
+}
+
+.color-grid {
+  display: grid;
+  gap: $space-5;
+  grid-template-columns: repeat(auto-fill, 36px);
+  margin: $space-6 0;
+}
+
+.color-tabs {
+  @include flex(row, center, center, $space-2);
+  align-self: center;
+  background: var(--c-surface);
+  border-radius: $radius-pill;
+  margin-bottom: $space-6;
+  padding: $space-2;
+}
+
+.color-tabs__tab {
+  border-radius: $radius-pill;
+  color: var(--c-text-dim);
+  padding: $space-3 $space-6;
+
+  &.is-active {
+    background: var(--c-accent);
+    color: var(--c-light);
+  }
+}
+
+.color-preview {
+  @include flex(row, flex-end, flex-start, $space-4);
+  border-radius: $radius-lg;
+  padding: $space-6;
+}
+
+// Шапка профиля: фон — цвет профиля (--profile-bg-*), без цвета —
+// поверхность.
+.color-preview--profile {
+  @include flex(column, center, center, $space-4);
+  background: var(--c-surface);
+
+  &.has-color {
+    background: linear-gradient(to bottom, var(--profile-bg-1), var(--profile-bg-2));
+    color: var(--c-light);
+  }
+}
+
+.color-preview__avatar {
+  --avatar-color: var(--accent-color);
+  @include size(64px);
+}
+
+.color-preview--name .color-preview__avatar {
+  @include size(36px);
+}
+
+.color-preview__title {
+  font-size: $fs-lg;
+  font-weight: $fw-medium;
+}
+
+.color-preview--name {
+  background: var(--c-surface);
+}
+
+.color-preview__bubble {
+  @include flex(column, stretch, flex-start, $space-3);
+  background: var(--c-bg);
+  border-radius: $radius-lg;
+  max-width: 360px;
+  padding: $space-4 $space-5;
+}
+
+.color-preview__sender {
+  color: var(--accent-color);
+  font-weight: $fw-medium;
+}
+
+// Цитата: полоса — первый цвет имени, фон — его оттенок.
+.color-preview__quote {
+  background: color-mix(in srgb, var(--swatch-1) 12%, transparent);
+  border-left: 3px solid var(--swatch-1);
+  border-radius: $radius-sm;
+  padding: $space-2 $space-4;
+}
+
+.color-apply {
+  align-self: flex-start;
+  margin-top: $space-6;
+}
+
 // ------------------------------------------------- угол уведомлений
 // Схема экрана: рамка, в каждом углу — карточка в миниатюре
 // (ui/settings.js, cornerControl). Выбранная — цвета акцента.

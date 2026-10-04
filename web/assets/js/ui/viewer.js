@@ -97,6 +97,11 @@ function slide(msg) {
     return null;
 }
 
+/** Открыт ли просмотрщик — окну настроек, чтобы Esc не закрыл и его. */
+export function viewerOpen() {
+    return current !== null;
+}
+
 export function closeViewer() {
     if (current) {
         current.destroy();
@@ -186,7 +191,14 @@ function mountThumbs(node, pswp, items) {
  * when there was nothing showable, so the caller can decide what to do
  * instead of assuming a window appeared.
  */
-export function openViewer(msgs, startIndex) {
+/**
+ * `options.container` — куда вешать просмотрщик (по умолчанию body).
+ * Из модального <dialog> он должен жить внутри диалога: диалог лежит в
+ * верхнем слое, и всё, что в body, оказалось бы под ним.
+ * `options.actions` — кнопки на верхней полосе: { name, title,
+ * onClick(index) }, index — номер слайда в переданном списке.
+ */
+export function openViewer(msgs, startIndex, options = {}) {
     const built = [];
     const ids = [];
     let index = 0;
@@ -216,6 +228,7 @@ export function openViewer(msgs, startIndex) {
         clickToCloseNonZoomable: true,
         padding: {top: 0, bottom: strip ? THUMBS_HEIGHT : 0, left: 0, right: 0},
         pswpModule: () => import('../../vendor/photoswipe/photoswipe.esm.js'),
+        appendToEl: options.container ?? undefined,
     });
 
     // A slide PhotoSwipe does not know how to build itself. Answering
@@ -243,14 +256,31 @@ export function openViewer(msgs, startIndex) {
         if (video) video.pause();
     });
 
-    if (strip) {
+    const actions = options.actions ?? [];
+    if (strip || actions.length) {
         lightbox.on('uiRegister', () => {
             const pswp = lightbox.pswp;
-            pswp.ui.registerElement({
-                name: 'thumbs',
-                order: 9,
-                appendTo: 'root',
-                onInit: (node) => mountThumbs(node, pswp, items),
+            if (strip) {
+                pswp.ui.registerElement({
+                    name: 'thumbs',
+                    order: 9,
+                    appendTo: 'root',
+                    onInit: (node) => mountThumbs(node, pswp, items),
+                });
+            }
+            // Текстовые кнопки перед крестиком (у него order 20).
+            actions.forEach((action, i) => {
+                pswp.ui.registerElement({
+                    name: action.name,
+                    order: 15 + i,
+                    isButton: true,
+                    title: action.title,
+                    onInit: (node) => {
+                        node.classList.add('pswp__action');
+                        node.textContent = action.title;
+                    },
+                    onClick: () => action.onClick(pswp.currIndex),
+                });
             });
         });
     }

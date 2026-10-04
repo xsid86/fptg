@@ -175,6 +175,23 @@ type
     procedure BotInfoDone(Sender: TObject; const AResp: TTdResponse);
     procedure WebAppOpenDone(Sender: TObject; const AResp: TTdResponse);
     procedure SimpleDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdAccountGet(AConnId: Int64; AReqId: integer): boolean;
+    function  CmdAccountSet(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdAccountCheckUsername(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdAccountPersonalChats(AConnId: Int64; AReqId: integer): boolean;
+    function  AccountSlot(const AResp: TTdResponse; out ASlot: PtrInt): boolean;
+    procedure AccountMeDone(Sender: TObject; const AResp: TTdResponse);
+    procedure AccountFullDone(Sender: TObject; const AResp: TTdResponse);
+    procedure AccountBioMaxDone(Sender: TObject; const AResp: TTdResponse);
+    procedure AccountPhotoDone(Sender: TObject; const AResp: TTdResponse);
+    procedure AccountFinish(ASlot: PtrInt);
+    procedure AccountUsernameDone(Sender: TObject; const AResp: TTdResponse);
+    procedure AccountPersonalChatsDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdAccountPhotos(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure AccountPhotosDone(Sender: TObject; const AResp: TTdResponse);
+    procedure AccountPhotosNext(ASlot: PtrInt);
+    procedure AccountPhotoFileDone(Sender: TObject; const AResp: TTdResponse);
     procedure SharePhoneMeDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineBotDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineResultsDone(Sender: TObject; const AResp: TTdResponse);
@@ -4083,6 +4100,642 @@ begin
   ReleaseDeferred(Slot);
 end;
 
+{ Trim для utf8string без двух предупреждений о преобразовании. }
+function TrimU(const AValue: utf8string): utf8string;
+begin
+  Result := utf8string(Trim(string(AValue)));
+end;
+
+{ ------------------------------------------------------------------ }
+{ мой аккаунт (Settings -> My account)                               }
+{ ------------------------------------------------------------------ }
+
+{ account.get — цепочкой: getMe -> getUserFullInfo -> getOption
+  bio_length_max -> (downloadFile аватарки, если её нет на диске) ->
+  ответ. Поля — по td_api.tl коммита d1085f9: user (first_name,
+  last_name, usernames.editable_username, phone_number, profile_photo,
+  accent_color_id, is_premium), userFullInfo (bio, birthdate,
+  personal_chat_id). Собираемый ответ живёт в Held['reply']. }
+function TWebApi.CmdAccountGet(AConnId: Int64; AReqId: integer): boolean;
+var
+  Msgs: TTdMessages;
+  Slot: PtrInt;
+begin
+  Msgs := RequireMsgs;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  { Какое поле ответа заполняет текущая докачка — см. AccountFinish. }
+  FDeferred[Slot].Held.Add('want', '');
+  Msgs.Request('getMe', '', @AccountMeDone, Slot);
+  Result := True;
+end;
+
+{ Слот жив и цепочка не оборвалась; иначе — ошибка странице и слот
+  освобождается. }
+function TWebApi.AccountSlot(const AResp: TTdResponse; out ASlot: PtrInt): boolean;
+begin
+  Result := False;
+  ASlot := AResp.Tag;
+  if (ASlot < 0) or (ASlot > High(FDeferred)) or (not FDeferred[ASlot].Busy)
+     or (FDeferred[ASlot].Held = nil) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(ASlot);
+    Exit;
+  end;
+  Result := True;
+end;
+
+procedure TWebApi.AccountMeDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Photo, Small, Local: TJSONObject;
+  Id: Int64;
+  B64: utf8string;
+  Thumb: RawByteString;
+  Title: utf8string;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Id := JGetInt64(AResp.Obj, 'id');
+  Res := TJSONObject.Create;
+  Res.Add('id', Id);
+  Res.Add('firstName', string(JGetStr(AResp.Obj, 'first_name')));
+  Res.Add('lastName', string(JGetStr(AResp.Obj, 'last_name')));
+  Res.Add('username', string(JGetStr(JGetObj(AResp.Obj, 'usernames'), 'editable_username')));
+  Res.Add('phone', string(JGetStr(AResp.Obj, 'phone_number')));
+  Res.Add('premium', JGetBool(AResp.Obj, 'is_premium'));
+  Res.Add('color', string(AccentKeyFor(JGetInt(AResp.Obj, 'accent_color_id'), Id)));
+  { Для выбора цвета: id цвета имени и профиля (-1 — профиль без цвета)
+    и их фоновые эмодзи, которые setAccentColor/setProfileAccentColor
+    требуют передать заново, чтобы не сбросить. }
+  Res.Add('accentId', JGetInt(AResp.Obj, 'accent_color_id'));
+  Res.Add('accentEmoji', string(IntToStr(JGetInt64(AResp.Obj, 'background_custom_emoji_id'))));
+  Res.Add('profileAccentId', JGetInt(AResp.Obj, 'profile_accent_color_id'));
+  Res.Add('profileEmoji', string(IntToStr(JGetInt64(AResp.Obj, 'profile_background_custom_emoji_id'))));
+  Title := TrimU(JGetStr(AResp.Obj, 'first_name') + ' ' + JGetStr(AResp.Obj, 'last_name'));
+  Res.Add('title', string(Title));
+  Res.Add('avatar', '');
+  Res.Add('avatarThumb', '');
+  Res.Add('avatarAnim', '');
+  Photo := JGetObj(AResp.Obj, 'profile_photo');
+  if Photo <> nil then begin
+    B64 := JGetStr(JGetObj(Photo, 'minithumbnail'), 'data');
+    if B64 <> '' then begin
+      try
+        Thumb := DecodeStringBase64(string(B64));
+        Res.Strings['avatarThumb'] := string(ThumbDataUri(Thumb));
+      except
+        { Битое превью — просто без него. }
+      end;
+    end;
+    Small := JGetObj(Photo, 'small');
+    if Small <> nil then begin
+      Local := JGetObj(Small, 'local');
+      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+        Res.Strings['avatar'] := string(FileUrl(JGetInt(Small, 'id'), JGetStr(Local, 'path')));
+      end else begin
+        FDeferred[Slot].Held.Add('photoFile', JGetInt(Small, 'id'));
+      end;
+    end;
+  end;
+  FDeferred[Slot].Held.Add('reply', Res);
+  RequireMsgs.Request('getUserFullInfo', '"user_id":' + utf8string(IntToStr(Id)),
+    @AccountFullDone, Slot);
+end;
+
+procedure TWebApi.AccountFullDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Birth, BirthOut, Personal, Photo, Anim, Local: TJSONObject;
+  ChatId: Int64;
+  Row: TChatRow;
+  Chats: TTdChats;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[Slot].Held.Objects['reply']);
+  Res.Add('bio', string(JGetStr(JGetObj(AResp.Obj, 'bio'), 'text')));
+  { Анимированная аватарка — только в полной информации: фото
+    personal_photo / photo / public_photo (тот же порядок, что у чатов в
+    tdchats), файл — small_animation (160x160), иначе animation. }
+  Photo := JGetObj(AResp.Obj, 'personal_photo');
+  if Photo = nil then begin
+    Photo := JGetObj(AResp.Obj, 'photo');
+  end;
+  if Photo = nil then begin
+    Photo := JGetObj(AResp.Obj, 'public_photo');
+  end;
+  if Photo <> nil then begin
+    Anim := JGetObj(Photo, 'small_animation');
+    if Anim = nil then begin
+      Anim := JGetObj(Photo, 'animation');
+    end;
+    if Anim <> nil then begin
+      Local := JGetObj(JGetObj(Anim, 'file'), 'local');
+      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+        Res.Strings['avatarAnim'] := string(FileUrl(JGetInt(JGetObj(Anim, 'file'), 'id'),
+          JGetStr(Local, 'path')));
+      end else begin
+        FDeferred[Slot].Held.Add('animFile', JGetInt(JGetObj(Anim, 'file'), 'id'));
+      end;
+    end;
+  end;
+  Birth := JGetObj(AResp.Obj, 'birthdate');
+  if Birth <> nil then begin
+    BirthOut := TJSONObject.Create;
+    BirthOut.Add('day', JGetInt(Birth, 'day'));
+    BirthOut.Add('month', JGetInt(Birth, 'month'));
+    { 0 — год не указан (birthdate.year, td_api.tl). }
+    BirthOut.Add('year', JGetInt(Birth, 'year'));
+    Res.Add('birthdate', BirthOut);
+  end else begin
+    Res.Add('birthdate', TJSONNull.Create);
+  end;
+  ChatId := JGetInt64(AResp.Obj, 'personal_chat_id');
+  if ChatId <> 0 then begin
+    Personal := TJSONObject.Create;
+    Personal.Add('id', ChatId);
+    Chats := TdChatList;
+    Row := nil;
+    if Chats <> nil then begin
+      Row := Chats.Lookup(ChatId);
+    end;
+    if Row <> nil then begin
+      Personal.Add('title', string(Row.Title));
+    end else begin
+      Personal.Add('title', '');
+    end;
+    Res.Add('personalChat', Personal);
+  end else begin
+    Res.Add('personalChat', TJSONNull.Create);
+  end;
+  RequireMsgs.Request('getOption', '"name":"bio_length_max"', @AccountBioMaxDone, Slot);
+end;
+
+procedure TWebApi.AccountBioMaxDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+  V: TJSONData;
+  BioMax: integer;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[Slot].Held.Objects['reply']);
+  { optionValueInteger.value — int64, в JSON строкой (живой лог:
+    "value":"140"). }
+  BioMax := ACCOUNT_BIO_MAX_DEFAULT;
+  V := AResp.Obj.Find('value');
+  if V <> nil then begin
+    BioMax := StrToIntDef(V.AsString, ACCOUNT_BIO_MAX_DEFAULT);
+  end;
+  Res.Add('bioMax', BioMax);
+
+  AccountFinish(Slot);
+end;
+
+{ Докачка того, чего нет на диске: сначала картинка аватарки, потом её
+  анимация — downloadFile synchronous, ответ приходит, когда файл уже
+  скачан; файлы маленькие. Всё на месте — ответ странице. }
+procedure TWebApi.AccountFinish(ASlot: PtrInt);
+var
+  Res: TJSONObject;
+  FileId: integer;
+begin
+  FileId := FDeferred[ASlot].Held.Get('photoFile', 0);
+  if FileId <> 0 then begin
+    FDeferred[ASlot].Held.Delete('photoFile');
+    FDeferred[ASlot].Held.Strings['want'] := 'avatar';
+  end else begin
+    FileId := FDeferred[ASlot].Held.Get('animFile', 0);
+    if FileId <> 0 then begin
+      FDeferred[ASlot].Held.Delete('animFile');
+      FDeferred[ASlot].Held.Strings['want'] := 'avatarAnim';
+    end;
+  end;
+  if FileId <> 0 then begin
+    RequireMsgs.Request('downloadFile',
+      '"file_id":' + utf8string(IntToStr(FileId)) +
+      ',"priority":32,"offset":0,"limit":0,"synchronous":true',
+      @AccountPhotoDone, ASlot);
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[ASlot].Held.Extract('reply'));
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  ReleaseDeferred(ASlot);
+end;
+
+procedure TWebApi.AccountPhotoDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Local: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[Slot].Held.Find('reply'));
+  if Res = nil then begin
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  { Не скачалось — страница покажет превью, буквы или неподвижную
+    картинку вместо анимации. }
+  if AResp.Success then begin
+    Local := JGetObj(AResp.Obj, 'local');
+    if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      Res.Strings[FDeferred[Slot].Held.Strings['want']] :=
+        string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
+    end;
+  end;
+  AccountFinish(Slot);
+end;
+
+{ Изменения — по одному полю, ответ ok; свежие значения страница
+  берёт новым account.get. Методы — td_api.tl: setName, setBio,
+  setUsername, setBirthdate (null — убрать), setPersonalChat (0 —
+  убрать), setProfilePhoto (inputChatPhotoStatic из файла /upload). }
+function TWebApi.CmdAccountSet(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Key, Method, Body, Path: utf8string;
+  Day, Month, Year: integer;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  if AArgs = nil then begin
+    raise Exception.Create('account.set needs a key');
+  end;
+  Key := AArgs.Get('key', utf8string(''));
+  if Key = 'name' then begin
+    if TrimU(AArgs.Get('first', utf8string(''))) = '' then begin
+      raise Exception.Create('First name cannot be empty');
+    end;
+    Method := 'setName';
+    Body := '"first_name":' + JsonStr(TrimU(AArgs.Get('first', utf8string('')))) +
+      ',"last_name":' + JsonStr(TrimU(AArgs.Get('last', utf8string(''))));
+  end else if Key = 'bio' then begin
+    Method := 'setBio';
+    Body := '"bio":' + JsonStr(AArgs.Get('value', utf8string('')));
+  end else if Key = 'username' then begin
+    Method := 'setUsername';
+    Body := '"username":' + JsonStr(TrimU(AArgs.Get('value', utf8string(''))));
+  end else if Key = 'birthdate' then begin
+    Method := 'setBirthdate';
+    Day := AArgs.Get('day', 0);
+    Month := AArgs.Get('month', 0);
+    Year := AArgs.Get('year', 0);
+    if (Day = 0) or (Month = 0) then begin
+      Body := '"birthdate":null';
+    end else begin
+      Body := '"birthdate":{"@type":"birthdate","day":' + utf8string(IntToStr(Day)) +
+        ',"month":' + utf8string(IntToStr(Month)) +
+        ',"year":' + utf8string(IntToStr(Year)) + '}';
+    end;
+  end else if Key = 'accent' then begin
+    Method := 'setAccentColor';
+    Body := '"accent_color_id":' + utf8string(IntToStr(AArgs.Get('value', 0))) +
+      ',"background_custom_emoji_id":' +
+      utf8string(IntToStr(StrToInt64Def(AArgs.Get('emoji', '0'), 0)));
+  end else if Key = 'profileAccent' then begin
+    Method := 'setProfileAccentColor';
+    Body := '"profile_accent_color_id":' + utf8string(IntToStr(AArgs.Get('value', -1))) +
+      ',"profile_background_custom_emoji_id":' +
+      utf8string(IntToStr(StrToInt64Def(AArgs.Get('emoji', '0'), 0)));
+  end else if Key = 'photoMain' then begin
+    Method := 'setProfilePhoto';
+    Body := '"photo":{"@type":"inputChatPhotoPrevious","chat_photo_id":' +
+      utf8string(IntToStr(StrToInt64Def(AArgs.Get('photoId', '0'), 0))) + '},"is_public":false';
+  end else if Key = 'photoDelete' then begin
+    Method := 'deleteProfilePhoto';
+    Body := '"profile_photo_id":' +
+      utf8string(IntToStr(StrToInt64Def(AArgs.Get('photoId', '0'), 0)));
+  end else if Key = 'personalChat' then begin
+    Method := 'setPersonalChat';
+    Body := '"chat_id":' + utf8string(IntToStr(AArgs.Get('value', Int64(0))));
+  end else if Key = 'photo' then begin
+    Path := utf8string(UploadFilePath(AArgs.Get('upload', '')));
+    if Path = '' then begin
+      raise Exception.Create('uploaded file not found');
+    end;
+    Method := 'setProfilePhoto';
+    Body := '"photo":{"@type":"inputChatPhotoStatic","photo":{"@type":"inputFileLocal","path":' +
+      JsonStr(Path) + '}},"is_public":false';
+  end else begin
+    raise Exception.Create('unknown account setting: ' + string(Key));
+  end;
+  Msgs.Request(Method, Body, @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ Галерея своих аватарок: getUserProfilePhotos (td_api.tl: до 100 за
+  раз; personal и public фото в ответ не входят) -> по каждому фото
+  самый крупный photoSize качается синхронно, по одному, -> ответ.
+  Превью сразу — minithumbnail, чтобы полоса снизу не была пустой. }
+function TWebApi.CmdAccountPhotos(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Slot: PtrInt;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  Msgs.Request('getUserProfilePhotos',
+    '"user_id":' + utf8string(IntToStr(AArgs.Get('userId', Int64(0)))) +
+    ',"offset":0,"limit":' + utf8string(IntToStr(ACCOUNT_PHOTOS_MAX)),
+    @AccountPhotosDone, Slot);
+end;
+
+procedure TWebApi.AccountPhotosDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr, Sizes, Out: TJSONArray;
+  Photo, Size, Best, Item, Local, Anim: TJSONObject;
+  I, J: integer;
+  B64: utf8string;
+  Thumb: RawByteString;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Out := TJSONArray.Create;
+  Arr := JGetArr(AResp.Obj, 'photos');
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      Photo := TJSONObject(Arr.Items[I]);
+      { Самый крупный размер — по ширине: у типов ('a', 'b', 'c') нет
+        гарантированного порядка в массиве. }
+      Best := nil;
+      Sizes := JGetArr(Photo, 'sizes');
+      if Sizes <> nil then begin
+        for J := 0 to Sizes.Count - 1 do begin
+          if not (Sizes.Items[J] is TJSONObject) then begin
+            Continue;
+          end;
+          Size := TJSONObject(Sizes.Items[J]);
+          if (Best = nil) or (JGetInt(Size, 'width') > JGetInt(Best, 'width')) then begin
+            Best := Size;
+          end;
+        end;
+      end;
+      if Best = nil then begin
+        Continue;
+      end;
+      Item := TJSONObject.Create;
+      { id — int64, строкой: в JS число такой длины теряет точность. }
+      Item.Add('id', string(IntToStr(JGetInt64(Photo, 'id'))));
+      Item.Add('date', JGetInt64(Photo, 'added_date'));
+      Item.Add('w', JGetInt(Best, 'width'));
+      Item.Add('h', JGetInt(Best, 'height'));
+      Item.Add('fileId', JGetInt(JGetObj(Best, 'photo'), 'id'));
+      Item.Add('url', '');
+      Item.Add('thumb', '');
+      B64 := JGetStr(JGetObj(Photo, 'minithumbnail'), 'data');
+      if B64 <> '' then begin
+        try
+          Thumb := DecodeStringBase64(string(B64));
+          Item.Strings['thumb'] := string(ThumbDataUri(Thumb));
+        except
+          { Битое превью — без него. }
+        end;
+      end;
+      Local := JGetObj(JGetObj(Best, 'photo'), 'local');
+      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+        Item.Strings['url'] := string(FileUrl(Item.Integers['fileId'], JGetStr(Local, 'path')));
+      end;
+      { Анимированная аватарка: chatPhoto.animation — animatedChatPhoto
+        (length — сторона квадрата, file — MPEG4; td_api.tl). Качается
+        следом за картинкой, картинка остаётся постером. }
+      Item.Add('animFileId', 0);
+      Item.Add('animUrl', '');
+      Anim := JGetObj(Photo, 'animation');
+      if Anim <> nil then begin
+        Item.Integers['animFileId'] := JGetInt(JGetObj(Anim, 'file'), 'id');
+        Item.Add('animSize', JGetInt(Anim, 'length'));
+        Local := JGetObj(JGetObj(Anim, 'file'), 'local');
+        if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+          Item.Strings['animUrl'] := string(FileUrl(Item.Integers['animFileId'],
+            JGetStr(Local, 'path')));
+        end;
+      end;
+      Out.Add(Item);
+    end;
+  end;
+  FDeferred[Slot].Held.Add('photos', Out);
+  FDeferred[Slot].Held.Add('next', 0);
+  FDeferred[Slot].Held.Add('field', '');
+  AccountPhotosNext(Slot);
+end;
+
+{ Чего у фото ещё нет: 'url' (картинка), 'animUrl' (анимация) или ''. }
+function PhotoMissing(AItem: TJSONObject): string;
+begin
+  if AItem.Strings['url'] = '' then begin
+    Result := 'url';
+  end else if (AItem.Integers['animFileId'] <> 0) and (AItem.Strings['animUrl'] = '') then begin
+    Result := 'animUrl';
+  end else begin
+    Result := '';
+  end;
+end;
+
+{ Следующий нескачанный файл — downloadFile synchronous; когда скачано
+  всё (или что смогло), ответ странице. Какое поле заполняется —
+  Held['field']. }
+procedure TWebApi.AccountPhotosNext(ASlot: PtrInt);
+var
+  Arr: TJSONArray;
+  I: integer;
+  Res, Item: TJSONObject;
+  Field: string;
+  FileId: integer;
+begin
+  Arr := TJSONArray(FDeferred[ASlot].Held.Arrays['photos']);
+  I := FDeferred[ASlot].Held.Integers['next'];
+  Field := '';
+  while I < Arr.Count do begin
+    Field := PhotoMissing(TJSONObject(Arr.Items[I]));
+    if Field <> '' then begin
+      Break;
+    end;
+    Inc(I);
+  end;
+  FDeferred[ASlot].Held.Integers['next'] := I;
+  if I < Arr.Count then begin
+    Item := TJSONObject(Arr.Items[I]);
+    if Field = 'url' then begin
+      FileId := Item.Integers['fileId'];
+    end else begin
+      FileId := Item.Integers['animFileId'];
+    end;
+    FDeferred[ASlot].Held.Strings['field'] := Field;
+    RequireMsgs.Request('downloadFile',
+      '"file_id":' + utf8string(IntToStr(FileId)) +
+      ',"priority":16,"offset":0,"limit":0,"synchronous":true',
+      @AccountPhotoFileDone, ASlot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('photos', FDeferred[ASlot].Held.Extract('photos'));
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  ReleaseDeferred(ASlot);
+end;
+
+procedure TWebApi.AccountPhotoFileDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr: TJSONArray;
+  Item, Local: TJSONObject;
+  I: integer;
+  Field: string;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  Arr := TJSONArray(FDeferred[Slot].Held.Arrays['photos']);
+  I := FDeferred[Slot].Held.Integers['next'];
+  Field := FDeferred[Slot].Held.Strings['field'];
+  if (I < Arr.Count) and (Field <> '') then begin
+    Item := TJSONObject(Arr.Items[I]);
+    if AResp.Success then begin
+      Local := JGetObj(AResp.Obj, 'local');
+      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+        Item.Strings[Field] := string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
+      end;
+    end;
+    { Не скачалось — '-': поле больше не ждёт, а страница такой адрес
+      пропускает (картинку — слайдом, анимацию — оставляя картинку). }
+    if Item.Strings[Field] = '' then begin
+      Item.Strings[Field] := '-';
+    end;
+  end;
+  { Тот же индекс: у фото может не хватать ещё анимации. }
+  AccountPhotosNext(Slot);
+end;
+
+{ Свободно ли имя пользователя: checkChatUsername с chat_id своей лички
+  (= свой user id; так велит td_api.tl для «private chat with self»). }
+function TWebApi.CmdAccountCheckUsername(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Msgs.Request('checkChatUsername',
+    '"chat_id":' + utf8string(IntToStr(AArgs.Get('userId', Int64(0)))) +
+    ',"username":' + JsonStr(TrimU(AArgs.Get('username', utf8string('')))),
+    @AccountUsernameDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.AccountUsernameDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+  T: utf8string;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  { checkChatUsernameResult* — td_api.tl; хвост имени типа и есть ответ. }
+  T := JGetStr(AResp.Obj, '@type');
+  if T = 'checkChatUsernameResultOk' then begin
+    T := 'ok';
+  end else if T = 'checkChatUsernameResultUsernameInvalid' then begin
+    T := 'invalid';
+  end else if T = 'checkChatUsernameResultUsernameOccupied' then begin
+    T := 'occupied';
+  end else if T = 'checkChatUsernameResultUsernamePurchasable' then begin
+    T := 'purchasable';
+  end else if T = 'checkChatUsernameResultPublicChatsTooMany' then begin
+    T := 'tooMany';
+  end else begin
+    T := 'unavailable';
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('result', string(T));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ Каналы, годные в «личный канал»: getSuitablePersonalChats -> chats
+  (chat_ids). Названия — из модели чатов: это свои каналы, они в списке. }
+function TWebApi.CmdAccountPersonalChats(AConnId: Int64; AReqId: integer): boolean;
+var
+  Msgs: TTdMessages;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Msgs.Request('getSuitablePersonalChats', '', @AccountPersonalChatsDone,
+    TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.AccountPersonalChatsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Item: TJSONObject;
+  Arr: TJSONArray;
+  Ids: TJSONArray;
+  Chats: TTdChats;
+  Row: TChatRow;
+  I: integer;
+  Id: Int64;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Arr := TJSONArray.Create;
+  Chats := TdChatList;
+  Ids := JGetArr(AResp.Obj, 'chat_ids');
+  if Ids <> nil then begin
+    for I := 0 to Ids.Count - 1 do begin
+      Id := Ids.Items[I].AsInt64;
+      Item := TJSONObject.Create;
+      Item.Add('id', Id);
+      Row := nil;
+      if Chats <> nil then begin
+        Row := Chats.Lookup(Id);
+      end;
+      if Row <> nil then begin
+        Item.Add('title', string(Row.Title));
+      end else begin
+        Item.Add('title', string(IntToStr(Id)));
+      end;
+      Arr.Add(Item);
+    end;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('chats', Arr);
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
 { Кнопка «пользователь»: личка с ним (createPrivateChat), чтобы её открыть. }
 function TWebApi.CmdBotUserChat(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
@@ -4690,6 +5343,16 @@ begin
         CmdBotCallback(AConnId, ReqId, Args);
       end else if Cmd = 'bot.info' then begin
         CmdBotInfo(AConnId, ReqId, Args);
+      end else if Cmd = 'account.get' then begin
+        CmdAccountGet(AConnId, ReqId);
+      end else if Cmd = 'account.set' then begin
+        CmdAccountSet(AConnId, ReqId, Args);
+      end else if Cmd = 'account.checkUsername' then begin
+        CmdAccountCheckUsername(AConnId, ReqId, Args);
+      end else if Cmd = 'account.personalChats' then begin
+        CmdAccountPersonalChats(AConnId, ReqId);
+      end else if Cmd = 'account.photos' then begin
+        CmdAccountPhotos(AConnId, ReqId, Args);
       end else if Cmd = 'bot.userChat' then begin
         CmdBotUserChat(AConnId, ReqId, Args);
       end else if Cmd = 'webapp.open' then begin

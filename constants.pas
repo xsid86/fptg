@@ -1339,6 +1339,12 @@ const
     что лежит локально, — живой лог: 1 сообщение (total_count 1),
     СТАРШЕ цели; повтор того же запроса уже вернул 34 с целью. }
   JUMP_RETRY_MAX = 3;
+  { Предел длины «о себе», если getOption("bio_length_max") не ответил:
+    70 без Premium, 140 с ним (живой лог: 140 у Premium-аккаунта). }
+  ACCOUNT_BIO_MAX_DEFAULT = 70;
+  { Сколько своих аватарок показывает галерея (getUserProfilePhotos
+    отдаёт до 100 за раз; каждое качается синхронно перед ответом). }
+  ACCOUNT_PHOTOS_MAX = 30;
   { TDLib message-id granularity: id = server_message_id shl 20 —
     confirmed from tdlib_raw.log: every real message id has its low 20
     bits zero, and adjacent messages differ by exactly this constant.

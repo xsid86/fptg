@@ -2,6 +2,9 @@ import { el, clear } from '../core/dom.js';
 import { on } from '../core/bus.js';
 import { icon } from '../util/icons.js';
 import { fileSize } from '../util/format.js';
+import { fillAvatar } from '../util/avatar.js';
+import { openViewer, closeViewer, viewerOpen } from './viewer.js';
+import { NAME_COLORS, PROFILE_COLORS } from '../util/palette.js';
 
 // Настройки приложения.
 //
@@ -16,6 +19,7 @@ import { fileSize } from '../util/format.js';
 // приложения с отступом 32px (см. blocks/_settings.scss).
 
 const SECTIONS = [
+  { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
   { id: 'general', label: 'General', icon: 'settings', render: renderGeneral },
   { id: 'notifications', label: 'Notifications', icon: 'bell', render: renderNotifications },
   { id: 'downloads', label: 'Downloads', icon: 'download', render: renderDownloads },
@@ -141,6 +145,433 @@ async function commit(args, input, read) {
     // что действует, а не оставлять в нём несохранённое.
     if (input && read && data) read(input, data);
   }
+}
+
+// ---------------------------------------------------------- my account
+// Раздел «My account» — как «Мой аккаунт» нативного клиента: фото, имя,
+// «о себе», имя пользователя, телефон, личный канал, день рождения.
+// Данные — не из settings.get, а прямо из TDLib (account.get: getMe +
+// getUserFullInfo), и каждое поле сохраняется само по change.
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+const USERNAME_HINTS = {
+  ok: 'This username is available.',
+  invalid: 'Usernames can use a–z, 0–9 and underscores, at least 5 characters.',
+  occupied: 'This username is already taken.',
+  purchasable: 'This username is for sale on Fragment.',
+  tooMany: 'You own too many public links already.',
+  unavailable: 'This username cannot be used.',
+};
+
+let account = null;     // последний ответ account.get
+let accountLoading = false;
+// Внутри раздела — основной вид или выбор цвета (как отдельный экран
+// «Предпросмотр цвета» у нативного клиента).
+let accountView = 'main';
+let colorTab = 'profile';
+let pick = null;        // { accent, profile } — выбранное, ещё не сохранённое
+
+/**
+ * Окошко поверх настроек: текст и кнопки. Вложенный модальный <dialog>
+ * встаёт в верхний слой над окном настроек. Те же классы, что у
+ * подтверждения удаления сообщения (blocks/_confirm.scss).
+ */
+function alertBox(text, buttons = []) {
+  const box = el('dialog', { class: 'confirm' });
+  const close = () => box.close();
+  const list = buttons.length ? buttons : [{ label: 'OK' }];
+  box.append(el('p', { class: 'confirm__text' }, text),
+    el('div', { class: 'confirm__buttons' },
+      ...(buttons.length ? [el('button', {
+        class: 'btn confirm__button', type: 'button', onclick: close,
+      }, 'Cancel')] : []),
+      ...list.map((b) => el('button', {
+        class: 'btn confirm__button', type: 'button',
+        onclick: () => { close(); b.run?.(); },
+      }, b.label))));
+  box.addEventListener('click', (event) => {
+    if (event.target === box) close();
+  });
+  box.addEventListener('close', () => box.remove());
+  document.body.append(box);
+  box.showModal();
+  box.querySelector('.confirm__buttons button:last-child')?.focus();
+}
+
+/**
+ * Свои аватарки в просмотрщике: «Set as main» и «Delete» на верхней
+ * полосе. Просмотрщик вешается внутрь окна настроек — см. openViewer.
+ */
+async function openGallery(a) {
+  let answer;
+  try {
+    answer = await hooks.load('account.photos', { userId: a.id });
+  } catch (error) {
+    hooks.report(error);
+    return;
+  }
+  // '-' — файл не скачался; такой слайд показать нечем.
+  const photos = answer.photos.filter((p) => p.url && p.url !== '-');
+  if (!photos.length) return;
+  // Анимированная — зацикленным видео без звука, картинка постером и
+  // миниатюрой полосы (просмотрщик так же играет GIF).
+  const slides = photos.map((p) => (p.animUrl && p.animUrl !== '-'
+    ? {
+      id: p.id,
+      kind: 'animation',
+      media: { url: p.animUrl, thumbUrl: p.url, thumb: p.url, w: p.animSize || p.w, h: p.animSize || p.h },
+    }
+    : {
+      id: p.id,
+      kind: 'photo',
+      media: { fullUrl: p.url, url: p.url, thumb: p.thumb, w: p.w, h: p.h, fullW: p.w, fullH: p.h },
+    }));
+  openViewer(slides, 0, {
+    container: dialog,
+    actions: [
+      {
+        name: 'photo-main',
+        title: 'Set as main',
+        onClick: (i) => {
+          // Первое и есть основное.
+          if (i <= 0 || !photos[i]) return;
+          closeViewer();
+          saveAccount({ key: 'photoMain', photoId: photos[i].id });
+        },
+      },
+      {
+        name: 'photo-delete',
+        title: 'Delete',
+        onClick: (i) => {
+          if (!photos[i]) return;
+          alertBox('Delete this photo?', [{
+            label: 'Delete',
+            run: () => {
+              closeViewer();
+              saveAccount({ key: 'photoDelete', photoId: photos[i].id });
+            },
+          }]);
+        },
+      },
+    ],
+  });
+}
+
+/** Кружок цвета: половинки — --swatch-1/2, точка — --swatch-3 (base/_palette.scss). */
+function swatchGrid(ids, prefix, chosen, onPick) {
+  return el('div', { class: 'color-grid', role: 'radiogroup' },
+    ...ids.map((id) => el('button', {
+      class: `color-swatch swatch-${prefix}${id}${id === chosen ? ' is-active' : ''}`,
+      type: 'button',
+      role: 'radio',
+      'aria-checked': String(id === chosen),
+      'aria-label': `Color ${id}`,
+      onclick: () => onPick(id),
+    })));
+}
+
+function renderColors(a) {
+  if (!pick) pick = { accent: a.accentId, profile: a.profileAccentId };
+  const tab = (id, label) => el('button', {
+    class: `color-tabs__tab${colorTab === id ? ' is-active' : ''}`,
+    type: 'button', role: 'tab', 'aria-selected': String(colorTab === id),
+    onclick: () => { colorTab = id; renderPane(); },
+  }, label);
+  const avatar = el('span', { class: `avatar color-preview__avatar accent-${a.color}` });
+  fillAvatar(avatar, { title: a.title, avatar: a.avatar, avatarThumb: a.avatarThumb });
+
+  let preview;
+  let grid;
+  let extra = null;
+  let hint;
+  if (colorTab === 'profile') {
+    preview = el('div', {
+      class: `color-preview color-preview--profile${pick.profile >= 0 ? ` swatch-p${pick.profile} has-color` : ''}`,
+    }, avatar, el('div', { class: 'color-preview__title' }, a.title));
+    grid = swatchGrid(PROFILE_COLORS, 'p', pick.profile, (id) => { pick.profile = id; renderPane(); });
+    extra = el('button', {
+      class: 'btn settings__link', type: 'button',
+      onclick: () => { pick.profile = -1; renderPane(); },
+    }, 'Reset profile color');
+    hint = 'The color of your profile page.';
+  } else {
+    preview = el('div', { class: `color-preview color-preview--name accent-a${pick.accent} swatch-a${pick.accent}` },
+      avatar,
+      el('div', { class: 'color-preview__bubble' },
+        el('div', { class: 'color-preview__sender' }, a.title),
+        el('div', { class: 'color-preview__quote' },
+          el('div', { class: 'color-preview__sender' }, a.title),
+          el('div', {}, 'Your original message')),
+        el('div', {}, 'Your name and replies to your messages are shown in this color.')));
+    grid = swatchGrid(NAME_COLORS, 'a', pick.accent, (id) => { pick.accent = id; renderPane(); });
+    hint = 'Your name, the links you send and quotes of your messages in replies get this color.';
+  }
+
+  const changed = pick.accent !== a.accentId || pick.profile !== a.profileAccentId;
+  const apply = el('button', {
+    class: 'btn btn--primary color-apply', type: 'button', disabled: !a.premium || !changed,
+    onclick: async () => {
+      apply.disabled = true;
+      try {
+        if (pick.accent !== a.accentId) {
+          await hooks.load('account.set', { key: 'accent', value: pick.accent, emoji: a.accentEmoji });
+        }
+        if (pick.profile !== a.profileAccentId) {
+          await hooks.load('account.set', { key: 'profileAccent', value: pick.profile, emoji: a.profileEmoji });
+        }
+      } catch (error) {
+        hooks.report(error);
+      }
+      accountView = 'main';
+      pick = null;
+      await reloadAccount();
+    },
+  }, 'Apply');
+
+  return [
+    el('button', {
+      class: 'btn settings__back', type: 'button',
+      onclick: () => { accountView = 'main'; pick = null; renderPane(); },
+    }, icon('chevron-left'), 'My account'),
+    el('div', { class: 'color-tabs', role: 'tablist' }, tab('profile', 'Profile'), tab('name', 'Name')),
+    preview,
+    grid,
+    extra,
+    el('p', { class: 'settings__hint' }, hint),
+    el('p', { class: 'settings__hint' }, a.premium
+      ? 'Background emoji and gift styles are set from a phone app for now.'
+      : 'Colors can be changed with Telegram Premium.'),
+    apply,
+  ];
+}
+
+/** Один файл на POST /upload (cookie авторизует); ответ — id загрузки. */
+async function uploadFile(file) {
+  const res = await fetch(`/upload?name=${encodeURIComponent(file.name)}`,
+    { method: 'POST', body: file });
+  const answer = (await res.text()).trim();
+  if (!res.ok || !answer) throw new Error(answer || `Upload failed (${res.status})`);
+  return answer;
+}
+
+/** Поле аккаунта на сервер, потом раздел перечитывается целиком. */
+async function saveAccount(args) {
+  try {
+    await hooks.load('account.set', args);
+  } catch (error) {
+    hooks.report(error);
+  }
+  await reloadAccount();
+}
+
+async function reloadAccount() {
+  if (accountLoading) return;
+  accountLoading = true;
+  try {
+    account = await hooks.load('account.get');
+  } catch (error) {
+    hooks.report(error);
+    return;
+  } finally {
+    accountLoading = false;
+  }
+  if (current === 'account' && dialog.open && !editing()) renderPane();
+}
+
+function accountHeader(a) {
+  const avatar = el('span', { class: `avatar settings__avatar accent-${a.color}` });
+  // avatarAnim — анимированная аватарка (<video>, util/avatar.js).
+  fillAvatar(avatar, {
+    id: a.id, title: a.title, avatar: a.avatar, avatarThumb: a.avatarThumb, avatarAnim: a.avatarAnim,
+  });
+  // Клик по аватарке — галерея своих фото, как у нативного клиента.
+  const avatarBtn = el('button', {
+    class: 'settings__avatar-btn', type: 'button', title: 'Your photos',
+    onclick: () => openGallery(a),
+  }, avatar);
+  const picker = el('input', {
+    type: 'file', accept: 'image/jpeg,image/png,image/webp', hidden: true,
+    onchange: async () => {
+      const file = picker.files?.[0];
+      if (!file) return;
+      try {
+        const id = await uploadFile(file);
+        await saveAccount({ key: 'photo', upload: id });
+      } catch (error) {
+        hooks.report(error);
+      }
+    },
+  });
+  const change = el('button', {
+    class: 'btn btn--icon settings__photo', type: 'button', title: 'Change photo',
+    onclick: () => picker.click(),
+  }, icon('image'), el('span', { class: 'u-sr-only' }, 'Change photo'));
+  return el('div', { class: 'settings__profile' },
+    el('div', { class: 'settings__avatar-wrap' }, avatarBtn, change, picker),
+    el('div', { class: 'settings__profile-name' }, a.title || '(no name)'),
+    el('div', { class: 'settings__hint' },
+      [a.phone ? `+${a.phone}` : '', a.username ? `@${a.username}` : '']
+        .filter(Boolean).join(' · ')));
+}
+
+function bioControl(id, a) {
+  const left = el('span', { class: 'settings__unit u-tabular' });
+  const input = el('input', {
+    class: 'field__input', type: 'text', id, value: a.bio, maxLength: a.bioMax,
+    autocomplete: 'off',
+    oninput: () => { left.textContent = String(a.bioMax - input.value.length); },
+    onchange: () => saveAccount({ key: 'bio', value: input.value.replace(/\n/g, ' ') }),
+  });
+  left.textContent = String(a.bioMax - a.bio.length);
+  return el('label', { class: 'field settings__field settings__field--wide' }, input, left);
+}
+
+function usernameControl(id, a, status) {
+  let timer = 0;
+  let asked = '';
+  const input = el('input', {
+    class: 'field__input', type: 'text', id, value: a.username, autocomplete: 'off',
+    oninput: () => {
+      clearTimeout(timer);
+      const name = input.value.trim().replace(/^@/, '');
+      if (!name || name === a.username) {
+        status.textContent = '';
+        return;
+      }
+      // Проверка — когда набор замер, а не на каждую букву.
+      timer = setTimeout(async () => {
+        asked = name;
+        try {
+          const r = await hooks.load('account.checkUsername', { userId: a.id, username: name });
+          if (asked === name) status.textContent = USERNAME_HINTS[r.result] ?? '';
+        } catch (error) {
+          hooks.report(error);
+        }
+      }, 400);
+    },
+    onchange: () => {
+      const name = input.value.trim().replace(/^@/, '');
+      if (name !== a.username) saveAccount({ key: 'username', value: name });
+    },
+  });
+  return el('label', { class: 'field settings__field settings__field--wide' },
+    el('span', { class: 'settings__unit' }, '@'), input);
+}
+
+function nameControl(id, a, which) {
+  const input = el('input', {
+    class: 'field__input', type: 'text', id, autocomplete: 'off', maxLength: 64,
+    value: which === 'first' ? a.firstName : a.lastName,
+    onchange: () => saveAccount({
+      key: 'name',
+      first: which === 'first' ? input.value : a.firstName,
+      last: which === 'last' ? input.value : a.lastName,
+    }),
+  });
+  return el('label', { class: 'field settings__field settings__field--wide' }, input);
+}
+
+/** Личный канал: «нет» и каналы из getSuitablePersonalChats. */
+function personalControl(id, a) {
+  const select = el('select', {
+    class: 'settings__select', id,
+    onchange: () => saveAccount({ key: 'personalChat', value: Number(select.value) }),
+  }, el('option', { value: '0' }, 'None'));
+  if (a.personalChat) {
+    select.append(el('option', { value: String(a.personalChat.id), selected: true },
+      a.personalChat.title || String(a.personalChat.id)));
+  }
+  hooks.load('account.personalChats').then((r) => {
+    for (const c of r.chats) {
+      if (a.personalChat && c.id === a.personalChat.id) continue;
+      select.append(el('option', { value: String(c.id) }, c.title));
+    }
+  }).catch(hooks.report);
+  return select;
+}
+
+/** День и месяц обязательны, год — нет (0 у TDLib — «не указан»). */
+function birthdayControl(id, a) {
+  const b = a.birthdate;
+  const day = el('select', { class: 'settings__select', id, 'aria-label': 'Day' },
+    el('option', { value: '0' }, 'Day'),
+    ...Array.from({ length: 31 }, (_, i) => el('option',
+      { value: String(i + 1), selected: b?.day === i + 1 }, String(i + 1))));
+  const month = el('select', { class: 'settings__select', 'aria-label': 'Month' },
+    el('option', { value: '0' }, 'Month'),
+    ...MONTHS.map((m, i) => el('option',
+      { value: String(i + 1), selected: b?.month === i + 1 }, m)));
+  const year = el('input', {
+    class: 'field__input settings__number', type: 'number', min: '1900', max: '2100',
+    placeholder: 'Year', value: b?.year ? String(b.year) : '', 'aria-label': 'Year',
+  });
+  const save = () => {
+    const d = Number(day.value);
+    const m = Number(month.value);
+    // Наполовину заполненное не сохраняется; оба пустые — убрать.
+    if ((d === 0) !== (m === 0)) return;
+    saveAccount({ key: 'birthdate', day: d, month: m, year: Number(year.value) || 0 });
+  };
+  day.addEventListener('change', save);
+  month.addEventListener('change', save);
+  year.addEventListener('change', save);
+  return el('div', { class: 'settings__inline' }, day, month,
+    el('label', { class: 'field settings__field' }, year));
+}
+
+function renderAccount() {
+  if (!account) {
+    reloadAccount();
+    return [el('p', { class: 'settings__hint' }, 'Loading…')];
+  }
+  const a = account;
+  if (accountView === 'color') return renderColors(a);
+  const bio = uid();
+  const first = uid();
+  const last = uid();
+  const username = uid();
+  const personal = uid();
+  const birthday = uid();
+  const status = el('p', { class: 'settings__hint', role: 'status' });
+  return [
+    accountHeader(a),
+    group(null,
+      row(bio, 'Bio',
+        'Any details such as age, occupation or city. '
+        + 'Example: 23 y.o. designer from San Francisco.',
+        bioControl(bio, a))),
+    group(null,
+      row(first, 'First name', null, nameControl(first, a, 'first')),
+      row(last, 'Last name', 'Optional.', nameControl(last, a, 'last')),
+      row(username, 'Username',
+        'People can find you by this username and contact you without '
+        + 'knowing your phone number.',
+        usernameControl(username, a, status)),
+      status,
+      row(uid(), 'Phone number', null,
+        el('button', {
+          class: 'btn settings__link u-tabular', type: 'button',
+          // Так же, как нативный клиент: номер меняется только с телефона.
+          onclick: () => alertBox('You can change your phone number only in the '
+            + 'official Telegram app on your phone.'),
+        }, a.phone ? `+${a.phone}` : '—'))),
+    group(null,
+      row(personal, 'Personal channel',
+        'Shown in your profile. Only public channels you own can be picked.',
+        personalControl(personal, a)),
+      row(uid(), 'Name color',
+        'The colors of your profile, your name and replies to your messages.',
+        el('button', {
+          class: 'btn settings__link', type: 'button',
+          onclick: () => { accountView = 'color'; colorTab = 'profile'; pick = null; renderPane(); },
+        }, el('span', { class: `color-swatch color-swatch--small swatch-a${a.accentId}` }),
+        el('span', { class: `color-swatch color-swatch--small${a.profileAccentId >= 0 ? ` swatch-p${a.profileAccentId}` : ''}` })))),
+    group(null,
+      row(birthday, 'Birthday',
+        'Only your contacts can see it. The year is optional.',
+        birthdayControl(birthday, a))),
+  ];
 }
 
 // ----------------------------------------------------------- sections
@@ -368,6 +799,10 @@ function select(id) {
 
 async function open() {
   if (dialog.open) return;
+  // Аккаунт меняется и с телефона — при каждом открытии спрашивается заново.
+  account = null;
+  accountView = 'main';
+  pick = null;
   renderNav();
   renderPane();
   dialog.showModal();
@@ -402,6 +837,11 @@ export function mountSettings(node, button, options) {
   dialog.append(el('div', { class: 'settings__window' }, nav, pane));
 
   opener.addEventListener('click', open);
+  // Esc при открытом просмотрщике (галерея аватарок живёт внутри этого
+  // диалога) закрывает только просмотрщик.
+  dialog.addEventListener('cancel', (event) => {
+    if (viewerOpen()) event.preventDefault();
+  });
   // Клик мимо окна — по самому <dialog>, который занимает весь экран
   // вокруг него, — закрывает, как у любого модального слоя.
   dialog.addEventListener('click', (event) => {
