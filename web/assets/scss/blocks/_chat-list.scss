@@ -14,7 +14,9 @@
   // equal to clientHeight, i.e. a scroll container with nothing to
   // scroll. On the children rather than on .chat-item so a row type
   // added later cannot quietly bring the bug back.
-  > * { flex-shrink: 0; }
+  > * {
+    flex-shrink: 0;
+  }
 }
 
 // The history's button, the other way up: same corner of its own
@@ -59,9 +61,11 @@
   padding: $space-3 $space-4;
   text-align: left;
   width: 100%;
+  background: color-mix(in srgb, var(--c-bg) 50%, transparent);
+  @include transition;
 
   &:hover {
-    background: var(--c-surface-hover);
+    background: var(--c-accent);
   }
 }
 
@@ -72,18 +76,30 @@
 .contact-row__text {
   @include flex(column, stretch, flex-start, $space-1);
   min-width: 0;
+  @include transition;
 }
 
 .contact-row__name {
   @include ellipsis;
   font-weight: $fw-medium;
+  @include transition;
 }
 
 .contact-row__status {
   color: var(--c-text-faint);
   font-size: $fs-sm;
+  @include transition;
 
   &.is-online {
     color: var(--c-accent);
+    @include transition;
+  }
+}
+
+.contact-row {
+  &:hover {
+    * {
+      color: var(--c-light);
+    }
   }
 }

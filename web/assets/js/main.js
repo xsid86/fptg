@@ -7,7 +7,7 @@ import { loadIcons, hydrateIcons } from './util/icons.js';
 import { openMenu } from './util/menu.js';
 import {
   mountChatList, showListLoading, showListError, setChatFilter,
-  showContacts, hideContacts, contactsShown,
+  showContacts, hideContacts,
 } from './ui/chat-list.js';
 import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory, invalidateHistory } from './ui/history.js';
@@ -29,6 +29,7 @@ import { mountBots, redrawBotKeyboard } from './ui/bots.js';
 import { mountAttachMenu } from './ui/attachmenu.js';
 import { mountGreeting } from './ui/greeting.js';
 import { setMapFetcher, setMapProvider, setMapSaver } from './util/maps.js';
+import { mountSoloPlay } from './util/soloplay.js';
 import { mountNotices, notice } from './ui/notices.js';
 import { openViewer } from './ui/viewer.js';
 
@@ -418,25 +419,33 @@ const CONTACTS_PHOTO_TRIES = 20;
 let contactsAsked = 0;
 let contactsTries = 0;
 let contactsTimer = 0;
+// Включён ли режим контактов (кнопка — не переключатель: её подпись
+// говорит, куда она ведёт).
+let contactsOn = false;
 
 function loadContacts() {
   contactsAsked = Date.now();
   clearTimeout(contactsTimer);
   call('contacts.list')
     .then((r) => {
-      if (!(contactsShown() || qs('#chats-contacts').checked)) return;
+      if (!contactsOn) return;
       const list = r?.contacts ?? [];
       showContacts(list);
       if (list.some((c) => c.photoPending) && contactsTries < CONTACTS_PHOTO_TRIES) {
         contactsTries += 1;
-        contactsTimer = setTimeout(() => { if (contactsShown()) loadContacts(); }, CONTACTS_PHOTO_RETRY_MS);
+        contactsTimer = setTimeout(() => { if (contactsOn) loadContacts(); }, CONTACTS_PHOTO_RETRY_MS);
       }
     })
     .catch(report);
 }
 
 function setContactsMode(on) {
-  qs('#chats-contacts').checked = on;
+  contactsOn = on;
+  // Кнопка ведёт туда, где нас нет: в контактах — «Chats», в чатах —
+  // «Contacts».
+  const btn = qs('#chats-contacts');
+  btn.textContent = on ? 'Chats' : 'Contacts';
+  btn.title = on ? 'Back to chats' : 'Show contacts';
   qs('.sidebar__title').textContent = on ? 'Contacts' : 'Chats';
   contactsTries = 0;
   clearTimeout(contactsTimer);
@@ -447,18 +456,19 @@ function setContactsMode(on) {
 function wireSidebar() {
   qs('#chats-archived').addEventListener('change', (event) => {
     // Архив и контакты — один из двух.
-    if (event.target.checked && contactsShown()) setContactsMode(false);
+    if (event.target.checked && contactsOn) setContactsMode(false);
     setArchived(event.target.checked);
   });
-  qs('#chats-contacts').addEventListener('change', (event) => {
-    if (event.target.checked && qs('#chats-archived').checked) {
+  qs('#chats-contacts').addEventListener('click', () => {
+    const on = !contactsOn;
+    if (on && qs('#chats-archived').checked) {
       qs('#chats-archived').checked = false;
       setArchived(false);
     }
-    setContactsMode(event.target.checked);
+    setContactsMode(on);
   });
   on('srv:chats', () => {
-    if (contactsShown() && Date.now() - contactsAsked > CONTACTS_REFRESH_MS) loadContacts();
+    if (contactsOn && Date.now() - contactsAsked > CONTACTS_REFRESH_MS) loadContacts();
   });
   // Клик по контакту: личка с ним (createPrivateChat — bot.userChat),
   // список возвращается к чатам.
@@ -579,6 +589,8 @@ async function boot() {
 
   wireSidebar();
   wireResponsive();
+  // Одно воспроизведение со звуком за раз (util/soloplay.js).
+  mountSoloPlay();
   wireActions();
 
   // The server pushes signals, never data: "the list changed", "the

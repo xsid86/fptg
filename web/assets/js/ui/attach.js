@@ -60,10 +60,12 @@ const hasFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes('Fil
  * недоступны, а вид (MIME) у элементов уже есть — по нему и решается,
  * показывать ли вторую зону.
  */
-function dragAllPhotos(event) {
+function dragAllMedia(event) {
   const items = [...(event.dataTransfer?.items ?? [])];
-  return items.length > 0
-    && items.every((item) => item.kind === 'file' && PHOTO_TYPES.has(item.type));
+  // Фото И видео: видео тоже отправляется «быстро» — видео-сообщением,
+  // а не файлом (раньше вторая зона была только для картинок).
+  return items.length > 0 && items.every((item) => item.kind === 'file'
+    && (PHOTO_TYPES.has(item.type) || VIDEO_TYPES.has(item.type)));
 }
 
 function drawZones(photos) {
@@ -77,8 +79,8 @@ function drawZones(photos) {
   clear(zone);
   if (photos) {
     zone.append(
-      make('file', 'Drop photos here', 'to send them without compression'),
-      make('photo', 'Drop photos here', 'for quick sending'));
+      make('file', 'Drop files here', 'to send them without compression'),
+      make('photo', 'Drop photos and videos here', 'for quick sending'));
   } else {
     zone.append(make('file', 'Drop files here', 'to send them without compression'));
   }
@@ -96,7 +98,7 @@ function mountDropzone(area) {
     event.preventDefault();
     dragDepth += 1;
     if (dragDepth === 1) {
-      drawZones(dragAllPhotos(event));
+      drawZones(dragAllMedia(event));
       zone.hidden = false;
     }
   });
@@ -118,7 +120,7 @@ function mountDropzone(area) {
     const mode = event.target.closest?.('.dropzone__zone')?.dataset.mode ?? 'file';
     const dropped = [...event.dataTransfer.files];
     hideZones();
-    if (dropped.length) openDialog(dropped, mode === 'photo' && allPhotos(dropped));
+    if (dropped.length) openDialog(dropped, mode === 'photo' && allMedia(dropped));
   });
 
   // Файл, брошенный мимо зоны (на список чатов, в статусную строку), не
@@ -256,6 +258,59 @@ function upload(file, onProgress) {
   });
 }
 
+// Сведения о видео для inputVideo: без них TDLib ставит 320x320 и
+// длительность 0 (живой лог), и превью выходит квадратным, без кадра.
+// Браузер сам читает метаданные из файла; кадр — на холст и в JPEG, его
+// грузим отдельным файлом как миниатюру.
+const THUMB_MAX = 320;
+const VIDEO_PROBE_MS = 8000;
+
+function videoInfo(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    let settled = false;
+    const done = (info) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(url);
+      resolve(info);
+    };
+    const timer = setTimeout(() => done(null), VIDEO_PROBE_MS);
+    video.muted = true;
+    video.preload = 'auto';
+    video.addEventListener('loadedmetadata', () => {
+      // Кадр чуть дальше начала: первый часто чёрный.
+      video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
+    }, { once: true });
+    video.addEventListener('seeked', () => {
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (!w || !h) {
+        done(null);
+        return;
+      }
+      const scale = Math.min(1, THUMB_MAX / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => done({
+        duration: Math.round(video.duration) || 0, w, h,
+        blob, tw: canvas.width, th: canvas.height,
+      }), 'image/jpeg', 0.8);
+    }, { once: true });
+    video.addEventListener('error', () => done(null), { once: true });
+    video.src = url;
+  });
+}
+
+const isVideoFile = (file) => VIDEO_TYPES.has(file.type)
+  || /\.(mp4|mov|m4v|webm|mkv)$/i.test(file.name);
+
 async function send() {
   if (busy || !files.length) return;
   cancelled = false;
@@ -266,15 +321,31 @@ async function send() {
   const total = files.reduce((sum, f) => sum + f.size, 0) || 1;
   let done = 0;
   const ids = [];
+  const meta = [];
+  const mode = forced ?? (asPhoto ? 'media' : 'document');
   try {
     for (const file of files) {
+      // Видео-сообщению — длительность, размеры и кадр-миниатюра.
+      let info = null;
+      if (mode === 'media' && isVideoFile(file)) {
+        const probe = await videoInfo(file);
+        if (probe) {
+          info = { duration: probe.duration, w: probe.w, h: probe.h, tw: probe.tw, th: probe.th };
+          if (probe.blob) {
+            info.thumb = await upload(new File([probe.blob], 'thumb.jpg', { type: 'image/jpeg' }),
+              () => {});
+          }
+        }
+      }
+      meta.push(info);
       ids.push(await upload(file, (loaded) => setProgress((done + loaded) / total)));
       done += file.size;
     }
     xhr = null;
     await hooks.call('message.sendFiles', {
       files: ids,
-      mode: forced ?? (asPhoto ? 'media' : 'document'),
+      meta,
+      mode,
       caption: view.caption.value,
       html: hooks.htmlMode(),
       silent: hooks.isSilent(),
@@ -340,7 +411,7 @@ function openDialog(list, photos, mode = null) {
     list: el('ul', { class: 'attach__list' }),
     compress,
     compressRow: el('label', { class: 'attach__compress', htmlFor: 'attach-compress' },
-      el('span', {}, 'Compress images'),
+      el('span', {}, 'Send as photo or video'),
       el('span', { class: 'switch' }, compress, el('span', { class: 'switch__track' }))),
     caption,
     emoji: el('button', {
@@ -416,6 +487,9 @@ export function mountAttach(layerNode, zoneNode, dropArea, options) {
   // mode — от меню скрепки (ui/attachmenu.js): media | document | audio.
   on('ui:attach', ({ files: list, mode }) => {
     if (!hooks.canCompose()) return;
-    openDialog(list, mode === 'media' || (!mode && allPhotos(list)), mode ?? null);
+    // Скрепка и вставка: фото и видео по умолчанию «сжатыми» — видео
+    // уходит видео-сообщением, как у нативного клиента; переключатель в
+    // окне возвращает отправку файлом.
+    openDialog(list, mode === 'media' || (!mode && allMedia(list)), mode ?? null);
   });
 }

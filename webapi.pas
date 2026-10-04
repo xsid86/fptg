@@ -2953,6 +2953,12 @@ var
   Msgs: TTdMessages;
   Arr: TJSONArray;
   Paths: array of utf8string;
+  Extras: array of utf8string;
+  Meta: TJSONArray;
+  M: TJSONObject;
+  ThumbPath: string;
+  ThumbJson: TJSONString;
+  ThumbStr: utf8string;
   Mode: utf8string;
   I: integer;
   Path: string;
@@ -2986,7 +2992,37 @@ begin
       Mode := 'document';
     end;
   end;
-  Msgs.SendFiles(Paths, Mode,
+  { meta — на каждый файл сведения о видео от страницы (длительность,
+    размеры, миниатюра из кадра — загружена как отдельный файл) или null.
+    Превращаются в поля inputVideo / inputThumbnail (td_api.tl). }
+  SetLength(Extras, Arr.Count);
+  Meta := TJSONArray(AArgs.Find('meta', jtArray));
+  for I := 0 to Arr.Count - 1 do begin
+    Extras[I] := '';
+    if (Meta = nil) or (I >= Meta.Count) or not (Meta.Items[I] is TJSONObject) then begin
+      Continue;
+    end;
+    M := TJSONObject(Meta.Items[I]);
+    if (M.Get('w', 0) > 0) and (M.Get('h', 0) > 0) then begin
+      Extras[I] := ',"duration":' + utf8string(IntToStr(M.Get('duration', 0))) +
+        ',"width":' + utf8string(IntToStr(M.Get('w', 0))) +
+        ',"height":' + utf8string(IntToStr(M.Get('h', 0)));
+    end;
+    ThumbPath := UploadFilePath(M.Get('thumb', ''));
+    if ThumbPath <> '' then begin
+      ThumbJson := TJSONString.Create(ThumbPath);
+      try
+        ThumbStr := utf8string(ThumbJson.AsJSON);
+      finally
+        ThumbJson.Free;
+      end;
+      Extras[I] := Extras[I] + ',"thumbnail":{"@type":"inputThumbnail","thumbnail":' +
+        '{"@type":"inputFileLocal","path":' + ThumbStr + '}' +
+        ',"width":' + utf8string(IntToStr(M.Get('tw', 0))) +
+        ',"height":' + utf8string(IntToStr(M.Get('th', 0))) + '}';
+    end;
+  end;
+  Msgs.SendFiles(Paths, Extras, Mode,
     utf8string(AArgs.Get('caption', '')), AArgs.Get('html', False),
     AArgs.Get('silent', False),
     StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));

@@ -63,7 +63,6 @@
         <EditorIndex Value="19"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -353,7 +352,6 @@
         <TopLine Value="3664"/>
         <UsageCount Value="113"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="mediaviewer.pas"/>

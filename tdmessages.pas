@@ -489,6 +489,9 @@ type
     Paths: array of utf8string;
     { 'media' — фото и видео (по расширению), 'audio', иначе документом. }
     Mode: utf8string;
+    { На каждый путь — готовый кусок полей inputVideo (duration, width,
+      height, thumbnail) или ''; см. SendFiles. }
+    Extras: array of utf8string;
     Silent: boolean;
     ReplyTo: Int64;
   end;
@@ -978,10 +981,16 @@ type
       становится подписью альбома) и ПОСЛЕДНЕМУ у документов — чтобы
       стояла после списка файлов, а не посреди него.
 
-      Временный файл удаляется, когда TDLib сообщит, что сообщение
-      ушло (updateMessageSendSucceeded); не ушедшие подчищает сервер
-      при следующем старте. }
-    procedure SendFiles(const APaths: array of utf8string; const AMode: utf8string;
+      Временный файл НЕ удаляется, когда сообщение ушло: TDLib держит
+      его как локальную копию файла сообщения, и удалённый он превращал
+      отправленное видео в пустой плеер (живой случай). Папку загрузок
+      подчищает сервер при следующем старте.
+
+      AExtras — на каждый путь кусок полей inputVideo от страницы
+      (длительность, размеры, миниатюра) или ''. Без них TDLib ставит
+      320x320 и длительность 0 (живой лог) — превью квадратное. }
+    procedure SendFiles(const APaths: array of utf8string; const AExtras: array of utf8string;
+      const AMode: utf8string;
       const ACaption: utf8string; AIsHtml, ASilent: boolean; AReplyTo: Int64);
 
     { Отмена передачи по клику на кольцо. Скачивание — cancelDownloadFile
@@ -4785,7 +4794,7 @@ begin
 end;
 
 { Удаляет файл и его каталог (uploads/<id>/ — в нём только этот файл). }
-procedure ForgetUploadMessage(AMsgId: Int64);
+procedure ForgetUploadMessage(AMsgId: Int64; ADelete: boolean = True);
 var
   I: integer;
   Path: string;
@@ -4799,8 +4808,10 @@ begin
   end;
   Path := GUploadByMsg.ValueFromIndex[I];
   GUploadByMsg.Delete(I);
-  DeleteFile(Path);
-  RemoveDir(ExtractFileDir(Path));
+  if ADelete then begin
+    DeleteFile(Path);
+    RemoveDir(ExtractFileDir(Path));
+  end;
 end;
 
 procedure TTdMessages.CancelTransfer(AMessageId: Int64);
@@ -4849,7 +4860,8 @@ begin
   Touch;
 end;
 
-procedure TTdMessages.SendFiles(const APaths: array of utf8string; const AMode: utf8string;
+procedure TTdMessages.SendFiles(const APaths: array of utf8string; const AExtras: array of utf8string;
+  const AMode: utf8string;
   const ACaption: utf8string; AIsHtml, ASilent: boolean; AReplyTo: Int64);
 var
   Slot: PtrInt;
@@ -4875,8 +4887,14 @@ begin
   end;
   FFileSends[Slot].Busy := True;
   SetLength(FFileSends[Slot].Paths, Length(APaths));
+  SetLength(FFileSends[Slot].Extras, Length(APaths));
   for I := 0 to High(APaths) do begin
     FFileSends[Slot].Paths[I] := APaths[I];
+    if I <= High(AExtras) then begin
+      FFileSends[Slot].Extras[I] := AExtras[I];
+    end else begin
+      FFileSends[Slot].Extras[I] := '';
+    end;
   end;
   FFileSends[Slot].Mode := AMode;
   FFileSends[Slot].Silent := ASilent;
@@ -4944,7 +4962,7 @@ end;
 
 procedure TTdMessages.DoSendFiles(ASlot: PtrInt; const ACaptionJson: utf8string);
 var
-  Paths: array of utf8string;
+  Paths, Extras: array of utf8string;
   Silent: boolean;
   ReplyTo: Int64;
   N, CaptionAt, First, Last, I, B: integer;
@@ -4952,6 +4970,8 @@ var
   PathVal: TJSONString;
 begin
   Paths := FFileSends[ASlot].Paths;
+  Extras := FFileSends[ASlot].Extras;
+  FFileSends[ASlot].Extras := nil;
   Mode := FFileSends[ASlot].Mode;
   Silent := FFileSends[ASlot].Silent;
   ReplyTo := FFileSends[ASlot].ReplyTo;
@@ -4986,7 +5006,11 @@ begin
             воспроизведением. }
           Content := '{"@type":"inputMessageVideo","video":{"@type":"inputVideo"' +
             ',"video":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}' +
-            ',"supports_streaming":true}';
+            ',"supports_streaming":true';
+          if I <= High(Extras) then begin
+            Content := Content + Extras[I];
+          end;
+          Content := Content + '}';
         end else if Mode = 'media' then begin
           Content := '{"@type":"inputMessagePhoto","photo":{"@type":"inputPhoto"' +
             ',"photo":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}}';
@@ -6982,7 +7006,9 @@ begin
       OldId := JGetInt64(Obj, 'old_message_id');
       { Если сообщение несло файл со страницы — TDLib его закачал, и
         временная копия больше не нужна. }
-      ForgetUploadMessage(OldId);
+      { Временный файл остаётся: он теперь локальная копия файла
+        сообщения (см. SendFiles). }
+      ForgetUploadMessage(OldId, False);
       if OldId <> 0 then begin
         Idx := FAll.IndexOf(OldId);
         if Idx >= 0 then begin

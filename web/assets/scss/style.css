@@ -2484,9 +2484,11 @@ body {
   padding: 6px 8px;
   text-align: left;
   width: 100%;
+  background: color-mix(in srgb, var(--c-bg) 50%, transparent);
+  transition: all 0.25s ease-in-out;
 }
 .contact-row:hover {
-  background: var(--c-surface-hover);
+  background: var(--c-accent);
 }
 
 .contact-row__avatar {
@@ -2500,6 +2502,7 @@ body {
   justify-content: flex-start;
   gap: 2px;
   min-width: 0;
+  transition: all 0.25s ease-in-out;
 }
 
 .contact-row__name {
@@ -2508,14 +2511,21 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
   font-weight: 500;
+  transition: all 0.25s ease-in-out;
 }
 
 .contact-row__status {
   color: var(--c-text-faint);
   font-size: 12px;
+  transition: all 0.25s ease-in-out;
 }
 .contact-row__status.is-online {
   color: var(--c-accent);
+  transition: all 0.25s ease-in-out;
+}
+
+.contact-row:hover * {
+  color: var(--c-light);
 }
 
 .chat-item {

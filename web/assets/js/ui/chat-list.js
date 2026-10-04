@@ -285,7 +285,10 @@ function seenObserver() {
 }
 
 function rowNode(chat) {
-  const hash = JSON.stringify(chat);
+  // Активность — не часть данных чата, но меняет строку (is-active): без
+  // неё в ключе прежняя открытая строка оставалась подсвеченной, пока её
+  // чат сам не менялся (после отправки файла — заметно).
+  const hash = JSON.stringify(chat) + (chat.id === store.activeChatId ? '|active' : '');
   const known = rows.get(chat.id);
   if (known && known.hash === hash) return known.node;
   if (known) seen?.unobserve(known.node);
