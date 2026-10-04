@@ -9,6 +9,7 @@ import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 import {addRing, xferText, xferLeft} from '../util/xfer.js';
 import {peopleOnHover} from './people.js';
 import {renderInlineKeyboard} from './bots.js';
+import {mapUrl, openMapPoint} from '../util/maps.js';
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -109,6 +110,7 @@ export function renderMessage(msg) {
     const media = renderMedia(msg);
     if (media) body.append(media);
     if (msg.kind === 'poll' && msg.poll) body.append(renderPoll(msg));
+    if (msg.kind === 'location' && msg.location) body.append(renderLocation(msg));
     if (msg.text) body.append(renderRichText(msg.text, msg.entities ?? []));
     if (msg.link) body.append(renderLinkPreview(msg));
     if (body.childNodes.length) card.append(body);
@@ -894,6 +896,33 @@ function renderSticker(msg, m) {
 }
 
 // ------------------------------------------------------------ poll
+// --------------------------------------------------------- location
+/**
+ * Геопозиция, место (venue) или трансляция геопозиции: карта Telegram с
+ * меткой по центру, под ней — название и адрес места. Клик — точка в
+ * выбранном сервисе карт в браузере (util/maps.js).
+ */
+function renderLocation(msg) {
+    const l = msg.location;
+    const url = mapUrl(l.lat, l.lon);
+    const info = [];
+    if (l.title) info.push(el('span', {class: 'location__title'}, l.title));
+    if (l.address) info.push(el('span', {class: 'location__address'}, l.address));
+    if (l.live) {
+        info.push(el('span', {class: 'location__live'},
+            l.expiresIn > 0 ? 'Live location' : 'Live location ended'));
+    }
+    return el('button', {
+        class: 'location', type: 'button', title: 'Open the map',
+        // Сервис карт — по умолчанию из настроек или из окна выбора.
+        onclick: () => openMapPoint(l.lat, l.lon),
+    },
+    el('span', {class: `location__map${url ? '' : ' is-pending'}`},
+        url ? el('img', {class: 'location__img', src: url, alt: ''}) : null,
+        el('span', {class: 'location__pin'})),
+    info.length ? el('span', {class: 'location__info'}, ...info) : null);
+}
+
 function renderPoll(msg) {
     const p = msg.poll;
     const box = el('div', {class: `poll${p.multiple ? ' poll--multiple' : ''}`});

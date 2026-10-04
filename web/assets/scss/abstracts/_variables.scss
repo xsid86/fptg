@@ -121,6 +121,12 @@ $breakpoints: (
   "lg": 1200px,
 );
 
+// ---------------------------------------------------- кнопки ботов
+// Цвета buttonStylePrimary / buttonStyleSuccess (td_api.tl: «dark blue»,
+// «green»); buttonStyleDanger — общий --c-danger.
+$button-style-primary: #2a5db0;
+$button-style-success: #2e9e4f;
+
 // ------------------------------------------------------- accent palette
 // Telegram's accent colours, as a finite set. This is what lets a chat
 // be coloured by adding a class instead of by writing an inline style.

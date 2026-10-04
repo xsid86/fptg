@@ -1339,6 +1339,22 @@ const
     что лежит локально, — живой лог: 1 сообщение (total_count 1),
     СТАРШЕ цели; повтор того же запроса уже вернул 34 с целью. }
   JUMP_RETRY_MAX = 3;
+  { WebView2.h: COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION (UNKNOWN 0,
+    MICROPHONE 1, CAMERA 2, GEOLOCATION 3) и
+    COREWEBVIEW2_PERMISSION_STATE_ALLOW (DEFAULT 0, ALLOW 1, DENY 2). }
+  { Картинка карты геопозиции в сообщении (getMapThumbnailFile): размер
+    до scale — по ширине пузыря медиа, scale 2 — для чёткости на HiDPI. }
+  { Сервисы карт, где открывается точка геопозиции (util/maps.js на
+    странице знает их адреса и названия). Пусто в config.ini —
+    спрашивать каждый раз. }
+  MAPS_PROVIDERS: array[0..6] of string = ('google', 'yandex', 'osm', 'bing',
+    'apple', '2gis', 'here');
+  MAP_THUMB_WIDTH = 360;
+  MAP_THUMB_HEIGHT = 200;
+  MAP_THUMB_SCALE = 2;
+  MAP_THUMB_ZOOM = 16;
+  WEBVIEW2_PERMISSION_KIND_GEOLOCATION = 3;
+  WEBVIEW2_PERMISSION_STATE_ALLOW = 1;
   { Предел длины «о себе», если getOption("bio_length_max") не ответил:
     70 без Premium, 140 с ним (живой лог: 140 у Premium-аккаунта). }
   ACCOUNT_BIO_MAX_DEFAULT = 70;

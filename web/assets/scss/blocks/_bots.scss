@@ -41,6 +41,82 @@
   min-width: 0;
 }
 
+// Цвет, заданный ботом (buttonStyle* в TDLib): «primary» — тёмно-синий,
+// «danger» — красный, «success» — зелёный; «link» — просто ссылка.
+.message__kb-btn,
+.composer__kb-btn {
+  &.is-style-primary { --kb-style-color: #{$button-style-primary}; }
+  &.is-style-danger { --kb-style-color: var(--c-danger); }
+  &.is-style-success { --kb-style-color: #{$button-style-success}; }
+
+  &.is-style-primary,
+  &.is-style-danger,
+  &.is-style-success {
+    background: color-mix(in srgb, var(--kb-style-color) 70%, transparent);
+    color: var(--c-light);
+
+    &:hover {
+      background: color-mix(in srgb, var(--kb-style-color) 85%, transparent);
+    }
+
+    .message__kb-btn-mark,
+    .composer__kb-btn-mark {
+      color: inherit;
+    }
+  }
+
+  &.is-style-link {
+    background: transparent;
+    color: var(--c-accent);
+    text-decoration: underline;
+  }
+}
+
+// Кастомный эмодзи перед текстом (icon_custom_emoji_id).
+.message__kb-btn-emoji,
+.composer__kb-btn-emoji {
+  @include size(18px);
+  flex: 0 0 auto;
+}
+
+// Неактивная кнопка (inlineKeyboardButtonTypeDisabled).
+.message__kb-btn:disabled,
+.composer__kb-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+// Формы окон кнопок: опрос, пароль, вход, управляемый бот.
+.bots__form {
+  @include flex(column, stretch, flex-start, $space-4);
+  margin: $space-4 0;
+}
+
+.bots__input {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: $radius-md;
+  padding: $space-3 $space-4;
+}
+
+.bots__options {
+  @include flex(column, stretch, flex-start, $space-3);
+}
+
+.bots__add {
+  align-self: flex-start;
+  color: var(--c-accent);
+}
+
+.bots__inline {
+  @include flex(row, center, space-between, $space-4);
+}
+
+.bots__form-error {
+  color: var(--c-danger);
+  min-height: $space-6;
+}
+
 // Ссылка или Mini App — значок у правого края, по вертикали посередине.
 .message__kb-btn-mark,
 .composer__kb-btn-mark {

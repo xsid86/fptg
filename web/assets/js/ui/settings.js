@@ -5,6 +5,7 @@ import { fileSize } from '../util/format.js';
 import { fillAvatar } from '../util/avatar.js';
 import { openViewer, closeViewer, viewerOpen } from './viewer.js';
 import { NAME_COLORS, PROFILE_COLORS } from '../util/palette.js';
+import { MAP_PROVIDERS, setMapProvider } from '../util/maps.js';
 
 // Настройки приложения.
 //
@@ -22,6 +23,7 @@ const SECTIONS = [
   { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
   { id: 'general', label: 'General', icon: 'settings', render: renderGeneral },
   { id: 'notifications', label: 'Notifications', icon: 'bell', render: renderNotifications },
+  { id: 'maps', label: 'Location service', icon: 'pin', render: renderMaps },
   { id: 'downloads', label: 'Downloads', icon: 'download', render: renderDownloads },
   { id: 'autodownload', label: 'Auto download', icon: 'image', render: renderAutoDownload },
   { id: 'storage', label: 'Storage', icon: 'archive', render: renderStorage },
@@ -633,6 +635,31 @@ function renderNotifications() {
       row(textFont, 'Message size',
         `The message preview (${n.fontMin}–${n.fontMax}).`,
         font(textFont, 'textFont', n.textFont))),
+  ];
+}
+
+/** Где открывать точки геопозиции: сервис по умолчанию или спрашивать. */
+function renderMaps() {
+  const name = uid();
+  const options = [{ id: '', label: 'Ask every time' }, ...MAP_PROVIDERS];
+  return [
+    el('p', { class: 'settings__intro' },
+      'Where a location from a message opens. With “Ask every time” '
+      + 'a list of services shows up on each click.'),
+    group(null,
+      ...options.map((p) => {
+        const id = uid();
+        const radio = el('input', {
+          class: 'settings__check', type: 'radio', name, id,
+          checked: (data.mapsProvider ?? '') === p.id,
+          onchange: () => commit({ key: 'maps.provider', value: p.id }, radio,
+            (node, d) => {
+              setMapProvider(d.mapsProvider ?? '');
+              node.checked = (d.mapsProvider ?? '') === p.id;
+            }),
+        });
+        return row(id, p.label, null, radio);
+      })),
   ];
 }
 

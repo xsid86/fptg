@@ -75,6 +75,26 @@ type
     function TryGetWebMessageAsString(out value: PWideChar): HRESULT; stdcall; { 2 }
   end;
 
+  { --- ICoreWebView2PermissionRequestedEventArgs: slots 0..5 ---
+    Порядок и GUID — WebView2.h SDK 1.0.4191.47 (973ae2ef-...). Без
+    обработчика PermissionRequested навигатор геопозиции на странице
+    получал отказ. }
+  ICoreWebView2PermissionRequestedEventArgs = interface(IUnknown)
+    ['{973AE2EF-FF18-4894-8FB2-3C758F046810}']
+    function get_Uri(out value: PWideChar): HRESULT; stdcall;                  { 0 }
+    function get_PermissionKind(out value: integer): HRESULT; stdcall;        { 1 }
+    function get_IsUserInitiated(out value: BOOL): HRESULT; stdcall;          { 2 }
+    function get_State(out value: integer): HRESULT; stdcall;                 { 3 }
+    function put_State(value: integer): HRESULT; stdcall;                     { 4 }
+    function GetDeferral(out deferral: IUnknown): HRESULT; stdcall;           { 5 }
+  end;
+
+  ICoreWebView2PermissionRequestedEventHandler = interface(IUnknown)
+    ['{15E1C6A3-C72A-4DF3-91D7-D097FBEC6BFD}']
+    function Invoke(sender: ICoreWebView2;
+      args: ICoreWebView2PermissionRequestedEventArgs): HRESULT; stdcall;
+  end;
+
   ICoreWebView2WebMessageReceivedEventHandler = interface(IUnknown)
     ['{57213F19-00E6-49FA-8E07-898EA01ECBD2}']
     function Invoke(sender: ICoreWebView2;
@@ -160,7 +180,9 @@ type
     function remove_FrameNavigationCompleted(a: Pointer): HRESULT; stdcall;   { 17 slot only }
     function add_ScriptDialogOpening(a, b: Pointer): HRESULT; stdcall;        { 18 slot only }
     function remove_ScriptDialogOpening(a: Pointer): HRESULT; stdcall;        { 19 slot only }
-    function add_PermissionRequested(a, b: Pointer): HRESULT; stdcall;        { 20 slot only }
+    function add_PermissionRequested(
+      handler: ICoreWebView2PermissionRequestedEventHandler;
+      out token: TEventToken): HRESULT; stdcall;                              { 20 }
     function remove_PermissionRequested(a: Pointer): HRESULT; stdcall;        { 21 slot only }
     function add_ProcessFailed(a, b: Pointer): HRESULT; stdcall;              { 22 slot only }
     function remove_ProcessFailed(a: Pointer): HRESULT; stdcall;              { 23 slot only }
@@ -339,6 +361,9 @@ function WebView2Available: boolean;
 
 implementation
 
+uses
+  constants;
+
 const
   WEBVIEW2_LOADER = 'WebView2Loader.dll';
 
@@ -429,6 +454,16 @@ type
       args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT; stdcall;
   end;
 
+  { Геопозиция — только своей странице с локального сервера (http на
+    127.0.0.1 / localhost): мини-приложения (https) получают то, что
+    решит рантайм по умолчанию. Прочие разрешения не трогаем. }
+  TPermissionHandler = class(TInterfacedObject,
+    ICoreWebView2PermissionRequestedEventHandler)
+  public
+    function Invoke(sender: ICoreWebView2;
+      args: ICoreWebView2PermissionRequestedEventArgs): HRESULT; stdcall;
+  end;
+
   TScriptAddedHandler = class(TInterfacedObject,
     ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler)
   private
@@ -470,6 +505,30 @@ begin
     { Строку выделил рантайм — освобождать вызывающему. }
     CoTaskMemFree(P);
     FOwner.WebMessage(S);
+  end;
+end;
+
+function TPermissionHandler.Invoke(sender: ICoreWebView2;
+  args: ICoreWebView2PermissionRequestedEventArgs): HRESULT; stdcall;
+var
+  Kind: integer;
+  P: PWideChar;
+  Uri: UnicodeString;
+begin
+  Result := S_OK;
+  if (args = nil) or Failed(args.get_PermissionKind(Kind))
+     or (Kind <> WEBVIEW2_PERMISSION_KIND_GEOLOCATION) then begin
+    Exit;
+  end;
+  P := nil;
+  Uri := '';
+  if Succeeded(args.get_Uri(P)) and (P <> nil) then begin
+    Uri := UnicodeString(P);
+    CoTaskMemFree(P);
+  end;
+  if (Pos(UnicodeString('http://127.0.0.1'), Uri) = 1)
+     or (Pos(UnicodeString('http://localhost'), Uri) = 1) then begin
+    args.put_State(WEBVIEW2_PERMISSION_STATE_ALLOW);
   end;
 end;
 
@@ -696,6 +755,7 @@ begin
 
   FWebView.add_NewWindowRequested(TNewWindowHandler.Create(Self), Token);
   FWebView.add_ContainsFullScreenElementChanged(TFullScreenHandler.Create(Self), Token);
+  FWebView.add_PermissionRequested(TPermissionHandler.Create, Token);
   FController.add_AcceleratorKeyPressed(TAccelHandler.Create(Self), Token);
   if Assigned(FOnWebMessage) then begin
     FWebView.add_WebMessageReceived(TWebMessageHandler.Create(Self), Token);

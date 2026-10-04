@@ -65,7 +65,7 @@ uses
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
   autodownload, customemoji, webui, tdstorage, miniapp, desknotify,
-  tdsupergroups;
+  tdsupergroups, tdattachbots;
 
 type
   { A request whose answer is not here yet.
@@ -192,6 +192,23 @@ type
     procedure AccountPhotosDone(Sender: TObject; const AResp: TTdResponse);
     procedure AccountPhotosNext(ASlot: PtrInt);
     procedure AccountPhotoFileDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdMapThumb(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure MapThumbDone(Sender: TObject; const AResp: TTdResponse);
+    procedure MapThumbFileDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdBotLoginUrl(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure BotLoginInfoDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdBotLoginUrlConfirm(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure WebAppOpenUrlDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdBotBuy(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure BotBuyDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdBotPay(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure BotPayDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdBotSendLocation(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdBotSendPoll(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdBotCreateBot(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdSendChecklist(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdSendArticle(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdAttachBots: TJSONData;
     procedure SharePhoneMeDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineBotDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineResultsDone(Sender: TObject; const AResp: TTdResponse);
@@ -432,6 +449,111 @@ begin
     AddCustomEmoji(ADict, ARow.LastGlyphs[I].CustomEmojiId);
   end;
   AddCustomEmoji(ADict, ARow.EmojiStatusCustomEmojiId);
+end;
+
+{ true/false для тела запроса TDLib. }
+function BoolJson(AValue: boolean): utf8string;
+begin
+  if AValue then begin
+    Result := 'true';
+  end else begin
+    Result := 'false';
+  end;
+end;
+
+{ Короткое имя игры сообщения: messageGame.game.short_name (td_api.tl)
+  — из сырого content строки; '' если это не игра или строки нет. }
+function GameShortName(AMsgs: TTdMessages; AMsgId: Int64): utf8string;
+var
+  Idx: integer;
+  Data: TJSONData;
+begin
+  Result := '';
+  Idx := AMsgs.IndexOfId(AMsgId);
+  if Idx < 0 then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(AMsgs.Rows[Idx].ContentRaw));
+  except
+    Exit;
+  end;
+  try
+    if Data is TJSONObject then begin
+      Result := JGetStr(JGetObj(TJSONObject(Data), 'game'), 'short_name');
+    end;
+  finally
+    Data.Free;
+  end;
+end;
+
+{ id кастомных эмодзи на кнопках разметки (icon_custom_emoji_id у
+  keyboardButton / inlineKeyboardButton; 0 — нет). }
+type
+  TMarkupEmojiIds = array of Int64;
+
+function MarkupEmojiIds(const ARaw: utf8string): TMarkupEmojiIds;
+var
+  Data: TJSONData;
+  Rows, Row: TJSONArray;
+  I, J, N: integer;
+  Id: Int64;
+begin
+  Result := nil;
+  if ARaw = '' then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARaw));
+  except
+    Exit;
+  end;
+  try
+    if not (Data is TJSONObject) then begin
+      Exit;
+    end;
+    Rows := JGetArr(TJSONObject(Data), 'rows');
+    if Rows = nil then begin
+      Exit;
+    end;
+    N := 0;
+    for I := 0 to Rows.Count - 1 do begin
+      if not (Rows.Items[I] is TJSONArray) then begin
+        Continue;
+      end;
+      Row := TJSONArray(Rows.Items[I]);
+      for J := 0 to Row.Count - 1 do begin
+        if not (Row.Items[J] is TJSONObject) then begin
+          Continue;
+        end;
+        Id := JGetInt64(TJSONObject(Row.Items[J]), 'icon_custom_emoji_id');
+        if Id <> 0 then begin
+          SetLength(Result, N + 1);
+          Result[N] := Id;
+          Inc(N);
+        end;
+      end;
+    end;
+  finally
+    Data.Free;
+  end;
+end;
+
+{ Эмодзи кнопок разметки — в словарь ответа и, если ещё не знаем, в
+  запрос getCustomEmojiStickers (как эмодзи текста). }
+procedure CollectMarkupEmoji(AMsgs: TTdMessages; ADict: TJSONObject; const ARaw: utf8string);
+var
+  Ids: TMarkupEmojiIds;
+  I: integer;
+begin
+  Ids := MarkupEmojiIds(ARaw);
+  if Length(Ids) = 0 then begin
+    Exit;
+  end;
+  AMsgs.EnsureCustomEmojiIds(Ids);
+  for I := 0 to High(Ids) do begin
+    AddCustomEmoji(ADict, Ids[I]);
+  end;
 end;
 
 { The custom-emoji spans of a chat's preview line, in the same shape as
@@ -917,6 +1039,21 @@ end;
     keyboardButtonTypeText -> text (отправить текст кнопки)
   Прочее (оплата, игры, запросы телефона и т.п.) — unsupported: страница
   рисует кнопку, но говорит, что этого пока нет. }
+function ButtonStyleStr(const AType: utf8string): utf8string;
+begin
+  if AType = 'buttonStylePrimary' then begin
+    Result := 'primary';
+  end else if AType = 'buttonStyleDanger' then begin
+    Result := 'danger';
+  end else if AType = 'buttonStyleSuccess' then begin
+    Result := 'success';
+  end else if AType = 'buttonStyleLink' then begin
+    Result := 'link';
+  end else begin
+    Result := '';
+  end;
+end;
+
 function KeyboardRowsJson(ARows: TJSONArray): TJSONArray;
 var
   I, J: integer;
@@ -944,9 +1081,45 @@ begin
       T := JGetStr(BType, '@type');
       O := TJSONObject.Create;
       O.Add('text', string(JGetStr(Btn, 'text')));
-      if (T = 'inlineKeyboardButtonTypeUrl') or (T = 'inlineKeyboardButtonTypeLoginUrl') then begin
+      { Цвет кнопки: style — buttonStylePrimary/Danger/Success/Link
+        (td_api.tl коммита d1085f9, и у keyboardButton, и у
+        inlineKeyboardButton); живой лог: Default 89, Danger 1. Странице —
+        хвост имени типа, '' для Default. }
+      O.Add('style', string(ButtonStyleStr(JGetStr(JGetObj(Btn, 'style'), '@type'))));
+      { Кастомный эмодзи перед текстом: id строкой, '' — нет. }
+      if JGetInt64(Btn, 'icon_custom_emoji_id') <> 0 then begin
+        O.Add('emoji', string(IntToStr(JGetInt64(Btn, 'icon_custom_emoji_id'))));
+      end else begin
+        O.Add('emoji', '');
+      end;
+      if T = 'inlineKeyboardButtonTypeUrl' then begin
         O.Add('kind', 'url');
         O.Add('url', string(JGetStr(BType, 'url')));
+      end else if T = 'inlineKeyboardButtonTypeLoginUrl' then begin
+        { Вход на сайт через Telegram: getLoginUrlInfo по id кнопки. }
+        O.Add('kind', 'login');
+        O.Add('url', string(JGetStr(BType, 'url')));
+        O.Add('buttonId', JGetInt64(BType, 'id'));
+      end else if T = 'inlineKeyboardButtonTypeCallbackWithPassword' then begin
+        O.Add('kind', 'callbackPassword');
+        O.Add('data', string(JGetStr(BType, 'data')));
+      end else if T = 'inlineKeyboardButtonTypeCallbackGame' then begin
+        O.Add('kind', 'game');
+      end else if T = 'inlineKeyboardButtonTypeBuy' then begin
+        O.Add('kind', 'buy');
+      end else if T = 'inlineKeyboardButtonTypeDisabled' then begin
+        O.Add('kind', 'disabled');
+      end else if T = 'keyboardButtonTypeRequestLocation' then begin
+        O.Add('kind', 'requestLocation');
+      end else if T = 'keyboardButtonTypeRequestPoll' then begin
+        O.Add('kind', 'requestPoll');
+        O.Add('forceRegular', JGetBool(BType, 'force_regular'));
+        O.Add('forceQuiz', JGetBool(BType, 'force_quiz'));
+      end else if T = 'keyboardButtonTypeRequestManagedBot' then begin
+        O.Add('kind', 'requestManagedBot');
+        O.Add('buttonId', JGetInt(BType, 'id'));
+        O.Add('name', string(JGetStr(BType, 'suggested_name')));
+        O.Add('username', string(JGetStr(BType, 'suggested_username')));
       end else if (T = 'inlineKeyboardButtonTypeWebApp') or (T = 'keyboardButtonTypeWebApp') then begin
         O.Add('kind', 'webapp');
         O.Add('url', string(JGetStr(BType, 'url')));
@@ -1026,11 +1199,23 @@ begin
       Exit;
     end;
     M := TJSONObject(Data);
+    { replyMarkupForceReply: кнопок нет, но поле ввода должно отвечать на
+      это сообщение, со своим плейсхолдером (td_api.tl). }
+    if JGetStr(M, '@type') = 'replyMarkupForceReply' then begin
+      Result := TJSONObject.Create;
+      Result.Add('msgId', AMsgId);
+      Result.Add('rows', TJSONArray.Create);
+      Result.Add('oneTime', False);
+      Result.Add('forceReply', True);
+      Result.Add('placeholder', string(JGetStr(M, 'input_field_placeholder')));
+      Exit;
+    end;
     if JGetStr(M, '@type') <> 'replyMarkupShowKeyboard' then begin
       Exit;
     end;
     Result := TJSONObject.Create;
     Result.Add('msgId', AMsgId);
+    Result.Add('forceReply', JGetBool(M, 'force_reply'));
     Result.Add('rows', KeyboardRowsJson(JGetArr(M, 'rows')));
     Result.Add('oneTime', JGetBool(M, 'one_time'));
     Result.Add('placeholder', string(JGetStr(M, 'input_field_placeholder')));
@@ -1063,6 +1248,57 @@ begin
   end;
 end;
 
+{ Геопозиция сообщения — из сырого content (td_api.tl коммита d1085f9):
+  messageLocation (location), messageVenue (venue: location, title,
+  address), messageLiveLocation (location: liveLocation — его location,
+  live_period; expires_in). Модель держит такие сообщения как mckOther;
+  nil — не геопозиция. }
+function LocationJson(const ARaw: utf8string): TJSONObject;
+var
+  Data: TJSONData;
+  C, Loc, Venue: TJSONObject;
+  T: utf8string;
+begin
+  Result := nil;
+  if ARaw = '' then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARaw));
+  except
+    Exit;
+  end;
+  try
+    if not (Data is TJSONObject) then begin
+      Exit;
+    end;
+    C := TJSONObject(Data);
+    T := JGetStr(C, '@type');
+    Loc := nil;
+    Venue := nil;
+    if T = 'messageLocation' then begin
+      Loc := JGetObj(C, 'location');
+    end else if T = 'messageVenue' then begin
+      Venue := JGetObj(C, 'venue');
+      Loc := JGetObj(Venue, 'location');
+    end else if T = 'messageLiveLocation' then begin
+      Loc := JGetObj(JGetObj(C, 'location'), 'location');
+    end;
+    if Loc = nil then begin
+      Exit;
+    end;
+    Result := TJSONObject.Create;
+    Result.Add('lat', Loc.Get('latitude', 0.0));
+    Result.Add('lon', Loc.Get('longitude', 0.0));
+    Result.Add('title', string(JGetStr(Venue, 'title')));
+    Result.Add('address', string(JGetStr(Venue, 'address')));
+    Result.Add('live', T = 'messageLiveLocation');
+    Result.Add('expiresIn', JGetInt(C, 'expires_in'));
+  finally
+    Data.Free;
+  end;
+end;
+
 function MsgToJson(AMsgs: TTdMessages; ARow: TMsgRow; ALastReadOutbox: Int64): TJSONObject;
 var
   BotUser: TUserRow;
@@ -1071,6 +1307,7 @@ var
   RUser, RChat: Int64;
   Sub: TJSONObject;
   Media: TJSONObject;
+  Loc: TJSONObject;
 begin
   Result := TJSONObject.Create;
   Result.Add('id',       ARow.Id);
@@ -1089,6 +1326,13 @@ begin
     Result.Add('albumId', '');
   end;
   Result.Add('kind',     string(ContentKindStr(ARow.Kind)));
+  if ARow.Kind = mckOther then begin
+    Loc := LocationJson(ARow.ContentRaw);
+    if Loc <> nil then begin
+      Result.Strings['kind'] := 'location';
+      Result.Add('location', Loc);
+    end;
+  end;
   Result.Add('text',     string(ARow.PlainText));
   Result.Add('entities', EntitiesJson(ARow.Entities));
   Result.Add('receipt',  string(ReceiptStr(MessageReceipt(ARow, ALastReadOutbox))));
@@ -2133,6 +2377,7 @@ begin
       Msgs.EnsureCustomEmojiForRow(Msgs.Rows[I]);
       Arr.Add(MsgToJson(Msgs, Msgs.Rows[I], LastReadOutbox));
       CollectMsgCustomEmoji(Emoji, Msgs.Rows[I]);
+      CollectMarkupEmoji(Msgs, Emoji, Msgs.Rows[I].ReplyMarkupRaw);
     end;
   except
     Arr.Free;
@@ -2171,6 +2416,7 @@ begin
         KbRaw := Msgs.Rows[Msgs.IndexOfId(CRow.ReplyMarkupMsgId)].ReplyMarkupRaw;
       end;
       ReplyKb := ReplyKeyboardJson(KbRaw, CRow.ReplyMarkupMsgId);
+      CollectMarkupEmoji(Msgs, Emoji, KbRaw);
       if ReplyKb <> nil then begin
         Res.Add('replyKeyboard', ReplyKb);
       end;
@@ -2375,6 +2621,8 @@ begin
   Notify.Add('fontMin', DESKNOTIFY_FONT_MIN);
   Notify.Add('fontMax', DESKNOTIFY_FONT_MAX);
   Res.Add('notify', Notify);
+  { Где открывать точку геопозиции; '' — спрашивать каждый раз. }
+  Res.Add('mapsProvider', TdMapsProvider);
 
   Downloads := TJSONObject.Create;
   Downloads.Add('concurrency', tdmessages.DownloadConcurrency);
@@ -2467,6 +2715,18 @@ begin
     TdSetDeskNotifyCorner(Corner);
     SetDeskNotifyCorner(Corner);
     ShowDeskNotifySample;
+  end else if Key = 'maps.provider' then begin
+    Code := AArgs.Get('value', utf8string(''));
+    Corner := -1;
+    for I := Low(MAPS_PROVIDERS) to High(MAPS_PROVIDERS) do begin
+      if MAPS_PROVIDERS[I] = Code then begin
+        Corner := I;
+      end;
+    end;
+    if (Code <> '') and (Corner < 0) then begin
+      raise Exception.Create('unknown maps service: ' + string(Code));
+    end;
+    TdSetMapsProvider(string(Code));
   end else if Key = 'notify.titleFont' then begin
     TdSetDeskNotifyTitleFont(AArgs.Get('value', DESKNOTIFY_TITLE_FONT_DEFAULT));
     SetDeskNotifyFonts(TdDeskNotifyTitleFont, TdDeskNotifyTextFont);
@@ -2617,6 +2877,7 @@ var
   Msgs: TTdMessages;
   Arr: TJSONArray;
   Paths: array of utf8string;
+  Mode: utf8string;
   I: integer;
   Path: string;
 begin
@@ -2639,7 +2900,17 @@ begin
     end;
     Paths[I] := utf8string(Path);
   end;
-  Msgs.SendFiles(Paths, AArgs.Get('asPhoto', False),
+  { mode: media | document | audio (меню скрепки); прежнее asPhoto —
+    то же, что media. }
+  Mode := utf8string(AArgs.Get('mode', ''));
+  if Mode = '' then begin
+    if AArgs.Get('asPhoto', False) then begin
+      Mode := 'media';
+    end else begin
+      Mode := 'document';
+    end;
+  end;
+  Msgs.SendFiles(Paths, Mode,
     utf8string(AArgs.Get('caption', '')), AArgs.Get('html', False),
     AArgs.Get('silent', False),
     StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
@@ -3997,17 +4268,31 @@ function TWebApi.CmdBotCallback(AConnId: Int64; AReqId: integer;
 var
   Msgs: TTdMessages;
   Id: Int64;
+  Payload: utf8string;
 begin
   Msgs := RequireMsgs;
   Id := StrToInt64Def(utf8string(AArgs.Get('id', '')), 0);
   if (Id = 0) or (Msgs.ChatId = 0) then begin
     raise Exception.Create('bot.callback needs a message id');
   end;
+  { Три вида callbackQueryPayload (td_api.tl): Data, DataWithPassword
+    (пароль 2FA вводит человек на странице), Game (game_short_name из
+    messageGame самого сообщения). }
+  if AArgs.Get('game', False) then begin
+    Payload := '{"@type":"callbackQueryPayloadGame","game_short_name":' +
+      JsonStr(GameShortName(Msgs, Id)) + '}';
+  end else if AArgs.Find('password') <> nil then begin
+    Payload := '{"@type":"callbackQueryPayloadDataWithPassword","password":' +
+      JsonStr(utf8string(AArgs.Get('password', ''))) + ',"data":' +
+      JsonStr(utf8string(AArgs.Get('data', ''))) + '}';
+  end else begin
+    Payload := '{"@type":"callbackQueryPayloadData","data":' +
+      JsonStr(utf8string(AArgs.Get('data', ''))) + '}';
+  end;
   Msgs.Request('getCallbackQueryAnswer',
     '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
     ',"message_id":' + utf8string(IntToStr(Id)) +
-    ',"payload":{"@type":"callbackQueryPayloadData","data":' +
-    JsonStr(utf8string(AArgs.Get('data', ''))) + '}',
+    ',"payload":' + Payload,
     @BotCallbackDone, TakeDeferred(AConnId, AReqId, Id));
   Result := True;
 end;
@@ -4736,6 +5021,504 @@ begin
   ReleaseDeferred(Slot);
 end;
 
+{ ------------------------------------------------------------------ }
+{ остальные виды кнопок ботов (td_api.tl коммита d1085f9)             }
+{ ------------------------------------------------------------------ }
+
+{ inlineKeyboardButtonTypeLoginUrl: getLoginUrlInfo -> loginUrlInfoOpen
+  (url, skip_confirmation) — открыть сразу; loginUrlInfoRequestConfirmation
+  (url, domain, bot_user_id, request_write_access) — спросить человека,
+  затем getLoginUrl (bot.loginUrlConfirm). }
+function TWebApi.CmdBotLoginUrl(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Msgs.Request('getLoginUrlInfo',
+    '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"message_id":' + utf8string(AArgs.Get('msgId', '0')) +
+    ',"button_id":' + utf8string(IntToStr(AArgs.Get('buttonId', Int64(0)))),
+    @BotLoginInfoDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.BotLoginInfoDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('url', string(JGetStr(AResp.Obj, 'url')));
+  if JGetStr(AResp.Obj, '@type') = 'loginUrlInfoRequestConfirmation' then begin
+    Res.Add('confirm', True);
+    Res.Add('domain', string(JGetStr(AResp.Obj, 'domain')));
+    Res.Add('writeAccess', JGetBool(AResp.Obj, 'request_write_access'));
+  end else begin
+    Res.Add('confirm', False);
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+function TWebApi.CmdBotLoginUrlConfirm(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Msgs.Request('getLoginUrl',
+    '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"message_id":' + utf8string(AArgs.Get('msgId', '0')) +
+    ',"button_id":' + utf8string(IntToStr(AArgs.Get('buttonId', Int64(0)))) +
+    ',"allow_write_access":' + BoolJson(AArgs.Get('allowWrite', False)),
+    @WebAppOpenUrlDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ Ответ httpUrl -> url странице. }
+procedure TWebApi.WebAppOpenUrlDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('url', string(JGetStr(AResp.Obj, 'url')));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ inlineKeyboardButtonTypeBuy: getPaymentForm(inputInvoiceMessage).
+  paymentFormTypeStars (star_count) — странице цена и id формы, она
+  спрашивает подтверждение и зовёт bot.pay; paymentFormTypeRegular с
+  paymentProviderOther (url) — ссылка на оплату у провайдера; прочее
+  (Stripe, Smart Glocal, подписки) — не поддержано. }
+function TWebApi.CmdBotBuy(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Msgs.Request('getPaymentForm',
+    '"input_invoice":{"@type":"inputInvoiceMessage","chat_id":' +
+    utf8string(IntToStr(Msgs.ChatId)) + ',"message_id":' +
+    utf8string(AArgs.Get('msgId', '0')) + '},"theme":null',
+    @BotBuyDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.BotBuyDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, FormType, Provider: TJSONObject;
+  T: utf8string;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('formId', string(IntToStr(JGetInt64(AResp.Obj, 'id'))));
+  Res.Add('title', string(JGetStr(JGetObj(AResp.Obj, 'product_info'), 'title')));
+  FormType := JGetObj(AResp.Obj, 'type');
+  T := JGetStr(FormType, '@type');
+  if T = 'paymentFormTypeStars' then begin
+    Res.Add('kind', 'stars');
+    Res.Add('stars', JGetInt64(FormType, 'star_count'));
+  end else if T = 'paymentFormTypeRegular' then begin
+    Provider := JGetObj(FormType, 'payment_provider');
+    if JGetStr(Provider, '@type') = 'paymentProviderOther' then begin
+      Res.Add('kind', 'url');
+      Res.Add('url', string(JGetStr(Provider, 'url')));
+    end else begin
+      Res.Add('kind', 'unsupported');
+    end;
+  end else begin
+    Res.Add('kind', 'unsupported');
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ Оплата звёздами — только после явного подтверждения на странице:
+  sendPaymentForm, credentials null (так велит td_api.tl для Stars). }
+function TWebApi.CmdBotPay(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Msgs.Request('sendPaymentForm',
+    '"input_invoice":{"@type":"inputInvoiceMessage","chat_id":' +
+    utf8string(IntToStr(Msgs.ChatId)) + ',"message_id":' +
+    utf8string(AArgs.Get('msgId', '0')) + '},"payment_form_id":' +
+    utf8string(IntToStr(StrToInt64Def(AArgs.Get('formId', '0'), 0))) +
+    ',"order_info_id":"","shipping_option_id":"","credentials":null,"tip_amount":0',
+    @BotPayDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.BotPayDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  { paymentResult: success, verification_url (3-D Secure и т.п.). }
+  Res := TJSONObject.Create;
+  Res.Add('success', JGetBool(AResp.Obj, 'success'));
+  Res.Add('url', string(JGetStr(AResp.Obj, 'verification_url')));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ keyboardButtonTypeRequestLocation: координаты дал браузер (страница
+  спросила разрешение), сюда — уже согласие человека. inputMessageLocation
+  в этой схеме — только location (latitude, longitude, horizontal_accuracy). }
+function TWebApi.CmdBotSendLocation(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Fmt: TFormatSettings;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  Msgs.Request('sendMessage',
+    '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"input_message_content":{"@type":"inputMessageLocation","location":{"@type":"location"' +
+    ',"latitude":' + utf8string(FloatToStr(AArgs.Get('lat', 0.0), Fmt)) +
+    ',"longitude":' + utf8string(FloatToStr(AArgs.Get('lon', 0.0), Fmt)) +
+    ',"horizontal_accuracy":' + utf8string(FloatToStr(AArgs.Get('accuracy', 0.0), Fmt)) + '}}',
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ keyboardButtonTypeRequestPoll: опрос, собранный на странице.
+  inputMessagePoll (question, options из inputPollOption, is_anonymous,
+  allows_multiple_answers, type: inputPollTypeRegular | inputPollTypeQuiz
+  с correct_option_ids) — прочие поля TDLib берёт по умолчанию. }
+function TWebApi.CmdBotSendPoll(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Opts: TJSONArray;
+  Body, OptJson, PollType: utf8string;
+  I: integer;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Opts := TJSONArray(AArgs.Find('options', jtArray));
+  if (Opts = nil) or (Opts.Count < 2) then begin
+    raise Exception.Create('A poll needs at least two options');
+  end;
+  OptJson := '';
+  for I := 0 to Opts.Count - 1 do begin
+    if I > 0 then begin
+      OptJson := OptJson + ',';
+    end;
+    OptJson := OptJson + '{"@type":"inputPollOption","text":{"@type":"formattedText","text":' +
+      JsonStr(utf8string(Opts.Strings[I])) + '}}';
+  end;
+  if AArgs.Get('quiz', False) then begin
+    PollType := '{"@type":"inputPollTypeQuiz","correct_option_ids":[' +
+      utf8string(IntToStr(AArgs.Get('correct', 0))) +
+      '],"explanation":{"@type":"formattedText","text":""}}';
+  end else begin
+    PollType := '{"@type":"inputPollTypeRegular","allow_adding_options":false}';
+  end;
+  Body := '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"input_message_content":{"@type":"inputMessagePoll","question":{"@type":"formattedText","text":' +
+    JsonStr(utf8string(AArgs.Get('question', ''))) + '},"options":[' + OptJson + ']' +
+    ',"is_anonymous":' + BoolJson(AArgs.Get('anonymous', True)) +
+    ',"allows_multiple_answers":' + BoolJson(AArgs.Get('multiple', False)) +
+    ',"type":' + PollType + '}';
+  Msgs.Request('sendMessage', Body, @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ keyboardButtonTypeRequestManagedBot: createBot (manager_bot_user_id —
+  бот этой лички: id лички с пользователем равен его user id). }
+function TWebApi.CmdBotCreateBot(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Msgs.Request('createBot',
+    '"manager_bot_user_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"name":' + JsonStr(TrimU(AArgs.Get('name', utf8string('')))) +
+    ',"username":' + JsonStr(TrimU(AArgs.Get('username', utf8string('')))) +
+    ',"via_link":false',
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ ------------------------------------------------------------------ }
+{ меню скрепки: список задач, статья, боты меню вложений             }
+{ ------------------------------------------------------------------ }
+
+{ Список задач: inputMessageChecklist / inputChecklist (title, tasks из
+  inputChecklistTask с id от 1, others_can_add_tasks,
+  others_can_mark_tasks_as_done) — td_api.tl коммита d1085f9. Только для
+  Premium и не в каналы — откажет сам TDLib. }
+function TWebApi.CmdSendChecklist(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Tasks: TJSONArray;
+  TaskJson: utf8string;
+  I: integer;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Tasks := TJSONArray(AArgs.Find('tasks', jtArray));
+  if (Tasks = nil) or (Tasks.Count = 0) then begin
+    raise Exception.Create('A checklist needs at least one task');
+  end;
+  TaskJson := '';
+  for I := 0 to Tasks.Count - 1 do begin
+    if I > 0 then begin
+      TaskJson := TaskJson + ',';
+    end;
+    TaskJson := TaskJson + '{"@type":"inputChecklistTask","id":' + utf8string(IntToStr(I + 1)) +
+      ',"text":{"@type":"formattedText","text":' + JsonStr(utf8string(Tasks.Strings[I])) + '}}';
+  end;
+  Msgs.Request('sendMessage',
+    '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"input_message_content":{"@type":"inputMessageChecklist","checklist":{"@type":"inputChecklist"' +
+    ',"title":{"@type":"formattedText","text":' + JsonStr(utf8string(AArgs.Get('title', ''))) + '}' +
+    ',"tasks":[' + TaskJson + ']' +
+    ',"others_can_add_tasks":' + BoolJson(AArgs.Get('othersAdd', False)) +
+    ',"others_can_mark_tasks_as_done":' + BoolJson(AArgs.Get('othersMark', False)) + '}}',
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ Текст как RichText: richTextPlain (td_api.tl). }
+function RichPlain(const AText: utf8string): utf8string;
+begin
+  Result := '{"@type":"richTextPlain","text":' + JsonStr(AText) + '}';
+end;
+
+{ Статья: inputMessageRichMessage -> inputRichMessage с
+  richMessageSourceBlocks (Markdown и HTML у TDLib — только для ботов).
+  Блоки собирает страница простыми описаниями, здесь — их перевод в
+  InputPageBlock: heading (inputPageBlockSectionHeading, size 1..6),
+  paragraph, list (inputPageBlockList из inputPageBlockListItem), quote
+  (inputPageBlockBlockQuote с абзацем внутри), divider. }
+function TWebApi.CmdSendArticle(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Blocks, Items: TJSONArray;
+  B: TJSONObject;
+  Out, ItemJson, Kind: utf8string;
+  I, J: integer;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Blocks := TJSONArray(AArgs.Find('blocks', jtArray));
+  if (Blocks = nil) or (Blocks.Count = 0) then begin
+    raise Exception.Create('The article is empty');
+  end;
+  Out := '';
+  for I := 0 to Blocks.Count - 1 do begin
+    if not (Blocks.Items[I] is TJSONObject) then begin
+      Continue;
+    end;
+    B := TJSONObject(Blocks.Items[I]);
+    Kind := B.Get('type', utf8string(''));
+    if Out <> '' then begin
+      Out := Out + ',';
+    end;
+    if Kind = 'heading' then begin
+      Out := Out + '{"@type":"inputPageBlockSectionHeading","text":' +
+        RichPlain(B.Get('text', utf8string(''))) + ',"size":' +
+        utf8string(IntToStr(B.Get('size', 1))) + '}';
+    end else if Kind = 'list' then begin
+      ItemJson := '';
+      Items := TJSONArray(B.Find('items', jtArray));
+      if Items <> nil then begin
+        for J := 0 to Items.Count - 1 do begin
+          if J > 0 then begin
+            ItemJson := ItemJson + ',';
+          end;
+          ItemJson := ItemJson + '{"@type":"inputPageBlockListItem","blocks":[' +
+            '{"@type":"inputPageBlockParagraph","text":' + RichPlain(utf8string(Items.Strings[J])) +
+            '}],"has_checkbox":false,"is_checked":false,"value":0,"type":""}';
+        end;
+      end;
+      Out := Out + '{"@type":"inputPageBlockList","items":[' + ItemJson + ']}';
+    end else if Kind = 'quote' then begin
+      Out := Out + '{"@type":"inputPageBlockBlockQuote","blocks":[' +
+        '{"@type":"inputPageBlockParagraph","text":' + RichPlain(B.Get('text', utf8string(''))) +
+        '}],"credit":' + RichPlain('') + '}';
+    end else if Kind = 'divider' then begin
+      Out := Out + '{"@type":"inputPageBlockDivider"}';
+    end else begin
+      Out := Out + '{"@type":"inputPageBlockParagraph","text":' +
+        RichPlain(B.Get('text', utf8string(''))) + '}';
+    end;
+  end;
+  Msgs.Request('sendMessage',
+    '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"input_message_content":{"@type":"inputMessageRichMessage","message":{"@type":"inputRichMessage"' +
+    ',"source":{"@type":"richMessageSourceBlocks","blocks":[' + Out + ']}' +
+    ',"is_rtl":false,"detect_automatic_blocks":true},"clear_draft":false}',
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ Боты меню вложений, годные для открытого чата (supports_*_chats). }
+function TWebApi.CmdAttachBots: TJSONData;
+var
+  Bots: TTdAttachBots;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Arr: TJSONArray;
+  Item: TJSONObject;
+  I: integer;
+  Fits: boolean;
+  B: TAttachBot;
+begin
+  Arr := TJSONArray.Create;
+  Result := Arr;
+  Bots := TdAttachBotList;
+  Chats := TdChatList;
+  if (Bots = nil) or (Chats = nil) or (TdMsgList = nil) then begin
+    Exit;
+  end;
+  Row := Chats.Lookup(TdMsgList.ChatId);
+  if Row = nil then begin
+    Exit;
+  end;
+  for I := 0 to Bots.Count - 1 do begin
+    B := Bots[I];
+    if Chats.IsSelfChat(Row) then begin
+      Fits := B.SelfChat;
+    end else begin
+      case Row.Kind of
+        ckPrivate, ckSecret: Fits := B.UserChats or B.BotChats;
+        ckBasicGroup, ckSupergroup: Fits := B.GroupChats;
+        ckChannel: Fits := B.ChannelChats;
+      else
+        Fits := False;
+      end;
+    end;
+    if not Fits then begin
+      Continue;
+    end;
+    Item := TJSONObject.Create;
+    Item.Add('id', string(IntToStr(B.UserId)));
+    Item.Add('name', string(B.Name));
+    Arr.Add(Item);
+  end;
+end;
+
+{ Картинка карты: getMapThumbnailFile (td_api.tl: PNG, zoom 13..20,
+  ширина и высота 16..1024 до scale, scale 1..3) -> файл; нет на диске —
+  downloadFile synchronous. Странице — адрес файла. }
+function TWebApi.CmdMapThumb(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Fmt: TFormatSettings;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  Msgs.Request('getMapThumbnailFile',
+    '"location":{"@type":"location","latitude":' +
+    utf8string(FloatToStr(AArgs.Get('lat', 0.0), Fmt)) +
+    ',"longitude":' + utf8string(FloatToStr(AArgs.Get('lon', 0.0), Fmt)) +
+    ',"horizontal_accuracy":0},"zoom":' + utf8string(IntToStr(MAP_THUMB_ZOOM)) +
+    ',"width":' + utf8string(IntToStr(MAP_THUMB_WIDTH)) +
+    ',"height":' + utf8string(IntToStr(MAP_THUMB_HEIGHT)) +
+    ',"scale":' + utf8string(IntToStr(MAP_THUMB_SCALE)) +
+    ',"chat_id":' + utf8string(IntToStr(Msgs.ChatId)),
+    @MapThumbDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.MapThumbDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Local: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Local := JGetObj(AResp.Obj, 'local');
+  if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+    Res := TJSONObject.Create;
+    Res.Add('url', string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path'))));
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  { Тот же обработчик и для ответа downloadFile: он тоже File. }
+  RequireMsgs.Request('downloadFile',
+    '"file_id":' + utf8string(IntToStr(JGetInt(AResp.Obj, 'id'))) +
+    ',"priority":16,"offset":0,"limit":0,"synchronous":true',
+    @MapThumbFileDone, Slot);
+end;
+
+procedure TWebApi.MapThumbFileDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Local: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('url', '');
+  if AResp.Success then begin
+    Local := JGetObj(AResp.Obj, 'local');
+    if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      Res.Strings['url'] := string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
+    end;
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
 { Кнопка «пользователь»: личка с ним (createPrivateChat), чтобы её открыть. }
 function TWebApi.CmdBotUserChat(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
@@ -4779,6 +5562,9 @@ begin
     if Idx >= 0 then begin
       Bot := Msgs.Rows[Idx].SenderUserId;
     end;
+  end else if Source = 'attach' then begin
+    { Бот меню вложений (tdattachbots): openWebApp с пустым url. }
+    Bot := StrToInt64Def(utf8string(AArgs.Get('botId', '')), 0);
   end else begin
     Chats := RequireChats;
     Row := Chats.Lookup(Msgs.ChatId);
@@ -5343,6 +6129,34 @@ begin
         CmdBotCallback(AConnId, ReqId, Args);
       end else if Cmd = 'bot.info' then begin
         CmdBotInfo(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.loginUrl' then begin
+        CmdBotLoginUrl(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.loginUrlConfirm' then begin
+        CmdBotLoginUrlConfirm(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.buy' then begin
+        CmdBotBuy(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.pay' then begin
+        CmdBotPay(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.sendLocation' then begin
+        CmdBotSendLocation(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.sendPoll' then begin
+        CmdBotSendPoll(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.createBot' then begin
+        CmdBotCreateBot(AConnId, ReqId, Args);
+      { Меню скрепки: опрос и геопозиция — те же команды, что у кнопок
+        бота (в открытый чат), плюс список задач и статья. }
+      end else if Cmd = 'message.sendPoll' then begin
+        CmdBotSendPoll(AConnId, ReqId, Args);
+      end else if Cmd = 'message.sendLocation' then begin
+        CmdBotSendLocation(AConnId, ReqId, Args);
+      end else if Cmd = 'message.sendChecklist' then begin
+        CmdSendChecklist(AConnId, ReqId, Args);
+      end else if Cmd = 'message.sendArticle' then begin
+        CmdSendArticle(AConnId, ReqId, Args);
+      end else if Cmd = 'map.thumb' then begin
+        CmdMapThumb(AConnId, ReqId, Args);
+      end else if Cmd = 'attach.bots' then begin
+        Reply(AConnId, ReqId, CmdAttachBots);
       end else if Cmd = 'account.get' then begin
         CmdAccountGet(AConnId, ReqId);
       end else if Cmd = 'account.set' then begin

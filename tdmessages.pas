@@ -487,7 +487,8 @@ type
   TPendingFiles = record
     Busy: boolean;
     Paths: array of utf8string;
-    AsPhoto: boolean;
+    { 'media' — фото и видео (по расширению), 'audio', иначе документом. }
+    Mode: utf8string;
     Silent: boolean;
     ReplyTo: Int64;
   end;
@@ -980,7 +981,7 @@ type
       Временный файл удаляется, когда TDLib сообщит, что сообщение
       ушло (updateMessageSendSucceeded); не ушедшие подчищает сервер
       при следующем старте. }
-    procedure SendFiles(const APaths: array of utf8string; AAsPhoto: boolean;
+    procedure SendFiles(const APaths: array of utf8string; const AMode: utf8string;
       const ACaption: utf8string; AIsHtml, ASilent: boolean; AReplyTo: Int64);
 
     { Отмена передачи по клику на кольцо. Скачивание — cancelDownloadFile
@@ -1174,6 +1175,8 @@ type
       "framehistory.pas calls this unconditionally for visible rows, no
       Auto download gate" principle as EnsureVideoThumbFile/stickers. }
     procedure EnsureCustomEmojiForRow(ARow: TMsgRow);
+    { То же для произвольных id — эмодзи на кнопках разметки. }
+    procedure EnsureCustomEmojiIds(const AIds: array of Int64);
 
     { A second (third, ...) listener for the same signal OnChanged
       carries. Adding the same method twice is a no-op, so a view that
@@ -4841,7 +4844,7 @@ begin
   Touch;
 end;
 
-procedure TTdMessages.SendFiles(const APaths: array of utf8string; AAsPhoto: boolean;
+procedure TTdMessages.SendFiles(const APaths: array of utf8string; const AMode: utf8string;
   const ACaption: utf8string; AIsHtml, ASilent: boolean; AReplyTo: Int64);
 var
   Slot: PtrInt;
@@ -4870,7 +4873,7 @@ begin
   for I := 0 to High(APaths) do begin
     FFileSends[Slot].Paths[I] := APaths[I];
   end;
-  FFileSends[Slot].AsPhoto := AAsPhoto;
+  FFileSends[Slot].Mode := AMode;
   FFileSends[Slot].Silent := ASilent;
   FFileSends[Slot].ReplyTo := AReplyTo;
 
@@ -4937,14 +4940,14 @@ end;
 procedure TTdMessages.DoSendFiles(ASlot: PtrInt; const ACaptionJson: utf8string);
 var
   Paths: array of utf8string;
-  AsPhoto, Silent: boolean;
+  Silent: boolean;
   ReplyTo: Int64;
   N, CaptionAt, First, Last, I, B: integer;
-  Body, Contents, Content: utf8string;
+  Body, Contents, Content, Mode, Ext: utf8string;
   PathVal: TJSONString;
 begin
   Paths := FFileSends[ASlot].Paths;
-  AsPhoto := FFileSends[ASlot].AsPhoto;
+  Mode := FFileSends[ASlot].Mode;
   Silent := FFileSends[ASlot].Silent;
   ReplyTo := FFileSends[ASlot].ReplyTo;
   FFileSends[ASlot].Busy := False;
@@ -4954,7 +4957,7 @@ begin
   end;
 
   N := Length(Paths);
-  if AsPhoto then begin
+  if Mode = 'media' then begin
     CaptionAt := 0;
   end else begin
     CaptionAt := N - 1;
@@ -4971,9 +4974,22 @@ begin
     for I := First to Last do begin
       PathVal := TJSONString.Create(string(Paths[I]));
       try
-        if AsPhoto then begin
+        Ext := LowerCase(utf8string(ExtractFileExt(string(Paths[I]))));
+        if (Mode = 'media') and ((Ext = '.mp4') or (Ext = '.mov') or (Ext = '.m4v')
+           or (Ext = '.webm') or (Ext = '.mkv')) then begin
+          { Видео — inputMessageVideo / inputVideo (td_api.tl), с потоковым
+            воспроизведением. }
+          Content := '{"@type":"inputMessageVideo","video":{"@type":"inputVideo"' +
+            ',"video":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}' +
+            ',"supports_streaming":true}';
+        end else if Mode = 'media' then begin
           Content := '{"@type":"inputMessagePhoto","photo":{"@type":"inputPhoto"' +
             ',"photo":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}}';
+        end else if Mode = 'audio' then begin
+          { Музыка — inputMessageAudio / inputAudio; название и исполнителя
+            TDLib достанет из тегов файла. }
+          Content := '{"@type":"inputMessageAudio","audio":{"@type":"inputAudio"' +
+            ',"audio":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}}';
         end else begin
           Content := '{"@type":"inputMessageDocument","document":{"@type":"inputDocument"' +
             ',"document":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}}';
@@ -6727,6 +6743,34 @@ begin
   end;
   Body := Body + ']';
   FReq.SendRequest('getCustomEmojiStickers', Body, @GetCustomEmojiStickersDone);
+end;
+
+procedure TTdMessages.EnsureCustomEmojiIds(const AIds: array of Int64);
+var
+  I, N: integer;
+  Body: utf8string;
+begin
+  if FReq = nil then begin
+    Exit;
+  end;
+  Body := '';
+  N := 0;
+  for I := 0 to High(AIds) do begin
+    if (AIds[I] = 0) or CustomEmojiKnown(AIds[I]) or IsCustomEmojiPending(AIds[I]) then begin
+      Continue;
+    end;
+    MarkCustomEmojiPending(AIds[I]);
+    if N > 0 then begin
+      Body := Body + ',';
+    end;
+    Body := Body + '"' + utf8string(IntToStr(AIds[I])) + '"';
+    Inc(N);
+  end;
+  if N = 0 then begin
+    Exit;
+  end;
+  FReq.SendRequest('getCustomEmojiStickers', '"custom_emoji_ids":[' + Body + ']',
+    @GetCustomEmojiStickersDone);
 end;
 
 { Ids in the request that TDLib doesn't return ("only found stickers

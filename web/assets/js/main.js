@@ -24,7 +24,9 @@ import { mountSettings } from './ui/settings.js';
 import { mountAttach } from './ui/attach.js';
 import { mountPeople } from './ui/people.js';
 import { mountLinks, openLink } from './ui/links.js';
-import { mountBots } from './ui/bots.js';
+import { mountBots, redrawBotKeyboard } from './ui/bots.js';
+import { mountAttachMenu } from './ui/attachmenu.js';
+import { setMapFetcher, setMapProvider, setMapSaver } from './util/maps.js';
 import { mountNotices, notice } from './ui/notices.js';
 import { openViewer } from './ui/viewer.js';
 
@@ -147,7 +149,10 @@ function applyMessages(state) {
   setMessages(state);
   // A custom emoji's file arriving changes no message, so the history's
   // per-payload node cache cannot see it. Told explicitly, it redraws.
-  if (fresh) invalidateHistory();
+  if (fresh) {
+    invalidateHistory();
+    redrawBotKeyboard();
+  }
 }
 
 /**
@@ -474,6 +479,21 @@ async function boot() {
     // превратиться в разметку из-за звёздочки.
     send: (text) => emit('ui:send', { text, html: true, silent: isSilent(), replyTo: '' }),
     silent: isSilent,
+    // replyMarkupForceReply: поле ввода сразу отвечает на это сообщение.
+    replyTo,
+  });
+  // Картинки карт для геопозиций в истории (util/maps.js): приехала —
+  // история перерисовывается, как при приезде кастомного эмодзи.
+  setMapFetcher((lat, lon) => call('map.thumb', { lat, lon }).then((r) => r?.url));
+  on('ui:map-ready', () => invalidateHistory());
+  // Сервис карт по умолчанию (Settings → Location service) — его же
+  // сохраняет галочка «Remember my choice» в окне выбора.
+  setMapSaver((id) => call('settings.set', { key: 'maps.provider', value: id }).catch(report));
+  on('srv:settings', (data) => setMapProvider(data?.mapsProvider ?? ''));
+  mountAttachMenu(qs('#composer'), {
+    call: (cmd, args) => call(cmd, args),
+    report,
+    canCompose,
   });
   mountLinks({
     call: (cmd, args) => call(cmd, args),
@@ -524,6 +544,7 @@ async function boot() {
     if (status !== 'open') return;
     signedIn = false;
     refreshAuth().catch(report);
+    call('settings.get').then((data) => setMapProvider(data?.mapsProvider ?? '')).catch(() => {});
     if (store.activeChatId !== null) loadMessages();
   });
 

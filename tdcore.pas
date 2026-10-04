@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, IniFiles, ExtCtrls,
   constants, tdauth, tdrecv, tdsession, tdreq, tdchats, tdmessages, tdusers,
-  tdaccentcolors, tdaccount, tdsupergroups, tdstickers;
+  tdaccentcolors, tdaccount, tdsupergroups, tdstickers, tdattachbots;
 
 type
   { Aliases so forms don't need to add tdsession to their uses clause.
@@ -190,6 +190,8 @@ function TdAccentColorList: TTdAccentColors;
 function TdSupergroupList: TTdSupergroups;
 { Same unit-name pitfall (tdstickers) once more. }
 function TdStickerList: TTdStickers;
+{ Боты меню вложений активного аккаунта (tdattachbots). }
+function TdAttachBotList: TTdAttachBots;
 function TdRequests: TTdRequests;
 
 { Presence: "Online" versus "Invisible".
@@ -252,6 +254,9 @@ function  TdCacheTtlDays: integer;
 procedure TdSetCacheTtlDays(AValue: integer);
 { Уведомления на рабочем столе (desknotify.pas): включены ли и в каком
   углу экрана — индекс в DESKNOTIFY_CORNERS. }
+{ Сервис карт по умолчанию — код из MAPS_PROVIDERS; '' — спрашивать. }
+function  TdMapsProvider: string;
+procedure TdSetMapsProvider(const AValue: string);
 function  TdDeskNotify: boolean;
 procedure TdSetDeskNotify(AValue: boolean);
 function  TdDeskNotifyCorner: integer;
@@ -350,6 +355,18 @@ begin
   A := TdApp.Active;
   if A <> nil then begin
     Result := A.AccentColors;
+  end else begin
+    Result := nil;
+  end;
+end;
+
+function TdAttachBotList: TTdAttachBots;
+var
+  A: TTdAccount;
+begin
+  A := TdApp.Active;
+  if A <> nil then begin
+    Result := A.AttachBots;
   end else begin
     Result := nil;
   end;
@@ -559,6 +576,36 @@ begin
   with ConfigIni do begin
     try
       Result := ReadInteger('storage', 'ttldays', CACHE_TTL_DEFAULT_DAYS);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+function TdMapsProvider: string;
+var
+  I: integer;
+begin
+  with ConfigIni do begin
+    try
+      Result := ReadString('ui', 'mapsprovider', '');
+    finally
+      Free;
+    end;
+  end;
+  for I := Low(MAPS_PROVIDERS) to High(MAPS_PROVIDERS) do begin
+    if MAPS_PROVIDERS[I] = Result then begin
+      Exit;
+    end;
+  end;
+  Result := '';
+end;
+
+procedure TdSetMapsProvider(const AValue: string);
+begin
+  with ConfigIni do begin
+    try
+      WriteString('ui', 'mapsprovider', AValue);
     finally
       Free;
     end;

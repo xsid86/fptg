@@ -6,6 +6,7 @@ import { copyText } from '../util/clipboard.js';
 import { openLink } from './links.js';
 import { store } from '../core/store.js';
 import { fillAvatar } from '../util/avatar.js';
+import { customEmojiNode } from '../util/emoji.js';
 
 // Работа с ботами: кнопки под сообщениями, клавиатура над полем ввода,
 // команды, мини-приложения (Mini Apps).
@@ -32,6 +33,8 @@ let inlineBox = null;      // результаты инлайн-запроса �
 let inlineTimer = 0;
 let inlineAsked = 0;       // номер запроса: ответ на устаревший текст отбрасывается
 let pendingInline = null;  // {chatId, text}: подставить после перехода в чат
+let ownPlaceholder = null; // плейсхолдер поля до того, как бот задал свой
+const forcedReply = new Set();  // msgId, на которые force_reply уже включил ответ
 
 // Сообщения человеку — уведомлением вверху окна (ui/notices.js), а не в
 // статусной строке.
@@ -77,6 +80,17 @@ async function openApp(source, url, msg, buttonText = '') {
       buttonText,
       title: (source === 'inline' && msg?.senderName) || store.activeChat?.title || 'Mini App',
       theme: pageTheme(),
+    });
+  } catch (error) {
+    hooks.report(error);
+  }
+}
+
+/** Бот меню вложений (ui/attachmenu.js) — Mini App в открытом чате. */
+export async function openAttachBot(botId, name) {
+  try {
+    await hooks.call('webapp.open', {
+      source: 'attach', botId: String(botId), url: '', title: name || 'Mini App', theme: pageTheme(),
     });
   } catch (error) {
     hooks.report(error);
@@ -334,6 +348,251 @@ async function sharePhone() {
   }
 }
 
+/**
+ * Окно с полями: text — вопрос, body — узлы формы, ok — подпись кнопки.
+ * check() — проверка перед закрытием (вернуть текст ошибки или ''). Ответ
+ * промиса — true, если нажали ok.
+ */
+export function formDialog({ text, body = [], ok, check = () => '' }) {
+  return new Promise((resolve) => {
+    const dialog = el('dialog', { class: 'confirm' });
+    const error = el('p', { class: 'confirm__note bots__form-error', role: 'alert' });
+    let answer = false;
+    const okBtn = el('button', {
+      class: 'btn confirm__button', type: 'button',
+      onclick: () => {
+        const problem = check();
+        error.textContent = problem;
+        if (problem) return;
+        answer = true;
+        dialog.close();
+      },
+    }, ok);
+    dialog.append(
+      el('p', { class: 'confirm__note confirm__note--plain' }, text),
+      el('div', { class: 'bots__form' }, ...body),
+      error,
+      el('div', { class: 'confirm__buttons' },
+        el('button', { class: 'btn confirm__button', type: 'button', onclick: () => dialog.close() }, 'Cancel'),
+        okBtn));
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(answer); });
+    document.body.append(dialog);
+    dialog.showModal();
+    (dialog.querySelector('input') ?? okBtn).focus();
+  });
+}
+
+export const field = (attrs) => el('input', { class: 'field__input bots__input', autocomplete: 'off', ...attrs });
+
+export function checkRow(label, checked, disabled = false) {
+  const box = el('input', { type: 'checkbox', checked, disabled });
+  return { box, node: el('label', { class: 'confirm__check' }, box, el('span', {}, label)) };
+}
+
+/** Ответ бота на callback: текст уведомлением или окном, ссылка. */
+function handleAnswer(answer) {
+  if (answer?.text) {
+    if (answer.alert) showAlert(answer.text);
+    else notify(answer.text);
+  }
+  if (answer?.url) openLink(answer.url);
+}
+
+/** Вход на сайт через Telegram (loginUrl): как у нативного клиента. */
+async function loginUrl(msg, button) {
+  let info;
+  try {
+    info = await hooks.call('bot.loginUrl', { msgId: String(msg.id), buttonId: button.buttonId });
+  } catch {
+    openLink(button.url);
+    return;
+  }
+  if (!info.confirm) {
+    openLink(info.url || button.url);
+    return;
+  }
+  const write = checkRow('Allow the bot to send me messages', true);
+  const yes = await formDialog({
+    text: `Log in to ${info.domain} with your Telegram account?`,
+    body: info.writeAccess ? [write.node] : [],
+    ok: 'Log in',
+  });
+  if (!yes) return;
+  try {
+    const r = await hooks.call('bot.loginUrlConfirm', {
+      msgId: String(msg.id), buttonId: button.buttonId,
+      allowWrite: info.writeAccess && write.box.checked,
+    });
+    openLink(r.url || info.url);
+  } catch (error) {
+    hooks.report(error);
+  }
+}
+
+/** Callback с паролем 2FA: пароль вводит человек, уходит в TDLib. */
+async function callbackWithPassword(msg, button) {
+  const pass = field({ type: 'password', autocomplete: 'current-password', placeholder: 'Password' });
+  const yes = await formDialog({
+    text: 'Enter your two-step verification password to confirm this action.',
+    body: [pass],
+    ok: 'Confirm',
+    check: () => (pass.value ? '' : 'Enter the password'),
+  });
+  if (!yes) return;
+  try {
+    handleAnswer(await hooks.call('bot.callback', {
+      id: String(msg.id), data: button.data, password: pass.value,
+    }));
+  } catch (error) {
+    hooks.report(error);
+  }
+}
+
+/** Кнопка «купить»: звёзды — после явного подтверждения, иначе ссылка провайдера. */
+async function buy(msg) {
+  let form;
+  try {
+    form = await hooks.call('bot.buy', { msgId: String(msg.id) });
+  } catch (error) {
+    hooks.report(error);
+    return;
+  }
+  if (form.kind === 'url' && form.url) {
+    openLink(form.url);
+    return;
+  }
+  if (form.kind !== 'stars') {
+    notify('This payment method is not supported in this app');
+    return;
+  }
+  const what = form.title ? ` for “${form.title}”` : '';
+  if (!(await ask(`Pay ${form.stars} Telegram Stars${what}?`, 'Pay'))) return;
+  try {
+    const r = await hooks.call('bot.pay', { msgId: String(msg.id), formId: form.formId });
+    if (r.url) openLink(r.url);
+    else if (r.success) notify('Payment completed');
+  } catch (error) {
+    hooks.report(error);
+  }
+}
+
+/** Почему геопозиции нет — по коду GeolocationPositionError. */
+export function geoErrorText(error) {
+  switch (error?.code) {
+    case 1:
+      return 'Location access is denied. Allow it for desktop apps in Windows '
+        + 'Settings → Privacy & security → Location.';
+    case 2:
+      return 'Location is unavailable. Check that Location is turned on in '
+        + 'Windows Settings → Privacy & security.';
+    case 3:
+      return 'Finding the location took too long. Try again.';
+    default:
+      return 'Location is not available';
+  }
+}
+
+/** Геопозиция: браузер спрашивает разрешение, человек — согласие на отправку. */
+async function requestLocation() {
+  if (!navigator.geolocation) {
+    notify('Location is not available');
+    return;
+  }
+  let pos;
+  try {
+    pos = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
+      resolve, reject, { enableHighAccuracy: true, timeout: 15000 }));
+  } catch (error) {
+    notify(geoErrorText(error));
+    return;
+  }
+  const bot = store.activeChat?.title || 'this bot';
+  if (!(await ask(`Send your location to ${bot}?`, 'Send'))) return;
+  try {
+    await hooks.call('bot.sendLocation', {
+      lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy || 0,
+    });
+  } catch (error) {
+    hooks.report(error);
+  }
+}
+
+const POLL_OPTIONS_MAX = 10;
+
+/**
+ * Опрос: вопрос, варианты, анонимность, викторина. button — ограничения
+ * кнопки бота (forceRegular / forceQuiz), cmd — куда отправить: кнопка
+ * бота или меню скрепки (ui/attachmenu.js).
+ */
+export async function openPollDialog(button, cmd = 'bot.sendPoll') {
+  const question = field({ type: 'text', placeholder: 'Question', maxLength: 300 });
+  const list = el('div', { class: 'bots__options' });
+  const addOption = () => {
+    if (list.children.length >= POLL_OPTIONS_MAX) return;
+    list.append(field({ type: 'text', placeholder: `Option ${list.children.length + 1}`, maxLength: 100 }));
+    more.disabled = list.children.length >= POLL_OPTIONS_MAX;
+  };
+  const more = el('button', { class: 'btn bots__add', type: 'button', onclick: addOption }, 'Add an option');
+  addOption();
+  addOption();
+  const anonymous = checkRow('Anonymous voting', true);
+  const multiple = checkRow('Multiple answers', false, !!button.forceQuiz);
+  const quiz = checkRow('Quiz mode', !!button.forceQuiz, !!button.forceQuiz || !!button.forceRegular);
+  const correct = field({ type: 'number', min: '1', value: '1', placeholder: 'Correct option' });
+  const correctRow = el('label', { class: 'bots__inline', hidden: !quiz.box.checked },
+    el('span', {}, 'Correct option'), correct);
+  quiz.box.addEventListener('change', () => {
+    correctRow.hidden = !quiz.box.checked;
+    if (quiz.box.checked) multiple.box.checked = false;
+    multiple.box.disabled = quiz.box.checked;
+  });
+  const options = () => [...list.children].map((n) => n.value.trim()).filter(Boolean);
+  const yes = await formDialog({
+    text: 'Create a poll',
+    body: [question, list, more, anonymous.node, multiple.node, quiz.node, correctRow],
+    ok: 'Send',
+    check: () => {
+      if (!question.value.trim()) return 'Enter a question';
+      if (options().length < 2) return 'Add at least two options';
+      const n = Number(correct.value);
+      if (quiz.box.checked && !(n >= 1 && n <= options().length)) return 'Pick the correct option';
+      return '';
+    },
+  });
+  if (!yes) return;
+  try {
+    await hooks.call(cmd, {
+      question: question.value.trim(),
+      options: options(),
+      anonymous: anonymous.box.checked,
+      multiple: multiple.box.checked,
+      quiz: quiz.box.checked,
+      correct: Math.max(0, Number(correct.value) - 1),
+    });
+  } catch (error) {
+    hooks.report(error);
+  }
+}
+
+/** Создать управляемого бота: имя и имя пользователя, подсказанные ботом. */
+async function requestManagedBot(button) {
+  const name = field({ type: 'text', placeholder: 'Bot name', value: button.name || '', maxLength: 64 });
+  const username = field({ type: 'text', placeholder: 'Bot username', value: button.username || '', maxLength: 32 });
+  const yes = await formDialog({
+    text: `${store.activeChat?.title || 'This bot'} offers to create a bot for you.`,
+    body: [name, username],
+    ok: 'Create',
+    check: () => (name.value.trim() && username.value.trim() ? '' : 'Fill in both fields'),
+  });
+  if (!yes) return;
+  try {
+    await hooks.call('bot.createBot', { name: name.value, username: username.value });
+    notify('Bot created');
+  } catch (error) {
+    hooks.report(error);
+  }
+}
+
 /** Нажатие кнопки — инлайн (под сообщением) или клавиатуры (msg = null). */
 async function press(msg, button) {
   switch (button.kind) {
@@ -344,13 +603,37 @@ async function press(msg, button) {
       } catch {
         return;            // бот не ответил вовремя — молчим, как и клиент
       }
-      if (answer?.text) {
-        if (answer.alert) showAlert(answer.text);
-        else notify(answer.text);
-      }
-      if (answer?.url) openLink(answer.url);
+      handleAnswer(answer);
       return;
     }
+    case 'callbackPassword':
+      await callbackWithPassword(msg, button);
+      return;
+    case 'game':
+      // Игра — тоже callback (payload Game); бот отвечает ссылкой на неё.
+      try {
+        handleAnswer(await hooks.call('bot.callback', { id: String(msg.id), game: true }));
+      } catch (error) {
+        hooks.report(error);
+      }
+      return;
+    case 'login':
+      await loginUrl(msg, button);
+      return;
+    case 'buy':
+      await buy(msg);
+      return;
+    case 'disabled':
+      return;
+    case 'requestLocation':
+      await requestLocation();
+      return;
+    case 'requestPoll':
+      await openPollDialog(button);
+      return;
+    case 'requestManagedBot':
+      await requestManagedBot(button);
+      return;
     case 'url':
       openLink(button.url);
       return;
@@ -395,15 +678,22 @@ async function press(msg, button) {
 }
 
 function buttonNode(msg, button, cls) {
+  // Цвет, который задал бот (buttonStyle*): is-style-danger и т. п.
+  const style = button.style ? ` is-style-${button.style}` : '';
   return el('button', {
-    class: `${cls} is-${button.kind}`,
+    class: `${cls} is-${button.kind}${style}`,
     type: 'button',
-    title: button.kind === 'url' ? button.url : '',
+    title: button.kind === 'url' || button.kind === 'login' ? button.url : '',
+    // inlineKeyboardButtonTypeDisabled — видна, но не нажимается.
+    disabled: button.kind === 'disabled',
     onclick: (event) => {
       event.stopPropagation();
       press(msg, button).catch(console.error);
     },
-  }, el('span', { class: `${cls}-text` }, button.text),
+  },
+  // icon_custom_emoji_id — перед текстом; пока файла нет, просто без него.
+  button.emoji ? customEmojiNode(button.emoji, `${cls}-emoji`) : null,
+  el('span', { class: `${cls}-text` }, button.text),
   button.kind === 'url' || button.kind === 'webapp'
     ? icon(button.kind === 'url' ? 'link' : 'dots', `${cls}-mark icon--sm`) : null);
 }
@@ -440,11 +730,41 @@ function drawKeyboard() {
 }
 
 function setKeyboard(next) {
+  applyPlaceholder(next?.placeholder || '');
+  // force_reply: поле ввода сразу отвечает на сообщение с разметкой — один
+  // раз на сообщение, дальше человек волен ответ отменить.
+  if (next?.forceReply && next.msgId && !forcedReply.has(next.msgId)) {
+    const target = store.messages?.items?.find((m) => m.id === next.msgId);
+    if (target) {
+      forcedReply.add(next.msgId);
+      hooks.replyTo?.(target);
+    }
+  }
   const same = keyboard && next && keyboard.msgId === next.msgId
     && JSON.stringify(keyboard.rows) === JSON.stringify(next.rows);
   if (same) return;
-  keyboard = next ?? null;
+  keyboard = next?.rows?.length ? next : null;
   drawKeyboard();
+}
+
+/**
+ * Клавиатура заново — когда приехал файл кастомного эмодзи: разметка
+ * при этом не меняется, и setKeyboard считает её прежней (main.js).
+ */
+export function redrawBotKeyboard() {
+  if (kbBox) drawKeyboard();
+}
+
+/** Плейсхолдер поля ввода от бота (input_field_placeholder); '' — вернуть свой. */
+function applyPlaceholder(text) {
+  if (!input) return;
+  if (text) {
+    if (ownPlaceholder === null) ownPlaceholder = input.placeholder;
+    input.placeholder = text;
+  } else if (ownPlaceholder !== null) {
+    input.placeholder = ownPlaceholder;
+    ownPlaceholder = null;
+  }
 }
 
 // --------------------------------------------------------- команды

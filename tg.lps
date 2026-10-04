@@ -9,7 +9,7 @@
         <Filename Value="tg.lpr"/>
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
-        <TopLine Value="239"/>
+        <TopLine Value="236"/>
         <CursorPos Y="269"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
@@ -63,7 +63,6 @@
         <EditorIndex Value="19"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="main.pas"/>
@@ -353,7 +352,6 @@
         <TopLine Value="3664"/>
         <UsageCount Value="113"/>
         <Loaded Value="True"/>
-        <DefaultSyntaxHighlighter Value="LFM"/>
       </Unit>
       <Unit>
         <Filename Value="mediaviewer.pas"/>
@@ -554,12 +552,7 @@
         <UsageCount Value="22"/>
       </Unit>
     </Units>
-    <JumpHistory>
-      <Position>
-        <Filename Value="webapi.pas"/>
-        <Caret Line="1280" Column="84" TopLine="1250"/>
-      </Position>
-    </JumpHistory>
+    <JumpHistory HistoryIndex="-1"/>
     <RunParams>
       <FormatVersion Value="2"/>
       <Modes ActiveMode=""/>

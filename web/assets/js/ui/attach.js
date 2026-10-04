@@ -27,6 +27,11 @@ const UPLOAD_URL = '/upload';
 const PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp']);
 const isPhoto = (file) => PHOTO_TYPES.has(file.type);
 const allPhotos = (files) => files.length > 0 && files.every(isPhoto);
+// Видео, которое уйдёт видео-сообщением в режиме «медиа» (сервер решает
+// по расширению: mp4, mov, m4v, webm, mkv).
+const VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/x-m4v', 'video/webm', 'video/x-matroska']);
+const isMedia = (file) => isPhoto(file) || VIDEO_TYPES.has(file.type);
+const allMedia = (files) => files.length > 0 && files.every(isMedia);
 
 let hooks = {};
 let layer = null;
@@ -36,6 +41,9 @@ let picker = null;      // скрытый <input type=file> для кнопки 
 // Состояние открытого диалога.
 let files = [];
 let asPhoto = false;
+// Вид, заданный пунктом меню скрепки: 'document' или 'audio' — без
+// переключателя сжатия; null — как раньше (сжатие для медиа).
+let forced = null;
 let previews = new Map();   // File -> object URL миниатюры, отзывается при закрытии
 let busy = false;
 let xhr = null;
@@ -127,7 +135,8 @@ function mountDropzone(area) {
 // -------------------------------------------------------------- dialog
 function titleText() {
   const n = files.length;
-  if (asPhoto) return n === 1 ? 'Send a photo' : `Send ${n} photos`;
+  if (forced === 'audio') return n === 1 ? 'Send a song' : `Send ${n} songs`;
+  if (asPhoto) return n === 1 ? 'Send a photo or video' : `Send ${n} photos and videos`;
   return n === 1 ? 'Send as a file' : `Send ${n} files`;
 }
 
@@ -162,11 +171,12 @@ function fileRow(file) {
 /** Перерисовывает всё, что зависит от списка файлов; подпись не трогает. */
 function refresh() {
   if (!view) return;
-  // Сжатие возможно, только пока ВСЕ файлы — картинки.
-  if (!allPhotos(files)) asPhoto = false;
+  // Сжатие возможно, только пока ВСЕ файлы — фото или видео, и вид не
+  // задан пунктом меню.
+  if (!allMedia(files) || forced) asPhoto = false;
   view.title.textContent = titleText();
   clear(view.list).append(...files.map(fileRow));
-  view.compressRow.hidden = !allPhotos(files);
+  view.compressRow.hidden = !allMedia(files) || !!forced;
   view.compress.checked = asPhoto;
 }
 
@@ -264,7 +274,7 @@ async function send() {
     xhr = null;
     await hooks.call('message.sendFiles', {
       files: ids,
-      asPhoto,
+      mode: forced ?? (asPhoto ? 'media' : 'document'),
       caption: view.caption.value,
       html: hooks.htmlMode(),
       silent: hooks.isSilent(),
@@ -297,7 +307,7 @@ function closeDialog() {
   clear(layer);
 }
 
-function openDialog(list, photos) {
+function openDialog(list, photos, mode = null) {
   if (!list.length) return;
   if (view) {
     // Уже открыт — добавить к тому, что есть.
@@ -305,12 +315,13 @@ function openDialog(list, photos) {
     return;
   }
   files = [...list];
-  asPhoto = photos && allPhotos(files);
+  forced = mode === 'document' || mode === 'audio' ? mode : null;
+  asPhoto = !forced && photos && allMedia(files);
 
   const compress = el('input', {
     class: 'switch__input', type: 'checkbox', id: 'attach-compress',
     onchange: () => {
-      asPhoto = compress.checked && allPhotos(files);
+      asPhoto = compress.checked && allMedia(files);
       view.title.textContent = titleText();
     },
   });
@@ -402,8 +413,9 @@ export function mountAttach(layerNode, zoneNode, dropArea, options) {
 
   // Скрепка и вставка из буфера: картинки по умолчанию сжатыми, как у
   // нативного клиента.
-  on('ui:attach', ({ files: list }) => {
+  // mode — от меню скрепки (ui/attachmenu.js): media | document | audio.
+  on('ui:attach', ({ files: list, mode }) => {
     if (!hooks.canCompose()) return;
-    openDialog(list, allPhotos(list));
+    openDialog(list, mode === 'media' || (!mode && allPhotos(list)), mode ?? null);
   });
 }
