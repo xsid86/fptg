@@ -4,7 +4,7 @@ import { store, onActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
 import { reanchorMenu, closeMenuIfDetached } from '../util/menu.js';
 import { dateLabel } from '../util/format.js';
-import { renderMessage, renderAlbum } from './message.js';
+import { renderMessage, renderMessageReusing, renderAlbum } from './message.js';
 
 // The message history.
 //
@@ -664,7 +664,8 @@ function messageNode(msg) {
   // serialising every message in the window on every refresh.
   if (known && known.msg === msg) return known.node;
 
-  const node = renderMessage(msg);
+  // Видео прежнего узла переезжают в новый — см. renderMessageReusing.
+  const node = known ? renderMessageReusing(msg, known.node) : renderMessage(msg);
   // A context menu may be anchored to the node about to be thrown
   // away; it has to follow the message rather than be left pointing at
   // a detached element. See reanchorMenu.

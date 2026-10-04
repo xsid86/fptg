@@ -47,6 +47,43 @@ function withMenu(card, msg) {
     return card;
 }
 
+// Плееры прежнего узла того же сообщения, по адресу файла. Сообщение
+// перестраивается целиком при любой смене своего payload (реакции,
+// счётчик комментариев, ход передачи — живой лог: в одном канале 28
+// смен реакций за 9 минут), и новый <video> заново тянул файл — на
+// незапущенном видео мелькал нативный индикатор загрузки, а играющее
+// останавливалось. Теперь тот же элемент переносится в новый узел:
+// перенос в одном задании воспроизведение не прерывает (элемент не
+// успевает оказаться вне документа к «стабильному состоянию»).
+let reusable = null;
+
+/**
+ * Как renderMessage, но видео с тем же адресом берутся из `oldNode`, а не
+ * создаются заново. Адрес — data-media: src плеер теряет, когда уходит за
+ * экран (util/offscreen.js отпускает декодер).
+ */
+export function renderMessageReusing(msg, oldNode) {
+    // Узел вне документа мог уже пройти через sweep (util/offscreen.js):
+    // его плееры без src и без наблюдателей, переносить их нельзя.
+    if (!oldNode?.isConnected) return renderMessage(msg);
+    reusable = new Map();
+    for (const video of oldNode.querySelectorAll('video[data-media]')) {
+        reusable.set(video.dataset.media, video);
+    }
+    try {
+        return renderMessage(msg);
+    } finally {
+        reusable = null;
+    }
+}
+
+/** Плеер прежнего узла для этого адреса, или null — тогда строить новый. */
+function takeVideo(url) {
+    const video = reusable?.get(url) ?? null;
+    if (video) reusable.delete(url);
+    return video;
+}
+
 export function renderMessage(msg) {
     const card = el('article', {
         class: [
@@ -521,14 +558,16 @@ function renderVideo(msg, m) {
     const boxWrapper = el('div', {class: 'media__wrapper'});
     const box = el('div', {class: sizedBox('video', m)});
     if (m.url) {
-        const player = el('video', {
+        const reused = takeVideo(m.url);
+        const player = reused ?? el('video', {
             class: 'media__video',
             src: m.url,
             poster: m.thumbUrl || '',
             controls: true,
             preload: 'metadata',
+            dataset: {media: m.url},
         });
-        holdVideo(player, m.url);
+        if (!reused) holdVideo(player, m.url);
         box.append(player);
         if (m.xfer) box.append(xferOverlay(msg, m));
     } else {
@@ -595,9 +634,11 @@ function renderAnimation(msg, m) {
     if (m.url) {
         // Telegram "GIFs" are silent MP4s, which is why this is a <video>
         // and not an <img> - same fact the native side relies on.
-        const player = el('video', {
+        const reused = takeVideo(m.url);
+        const player = reused ?? el('video', {
             class: 'media__video',
             src: m.url,
+            dataset: {media: m.url},
             // The blurred stamp, for the moments there is no frame to
             // show: before the first one decodes, while the player is
             // released off screen (util/offscreen.js), and now also
@@ -611,7 +652,7 @@ function renderAnimation(msg, m) {
                 });
             },
         });
-        holdVideo(player, m.url, 'loop');
+        if (!reused) holdVideo(player, m.url, 'loop');
         box.append(player);
         if (m.xfer) box.append(xferOverlay(msg, m));
         wrapper.append(box);
@@ -811,9 +852,11 @@ function renderSticker(msg, m) {
         // Not autoplay: what starts it is coming into view, and what
         // stops it is leaving - see util/offscreen.js. A click replays
         // it from the start.
-        const player = el('video', {
+        const reused = takeVideo(m.url);
+        const player = reused ?? el('video', {
             class: 'media__sticker',
             src: m.url, loop: false, muted: true, playsInline: true,
+            dataset: {media: m.url},
             onclick: () => {
                 player.currentTime = 0;
                 player.play().catch(() => {
@@ -825,7 +868,7 @@ function renderSticker(msg, m) {
                 player.currentTime = 0;
             },
         });
-        holdVideo(player, m.url, 'once');
+        if (!reused) holdVideo(player, m.url, 'once');
         box.append(player);
     } else if (m.format === 'tgs') {
         // A gzip-compressed Lottie animation - see ui/sticker.js, which
