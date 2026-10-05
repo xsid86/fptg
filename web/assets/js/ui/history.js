@@ -4,6 +4,7 @@ import { store, onActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
 import { reanchorMenu, closeMenuIfDetached } from '../util/menu.js';
 import { dateLabel } from '../util/format.js';
+import { updateFloatDate as updateFloatDateIn } from '../util/floatdate.js';
 import { renderMessage, renderMessageReusing, renderAlbum } from './message.js';
 import { greetingNode } from './greeting.js';
 
@@ -385,9 +386,14 @@ function paint(state) {
   // And everything newer than it.
   if (to < items.length) desired.push(gapNode(sumHeights(items, to, items.length)));
 
+  // Плашка нулевой высоты: в потоке места не занимает, надпись висит
+  // поверх у верхнего края. Обычным блоком она появлялась и пропадала
+  // на каждой подгрузке и дёргала всю колонку (заметнее всего в короткой
+  // ветке комментариев, которая не прокручивается).
   if (state.loadingOlder) {
     desired.unshift(separator('loading', () =>
-      el('div', { class: 'history__loader' }, 'Loading older messages…')));
+      el('div', { class: 'history__loader' },
+        el('span', { class: 'history__loader-pill' }, 'Loading older messages…'))));
   }
 
   reconcile(column, desired);
@@ -789,49 +795,9 @@ function noteScrollPosition() {
 // top у .history__float-date в blocks/_history.scss.
 const FLOAT_DATE_TOP = 16;
 
-/**
- * Плавающая дата: день, сообщения которого сейчас наверху, — одним
- * ярлыком на 16px ниже шапки.
- *
- * Не position: sticky на самих разделителях — они все на одном уровне
- * и в конце концов склеивались в пачку. Ярлык один, лежит поверх
- * истории (как кнопка «вниз»), а скрипт решает, что на нём написано и
- * виден ли он:
- *   * день — у последнего дневного разделителя, ушедшего выше линии
- *     ярлыка. Окно истории (виртуализация) всегда начинается с
- *     разделителя своего первого сообщения, так что он есть всегда;
- *   * ярлык прячется, пока настоящий разделитель этого дня ещё виден
- *     на своём месте, и когда следующий подъезжает к ярлыку снизу — там
- *     уже стоит настоящий, и два одинаковых рядом не нужны.
- * Сдвигать ярлык не приходится, поэтому и style не нужен.
- */
+/** Плавающая дата над историей — util/floatdate.js. */
 function updateFloatDate() {
-  if (!floatDate || !root) return;
-  const top = root.getBoundingClientRect().top;
-  const line = top + FLOAT_DATE_TOP;
-  const chip = floatDate.firstElementChild;
-  const chipHeight = floatDate.hidden ? 24 : (chip.getBoundingClientRect().height || 24);
-
-  let current = null;
-  let next = null;
-  for (const sep of column.querySelectorAll('.history__date[data-day]')) {
-    const label = sep.firstElementChild.getBoundingClientRect();
-    if (label.top < line) current = { sep, label };
-    else {
-      next = label;
-      break;
-    }
-  }
-
-  const show = !!current
-    // Свой разделитель дня ещё виден — дата и так на экране.
-    && current.label.bottom <= top
-    // Следующий день подъезжает к ярлыку — на этом месте уже он.
-    && !(next && next.top < line + chipHeight + 4);
-  if (show && chip.textContent !== current.sep.dataset.day) {
-    chip.textContent = current.sep.dataset.day;
-  }
-  floatDate.hidden = !show;
+  updateFloatDateIn(root, column, floatDate, FLOAT_DATE_TOP);
 }
 
 /**

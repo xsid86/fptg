@@ -37,6 +37,11 @@
 
 .chat-header__avatar {
   --avatar-color: var(--chat-color);
+  cursor: pointer;
+
+  &:focus-visible {
+    @include focus-ring(var(--c-accent), 2px);
+  }
 }
 
 .chat-header__identity {

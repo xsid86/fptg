@@ -1017,6 +1017,7 @@ end;
 procedure TTdCore.RemoveAccount(AAccount: TTdAccount);
 var
   Idx: integer;
+  Keep: TTdAccount;
 begin
   if AAccount = nil then begin
     Exit;
@@ -1026,9 +1027,16 @@ begin
     Exit;
   end;
 
+  { Активным остаётся тот же аккаунт, а не тот же номер: удаление
+    стоящего ВЫШЕ активного сдвигало список, и активным молча
+    становился соседний (отмена добавления, выход из неактивного). }
+  Keep := GetActive;
   FAccounts.Delete(Idx);
   AAccount.Free;
 
+  if (Keep <> nil) and (Keep <> AAccount) then begin
+    FActive := FAccounts.IndexOf(Keep);
+  end;
   if FActive >= FAccounts.Count then begin
     FActive := FAccounts.Count - 1;
   end;

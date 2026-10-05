@@ -1,5 +1,5 @@
 import { el, clear, qs } from '../core/dom.js';
-import { on } from '../core/bus.js';
+import { on, emit } from '../core/bus.js';
 import { icon } from '../util/icons.js';
 import { openMenu } from '../util/menu.js';
 import { copyText } from '../util/clipboard.js';
@@ -448,32 +448,9 @@ async function callbackWithPassword(msg, button) {
   }
 }
 
-/** Кнопка «купить»: звёзды — после явного подтверждения, иначе ссылка провайдера. */
-async function buy(msg) {
-  let form;
-  try {
-    form = await hooks.call('bot.buy', { msgId: String(msg.id) });
-  } catch (error) {
-    hooks.report(error);
-    return;
-  }
-  if (form.kind === 'url' && form.url) {
-    openLink(form.url);
-    return;
-  }
-  if (form.kind !== 'stars') {
-    notify('This payment method is not supported in this app');
-    return;
-  }
-  const what = form.title ? ` for “${form.title}”` : '';
-  if (!(await ask(`Pay ${form.stars} Telegram Stars${what}?`, 'Pay'))) return;
-  try {
-    const r = await hooks.call('bot.pay', { msgId: String(msg.id), formId: form.formId });
-    if (r.url) openLink(r.url);
-    else if (r.success) notify('Payment completed');
-  } catch (error) {
-    hooks.report(error);
-  }
+/** Кнопка «купить» — оплата счёта сообщения (ui/payments.js). */
+function buy(msg) {
+  emit('ui:pay-invoice', { msgId: String(msg.id) });
 }
 
 /** Почему геопозиции нет — по коду GeolocationPositionError. */

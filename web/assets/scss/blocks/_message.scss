@@ -33,6 +33,15 @@
   @include ellipsis;
 }
 
+// Аватарка отправителя перед именем. Размер — $message-avatar-size
+// (abstracts/_variables.scss).
+.message__avatar {
+  --avatar-color: var(--accent-color);
+  @include size($message-avatar-size);
+  flex: 0 0 auto;
+  font-size: calc(#{$message-avatar-size} * .5);
+}
+
 .message__time {
   color: inherit;
   font-variant-numeric: tabular-nums;
@@ -61,6 +70,17 @@
 
 .message__body a {
   text-decoration: underline;
+}
+
+// Упоминание человека (@username или имя-ссылка) — без подчёркивания,
+// цветом акцента, как у Telegram.
+.message__body a.mention {
+  color: var(--c-accent);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 // ------------------------------------------------------- text styles

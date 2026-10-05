@@ -31,10 +31,25 @@
   opacity: .85;
 }
 
+// Нулевой высоты и sticky: подгрузка не сдвигает историю (см. history.js).
 .history__loader {
-  @include flex(row, center, center, $space-3);
+  @include flex(row, flex-start, center);
+  height: 0;
+  overflow: visible;
+  position: sticky;
+  top: $space-3;
+  z-index: 2;
+}
+
+.history__loader-pill {
+  background: color-mix(in srgb, var(--c-bg) 85%, transparent);
+  border-radius: $radius-pill;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .15);
   color: var(--c-text-dim);
-  padding: $space-5;
+  font-size: $fs-sm;
+  padding: $space-1 $space-4;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 // Full-width strip marking where unread begins. Deliberately not a
@@ -286,6 +301,23 @@
   text-align: center;
 }
 
+// Telegram ID под именем; клик копирует (ui/infopanel.js idLine).
+.info-panel__id {
+  @include focus-ring;
+  background: none;
+  border: 0;
+  color: var(--c-text-faint);
+  cursor: pointer;
+  font: inherit;
+  font-size: $fs-xs;
+  font-variant-numeric: tabular-nums;
+  padding: 0;
+
+  &:hover {
+    color: var(--c-accent);
+  }
+}
+
 .info-panel__status {
   color: var(--c-text-faint);
   font-size: $fs-sm;
@@ -457,6 +489,19 @@
   display: grid;
   gap: 2px;
   grid-template-columns: repeat(3, 1fr);
+}
+
+// Разделитель дня в медиа панели (та же плашка, что в истории,
+// .history__date): в сетке — на весь ряд, отступы поменьше.
+.media-day {
+  grid-column: 1 / -1;
+  margin: $space-4 0 $space-3;
+}
+
+// Плавающая дата медиа — поверх тела панели; top — MEDIA_FLOAT_TOP в
+// ui/infopanel.js.
+.info-panel__float-date {
+  inset-block-start: 16px;
 }
 
 .media-tile {

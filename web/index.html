@@ -54,19 +54,15 @@
 
   <aside class="app__sidebar">
     <div class="sidebar">
-      <div class="sidebar__head">
-        <h1 class="sidebar__title">Chats</h1>
-        <span class="sidebar__spacer"></span>
-        <!-- Contacts / Chats: a plain button that swaps the list below
-             between the account's contacts and its chats, and says where
-             it leads. See ui/chat-list.js, showContacts. -->
-        <button class="btn" id="chats-contacts" type="button" title="Show contacts">
-          Contacts
-        </button>
-        <label class="btn btn--toggle" title="Show archived chats">
-          <input type="checkbox" id="chats-archived">
-          Archive
-        </label>
+      <!-- Три вкладки списка слева: чаты, архив, контакты. Активна та, на
+           которой мы сейчас (main.js, setSidebarView). -->
+      <div class="sidebar__head" role="tablist">
+        <button class="btn sidebar__tab is-active" type="button" role="tab"
+                data-view="chats">Chats</button>
+        <button class="btn sidebar__tab" type="button" role="tab"
+                data-view="archive">Archive</button>
+        <button class="btn sidebar__tab" type="button" role="tab"
+                data-view="contacts">Contacts</button>
       </div>
 
       <div class="sidebar__search">
@@ -203,11 +199,14 @@
       <span class="icon icon--sm" data-icon="settings"></span>
       <span class="u-sr-only">Settings</span>
     </button>
-    <div class="conn"></div>
+    <button class="status-bar__account" type="button" id="account" title="Accounts"></button>
     <button class="status-bar__presence" type="button" id="presence"></button>
     <span class="status-bar__spacer"></span>
     <div class="status-bar__counts"></div>
-    <a class="status-bar__item" href="check.html">transport check</a>
+    <div class="status-bar__transport">
+      <a class="status-bar__item" href="check.html">transport check</a>
+      <div class="conn"></div>
+    </div>
     <button class="status-bar__theme" type="button" id="theme-toggle"></button>
   </footer>
 

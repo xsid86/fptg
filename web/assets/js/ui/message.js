@@ -268,6 +268,15 @@ function renderHead(msg, withComments = false) {
         head.append(hit);
     }
 
+    // Аватарка отправителя перед именем.
+    const avatar = el('span', {class: `avatar message__avatar accent-${msg.senderColor || 'a5'}`});
+    fillAvatar(avatar, {
+        id: msg.senderId,
+        title: msg.senderName || (msg.outgoing ? 'You' : '?'),
+        avatar: msg.senderAvatar || '',
+        avatarThumb: msg.senderThumb || '',
+    });
+    head.append(avatar);
     head.append(el('span', {
         class: 'message__sender',
         textContent: msg.senderName || (msg.outgoing ? 'You' : 'Unknown'),

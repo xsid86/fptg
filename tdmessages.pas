@@ -52,7 +52,7 @@ type
 
   TMsgEntityKind = (mekNone, mekBold, mekItalic, mekUrl, mekTextUrl,
     mekCode, mekPre, mekStrikethrough, mekUnderline, mekCustomEmoji,
-    mekBlockQuote);
+    mekBlockQuote, mekMention, mekMentionName);
 
   { A styled/link range within TMsgRow.PlainText.
     ByteStart/ByteLen are BYTE offsets into PlainText (utf8string), not
@@ -67,6 +67,9 @@ type
     Kind:      TMsgEntityKind;
     URL:       utf8string;   { mekTextUrl only; for mekUrl the link is the text itself }
     CustomEmojiId: Int64;    { mekCustomEmoji only }
+    { mekMentionName only: textEntityTypeMentionName.user_id — упоминание
+      человека без username (текст — его имя). }
+    UserId: Int64;
     { mekPre only, and only from textEntityTypePreCode - TDLib names
       the language itself, even for a fence that carried no tag. Empty
       for a plain code block. Shown in the block's header, the way the
@@ -919,6 +922,8 @@ type
     { message_thread_id открытой ветки (0 — не ветка): в группе
       обсуждения это id корневого сообщения — копии поста. }
     property ThreadId: Int64 read FThreadId;
+    { Относится ли сообщение к открытой ветке. Вне ветки — всегда да. }
+    function InOpenThread(AMsg: TJSONObject): boolean;
     procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0;
       AUnreadFrom: Int64 = 0);
     function TopicPart: utf8string;
@@ -1549,6 +1554,11 @@ begin
     Result := mekUnderline;
   end else if AType = 'textEntityTypeCustomEmoji' then begin
     Result := mekCustomEmoji;
+  end else if AType = 'textEntityTypeMention' then begin
+    { @username — текст и есть имя пользователя. }
+    Result := mekMention;
+  end else if AType = 'textEntityTypeMentionName' then begin
+    Result := mekMentionName;
   end else if (AType = 'textEntityTypeBlockQuote')
            or (AType = 'textEntityTypeExpandableBlockQuote') then begin
     { Both render the same way here — the expandable/collapsible
@@ -2616,6 +2626,10 @@ begin
     AEntities[N].Kind := EKind;
     AEntities[N].CustomEmojiId := 0;
     AEntities[N].Language := '';
+    AEntities[N].UserId := 0;
+    if EKind = mekMentionName then begin
+      AEntities[N].UserId := JGetInt64(TypeObj, 'user_id');
+    end;
     if EKind = mekTextUrl then begin
       AEntities[N].URL := JGetStr(TypeObj, 'url');
     end else begin
@@ -6911,6 +6925,23 @@ begin
   Touch;
 end;
 
+
+function TTdMessages.InOpenThread(AMsg: TJSONObject): boolean;
+var
+  Topic: TJSONObject;
+begin
+  Result := True;
+  if (FThreadId = 0) or (AMsg = nil) then begin
+    Exit;
+  end;
+  if JGetInt64(AMsg, 'id') = FThreadId then begin
+    Exit;
+  end;
+  Topic := JGetObj(AMsg, 'topic_id');
+  Result := (JGetStr(Topic, '@type') = 'messageTopicThread')
+    and (JGetInt64(Topic, 'message_thread_id') = FThreadId);
+end;
+
 procedure TTdMessages.TdUpdate(const AJson: utf8string; AData: TJSONObject);
 var
   Obj: TJSONObject;
@@ -6947,7 +6978,12 @@ begin
         history from TDLib. Updates to messages ALREADY in the list
         (edits, reactions, delivery state, files) stay live below;
         those are about rows that really are part of the result. }
-      if not SearchActive then begin
+      { И не в ветку комментариев, если сообщение не из неё: в группе
+        обсуждения идут комментарии ко всем постам канала сразу, а
+        открыта ветка одного. Принадлежность — topic_id
+        (messageTopicThread.message_thread_id, по живому tdlib_raw.log);
+        сам корень ветки (копия поста) — по своему id. }
+      if not SearchActive and InOpenThread(JGetObj(Obj, 'message')) then begin
         ApplyMessage(JGetObj(Obj, 'message'));
       end;
     end else if T = 'updateMessageContent' then begin

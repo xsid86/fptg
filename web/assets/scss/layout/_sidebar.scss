@@ -13,17 +13,22 @@
   background: color-mix(in srgb, var(--c-bg) 70%, transparent);
   border: none;
   padding: $space-3 $space-4;
+
+  .btn {
+    &.is-active {
+      color: var(--c-light);
+    }
+  }
 }
 
-.sidebar__title {
-  color: var(--c-text);
-  font-size: $fs-md;
-  font-weight: $fw-bold;
-  @include ellipsis;
-}
-
-.sidebar__spacer {
-  flex: 1 1 auto;
+// Вкладки списка: по левому краю; текущая залита акцентом, как
+// включённый переключатель (.btn--toggle).
+.sidebar__tab {
+  &.is-active,
+  &.is-active:hover {
+    background: var(--c-accent);
+    color: var(--c-accent-text);
+  }
 }
 
 .sidebar__search {

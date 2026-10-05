@@ -9,7 +9,8 @@ import { openViewer } from './viewer.js';
 import { formDialog, field, pickChats } from './bots.js';
 import { statusText } from './chat-list.js';
 import { stickerNode } from './message.js';
-import { duration, listTime, initial, fileSize } from '../util/format.js';
+import { duration, listTime, initial, fileSize, dateLabel } from '../util/format.js';
+import { updateFloatDate } from '../util/floatdate.js';
 
 // Панель информации о чате — человек, бот, группа или канал. Открывается
 // кнопкой «i» в правом верхнем углу истории и выезжает справа поверх неё
@@ -58,8 +59,22 @@ function setOpen(on) {
   if (on) load();
 }
 
+// Чат, сведения о котором показаны, если это НЕ открытый чат: «Contact
+// info» из меню сообщения (ui:contact-info) — личка с отправителем.
+// Сбрасывается сменой открытого чата.
+let override = null;
+const viewChatId = () => override ?? store.activeChatId;
+
+/** Показать сведения о другом чате, не открывая его (ui:contact-info). */
+function openInfoFor(chatId) {
+  override = chatId;
+  setView('info');
+  if (open) load();
+  else setOpen(true);
+}
+
 async function load() {
-  const chatId = store.activeChatId;
+  const chatId = viewChatId();
   if (!open || chatId === null) return;
   const my = ++asked;
   loadingFor = chatId;
@@ -106,6 +121,22 @@ function statusLine(i) {
 function birthday(b) {
   if (!b) return '';
   return `${b.day} ${MONTHS[b.month - 1] ?? ''}${b.year ? ` ${b.year}` : ''}`;
+}
+
+/**
+ * Telegram ID под именем: у человека — user id, у группы и канала — id
+ * чата (-100…, как его видят боты). Клик — в буфер обмена.
+ */
+function idLine(i) {
+  const id = String(i.userId || i.chatId || '');
+  if (!id) return null;
+  return el('button', {
+    class: 'info-panel__id', type: 'button', title: 'Copy ID',
+    onclick: async () => {
+      await copyText(id);
+      hooks.notice('ID copied to clipboard');
+    },
+  }, `ID: ${id}`);
 }
 
 /** Строка сведений: значение крупно, подпись мелко; клик — копировать. */
@@ -270,6 +301,7 @@ function setView(next) {
   if (view === 'media' && next !== 'media') {
     mediaSeq += 1;      // ответ идущей загрузки больше некуда дописывать
     mediaParts = null;
+    if (mediaFloat) mediaFloat.hidden = true;
   }
   view = next;
   const now = view === 'media' ? media.filter : '';
@@ -463,6 +495,13 @@ const MEDIA_LETTER_COLORS = 8;
 
 let media = { filter: 'photo', chatId: null, items: [], next: 0, total: 0, loading: false, done: false };
 let mediaParts = null;     // { title, grid, foot } — узлы открытого вида
+// Дни, как в истории: разделитель на каждый новый день и плавающий
+// ярлык поверх прокрутки (util/floatdate.js). mediaDay — день последнего
+// дописанного элемента, чтобы следующая страница продолжила разбиение.
+let mediaDay = '';
+let mediaFloat = null;
+// Отступ ярлыка от верха панели — top у .info-panel__float-date.
+const MEDIA_FLOAT_TOP = 16;
 let mediaSeq = 0;          // свой счётчик запросов, как у подарков
 let mediaCurrent = null;   // плитка или строка, к сообщению которой ушла история
 
@@ -471,7 +510,7 @@ function mediaKind() {
 }
 
 function openMedia(filter) {
-  media = { filter, chatId: store.activeChatId, items: [], next: 0, total: 0, loading: false, done: false };
+  media = { filter, chatId: viewChatId(), items: [], next: 0, total: 0, loading: false, done: false };
   mediaCurrent = null;
   setView('media');
   // Смена вида внутри медиа (Photos -> Music) view не меняет — шапке
@@ -497,8 +536,9 @@ async function loadMedia(fresh) {
     media.total = r.total ?? media.items.length;
     media.done = !media.next || !items.length;
     if (view === 'media' && mediaParts) {
-      mediaParts.grid.append(...items.map(mediaItem));
+      mediaParts.grid.append(...withDays(items));
       mediaParts.title.textContent = mediaTitle();
+      mediaFloatUpdate();
     }
   } catch (error) {
     if (my !== mediaSeq) return;
@@ -537,6 +577,33 @@ function mediaPreview(item, cls) {
   const video = el('video', { class: cls, src: url, loop: true, playsinline: true, preload: 'metadata' });
   video.muted = true;
   return video;
+}
+
+/**
+ * Элементы с разделителями дней — та же разметка, что у истории
+ * (.history__date с data-day), чтобы и вид, и плавающий ярлык были
+ * одни. В сетке разделитель занимает весь ряд (.media-day).
+ */
+function withDays(items) {
+  const out = [];
+  for (const item of items) {
+    const day = item.date ? dateLabel(item.date) : '';
+    if (day && day !== mediaDay) {
+      mediaDay = day;
+      out.push(el('div', { class: 'history__date media-day', dataset: { day } }, el('span', {}, day)));
+    }
+    out.push(mediaItem(item));
+  }
+  return out;
+}
+
+function mediaFloatUpdate() {
+  if (!mediaFloat) return;
+  if (view !== 'media' || !mediaParts) {
+    mediaFloat.hidden = true;
+    return;
+  }
+  updateFloatDate(body, mediaParts.grid, mediaFloat, MEDIA_FLOAT_TOP);
 }
 
 function mediaItem(item) {
@@ -740,13 +807,15 @@ function renderMedia() {
       onclick: () => { if (media.filter !== kind) openMedia(kind); },
     }, label)));
   const title = el('div', { class: 'info-panel__section-title' }, mediaTitle());
+  mediaDay = '';
   const grid = el('div', { class: mediaKind()[4] === 'grid' ? 'media-grid' : 'media-list' },
-    ...media.items.map(mediaItem));
+    ...withDays(media.items));
   const foot = el('p', { class: 'info-panel__hint', hidden: true });
   mediaParts = { title, grid, foot };
   clear(body).append(back, title, chips, grid, foot);
   body.scrollTop = 0;
   mediaFoot();
+  mediaFloatUpdate();
 }
 
 // ----------------------------------------------------------- render
@@ -773,6 +842,7 @@ function render() {
       title: i.userId ? 'Photos' : '', onclick: () => openPhotos(i),
     }, avatar),
     el('div', { class: 'info-panel__title' }, i.title || ''),
+    idLine(i),
     el('div', {
       class: `info-panel__status${i.status === 'userStatusOnline' ? ' is-online' : ''}`,
     }, statusLine(i)));
@@ -783,6 +853,13 @@ function render() {
   });
   const buttons = el('div', { class: 'info-panel__actions' },
     actionButton('chat', 'Chat', () => {
+      // Сведения о чужом контакте — открыть личку с ним.
+      if (override !== null && override !== store.activeChatId) {
+        const id = override;
+        setOpen(false);
+        setActiveChat(id);
+        return;
+      }
       setOpen(false);
       document.querySelector('.composer__input')?.focus();
     }),
@@ -863,8 +940,41 @@ export function mountInfoPanel(box, options) {
   panel.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') setOpen(false);
   });
-  body.addEventListener('scroll', mediaMaybeMore, { passive: true });
+  body.addEventListener('scroll', () => {
+    mediaMaybeMore();
+    mediaFloatUpdate();
+  }, { passive: true });
+  // Плавающая дата медиа — поверх тела панели, как у истории.
+  mediaFloat = el('div', { class: 'history__float-date info-panel__float-date', hidden: true }, el('span'));
+  panel.append(mediaFloat);
   box.append(toggle, panel);
+  // «Contact info» из меню сообщения: личка с отправителем
+  // (createPrivateChat — bot.userChat) и её сведения.
+  on('ui:contact-info', async ({ userId }) => {
+    try {
+      const r = await hooks.call('bot.userChat', { userId: String(userId) });
+      if (r?.chatId) openInfoFor(r.chatId);
+    } catch (error) {
+      hooks.report(error);
+    }
+  });
+  // Аватарка в шапке чата: у человека — галерея его фото, у группы и
+  // канала (истории аватарок у них нет) — сама панель.
+  on('ui:chat-photos', async () => {
+    const chatId = store.activeChatId;
+    if (chatId === null) return;
+    let i = info && info.chatId === chatId ? info : null;
+    if (!i) {
+      try {
+        i = await hooks.call('chat.info', { chatId });
+      } catch (error) {
+        hooks.report(error);
+        return;
+      }
+    }
+    if (i?.userId) openPhotos(i);
+    else if (!open) setOpen(true);
+  });
   // Кнопка Gifts в шапке чата (ui/chat-header.js).
   // Кнопки медиа в шапке чата (Photos … Files): сетка или список,
   // повторный клик — закрыть.
@@ -891,6 +1001,7 @@ export function mountInfoPanel(box, options) {
   });
 
   on('store:active', () => {
+    override = null;
     toggle.hidden = store.activeChatId === null;
     if (store.activeChatId === null) setOpen(false);
     else if (open) load();

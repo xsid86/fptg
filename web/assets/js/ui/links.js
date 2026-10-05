@@ -1,4 +1,5 @@
 import { el } from '../core/dom.js';
+import { emit } from '../core/bus.js';
 import { fillAvatar } from '../util/avatar.js';
 
 // Ссылки Telegram (t.me, telegram.me, telegram.dog, tg:) открываются
@@ -104,6 +105,11 @@ async function follow(href) {
   }
   if (target?.external) {
     openOutside(href);
+    return;
+  }
+  // Ссылка-счёт (t.me/$имя) — оплата здесь же (ui/bots.js payInvoice).
+  if (target?.invoice) {
+    emit('ui:pay-invoice', { invoiceName: target.invoice });
     return;
   }
   if (target?.invite) {

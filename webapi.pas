@@ -65,7 +65,7 @@ uses
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
   autodownload, customemoji, webui, tdstorage, miniapp, desknotify,
-  tdsupergroups, tdattachbots, servicetext;
+  tdsupergroups, tdattachbots, servicetext, tdaccount;
 
 type
   { A request whose answer is not here yet.
@@ -104,9 +104,22 @@ type
     at two different places in the same history. }
   TConnSnapMap = specialize TFPGMap<Int64, TIdHashMap>;
 
+  { Слушатель реестра аккаунтов для моста: смена активного и изменения
+    списка (пришло имя, вход, выход). Отдельный объект, потому что
+    подписка идёт по интерфейсу с GUID, а TWebApi — простой класс. }
+  TWebActiveHook = class(TComponent, ITdActiveListener)
+  public
+    procedure TdActiveChanged(ANew: TTdAccount);
+    procedure TdAccountsChanged;
+  end;
+
   TWebApi = class
   private
     FTimer: TTimer;
+    FActiveHook: TWebActiveHook;
+    { Куда вернуться при отмене добавления аккаунта (accounts.cancel);
+      -1 — не запоминали. }
+    FAddReturn: integer;
     FLock:  SyncObjs.TCriticalSection;
     FQueue: TFPList;
     { The model objects this instance is currently subscribed to. They
@@ -120,6 +133,12 @@ type
       (messages.list -> join). Один обработчик, как у стикеров: больше
       OnChanged супергрупп никто не слушает. }
     FBoundGroups: TTdSupergroups;
+    { Модель пользователей: докачанное фото и пришедшее имя отправителя
+      доезжают до страницы перечитыванием сообщений (сводится таймером,
+      как супергруппы). Раньше её единственный OnChanged держало нативное
+      окно истории. }
+    FBoundUsers: TTdUsers;
+    FUsersDirty: boolean;
     { updateSupergroup на старте приходят пачкой — в событие страницы
       сводятся таймером, как стикеры. }
     FGroupsDirty: boolean;
@@ -148,6 +167,21 @@ type
     procedure Drain;
     procedure EnsureBindings;
     procedure DropBindings;
+    procedure UnbindStale;
+    procedure ActiveSwitched;
+    function  CmdMessageForward(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdBotValidateOrder(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure BotValidateOrderDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdBotTmpPassword(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdMentionSearch(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure MentionMembersDone(Sender: TObject; const AResp: TTdResponse);
+    procedure MentionContactsDone(Sender: TObject; const AResp: TTdResponse);
+    procedure MentionReply(ASlot: PtrInt; const AIds: array of Int64);
+    function  CmdAccountsList: TJSONData;
+    function  CmdAccountsSwitch(AArgs: TJSONObject): TJSONData;
+    function  CmdAccountsAdd: TJSONData;
+    function  CmdAccountsCancel: TJSONData;
+    function  CmdAccountsLogout: TJSONData;
     procedure ChatsChanged(Sender: TObject);
     procedure DeskCardClick(AChatId: Int64);
     procedure ChatArrived(Sender: TObject; ARow: TChatRow;
@@ -155,6 +189,7 @@ type
     procedure MessagesChanged(Sender: TObject);
     procedure StickersChanged(Sender: TObject);
     procedure GroupsChanged(Sender: TObject);
+    procedure UsersChanged(Sender: TObject);
     procedure AuthChanged(Sender: TObject);
     procedure StorageChanged(Sender: TObject);
     function  TakeDeferred(AConnId: Int64; AReqId: integer;
@@ -192,6 +227,7 @@ type
     procedure AccountPhotosDone(Sender: TObject; const AResp: TTdResponse);
     procedure AccountPhotosNext(ASlot: PtrInt);
     procedure AccountPhotoFileDone(Sender: TObject; const AResp: TTdResponse);
+    procedure AccountPhotoStaleDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdMapThumb(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure MapThumbDone(Sender: TObject; const AResp: TTdResponse);
     procedure MapThumbFileDone(Sender: TObject; const AResp: TTdResponse);
@@ -407,6 +443,29 @@ end;
   nothing on disk yet. Publishing happens here, while serialising, so
   the page can never be handed a URL for a file the HTTP side does not
   know how to resolve. }
+{ id из аргументов команды — числом или строкой. Страница шлёт большие id
+  строками (JSON-числа неточны после 2^53), а TJSONObject.Get с числовым
+  умолчанием строку НЕ берёт — Find(AName, jtNumber) в fpjson.pp — и молча
+  отдаёт умолчание: уходил user_id 0 и «User not found» (галерея аватарок
+  из панели информации). }
+function ArgId(AArgs: TJSONObject; const AName: string): Int64;
+var
+  D: TJSONData;
+begin
+  Result := 0;
+  if AArgs = nil then begin
+    Exit;
+  end;
+  D := AArgs.Find(AName);
+  if D = nil then begin
+    Exit;
+  end;
+  case D.JSONType of
+    jtNumber: Result := D.AsInt64;
+    jtString: Result := StrToInt64Def(Trim(D.AsString), 0);
+  end;
+end;
+
 function FileUrl(AFileId: integer; const APath: utf8string): utf8string;
 begin
   Result := WebFilePublish(AFileId, APath);
@@ -718,6 +777,8 @@ begin
     mekUnderline:     Result := 'underline';
     mekCustomEmoji:   Result := 'customEmoji';
     mekBlockQuote:    Result := 'quote';
+    mekMention:       Result := 'mention';
+    mekMentionName:   Result := 'mentionName';
   else
     Result := '';
   end;
@@ -792,6 +853,51 @@ begin
   end;
 end;
 
+{ Аватарка отправителя сообщения (кружок в шапке): адрес фото, если оно
+  уже на диске, иначе размытая minithumbnail и докачка — человека через
+  модель пользователей (её OnChanged слушает мост и перечитывает
+  сообщения), канала/группы через строку чата. }
+procedure AddSenderAvatar(AObj: TJSONObject; AUserId, AChatId: Int64);
+var
+  Users: TTdUsers;
+  U: TUserRow;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Url, Thumb: utf8string;
+begin
+  Url := '';
+  Thumb := '';
+  if AUserId <> 0 then begin
+    Users := TdUserList;
+    if Users <> nil then begin
+      U := Users.Find(AUserId);
+      if U <> nil then begin
+        if U.PhotoPath <> '' then begin
+          Url := FileUrl(U.PhotoFileId, U.PhotoPath);
+        end else begin
+          Users.EnsurePhoto(U);
+          Thumb := ThumbDataUri(U.Minithumb);
+        end;
+      end;
+    end;
+  end else if AChatId <> 0 then begin
+    Chats := TdChatList;
+    if Chats <> nil then begin
+      Row := Chats.Lookup(AChatId);
+      if Row <> nil then begin
+        if Row.PhotoPath <> '' then begin
+          Url := FileUrl(Row.PhotoFileId, Row.PhotoPath);
+        end else begin
+          Chats.EnsureAvatar(Row);
+          Thumb := ThumbDataUri(Row.Minithumb);
+        end;
+      end;
+    end;
+  end;
+  AObj.Add('senderAvatar', string(Url));
+  AObj.Add('senderThumb', string(Thumb));
+end;
+
 function EntitiesJson(const AEntities: TMsgEntityArray): TJSONArray;
 var
   I: integer;
@@ -826,6 +932,11 @@ begin
     end;
     if AEntities[I].Language <> '' then begin
       O.Add('language', string(AEntities[I].Language));
+    end;
+    if AEntities[I].UserId <> 0 then begin
+      { Строкой, как id альбомов и эмодзи: страница передаёт его дальше
+        как есть (ui:open-contact). }
+      O.Add('userId', string(IntToStr(AEntities[I].UserId)));
     end;
     if AEntities[I].CustomEmojiId <> 0 then begin
       { A STRING, for the same reason album ids are one: a
@@ -1503,6 +1614,7 @@ begin
   Result.Add('senderId',    ARow.SenderUserId + ARow.SenderChatId);
   Result.Add('senderName',  string(Name));
   Result.Add('senderColor', string(Color));
+  AddSenderAvatar(Result, ARow.SenderUserId, ARow.SenderChatId);
 
   { A reply quote. ReplyPreview answers False when the quoted message
     is not loaded yet — it starts a getRepliedMessage of its own and
@@ -1657,6 +1769,9 @@ begin
   FInlineBots := TStringList.Create;
   MiniAppTgLink := @MiniAppLinkToPage;
   DeskNotifyOnClick := @DeskCardClick;
+  FAddReturn := -1;
+  FActiveHook := TWebActiveHook.Create(nil);
+  TdApp.SubscribeActive(FActiveHook);
   SetDeskNotifyCorner(TdDeskNotifyCorner);
   SetDeskNotifyLimit(TdDeskNotifyLimit);
   SetDeskNotifyFonts(TdDeskNotifyTitleFont, TdDeskNotifyTextFont);
@@ -1667,6 +1782,8 @@ var
   I: integer;
 begin
   DeskNotifyOnClick := nil;
+  TdApp.UnsubscribeActive(FActiveHook);
+  FreeAndNil(FActiveHook);
   FTimer.Enabled := False;
   FTimer.Free;
   FreeAndNil(FAuth);
@@ -1748,6 +1865,13 @@ begin
       FBoundGroups.OnChanged := @GroupsChanged;
     end;
   end;
+
+  if TdUserList <> FBoundUsers then begin
+    FBoundUsers := TdUserList;
+    if FBoundUsers <> nil then begin
+      FBoundUsers.OnChanged := @UsersChanged;
+    end;
+  end;
 end;
 
 { Unsubscribes, but only from objects that are still the current ones.
@@ -1772,6 +1896,234 @@ begin
     FBoundGroups.OnChanged := nil;
   end;
   FBoundGroups := nil;
+  if (FBoundUsers <> nil) and (FBoundUsers = TdUserList) then begin
+    FBoundUsers.OnChanged := nil;
+  end;
+  FBoundUsers := nil;
+end;
+
+{ Принадлежит ли модель какому-нибудь живому аккаунту. Модели
+  аккаунта, с которого переключились, живы и шлют свои изменения дальше;
+  модели удалённого — уже освобождены, трогать их нельзя. }
+function ModelAlive(AObj: TObject): boolean;
+var
+  I: integer;
+  A: TTdAccount;
+begin
+  Result := False;
+  if AObj = nil then begin
+    Exit;
+  end;
+  for I := 0 to TdApp.Count - 1 do begin
+    A := TdApp.Accounts[I];
+    if (TObject(A.Chats) = AObj) or (TObject(A.Messages) = AObj)
+       or (TObject(A.Stickers) = AObj) or (TObject(A.Supergroups) = AObj)
+       or (TObject(A.Users) = AObj) then begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+{ Отписка от моделей аккаунта, который перестал быть активным. Без неё
+  его списки чатов и сообщений продолжали дёргать мост и после
+  переключения: EnsureBindings подписывается на новые, но старые
+  отпустить не может — не знает, живы ли они. }
+procedure TWebApi.UnbindStale;
+begin
+  { Открытый чат прежнего аккаунта закрывается: его больше никто не
+    видит, а для TDLib открытый чат — тот, что на экране. }
+  if ModelAlive(FBoundMsgs) and (FBoundMsgs.ChatId <> 0) then begin
+    FBoundMsgs.CloseChat;
+  end;
+  if ModelAlive(FBoundChats) then begin
+    FBoundChats.RemoveChangeListener(@ChatsChanged);
+    FBoundChats.OnArrival := nil;
+  end;
+  FBoundChats := nil;
+  if ModelAlive(FBoundMsgs) then begin
+    FBoundMsgs.RemoveChangeListener(@MessagesChanged);
+  end;
+  FBoundMsgs := nil;
+  if ModelAlive(FBoundStickers) then begin
+    FBoundStickers.OnChanged := nil;
+  end;
+  FBoundStickers := nil;
+  if ModelAlive(FBoundGroups) then begin
+    FBoundGroups.OnChanged := nil;
+  end;
+  FBoundGroups := nil;
+  if ModelAlive(FBoundUsers) then begin
+    FBoundUsers.OnChanged := nil;
+  end;
+  FBoundUsers := nil;
+end;
+
+{ Сменился активный аккаунт. Модели — другие, снимки того, что видела
+  каждая страница, — от другого аккаунта: всё это сбрасывается, а
+  страницы перезагружаются по событию account (так их состояние
+  гарантированно не смешает двух аккаунтов). }
+procedure TWebApi.ActiveSwitched;
+var
+  I: integer;
+begin
+  UnbindStale;
+  EnsureBindings;
+  for I := 0 to FSnaps.Count - 1 do begin
+    FSnaps.Data[I].Free;
+  end;
+  FSnaps.Clear;
+  PushEvent('account', nil);
+end;
+
+procedure TWebActiveHook.TdActiveChanged(ANew: TTdAccount);
+begin
+  if GApi <> nil then begin
+    GApi.ActiveSwitched;
+  end;
+end;
+
+procedure TWebActiveHook.TdAccountsChanged;
+begin
+  if GApi <> nil then begin
+    GApi.PushEvent('accounts', nil);
+  end;
+end;
+
+{ Аватарка аккаунта data-URI из файла (см. ACCOUNT_AVATAR_MAX_BYTES);
+  нет файла или он велик — minithumbnail; нет и её — ''. }
+function AccountAvatarUri(A: TTdAccount): utf8string;
+var
+  F: TFileStream;
+  S: RawByteString;
+begin
+  Result := ThumbDataUri(A.PhotoThumb);
+  if (A.PhotoPath = '') or not FileExists(string(A.PhotoPath)) then begin
+    Exit;
+  end;
+  S := '';
+  try
+    F := TFileStream.Create(string(A.PhotoPath), fmOpenRead or fmShareDenyNone);
+    try
+      if (F.Size > 0) and (F.Size <= ACCOUNT_AVATAR_MAX_BYTES) then begin
+        SetLength(S, F.Size);
+        F.ReadBuffer(S[1], F.Size);
+      end;
+    finally
+      F.Free;
+    end;
+  except
+    S := '';
+  end;
+  if S <> '' then begin
+    Result := 'data:image/jpeg;base64,' + utf8string(EncodeStringBase64(string(S)));
+  end;
+end;
+
+{ accounts.list — переключатель аккаунтов в статусной строке: все
+  аккаунты реестра (имя из getMe, телефон, username, аватарка, вошёл ли,
+  непрочитанные чаты основного списка) и номер активного. }
+function TWebApi.CmdAccountsList: TJSONData;
+var
+  Res, O: TJSONObject;
+  Arr: TJSONArray;
+  I: integer;
+  A: TTdAccount;
+begin
+  Res := TJSONObject.Create;
+  Arr := TJSONArray.Create;
+  for I := 0 to TdApp.Count - 1 do begin
+    A := TdApp.Accounts[I];
+    O := TJSONObject.Create;
+    O.Add('index', I);
+    O.Add('title', A.Title);
+    O.Add('phone', string(A.Phone));
+    O.Add('username', string(A.Username));
+    O.Add('color', string(AccentKeyFor(-1, A.UserId)));
+    O.Add('avatar', string(AccountAvatarUri(A)));
+    O.Add('ready', A.State = tasReady);
+    if A.Chats <> nil then begin
+      O.Add('unread', A.Chats.MainInfo.UnreadChats);
+    end else begin
+      O.Add('unread', 0);
+    end;
+    Arr.Add(O);
+  end;
+  Res.Add('active', TdApp.ActiveIndex);
+  Res.Add('accounts', Arr);
+  Res.Add('canAdd', TdApp.Started);
+  Result := Res;
+end;
+
+function TWebApi.CmdAccountsSwitch(AArgs: TJSONObject): TJSONData;
+var
+  I: integer;
+begin
+  I := AArgs.Get('index', -1);
+  if (I < 0) or (I >= TdApp.Count) then begin
+    raise Exception.Create('unknown account');
+  end;
+  FAddReturn := -1;
+  TdApp.ActiveIndex := I;
+  Result := TJSONObject.Create;
+end;
+
+{ Новый аккаунт: в реестр, клиент TDLib запускается, аккаунт становится
+  активным — страница перезагрузится и покажет вход. Прежний активный
+  запоминается для accounts.cancel. }
+function TWebApi.CmdAccountsAdd: TJSONData;
+var
+  A: TTdAccount;
+  Back: integer;
+begin
+  if not TdApp.Started then begin
+    raise Exception.Create('Sign in to the first account before adding another');
+  end;
+  Back := TdApp.ActiveIndex;
+  A := TdApp.AddAccount('Account ' + IntToStr(TdApp.Count + 1));
+  TdApp.SaveAccounts;
+  A.Start;
+  FAddReturn := Back;
+  TdApp.ActiveIndex := TdApp.Count - 1;
+  Result := TJSONObject.Create;
+end;
+
+{ Отмена входа в аккаунт, который ещё не вошёл, когда есть другие:
+  назад к запомненному (или любому другому), а этот закрывается без
+  выхода из сессии и уходит из реестра (DiscardAccount). }
+function TWebApi.CmdAccountsCancel: TJSONData;
+var
+  A: TTdAccount;
+  Back, I: integer;
+begin
+  A := TdApp.Active;
+  if (A = nil) or (A.State = tasReady) or (TdApp.Count < 2) then begin
+    raise Exception.Create('Nothing to cancel');
+  end;
+  Back := FAddReturn;
+  FAddReturn := -1;
+  if (Back < 0) or (Back >= TdApp.Count) or (Back = TdApp.ActiveIndex) then begin
+    Back := -1;
+    for I := 0 to TdApp.Count - 1 do begin
+      if I <> TdApp.ActiveIndex then begin
+        Back := I;
+        Break;
+      end;
+    end;
+  end;
+  TdApp.ActiveIndex := Back;
+  TdApp.DiscardAccount(A);
+  Result := TJSONObject.Create;
+end;
+
+{ Выход из активного аккаунта. Как у Telegram: при других аккаунтах он
+  уходит из списка, последний остаётся и возвращается ко входу
+  (TTdCore.LogOut). }
+function TWebApi.CmdAccountsLogout: TJSONData;
+begin
+  FAddReturn := -1;
+  TdApp.LogOut;
+  Result := TJSONObject.Create;
 end;
 
 { How many connections' views are remembered. Two is the normal case
@@ -1977,6 +2329,11 @@ begin
   FGroupsDirty := True;
 end;
 
+procedure TWebApi.UsersChanged(Sender: TObject);
+begin
+  FUsersDirty := True;
+end;
+
 procedure TWebApi.AuthChanged(Sender: TObject);
 begin
   { Every transition to Ready, not just the first: each TDLib client
@@ -2093,8 +2450,9 @@ begin
   end;
   { Сменился чей-то статус в группе — страница перечитает список
     сообщений, а с ним и join (вступили — кнопка уходит). }
-  if FGroupsDirty then begin
+  if FGroupsDirty or FUsersDirty then begin
     FGroupsDirty := False;
+    FUsersDirty := False;
     MessagesChanged(nil);
   end;
 end;
@@ -3641,6 +3999,9 @@ begin
   { Drawn on the way out rather than kept: the link changes whenever
     TDLib renews it, and a stale square is worse than none. }
   O := TJSONObject(Result);
+  { Вход в аккаунт, добавленный к уже имеющимся, можно отменить
+    (accounts.cancel) — экран входа покажет для этого ссылку. }
+  O.Add('canCancel', TdApp.Count > 1);
   Link := utf8string(O.Get('qrLink', ''));
   if Link <> '' then begin
     O.Add('qrImage', string(QrDataUri(Link)));
@@ -4238,6 +4599,7 @@ var
   Slot: PtrInt;
   T: utf8string;
   Msgs: TTdMessages;
+  Res: TJSONObject;
 begin
   Slot := AResp.Tag;
   if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
@@ -4259,6 +4621,14 @@ begin
   end else if T = 'internalLinkTypeMessage' then begin
     Msgs.Request('getMessageLinkInfo',
       '"url":' + JsonStr(JGetStr(AResp.Obj, 'url')), @LinkMessageDone, Slot);
+  end else if T = 'internalLinkTypeInvoice' then begin
+    { Ссылка-счёт t.me/$имя (покупка звёзд и т.п.): странице — имя счёта,
+      дальше тот же путь, что у кнопки «Купить» (bot.buy/bot.pay с
+      invoiceName -> inputInvoiceName). }
+    Res := TJSONObject.Create;
+    Res.Add('invoice', string(JGetStr(AResp.Obj, 'invoice_name')));
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+    ReleaseDeferred(Slot);
   end else begin
     LinkExternal(Slot);
   end;
@@ -4944,7 +5314,7 @@ begin
   Slot := TakeDeferred(AConnId, AReqId, 0);
   FDeferred[Slot].Held := TJSONObject.Create;
   Msgs.Request('getUserProfilePhotos',
-    '"user_id":' + utf8string(IntToStr(AArgs.Get('userId', Int64(0)))) +
+    '"user_id":' + utf8string(IntToStr(ArgId(AArgs, 'userId'))) +
     ',"offset":0,"limit":' + utf8string(IntToStr(ACCOUNT_PHOTOS_MAX)),
     @AccountPhotosDone, Slot);
 end;
@@ -5005,9 +5375,21 @@ begin
           { Битое превью — без него. }
         end;
       end;
+      { «Скачан» — только если файл и правда на диске. После
+        optimizeStorage (tdstorage.pas: пустой file_types чистит и файлы
+        типа photo, а полноразмерные фото профиля — они) TDLib ещё
+        отдаёт is_downloading_completed с путём, которого нет:
+        проверено живьём, 9 из 10 файлов галереи. Такой файл — stale:
+        сначала deleteFile, чтобы TDLib забыл запись, потом докачка. }
+      Item.Add('stale', False);
+      Item.Add('animStale', False);
       Local := JGetObj(JGetObj(Best, 'photo'), 'local');
       if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
-        Item.Strings['url'] := string(FileUrl(Item.Integers['fileId'], JGetStr(Local, 'path')));
+        if FileExists(string(JGetStr(Local, 'path'))) then begin
+          Item.Strings['url'] := string(FileUrl(Item.Integers['fileId'], JGetStr(Local, 'path')));
+        end else begin
+          Item.Booleans['stale'] := True;
+        end;
       end;
       { Анимированная аватарка: chatPhoto.animation — animatedChatPhoto
         (length — сторона квадрата, file — MPEG4; td_api.tl). Качается
@@ -5020,8 +5402,12 @@ begin
         Item.Add('animSize', JGetInt(Anim, 'length'));
         Local := JGetObj(JGetObj(Anim, 'file'), 'local');
         if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
-          Item.Strings['animUrl'] := string(FileUrl(Item.Integers['animFileId'],
-            JGetStr(Local, 'path')));
+          if FileExists(string(JGetStr(Local, 'path'))) then begin
+            Item.Strings['animUrl'] := string(FileUrl(Item.Integers['animFileId'],
+              JGetStr(Local, 'path')));
+          end else begin
+            Item.Booleans['animStale'] := True;
+          end;
         end;
       end;
       Out.Add(Item);
@@ -5075,6 +5461,19 @@ begin
       FileId := Item.Integers['animFileId'];
     end;
     FDeferred[ASlot].Held.Strings['field'] := Field;
+    if ((Field = 'url') and Item.Booleans['stale'])
+       or ((Field = 'animUrl') and Item.Booleans['animStale']) then begin
+      { Запись устарела (файла нет) — сначала забыть её, докачка — в
+        AccountPhotoStaleDone. }
+      if Field = 'url' then begin
+        Item.Booleans['stale'] := False;
+      end else begin
+        Item.Booleans['animStale'] := False;
+      end;
+      RequireMsgs.Request('deleteFile', '"file_id":' + utf8string(IntToStr(FileId)),
+        @AccountPhotoStaleDone, ASlot);
+      Exit;
+    end;
     RequireMsgs.Request('downloadFile',
       '"file_id":' + utf8string(IntToStr(FileId)) +
       ',"priority":16,"offset":0,"limit":0,"synchronous":true',
@@ -5085,6 +5484,20 @@ begin
   Res.Add('photos', FDeferred[ASlot].Held.Extract('photos'));
   Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
   ReleaseDeferred(ASlot);
+end;
+
+{ deleteFile устаревшей записи прошёл (или нет — всё равно пробуем):
+  теперь та же докачка, что для нескачанного файла. }
+procedure TWebApi.AccountPhotoStaleDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  AccountPhotosNext(Slot);
 end;
 
 procedure TWebApi.AccountPhotoFileDone(Sender: TObject; const AResp: TTdResponse);
@@ -5107,7 +5520,8 @@ begin
     Item := TJSONObject(Arr.Items[I]);
     if AResp.Success then begin
       Local := JGetObj(AResp.Obj, 'local');
-      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed')
+         and FileExists(string(JGetStr(Local, 'path'))) then begin
         Item.Strings[Field] := string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
       end;
     end;
@@ -5131,7 +5545,7 @@ begin
   Result := True;
   Msgs := RequireMsgs;
   Msgs.Request('checkChatUsername',
-    '"chat_id":' + utf8string(IntToStr(AArgs.Get('userId', Int64(0)))) +
+    '"chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'userId'))) +
     ',"username":' + JsonStr(TrimU(AArgs.Get('username', utf8string('')))),
     @AccountUsernameDone, TakeDeferred(AConnId, AReqId, 0));
 end;
@@ -5315,6 +5729,80 @@ begin
   ReleaseDeferred(Slot);
 end;
 
+{ orderInfo TDLib -> странице (name, phone, email, address(...)); nil -> null. }
+function OrderInfoToPage(AInfo: TJSONObject): TJSONData;
+var
+  O, A, Addr: TJSONObject;
+begin
+  if AInfo = nil then begin
+    Result := TJSONNull.Create;
+    Exit;
+  end;
+  O := TJSONObject.Create;
+  O.Add('name', string(JGetStr(AInfo, 'name')));
+  O.Add('phone', string(JGetStr(AInfo, 'phone_number')));
+  O.Add('email', string(JGetStr(AInfo, 'email_address')));
+  Addr := JGetObj(AInfo, 'shipping_address');
+  if Addr <> nil then begin
+    A := TJSONObject.Create;
+    A.Add('countryCode', string(JGetStr(Addr, 'country_code')));
+    A.Add('state', string(JGetStr(Addr, 'state')));
+    A.Add('city', string(JGetStr(Addr, 'city')));
+    A.Add('street1', string(JGetStr(Addr, 'street_line1')));
+    A.Add('street2', string(JGetStr(Addr, 'street_line2')));
+    A.Add('postalCode', string(JGetStr(Addr, 'postal_code')));
+    O.Add('address', A);
+  end;
+  Result := O;
+end;
+
+{ Данные заказа со страницы -> JSON orderInfo для TDLib (через fpjson, с
+  экранированием); адрес — только если страница его прислала. }
+function OrderInfoFromPage(AOrder: TJSONObject): utf8string;
+var
+  O, A, Src: TJSONObject;
+begin
+  O := TJSONObject.Create;
+  try
+    O.Add('@type', 'orderInfo');
+    O.Add('name', AOrder.Get('name', ''));
+    O.Add('phone_number', AOrder.Get('phone', ''));
+    O.Add('email_address', AOrder.Get('email', ''));
+    if AOrder.Find('address') is TJSONObject then begin
+      Src := TJSONObject(AOrder.Find('address'));
+      A := TJSONObject.Create;
+      A.Add('@type', 'address');
+      A.Add('country_code', Src.Get('countryCode', ''));
+      A.Add('state', Src.Get('state', ''));
+      A.Add('city', Src.Get('city', ''));
+      A.Add('street_line1', Src.Get('street1', ''));
+      A.Add('street_line2', Src.Get('street2', ''));
+      A.Add('postal_code', Src.Get('postalCode', ''));
+      O.Add('shipping_address', A);
+    end;
+    Result := utf8string(O.AsJSON);
+  finally
+    O.Free;
+  end;
+end;
+
+{ Какой счёт оплачивается: по имени из ссылки t.me/$имя
+  (inputInvoiceName, args.invoiceName) или счёт-сообщение открытого чата
+  (inputInvoiceMessage, args.msgId). Поля — td_api.tl коммита d1085f9. }
+function InvoiceJson(AMsgs: TTdMessages; AArgs: TJSONObject): utf8string;
+var
+  Name: utf8string;
+begin
+  Name := AArgs.Get('invoiceName', utf8string(''));
+  if Name <> '' then begin
+    Result := '{"@type":"inputInvoiceName","name":' + JsonStr(Name) + '}';
+  end else begin
+    Result := '{"@type":"inputInvoiceMessage","chat_id":' +
+      utf8string(IntToStr(AMsgs.ChatId)) + ',"message_id":' +
+      utf8string(AArgs.Get('msgId', '0')) + '}';
+  end;
+end;
+
 { inlineKeyboardButtonTypeBuy: getPaymentForm(inputInvoiceMessage).
   paymentFormTypeStars (star_count) — странице цена и id формы, она
   спрашивает подтверждение и зовёт bot.pay; paymentFormTypeRegular с
@@ -5328,17 +5816,18 @@ begin
   Result := True;
   Msgs := RequireMsgs;
   Msgs.Request('getPaymentForm',
-    '"input_invoice":{"@type":"inputInvoiceMessage","chat_id":' +
-    utf8string(IntToStr(Msgs.ChatId)) + ',"message_id":' +
-    utf8string(AArgs.Get('msgId', '0')) + '},"theme":null',
+    '"input_invoice":' + InvoiceJson(Msgs, AArgs) + ',"theme":null',
     @BotBuyDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
 procedure TWebApi.BotBuyDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
-  Res, FormType, Provider: TJSONObject;
+  Res, FormType, Provider, Inv, Saved, Part, Need, Prov: TJSONObject;
+  Parts, SavedArr, PartsOut, SavedOut: TJSONArray;
   T: utf8string;
+  I: integer;
+  Total: Int64;
 begin
   Slot := AResp.Tag;
   if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
@@ -5359,11 +5848,76 @@ begin
     Res.Add('stars', JGetInt64(FormType, 'star_count'));
   end else if T = 'paymentFormTypeRegular' then begin
     Provider := JGetObj(FormType, 'payment_provider');
+    Inv := JGetObj(FormType, 'invoice');
     if JGetStr(Provider, '@type') = 'paymentProviderOther' then begin
       Res.Add('kind', 'url');
       Res.Add('url', string(JGetStr(Provider, 'url')));
     end else begin
-      Res.Add('kind', 'unsupported');
+      { Оплата картой (td_api.tl коммита d1085f9): что нужно спросить
+        (данные заказа — invoice.need_*, доставка — is_flexible), чем
+        платить (saved_credentials, need_password), куда токенизировать
+        новую карту (payment_provider). Сама карта уходит провайдеру со
+        страницы (ui/payments.js) — сюда приходит только токен. }
+      Res.Add('kind', 'card');
+      Res.Add('currency', string(JGetStr(Inv, 'currency')));
+      PartsOut := TJSONArray.Create;
+      Total := 0;
+      Parts := JGetArr(Inv, 'price_parts');
+      if Parts <> nil then begin
+        for I := 0 to Parts.Count - 1 do begin
+          if not (Parts.Items[I] is TJSONObject) then begin
+            Continue;
+          end;
+          Part := TJSONObject.Create;
+          Part.Add('label', string(JGetStr(TJSONObject(Parts.Items[I]), 'label')));
+          Part.Add('amount', JGetInt64(TJSONObject(Parts.Items[I]), 'amount'));
+          PartsOut.Add(Part);
+          Inc(Total, JGetInt64(TJSONObject(Parts.Items[I]), 'amount'));
+        end;
+      end;
+      Res.Add('amount', Total);
+      Res.Add('priceParts', PartsOut);
+      Res.Add('terms', string(JGetStr(Inv, 'terms_of_service_url')));
+      Res.Add('isTest', JGetBool(Inv, 'is_test'));
+      Need := TJSONObject.Create;
+      Need.Add('name', JGetBool(Inv, 'need_name'));
+      Need.Add('phone', JGetBool(Inv, 'need_phone_number'));
+      Need.Add('email', JGetBool(Inv, 'need_email_address'));
+      Need.Add('shipping', JGetBool(Inv, 'need_shipping_address'));
+      Need.Add('flexible', JGetBool(Inv, 'is_flexible'));
+      Res.Add('need', Need);
+      Res.Add('savedOrder', OrderInfoToPage(JGetObj(FormType, 'saved_order_info')));
+      SavedOut := TJSONArray.Create;
+      SavedArr := JGetArr(FormType, 'saved_credentials');
+      if SavedArr <> nil then begin
+        for I := 0 to SavedArr.Count - 1 do begin
+          if not (SavedArr.Items[I] is TJSONObject) then begin
+            Continue;
+          end;
+          Saved := TJSONObject.Create;
+          Saved.Add('id', string(JGetStr(TJSONObject(SavedArr.Items[I]), 'id')));
+          Saved.Add('title', string(JGetStr(TJSONObject(SavedArr.Items[I]), 'title')));
+          SavedOut.Add(Saved);
+        end;
+      end;
+      Res.Add('saved', SavedOut);
+      Res.Add('needPassword', JGetBool(FormType, 'need_password'));
+      Res.Add('canSave', JGetBool(FormType, 'can_save_credentials'));
+      Prov := TJSONObject.Create;
+      if JGetStr(Provider, '@type') = 'paymentProviderSmartGlocal' then begin
+        Prov.Add('type', 'smartglocal');
+        Prov.Add('publicToken', string(JGetStr(Provider, 'public_token')));
+        Prov.Add('tokenizeUrl', string(JGetStr(Provider, 'tokenize_url')));
+      end else if JGetStr(Provider, '@type') = 'paymentProviderStripe' then begin
+        Prov.Add('type', 'stripe');
+        Prov.Add('publishableKey', string(JGetStr(Provider, 'publishable_key')));
+        Prov.Add('needCountry', JGetBool(Provider, 'need_country'));
+        Prov.Add('needPostalCode', JGetBool(Provider, 'need_postal_code'));
+        Prov.Add('needCardholderName', JGetBool(Provider, 'need_cardholder_name'));
+      end else begin
+        Prov.Add('type', 'unsupported');
+      end;
+      Res.Add('provider', Prov);
     end;
   end else begin
     Res.Add('kind', 'unsupported');
@@ -5372,21 +5926,116 @@ begin
   ReleaseDeferred(Slot);
 end;
 
+{ bot.validateOrder — данные заказа (validateOrderInfo, td_api.tl коммита
+  d1085f9): order_info_id для sendPaymentForm и варианты доставки
+  гибкого счёта (сумма каждого — по price_parts). }
+function TWebApi.CmdBotValidateOrder(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Order: TJSONObject;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  if not (AArgs.Find('order') is TJSONObject) then begin
+    raise Exception.Create('bot.validateOrder needs order');
+  end;
+  Order := TJSONObject(AArgs.Find('order'));
+  Msgs.Request('validateOrderInfo',
+    '"input_invoice":' + InvoiceJson(Msgs, AArgs) +
+    ',"order_info":' + OrderInfoFromPage(Order) +
+    ',"allow_save":' + BoolJson(AArgs.Get('save', False)),
+    @BotValidateOrderDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.BotValidateOrderDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Opt, O: TJSONObject;
+  Arr, Out, Parts: TJSONArray;
+  I, J: integer;
+  Sum: Int64;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('orderInfoId', string(JGetStr(AResp.Obj, 'order_info_id')));
+  Out := TJSONArray.Create;
+  Arr := JGetArr(AResp.Obj, 'shipping_options');
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      Opt := TJSONObject(Arr.Items[I]);
+      Sum := 0;
+      Parts := JGetArr(Opt, 'price_parts');
+      if Parts <> nil then begin
+        for J := 0 to Parts.Count - 1 do begin
+          if Parts.Items[J] is TJSONObject then begin
+            Inc(Sum, JGetInt64(TJSONObject(Parts.Items[J]), 'amount'));
+          end;
+        end;
+      end;
+      O := TJSONObject.Create;
+      O.Add('id', string(JGetStr(Opt, 'id')));
+      O.Add('title', string(JGetStr(Opt, 'title')));
+      O.Add('amount', Sum);
+      Out.Add(O);
+    end;
+  end;
+  Res.Add('shipping', Out);
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ bot.tmpPassword — временный пароль для оплаты сохранённой картой
+  (createTemporaryPassword; пароль — облачный пароль аккаунта, его
+  вводит человек). }
+function TWebApi.CmdBotTmpPassword(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+begin
+  Result := True;
+  RequireMsgs.Request('createTemporaryPassword',
+    '"password":' + JsonStr(AArgs.Get('password', utf8string(''))) +
+    ',"valid_for":' + utf8string(IntToStr(PAYMENT_TMP_PASSWORD_SEC)),
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
 { Оплата звёздами — только после явного подтверждения на странице:
   sendPaymentForm, credentials null (так велит td_api.tl для Stars). }
 function TWebApi.CmdBotPay(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
   Msgs: TTdMessages;
+  Creds: utf8string;
 begin
   Result := True;
   Msgs := RequireMsgs;
+  { Звёзды — credentials null; сохранённая карта — inputCredentialsSaved;
+    новая — inputCredentialsNew с JSON-токеном провайдера (data). }
+  Creds := 'null';
+  if AArgs.Get('savedId', utf8string('')) <> '' then begin
+    Creds := '{"@type":"inputCredentialsSaved","saved_credentials_id":' +
+      JsonStr(AArgs.Get('savedId', utf8string(''))) + '}';
+  end else if AArgs.Get('newData', utf8string('')) <> '' then begin
+    Creds := '{"@type":"inputCredentialsNew","data":' +
+      JsonStr(AArgs.Get('newData', utf8string(''))) + ',"allow_save":' +
+      BoolJson(AArgs.Get('allowSave', False)) + '}';
+  end;
   Msgs.Request('sendPaymentForm',
-    '"input_invoice":{"@type":"inputInvoiceMessage","chat_id":' +
-    utf8string(IntToStr(Msgs.ChatId)) + ',"message_id":' +
-    utf8string(AArgs.Get('msgId', '0')) + '},"payment_form_id":' +
+    '"input_invoice":' + InvoiceJson(Msgs, AArgs) + ',"payment_form_id":' +
     utf8string(IntToStr(StrToInt64Def(AArgs.Get('formId', '0'), 0))) +
-    ',"order_info_id":"","shipping_option_id":"","credentials":null,"tip_amount":0',
+    ',"order_info_id":' + JsonStr(AArgs.Get('orderInfoId', utf8string(''))) +
+    ',"shipping_option_id":' + JsonStr(AArgs.Get('shippingOptionId', utf8string(''))) +
+    ',"credentials":' + Creds + ',"tip_amount":0',
     @BotPayDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
@@ -5726,6 +6375,172 @@ begin
   end;
   Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
   ReleaseDeferred(Slot);
+end;
+
+{ ------------------------------------------------------------------ }
+{ упоминания: подсказка при наборе «@»                               }
+{ ------------------------------------------------------------------ }
+
+{ mention.search (query) — кого предложить после «@» в поле ввода.
+  Чат — тот, куда пишет поле: открытый в модели (в ветке комментариев
+  это группа обсуждения, не канал со страницы). Группа — участники
+  searchChatMembers с chatMembersFilterMention (в ветке — её topic_id:
+  messageTopicThread); личка и прочее — контакты searchContacts; канал —
+  никого. Поля сверены с td_api.tl коммита d1085f9. }
+function TWebApi.CmdMentionSearch(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Slot: PtrInt;
+  Query, Topic: utf8string;
+  Q: TJSONString;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Chats := RequireChats;
+  Q := TJSONString.Create(AArgs.Get('query', ''));
+  try
+    Query := utf8string(Q.AsJSON);
+  finally
+    Q.Free;
+  end;
+  Row := Chats.Lookup(Msgs.ChatId);
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  if (Row <> nil) and (Row.Kind = ckChannel) then begin
+    MentionReply(Slot, []);
+    Exit;
+  end;
+  if (Row <> nil) and (Row.Kind in [ckBasicGroup, ckSupergroup]) then begin
+    Topic := '';
+    if Msgs.ThreadId <> 0 then begin
+      Topic := '"topic_id":{"@type":"messageTopicThread","message_thread_id":'
+        + utf8string(IntToStr(Msgs.ThreadId)) + '}';
+    end;
+    Msgs.Request('searchChatMembers',
+      '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) + ',"query":' + Query +
+      ',"limit":' + utf8string(IntToStr(MENTION_SUGGEST_LIMIT)) +
+      ',"filter":{"@type":"chatMembersFilterMention"' +
+      BoolToStr(Topic <> '', ',' + string(Topic), '') + '}',
+      @MentionMembersDone, Slot);
+  end else begin
+    Msgs.Request('searchContacts',
+      '"query":' + Query + ',"limit":' + utf8string(IntToStr(MENTION_SUGGEST_LIMIT)),
+      @MentionContactsDone, Slot);
+  end;
+end;
+
+procedure TWebApi.MentionMembersDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr: TJSONArray;
+  M, Who: TJSONObject;
+  Ids: array of Int64;
+  I, N: integer;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Ids := nil;
+  Arr := JGetArr(AResp.Obj, 'members');
+  if Arr <> nil then begin
+    SetLength(Ids, Arr.Count);
+    N := 0;
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      M := TJSONObject(Arr.Items[I]);
+      Who := JGetObj(M, 'member_id');
+      if JGetStr(Who, '@type') <> 'messageSenderUser' then begin
+        Continue;
+      end;
+      Ids[N] := JGetInt64(Who, 'user_id');
+      Inc(N);
+    end;
+    SetLength(Ids, N);
+  end;
+  MentionReply(Slot, Ids);
+end;
+
+procedure TWebApi.MentionContactsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr: TJSONArray;
+  Ids: array of Int64;
+  I: integer;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Ids := nil;
+  Arr := JGetArr(AResp.Obj, 'user_ids');
+  if Arr <> nil then begin
+    SetLength(Ids, Arr.Count);
+    for I := 0 to Arr.Count - 1 do begin
+      Ids[I] := Arr.Items[I].AsInt64;
+    end;
+  end;
+  MentionReply(Slot, Ids);
+end;
+
+{ Люди по id — из модели пользователей (TDLib присылает updateUser до
+  ответа поиска): имя, username, цвет, аватарка (на диске — адрес, нет —
+  minithumbnail и докачка). Себя не предлагаем. }
+procedure TWebApi.MentionReply(ASlot: PtrInt; const AIds: array of Int64);
+var
+  Res, O: TJSONObject;
+  Out: TJSONArray;
+  Users: TTdUsers;
+  U: TUserRow;
+  I: integer;
+  Me: Int64;
+begin
+  Out := TJSONArray.Create;
+  Users := TdUserList;
+  Me := 0;
+  if TdApp.Active <> nil then begin
+    Me := TdApp.Active.UserId;
+  end;
+  for I := 0 to High(AIds) do begin
+    if (AIds[I] = 0) or (AIds[I] = Me) then begin
+      Continue;
+    end;
+    O := TJSONObject.Create;
+    O.Add('userId', string(IntToStr(AIds[I])));
+    O.Add('name', '');
+    O.Add('username', '');
+    O.Add('color', string(AccentKeyFor(-1, AIds[I])));
+    O.Add('avatar', '');
+    O.Add('avatarThumb', '');
+    if Users <> nil then begin
+      U := Users.Find(AIds[I]);
+      if U <> nil then begin
+        if U.Deleted then begin
+          O.Free;
+          Continue;
+        end;
+        O.Strings['name'] := string(U.DisplayName);
+        O.Strings['username'] := string(U.Username);
+        O.Strings['color'] := string(AccentKeyFor(U.AccentColorId, AIds[I]));
+        if U.PhotoPath <> '' then begin
+          O.Strings['avatar'] := string(FileUrl(U.PhotoFileId, U.PhotoPath));
+        end else begin
+          Users.EnsurePhoto(U);
+          O.Strings['avatarThumb'] := string(ThumbDataUri(U.Minithumb));
+        end;
+      end else begin
+        O.Strings['name'] := string(Users.DisplayName(AIds[I]));
+      end;
+    end;
+    Out.Add(O);
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('items', Out);
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  ReleaseDeferred(ASlot);
 end;
 
 { ------------------------------------------------------------------ }
@@ -7104,6 +7919,30 @@ begin
   ReleaseDeferred(ASlot);
 end;
 
+{ message.forward (id, toChatId) — пересылка из открытого чата:
+  forwardMessages (td_api.tl коммита d1085f9) без topic_id и options,
+  обычной пересылкой (send_copy false), с подписью. }
+function TWebApi.CmdMessageForward(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Id, ToChat: Int64;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Id := ArgId(AArgs, 'id');
+  ToChat := ArgId(AArgs, 'toChatId');
+  if (Id = 0) or (ToChat = 0) or (Msgs.ChatId = 0) then begin
+    raise Exception.Create('message.forward needs a message and a chat');
+  end;
+  Msgs.Request('forwardMessages',
+    '"chat_id":' + utf8string(IntToStr(ToChat)) +
+    ',"from_chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"message_ids":[' + utf8string(IntToStr(Id)) + ']' +
+    ',"send_copy":false,"remove_caption":false',
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
 { Кнопка «пользователь»: личка с ним (createPrivateChat), чтобы её открыть. }
 function TWebApi.CmdBotUserChat(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
@@ -7620,6 +8459,18 @@ begin
         Reply(AConnId, ReqId, CmdApiConfig);
       end else if Cmd = 'api.save' then begin
         Reply(AConnId, ReqId, CmdApiSave(Args));
+      { Аккаунты — до моделей: отмена добавления и выход работают и
+        тогда, когда активный аккаунт ещё не вошёл. }
+      end else if Cmd = 'accounts.list' then begin
+        Reply(AConnId, ReqId, CmdAccountsList);
+      end else if Cmd = 'accounts.switch' then begin
+        Reply(AConnId, ReqId, CmdAccountsSwitch(Args));
+      end else if Cmd = 'accounts.add' then begin
+        Reply(AConnId, ReqId, CmdAccountsAdd);
+      end else if Cmd = 'accounts.cancel' then begin
+        Reply(AConnId, ReqId, CmdAccountsCancel);
+      end else if Cmd = 'accounts.logout' then begin
+        Reply(AConnId, ReqId, CmdAccountsLogout);
       end else if Cmd = 'ping' then begin
         { Deliberately trivial, and deliberately kept: it is the one
           command that proves the whole path — socket thread, queue,
@@ -7701,6 +8552,8 @@ begin
       end else if Cmd = 'message.menu' then begin
         { Answers later, from the TDLib callback - see TDeferredReply. }
         CmdMessageMenu(AConnId, ReqId, Args);
+      end else if Cmd = 'message.forward' then begin
+        CmdMessageForward(AConnId, ReqId, Args);
       end else if Cmd = 'message.link' then begin
         CmdMessageLink(AConnId, ReqId, Args);
       end else if Cmd = 'message.people' then begin
@@ -7720,6 +8573,10 @@ begin
         CmdBotLoginUrlConfirm(AConnId, ReqId, Args);
       end else if Cmd = 'bot.buy' then begin
         CmdBotBuy(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.validateOrder' then begin
+        CmdBotValidateOrder(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.tmpPassword' then begin
+        CmdBotTmpPassword(AConnId, ReqId, Args);
       end else if Cmd = 'bot.pay' then begin
         CmdBotPay(AConnId, ReqId, Args);
       end else if Cmd = 'bot.sendLocation' then begin
@@ -7754,6 +8611,8 @@ begin
         CmdChatGreeting(AConnId, ReqId, Args);
       end else if Cmd = 'greeting.send' then begin
         Reply(AConnId, ReqId, CmdGreetingSend(Args));
+      end else if Cmd = 'mention.search' then begin
+        CmdMentionSearch(AConnId, ReqId, Args);
       end else if Cmd = 'contacts.list' then begin
         CmdContactsList(AConnId, ReqId);
       end else if Cmd = 'attach.bots' then begin

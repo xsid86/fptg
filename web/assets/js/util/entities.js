@@ -1,4 +1,5 @@
 import { el } from '../core/dom.js';
+import { emit } from '../core/bus.js';
 import { customEmojiNode } from './emoji.js';
 import { icon } from './icons.js';
 import { highlight } from './highlight.js';
@@ -204,6 +205,29 @@ function wrap(piece, covering, from, to) {
       href: safeHref(href),
       target: '_blank',
       rel: 'noopener noreferrer',
+    }, node);
+    return node;
+  }
+
+  // Упоминания. @username — ссылка t.me: её перехватывает ui/links.js и
+  // открывает человека или чат здесь же. Без username (mentionName) —
+  // личка с человеком по id (ui:open-contact).
+  const mention = covering.find((e) => e.kind === 'mention' || e.kind === 'mentionName');
+  if (mention?.kind === 'mention' && /^@?[A-Za-z0-9_]{3,32}$/.test(piece)) {
+    node = el('a', {
+      class: 'mention',
+      href: `https://t.me/${piece.replace(/^@/, '')}`,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+    }, node);
+  } else if (mention?.kind === 'mentionName' && mention.userId) {
+    node = el('a', {
+      class: 'mention',
+      href: '#',
+      onclick: (event) => {
+        event.preventDefault();
+        emit('ui:open-contact', { userId: mention.userId });
+      },
     }, node);
   }
   return node;

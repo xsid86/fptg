@@ -10,6 +10,11 @@
 
 .status-bar__spacer { flex: 1 1 auto; }
 
+// «transport check» и под ним состояние соединения.
+.status-bar__transport {
+  @include flex(column, flex-start, center, $space-1);
+}
+
 .status-bar__item {
   @include flex(row, center, flex-start, $space-2);
   font-variant-numeric: tabular-nums;
@@ -18,6 +23,44 @@
 // The presence switch, next to the connection dot: both answer "what
 // is this client doing right now", and the native window keeps them in
 // the same corner for the same reason.
+// Переключатель аккаунтов: аватарка и имя активного; точка — есть
+// непрочитанное в других аккаунтах.
+.status-bar__account {
+  @include flex(row, center, flex-start, $space-2);
+  background: none;
+  border: 0;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  font: inherit;
+  max-width: 220px;
+  min-width: 0;
+  padding: 0 $space-2;
+  position: relative;
+
+  &:hover { color: var(--c-text); }
+  &:focus-visible { @include focus-ring(var(--c-accent), -2px); }
+  &[hidden] { display: none; }
+}
+
+.status-bar__account-avatar {
+  --avatar-color: var(--accent-color);
+  @include size(18px);
+  flex: 0 0 auto;
+  font-size: 9px;
+}
+
+.status-bar__account-name {
+  @include ellipsis;
+}
+
+// Тот же размер, что у точек соединения и «Online» (.conn__dot).
+.status-bar__account-dot {
+  @include size(8px);
+  background: var(--c-accent);
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
 .status-bar__presence {
   @include flex(row, center, flex-start, $space-2);
   background: none;

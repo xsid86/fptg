@@ -1,4 +1,4 @@
-import { qs } from './core/dom.js';
+import { qs, qsa } from './core/dom.js';
 import { on, emit } from './core/bus.js';
 import { connect, call } from './core/net.js';
 import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat, activeOffList } from './core/store.js';
@@ -16,6 +16,7 @@ import {
   htmlMode, canCompose, takeReply, customEmojiMarkup,
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
+import { mountPayments } from './ui/payments.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
@@ -442,32 +443,36 @@ function loadContacts() {
 
 function setContactsMode(on) {
   contactsOn = on;
-  // Кнопка ведёт туда, где нас нет: в контактах — «Chats», в чатах —
-  // «Contacts».
-  const btn = qs('#chats-contacts');
-  btn.textContent = on ? 'Chats' : 'Contacts';
-  btn.title = on ? 'Back to chats' : 'Show contacts';
-  qs('.sidebar__title').textContent = on ? 'Contacts' : 'Chats';
   contactsTries = 0;
   clearTimeout(contactsTimer);
   if (on) loadContacts();
   else hideContacts();
 }
 
+/**
+ * Вкладка списка слева: 'chats', 'archive' или 'contacts'. Активная
+ * подсвечена (is-active); архив и контакты — одно из двух.
+ */
+function setSidebarView(view) {
+  for (const tab of qsa('.sidebar__tab')) {
+    const on = tab.dataset.view === view;
+    tab.classList.toggle('is-active', on);
+    tab.setAttribute('aria-selected', String(on));
+  }
+  if (view === 'contacts') {
+    if (store.archived) setArchived(false);
+    if (!contactsOn) setContactsMode(true);
+    return;
+  }
+  if (contactsOn) setContactsMode(false);
+  const archived = view === 'archive';
+  if (store.archived !== archived) setArchived(archived);
+}
+
 function wireSidebar() {
-  qs('#chats-archived').addEventListener('change', (event) => {
-    // Архив и контакты — один из двух.
-    if (event.target.checked && contactsOn) setContactsMode(false);
-    setArchived(event.target.checked);
-  });
-  qs('#chats-contacts').addEventListener('click', () => {
-    const on = !contactsOn;
-    if (on && qs('#chats-archived').checked) {
-      qs('#chats-archived').checked = false;
-      setArchived(false);
-    }
-    setContactsMode(on);
-  });
+  for (const tab of qsa('.sidebar__tab')) {
+    tab.addEventListener('click', () => setSidebarView(tab.dataset.view));
+  }
   on('srv:chats', () => {
     if (contactsOn && Date.now() - contactsAsked > CONTACTS_REFRESH_MS) loadContacts();
   });
@@ -476,7 +481,7 @@ function wireSidebar() {
   on('ui:open-contact', ({ userId }) => {
     call('bot.userChat', { userId })
       .then((r) => {
-        setContactsMode(false);
+        setSidebarView('chats');
         if (r?.chatId) setActiveChat(r.chatId);
       })
       .catch(report);
@@ -519,6 +524,7 @@ async function boot() {
     reply: replyTo,
     edit: editMessage,
     report,
+    notice,
   });
   mountAuth(qs('#auth'), {
     send: (cmd, args) => call(cmd, args)
@@ -567,6 +573,8 @@ async function boot() {
   mountGreeting({ call: (cmd, args) => call(cmd, args), report });
   // Панель информации о чате — кнопка «i» в углу истории.
   mountInfoPanel(qs('.workspace__history'), { call: (cmd, args) => call(cmd, args), report, notice });
+  // Оплата счетов: кнопки «Купить» и ссылки t.me/$имя (ui:pay-invoice).
+  mountPayments({ call: (cmd, args) => call(cmd, args), report, notice });
   // «Add contact» на карточке контакта в истории — то же окно, что в панели.
   on('ui:add-contact', (args) => { addContactDialog(args); });
   mountAttachMenu(qs('#composer'), {

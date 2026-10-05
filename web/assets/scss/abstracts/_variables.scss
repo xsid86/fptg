@@ -63,6 +63,8 @@ $radius-pill: 999px;
 
 // -------------------------------------------------------------- sizes
 $avatar-sm: 24px;
+// Аватарка отправителя в шапке сообщения (ui/message.js renderHead).
+$message-avatar-size: 18px;
 $avatar-md: 32px;   // native: AVATAR_SIZE
 $avatar-lg: 64px;   // native: CHAT_HEADER_AVATAR_SIZE / 64 there, 48 reads better here
 

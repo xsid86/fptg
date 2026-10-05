@@ -2,6 +2,9 @@ import { qs, clear, el } from '../core/dom.js';
 import { on } from '../core/bus.js';
 import { call } from '../core/net.js';
 import { store } from '../core/store.js';
+import { fillAvatar } from '../util/avatar.js';
+import { openMenu } from '../util/menu.js';
+import { formDialog } from './bots.js';
 
 // Connection state and a couple of counters. Deliberately the only
 // place that reports the socket: a status that appears in two places
@@ -80,13 +83,108 @@ function renderCounts() {
   );
 }
 
+// ---------------------------------------------------------- accounts
+// Переключатель аккаунтов — между состоянием соединения и видимостью.
+// Список и активный аккаунт держит сервер (accounts.list, реестр tdcore);
+// смена активного приходит событием account, и страница перезагружается:
+// у другого аккаунта другие чаты, история, снимки — смешать их нельзя, а
+// чистый старт гарантирует это проще всего.
+let accountBtn = null;
+let accounts = { active: 0, accounts: [], canAdd: false };
+
+function accountAvatar(a, cls) {
+  const box = el('span', { class: `avatar ${cls} accent-${a.color || 'a5'}` });
+  fillAvatar(box, { title: a.title || '?', avatar: a.avatar || '' });
+  return box;
+}
+
+function renderAccountButton() {
+  const a = accounts.accounts.find((x) => x.index === accounts.active);
+  if (!a) {
+    accountBtn.hidden = true;
+    return;
+  }
+  accountBtn.hidden = false;
+  accountBtn.title = accounts.accounts.length > 1 ? 'Switch account' : 'Account';
+  clear(accountBtn).append(
+    accountAvatar(a, 'status-bar__account-avatar'),
+    el('span', { class: 'status-bar__account-name' }, a.title || 'Account'),
+    // Непрочитанное в ДРУГИХ аккаунтах — точкой: по своему счётчик рядом.
+    accounts.accounts.some((x) => x.index !== accounts.active && x.unread > 0)
+      ? el('span', { class: 'status-bar__account-dot', title: 'Unread messages in other accounts' })
+      : null,
+  );
+}
+
+async function loadAccounts() {
+  try {
+    accounts = await call('accounts.list');
+  } catch {
+    return;                       // the connection will say so itself
+  }
+  renderAccountButton();
+}
+
+async function accountCall(cmd, args) {
+  try {
+    await call(cmd, args);
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+function accountRow(a) {
+  const sub = !a.ready
+    ? 'Not signed in'
+    : (a.username ? `@${a.username}` : (a.phone ? `+${a.phone}` : ''));
+  return el('span', { class: 'account-row' },
+    accountAvatar(a, 'account-row__avatar'),
+    el('span', { class: 'account-row__text' },
+      el('span', { class: 'account-row__name' }, a.title || 'Account'),
+      sub ? el('span', { class: 'account-row__sub' }, sub) : null),
+    a.unread > 0 ? el('span', { class: 'account-row__unread' }, String(a.unread)) : null);
+}
+
+function openAccounts() {
+  const items = accounts.accounts.map((a) => ({
+    node: accountRow(a),
+    className: 'menu__item--account',
+    checked: a.index === accounts.active,
+    onSelect: () => {
+      if (a.index !== accounts.active) accountCall('accounts.switch', { index: a.index });
+    },
+  }));
+  items.push('-');
+  items.push({
+    label: 'Add account', disabled: !accounts.canAdd,
+    onSelect: () => accountCall('accounts.add'),
+  });
+  items.push({
+    label: 'Log out',
+    onSelect: async () => {
+      const a = accounts.accounts.find((x) => x.index === accounts.active);
+      const more = accounts.accounts.length > 1;
+      const yes = await formDialog({
+        text: more
+          ? `Log out of ${a?.title || 'this account'}? It will be removed from the list.`
+          : `Log out of ${a?.title || 'this account'}?`,
+        ok: 'Log out',
+      });
+      if (yes) accountCall('accounts.logout');
+    },
+  });
+  openMenu(accountBtn, items);
+}
+
 let errorTimer = null;
 
 function showError(message) {
-  let slot = qs('.status-bar__error', conn.parentElement);
+  // После переключателя видимости, а не после индикатора соединения:
+  // тот живёт в узкой колонке под «transport check».
+  let slot = qs('.status-bar__error', presence.parentElement);
   if (!slot) {
     slot = el('span', { class: 'status-bar__error' });
-    conn.after(slot);
+    presence.after(slot);
   }
   slot.textContent = message;
   // Cleared after a while rather than left standing: a stale failure
@@ -100,12 +198,21 @@ export function mountStatusBar(node) {
   counts = qs('.status-bar__counts', node);
   presence = qs('.status-bar__presence', node);
   presence.addEventListener('click', togglePresence);
+  accountBtn = qs('.status-bar__account', node);
+  accountBtn.hidden = true;
+  accountBtn.addEventListener('click', () => openAccounts());
+  on('srv:accounts', () => loadAccounts());
+  // Активный аккаунт сменился (здесь, в другом окне или после выхода).
+  on('srv:account', () => window.location.reload());
   on('net:status', (status) => {
     renderStatus(status);
     // Asked again on every connect, not once at start-up: another page
     // - or the native window - may have flipped it while this one was
     // away, and the server is the one that knows.
-    if (status === 'open') loadPresence();
+    if (status === 'open') {
+      loadPresence();
+      loadAccounts();
+    }
   });
   on('srv:presence', (data) => {
     invisible = !!data?.invisible;

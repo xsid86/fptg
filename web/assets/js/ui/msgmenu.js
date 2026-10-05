@@ -5,6 +5,8 @@ import { openMenu, closeMenu } from '../util/menu.js';
 import { copyText } from '../util/clipboard.js';
 import { openEmojiPicker } from './picker.js';
 import { store } from '../core/store.js';
+import { emit } from '../core/bus.js';
+import { pickChats, formDialog } from './bots.js';
 
 // The right-click menu on a message, and the row of reactions above it.
 //
@@ -25,7 +27,7 @@ import { store } from '../core/store.js';
 
 let hooks = {};
 
-/** hooks: { load(cmd,args), act(cmd,args), reply(msg), edit(msg), report(err) } */
+/** hooks: { load(cmd,args), act(cmd,args), reply(msg), edit(msg), report(err), notice(text) } */
 export function mountMessageMenu(options) {
   hooks = options ?? {};
 }
@@ -119,7 +121,57 @@ async function copyLink(msg) {
   }
 }
 
+/**
+ * Выделенный текст, если выделение лежит в этом сообщении. Берётся ДО
+ * запроса message.menu: пока он идёт, выделение ещё то, что видел
+ * человек, когда нажимал правую кнопку.
+ */
+function selectionIn(node) {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) return '';
+  if (!node.contains(sel.anchorNode) && !node.contains(sel.focusNode)) return '';
+  return sel.toString();
+}
+
+// Сколько чатов можно выбрать для пересылки за раз.
+const FORWARD_MAX = 10;
+
+async function forward(msg) {
+  const picked = await pickChats({
+    title: 'Forward to', candidates: store.chats, max: FORWARD_MAX,
+  });
+  if (!picked?.length) return;
+  let sent = 0;
+  for (const chat of picked) {
+    try {
+      await hooks.load('message.forward', { id: String(msg.id), toChatId: String(chat.id) });
+      sent += 1;
+    } catch (err) {
+      hooks.report?.(err);
+    }
+  }
+  if (sent) hooks.notice?.(sent === 1 ? 'Message forwarded' : `Forwarded to ${sent} chats`);
+}
+
+async function blockSender(msg) {
+  const name = msg.senderName || 'this user';
+  const yes = await formDialog({
+    text: `Block ${name}? They will not be able to message you.`,
+    ok: 'Block',
+  });
+  if (!yes) return;
+  try {
+    await hooks.load('info.action', { action: 'user.block', userId: String(msg.senderId), block: true });
+    hooks.notice?.(`${name} is blocked`);
+  } catch (err) {
+    hooks.report?.(err);
+  }
+}
+
 export async function openMessageMenu(anchor, msg, at) {
+  const selected = selectionIn(anchor);
+  // Отправитель — человек (id чатов отрицательные) и не мы сами.
+  const person = !msg.outgoing && Number(msg.senderId) > 0;
   let info;
   try {
     info = await hooks.load('message.menu', { id: String(msg.id) });
@@ -150,6 +202,12 @@ export async function openMessageMenu(anchor, msg, at) {
         { id: String(msg.id), unpin: Boolean(msg.isPinned) }),
     });
   }
+  if (info.canForward) {
+    items.push({ label: 'Forward…', onSelect: () => forward(msg) });
+  }
+  if (selected) {
+    items.push({ label: 'Copy selected text', onSelect: () => copyText(selected) });
+  }
   if (msg.text) {
     items.push({ label: 'Copy text', onSelect: () => copyText(msg.text) });
   }
@@ -171,6 +229,15 @@ export async function openMessageMenu(anchor, msg, at) {
         a.remove();
       },
     });
+  }
+
+  if (person) {
+    if (items.length) items.push('-');
+    items.push({
+      label: 'Contact info',
+      onSelect: () => emit('ui:contact-info', { userId: String(msg.senderId) }),
+    });
+    items.push({ label: 'Block user', onSelect: () => blockSender(msg) });
   }
 
   if (info.canDeleteSelf || info.canDeleteAll) {

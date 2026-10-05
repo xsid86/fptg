@@ -114,7 +114,16 @@ function onSearchKey(e) {
 }
 
 function build() {
-  const avatar = el('span', { class: 'avatar avatar--lg chat-header__avatar' });
+  // Клик — галерея аватарок собеседника; у группы и канала — панель
+  // информации (ui/infopanel.js, ui:chat-photos).
+  const avatar = el('span', {
+    class: 'avatar avatar--lg chat-header__avatar',
+    role: 'button', tabindex: '0', title: 'Photos',
+    onclick: () => emit('ui:chat-photos'),
+    onkeydown: (event) => {
+      if (event.key === 'Enter') emit('ui:chat-photos');
+    },
+  });
   // One button, two jobs: on a narrow screen it goes back to the chat
   // list (the .app[data-view] switch in main.js), and in a comment
   // thread it leaves the thread. Hidden on a wide screen unless a

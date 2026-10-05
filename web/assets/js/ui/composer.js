@@ -1,6 +1,7 @@
 import { qs, qsa, el } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
 import { store, onActiveChat, openThread, chatJoin } from '../core/store.js';
+import { mountMentions, closeMentions } from './mentions.js';
 
 // The message box, and the same formatting toolbar msginput.pas has.
 //
@@ -146,6 +147,8 @@ export function editMessage(msg) {
 }
 
 function updateEnabled(chat) {
+  // Другой чат или ветка — подсказка упоминаний прежнего ни к чему.
+  closeMentions();
   // In a comment thread the row to ask is the discussion group's, and
   // there may not be one - see openThread. Commenting on a channel
   // post does not require joining the group, so the thread's own
@@ -356,6 +359,7 @@ function send() {
   }
   pending = null;
   drawBanner();
+  closeMentions();
   input.value = '';
   input.focus();
 }
@@ -390,6 +394,9 @@ export function mountComposer(node) {
   silentBox = qs('#composer-silent', box);
   banner = qs('.composer__banner', box);
 
+  // Подсказка «@имя» (ui/mentions.js). До обработчика Enter ниже не
+  // важно: она слушает в фазе перехвата.
+  mountMentions(input, { enabled: () => canSend, isHtml });
   sendBtn.addEventListener('click', send);
   qs('.composer__banner-cancel', banner)?.addEventListener('click', cancelPending);
   // Файлы из буфера обмена (снимок экрана, скопированный в проводнике

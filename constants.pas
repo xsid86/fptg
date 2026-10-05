@@ -1371,6 +1371,17 @@ const
     сторона, с которой размер фото уже годится в превью плитки —
     первый photoSize не меньше этого по длинной стороне (тип «m»). }
   MEDIA_GRID_PAGE = 60;
+  { Временный пароль для оплаты сохранённой картой (createTemporaryPassword
+    valid_for; td_api.tl: от 60 до 86400 секунд). }
+  PAYMENT_TMP_PASSWORD_SEC = 1800;
+  { Подсказка упоминаний в поле ввода (mention.search): сколько людей
+    просить у searchChatMembers / searchContacts. }
+  MENTION_SUGGEST_LIMIT = 20;
+  { Аватарка аккаунта в переключателе (accounts.list) уходит data-URI
+    прямо из файла small-фото: id файлов у каждого клиента TDLib свои, а
+    /media/<id> — одна таблица на всех, и аватарка неактивного аккаунта
+    могла бы занять id чужого файла. Больше этого — только minithumbnail. }
+  ACCOUNT_AVATAR_MAX_BYTES = 65536;
   MEDIA_GRID_THUMB_SIDE = 320;
   { То же для картинки строки ссылки — она мелкая (тип «s»). }
   MEDIA_LINK_THUMB_SIDE = 100;

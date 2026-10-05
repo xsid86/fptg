@@ -175,7 +175,7 @@ export function openMenu(anchor, items, options = {}) {
       continue;
     }
     node.append(el('button', {
-      class: `menu__item${item.checked ? ' is-checked' : ''}`,
+      class: `menu__item${item.checked ? ' is-checked' : ''}${item.className ? ` ${item.className}` : ''}`,
       type: 'button',
       role: 'menuitem',
       disabled: item.disabled === true,
@@ -185,7 +185,9 @@ export function openMenu(anchor, items, options = {}) {
       },
     },
     el('span', { class: 'menu__mark', 'aria-hidden': 'true' }),
-    el('span', { class: 'menu__label', textContent: item.label })));
+    // item.node — своё содержимое вместо подписи (строка аккаунта с
+    // аватаркой в переключателе, ui/status-bar.js).
+    item.node ?? el('span', { class: 'menu__label', textContent: item.label })));
   }
 
   document.body.append(node);

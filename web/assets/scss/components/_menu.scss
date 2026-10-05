@@ -57,6 +57,57 @@
   @include ellipsis;
 }
 
+// Строка аккаунта в переключателе (ui/status-bar.js): аватарка, имя и
+// username или телефон, справа непрочитанные чаты.
+.menu__item--account {
+  padding-bottom: $space-2;
+  padding-top: $space-2;
+}
+
+.account-row {
+  @include flex(row, center, flex-start, $space-3);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.account-row__avatar {
+  --avatar-color: var(--accent-color);
+  @include size(28px);
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+}
+
+.account-row__text {
+  @include flex(column, stretch, flex-start, 0);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.account-row__name {
+  @include ellipsis;
+  font-weight: $fw-medium;
+}
+
+.account-row__sub {
+  @include ellipsis;
+  font-size: $fs-xs;
+  opacity: 0.7;
+}
+
+.account-row__unread {
+  background: var(--c-accent);
+  border-radius: $radius-pill;
+  color: var(--c-light);
+  flex: 0 0 auto;
+  font-size: $fs-xs;
+  padding: 0 $space-2;
+
+  .menu__item:hover & {
+    background: var(--c-light);
+    color: var(--c-accent);
+  }
+}
+
 // The check column is always present, even on unmarked items, so the
 // labels line up instead of shifting when one entry gains a mark.
 .menu__mark {

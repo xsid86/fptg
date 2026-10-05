@@ -259,6 +259,12 @@ export function showAuth(info) {
     const draw = SCREENS[state];
     root.append(el('div', { class: 'auth__backdrop' },
       draw ? draw(info) : screenWaiting(state)));
+    // Аккаунт добавлен к уже имеющимся — вход можно отменить и вернуться
+    // к прежнему (accounts.cancel).
+    if (info?.canCancel && state !== 'apiConfig') {
+      qs('.auth__card', root)?.append(
+        link('Cancel and go back to the other account', () => hooks.send('accounts.cancel')));
+    }
   }
   current = info;
 
