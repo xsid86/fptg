@@ -16469,7 +16469,16 @@ const ShapeExpressionInterface = (function () {
     var _propertyGroup = propertyGroupFactory(interfaceFunction, propertyGroup);
     var _dashPropertyGroup = propertyGroupFactory(dashOb, _propertyGroup);
     function addPropertyToDashOb(i) {
-      Object.defineProperty(dashOb, shape.d[i].nm, {
+      // TG Orchestrator: штрих обводки без имени (nm) — бывает в стикерах
+      // Telegram (подарок «50 звёзд»). defineProperty с именем undefined
+      // второй раз бросал «Cannot redefine property: undefined», слой не
+      // строился, и стикер не рисовался вовсе. Безымянный или повторный
+      // штрих выражениям не нужен — пропускаем.
+      var name = shape.d[i].nm;
+      if (name === undefined || Object.prototype.hasOwnProperty.call(dashOb, name)) {
+        return;
+      }
+      Object.defineProperty(dashOb, name, {
         get: ExpressionPropertyInterface(view.d.dataProps[i].p),
       });
     }

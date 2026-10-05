@@ -188,3 +188,388 @@
 .greeting__start {
   align-self: stretch;
 }
+
+// ------------------------------------------------- панель информации
+// ui/infopanel.js: кнопка «i» в правом верхнем углу истории (акцентная,
+// белая буква) и панель, выезжающая справа поверх истории.
+.info-toggle {
+  @include flex(row, center, center);
+  @include focus-ring;
+  @include size(36px);
+  background: var(--c-accent);
+  border-radius: $radius-pill;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  color: var(--c-light);
+  cursor: pointer;
+  position: absolute;
+  right: $space-6;
+  top: $space-6;
+  z-index: 5;
+
+  &[hidden] {
+    display: none;
+  }
+
+  &.is-active {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.info-toggle__glyph {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 20px;
+  font-style: italic;
+  font-weight: $fw-bold;
+  line-height: 1;
+}
+
+.info-panel {
+  @include flex(column, stretch, flex-start);
+  background: var(--c-surface);
+  border-left: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  bottom: 0;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.25);
+  max-width: 100%;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transform: translateX(105%);
+  transition: transform $dur-fast $ease;
+  width: 360px;
+  z-index: 6;
+
+  &.is-open {
+    transform: translateX(0);
+  }
+}
+
+.info-panel__close {
+  position: absolute;
+  right: $space-4;
+  top: $space-4;
+}
+
+.info-panel__body {
+  @include scroll-area;
+  @include flex(column, stretch, flex-start, $space-6);
+  flex: 1 1 auto;
+  padding: $space-7 $space-6 $space-6;
+}
+
+.info-panel__hint {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+  margin: 0;
+  text-align: center;
+}
+
+.info-panel__head {
+  @include flex(column, center, flex-start, $space-3);
+}
+
+.info-panel__avatar-btn {
+  @include focus-ring;
+  border-radius: $radius-pill;
+  cursor: pointer;
+}
+
+.info-panel__avatar {
+  --avatar-color: var(--accent-color);
+  @include size(96px);
+  font-size: $fs-lg;
+}
+
+.info-panel__title {
+  font-size: $fs-lg;
+  font-weight: $fw-medium;
+  text-align: center;
+}
+
+.info-panel__status {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+
+  &.is-online {
+    color: var(--c-accent);
+  }
+}
+
+.info-panel__actions {
+  display: grid;
+  gap: $space-3;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.info-panel__action {
+  @include flex(column, center, center, $space-2);
+  @include focus-ring;
+  background: color-mix(in srgb, var(--c-text) 6%, transparent);
+  border-radius: $radius-md;
+  color: var(--c-accent);
+  cursor: pointer;
+  font-size: $fs-sm;
+  padding: $space-4 $space-2;
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-text) 12%, transparent);
+  }
+}
+
+.info-panel__section {
+  @include flex(column, stretch, flex-start, $space-1);
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 30%, transparent);
+  padding-top: $space-4;
+}
+
+.info-panel__section-title {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  font-weight: $fw-medium;
+  padding: 0 $space-4 $space-2;
+}
+
+.info-panel__row {
+  @include flex(column, stretch, flex-start, $space-1);
+  @include focus-ring;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-3 $space-4;
+  text-align: left;
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+}
+
+.info-panel__value {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.info-panel__label {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+}
+
+.info-panel__count,
+.info-panel__link {
+  @include flex(row, center, flex-start, $space-5);
+  @include focus-ring;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-3 $space-4;
+  text-align: left;
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+
+  .icon {
+    color: var(--c-text-dim);
+  }
+}
+
+.info-panel__count.is-static {
+  cursor: default;
+
+  &:hover {
+    background: none;
+  }
+}
+
+.info-panel__link.is-danger {
+  color: var(--c-danger);
+}
+
+.info-panel__members {
+  @include flex(column, stretch, flex-start, $space-1);
+}
+
+.info-panel__member {
+  @include flex(row, center, flex-start, $space-4);
+  @include focus-ring;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-2 $space-4;
+  text-align: left;
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+}
+
+.info-panel__member-text {
+  @include flex(column, stretch, flex-start);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.info-panel__member-name {
+  @include ellipsis;
+}
+
+.info-panel__role {
+  color: var(--c-accent);
+  font-size: $fs-sm;
+}
+
+// ------------------------------------------------------------- подарки
+// ui/infopanel.js, renderGifts: подарки профиля — фильтр, сетка, окно
+// подробностей.
+.info-panel__back {
+  @include flex(row, center, flex-start, $space-3);
+  align-self: flex-start;
+  color: var(--c-accent);
+  max-width: 100%;
+}
+
+.info-panel__more {
+  align-self: center;
+  color: var(--c-accent);
+}
+
+.gift-filter {
+  @include flex(row, center, flex-start, $space-2);
+  flex-wrap: wrap;
+}
+
+.gift-filter__chip {
+  @include focus-ring;
+  background: color-mix(in srgb, var(--c-text) 8%, transparent);
+  border-radius: $radius-pill;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  font-size: $fs-sm;
+  padding: $space-2 $space-5;
+
+  &.is-active {
+    background: var(--c-accent);
+    color: var(--c-light);
+  }
+}
+
+// Ряды одной высоты: плитка растягивается на весь ряд, а её содержимое
+// остаётся прижатым к верху.
+.gift-grid {
+  display: grid;
+  gap: $space-3;
+  grid-auto-rows: 1fr;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+// Содержимое плитки — по верхнему краю и по центру по горизонтали.
+.gift-tile {
+  @include flex(column, center, flex-start, $space-1);
+  @include focus-ring;
+  position: relative;
+  background: color-mix(in srgb, var(--c-text) 6%, transparent);
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  min-width: 0;
+  padding: $space-3 $space-2;
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-text) 12%, transparent);
+  }
+
+  &.is-unique {
+    background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+  }
+}
+
+// Стикер подарка рисуется тем же кодом, что в сообщениях, а там он
+// 170x170 (.media__sticker--lottie, .media__sticker-wait). Размер задаётся
+// всей цепочке: обёртке .media--sticker тоже — без неё max-height: 100%
+// не на что опереться, и стикер вылезал из ячейки на подписи.
+.gift-tile__sticker,
+.gift-details__sticker {
+  @include flex(row, center, center);
+  @include size(72px);
+  flex: 0 0 auto;
+
+  > .media--sticker {
+    @include flex(row, center, center);
+    height: 100%;
+    width: 100%;
+  }
+
+  .media__sticker,
+  .media__sticker--lottie,
+  .media__sticker-wait {
+    height: 100%;
+    max-height: 100%;
+    max-width: 100%;
+    object-fit: contain;
+    width: 100%;
+  }
+
+  &.is-empty {
+    color: var(--c-text-faint);
+  }
+}
+
+.gift-details__sticker {
+  @include size(120px);
+  align-self: center;
+}
+
+// Аватарка отправителя — кружок в левом верхнем углу плитки.
+.gift-tile__sender {
+  --avatar-color: var(--accent-color);
+  @include size(22px);
+  font-size: $fs-xs;
+  left: $space-3;
+  position: absolute;
+  top: $space-3;
+}
+
+.gift-tile__label {
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+  font-weight: $fw-medium;
+}
+
+.gift-tile__from {
+  @include ellipsis;
+  color: var(--c-text-faint);
+  font-size: $fs-xs;
+  max-width: 100%;
+}
+
+.gift-details__title {
+  font-size: $fs-lg;
+  font-weight: $fw-medium;
+  text-align: center;
+}
+
+.gift-details__text {
+  color: var(--c-text-dim);
+  margin: 0;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.gift-details__row {
+  @include flex(row, center, space-between, $space-5);
+  font-size: $fs-sm;
+}
+
+.gift-details__label {
+  color: var(--c-text-faint);
+}
+
+// Имя отправителя — ссылка в его чат.
+.gift-details__link {
+  @include focus-ring;
+  color: var(--c-accent);
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

@@ -21,6 +21,9 @@
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  // Panel of chat info (ui/infopanel.js) waits off to the right while
+  // closed; without this it would add a horizontal scroll.
+  overflow: hidden;
 }
 
 // Shown until a chat is picked. Its own element rather than a state on

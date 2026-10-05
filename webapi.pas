@@ -219,6 +219,21 @@ type
     procedure GreetingStickersDone(Sender: TObject; const AResp: TTdResponse);
     procedure GreetingFileDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdGreetingSend(AArgs: TJSONObject): TJSONData;
+    function  CmdChatInfo(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure InfoStep(ASlot: PtrInt);
+    function  InfoSlot(ASlot: PtrInt; out ARes: TJSONObject): boolean;
+    procedure InfoUserDone(Sender: TObject; const AResp: TTdResponse);
+    procedure InfoUserFullDone(Sender: TObject; const AResp: TTdResponse);
+    procedure InfoGroupDone(Sender: TObject; const AResp: TTdResponse);
+    procedure InfoGroupFullDone(Sender: TObject; const AResp: TTdResponse);
+    procedure InfoCountDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdChatMembers(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure MembersListDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdInfoAction(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdGiftsList(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure GiftsListDone(Sender: TObject; const AResp: TTdResponse);
+    procedure GiftsNext(ASlot: PtrInt);
+    procedure GiftFileDone(Sender: TObject; const AResp: TTdResponse);
     procedure SharePhoneMeDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineBotDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineResultsDone(Sender: TObject; const AResp: TTdResponse);
@@ -1310,6 +1325,67 @@ begin
   end;
 end;
 
+{ Карточка контакта — messageContact (td_api.tl коммита d1085f9:
+  contact — phone_number, first_name, last_name, vcard, user_id). Модель
+  держит её как mckOther; аватарка и цвет — из модели пользователей, если
+  человек в Telegram (user_id <> 0), фото докачивается там же. nil — не
+  контакт. }
+function ContactJson(const ARaw: utf8string): TJSONObject;
+var
+  Data: TJSONData;
+  C: TJSONObject;
+  UserId: Int64;
+  Users: TTdUsers;
+  U: TUserRow;
+  Name: utf8string;
+begin
+  Result := nil;
+  if ARaw = '' then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARaw));
+  except
+    Exit;
+  end;
+  try
+    if not (Data is TJSONObject) or (JGetStr(TJSONObject(Data), '@type') <> 'messageContact') then begin
+      Exit;
+    end;
+    C := JGetObj(TJSONObject(Data), 'contact');
+    UserId := JGetInt64(C, 'user_id');
+    Name := utf8string(Trim(string(JGetStr(C, 'first_name') + ' ' + JGetStr(C, 'last_name'))));
+    Result := TJSONObject.Create;
+    Result.Add('name', string(Name));
+    Result.Add('first', string(JGetStr(C, 'first_name')));
+    Result.Add('last', string(JGetStr(C, 'last_name')));
+    Result.Add('phone', string(JGetStr(C, 'phone_number')));
+    Result.Add('userId', string(IntToStr(UserId)));
+    Result.Add('avatar', '');
+    Result.Add('avatarThumb', '');
+    Result.Add('color', string(AccentKeyFor(-1, UserId)));
+    if UserId = 0 then begin
+      Exit;
+    end;
+    Users := TdUserList;
+    if Users = nil then begin
+      Exit;
+    end;
+    U := Users.Find(UserId);
+    if U = nil then begin
+      Exit;
+    end;
+    Result.Strings['color'] := string(AccentKeyFor(U.AccentColorId, UserId));
+    Result.Strings['avatar'] := string(FileUrl(U.PhotoFileId, U.PhotoPath));
+    Result.Strings['avatarThumb'] := string(ThumbDataUri(U.Minithumb));
+    if U.PhotoPath = '' then begin
+      Users.EnsurePhoto(U);
+    end;
+  finally
+    Data.Free;
+  end;
+end;
+
 { Геопозиция сообщения — из сырого content (td_api.tl коммита d1085f9):
   messageLocation (location), messageVenue (venue: location, title,
   address), messageLiveLocation (location: liveLocation — его location,
@@ -1396,6 +1472,12 @@ begin
     if Loc <> nil then begin
       Result.Strings['kind'] := 'location';
       Result.Add('location', Loc);
+    end else begin
+      Loc := ContactJson(ARow.ContentRaw);
+      if Loc <> nil then begin
+        Result.Strings['kind'] := 'contact';
+        Result.Add('contact', Loc);
+      end;
     end;
   end;
   Result.Add('text',     string(ARow.PlainText));
@@ -5742,6 +5824,11 @@ begin
     Status := JGetObj(AResp.Obj, 'status');
     Item.Add('status', string(JGetStr(Status, '@type')));
     Item.Add('wasOnline', JGetInt64(Status, 'was_online'));
+    { Участник группы (chat.members): роль из статуса участника. }
+    if FDeferred[Slot].Held.Find('roles') is TJSONObject then begin
+      Item.Add('role', TJSONObject(FDeferred[Slot].Held.Objects['roles']).Get(
+        string(IntToStr(Id)), ''));
+    end;
     TJSONArray(FDeferred[Slot].Held.Arrays['items']).Add(Item);
   end;
   Left := FDeferred[Slot].Held.Integers['left'] - 1;
@@ -5750,7 +5837,7 @@ begin
     Exit;
   end;
   Res := TJSONObject.Create;
-  Res.Add('contacts', FDeferred[Slot].Held.Extract('items'));
+  Res.Add(FDeferred[Slot].Held.Get('replyKey', 'contacts'), FDeferred[Slot].Held.Extract('items'));
   Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
   ReleaseDeferred(Slot);
 end;
@@ -5921,6 +6008,690 @@ begin
   Msgs.SendSticker(AArgs.Get('fileId', 0), AArgs.Get('w', 0), AArgs.Get('h', 0),
     utf8string(AArgs.Get('emoji', '')), False);
   Result := nil;
+end;
+
+{ ------------------------------------------------------------------ }
+{ панель информации о чате (кнопка «i» над историей)                 }
+{ ------------------------------------------------------------------ }
+
+{ Виды медиа для счётчиков панели — searchMessagesFilter* (td_api.tl);
+  ключи — те, что ждёт страница. }
+const
+  INFO_COUNT_FILTERS: array[0..6] of string = ('searchMessagesFilterPhoto',
+    'searchMessagesFilterVideo', 'searchMessagesFilterDocument',
+    'searchMessagesFilterAudio', 'searchMessagesFilterUrl',
+    'searchMessagesFilterVoiceNote', 'searchMessagesFilterAnimation');
+  INFO_COUNT_KEYS: array[0..6] of string = ('photo', 'video', 'document',
+    'audio', 'url', 'voice', 'animation');
+  { Счётчик кодирует в теге и слот, и вид: Slot * INFO_TAG_MUL + индекс. }
+  INFO_TAG_MUL = 16;
+
+{ chat.info: строка чата (название, аватарка, цвет, звук) + по виду чата
+  getUser/getUserFullInfo, getSupergroup/getSupergroupFullInfo или
+  getBasicGroup/getBasicGroupFullInfo + getChatMessageCount по семи видам
+  медиа — всё параллельно; Held['left'] считает ответы, на нуле — ответ. }
+function TWebApi.CmdChatInfo(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Slot: PtrInt;
+  Res, Counts: TJSONObject;
+  I, Left: integer;
+  ChatId: Int64;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Chats := RequireChats;
+  ChatId := AArgs.Get('chatId', Int64(0));
+  Row := Chats.Lookup(ChatId);
+  if Row = nil then begin
+    raise Exception.Create('unknown chat');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  Res := RowToJson(Chats, Row);
+  Res.Add('chatId', ChatId);
+  Counts := TJSONObject.Create;
+  Res.Add('counts', Counts);
+  FDeferred[Slot].Held.Add('reply', Res);
+
+  Left := Length(INFO_COUNT_FILTERS);
+  if Chats.IsSelfChat(Row) then begin
+    Res.Strings['kind'] := 'self';
+  end else if (Row.Kind = ckPrivate) and (Row.UserId <> 0) then begin
+    Inc(Left, 2);
+  end else if Row.SupergroupId <> 0 then begin
+    Inc(Left, 2);
+  end else if Row.BasicGroupId <> 0 then begin
+    Inc(Left, 2);
+  end;
+  FDeferred[Slot].Held.Add('left', Left);
+
+  if (not Chats.IsSelfChat(Row)) and (Row.Kind = ckPrivate) and (Row.UserId <> 0) then begin
+    Res.Add('userId', string(IntToStr(Row.UserId)));
+    Msgs.Request('getUser', '"user_id":' + utf8string(IntToStr(Row.UserId)), @InfoUserDone, Slot);
+    Msgs.Request('getUserFullInfo', '"user_id":' + utf8string(IntToStr(Row.UserId)),
+      @InfoUserFullDone, Slot);
+  end else if Row.SupergroupId <> 0 then begin
+    Msgs.Request('getSupergroup', '"supergroup_id":' + utf8string(IntToStr(Row.SupergroupId)),
+      @InfoGroupDone, Slot);
+    Msgs.Request('getSupergroupFullInfo', '"supergroup_id":' + utf8string(IntToStr(Row.SupergroupId)),
+      @InfoGroupFullDone, Slot);
+  end else if Row.BasicGroupId <> 0 then begin
+    Msgs.Request('getBasicGroup', '"basic_group_id":' + utf8string(IntToStr(Row.BasicGroupId)),
+      @InfoGroupDone, Slot);
+    Msgs.Request('getBasicGroupFullInfo', '"basic_group_id":' + utf8string(IntToStr(Row.BasicGroupId)),
+      @InfoGroupFullDone, Slot);
+  end;
+  for I := 0 to High(INFO_COUNT_FILTERS) do begin
+    Msgs.Request('getChatMessageCount',
+      '"chat_id":' + utf8string(IntToStr(ChatId)) + ',"topic_id":null,"filter":{"@type":"' +
+      utf8string(INFO_COUNT_FILTERS[I]) + '"},"return_local":false',
+      @InfoCountDone, Slot * INFO_TAG_MUL + I);
+  end;
+end;
+
+{ Ещё один ответ пришёл: счётчик вниз, на нуле — ответ странице. }
+procedure TWebApi.InfoStep(ASlot: PtrInt);
+var
+  Left: integer;
+  Res: TJSONObject;
+begin
+  Left := FDeferred[ASlot].Held.Integers['left'] - 1;
+  FDeferred[ASlot].Held.Integers['left'] := Left;
+  if Left > 0 then begin
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[ASlot].Held.Extract('reply'));
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  ReleaseDeferred(ASlot);
+end;
+
+function TWebApi.InfoSlot(ASlot: PtrInt; out ARes: TJSONObject): boolean;
+begin
+  Result := (ASlot >= 0) and (ASlot <= High(FDeferred)) and FDeferred[ASlot].Busy
+    and (FDeferred[ASlot].Held <> nil);
+  ARes := nil;
+  if Result then begin
+    ARes := TJSONObject(FDeferred[ASlot].Held.Find('reply'));
+    Result := ARes <> nil;
+  end;
+end;
+
+{ user: телефон, имя пользователя, статус, контакт ли, бот ли. }
+procedure TWebApi.InfoUserDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Res, Status: TJSONObject;
+begin
+  if not InfoSlot(AResp.Tag, Res) then begin
+    Exit;
+  end;
+  if AResp.Success then begin
+    Res.Add('phone', string(JGetStr(AResp.Obj, 'phone_number')));
+    Res.Add('username', string(JGetStr(JGetObj(AResp.Obj, 'usernames'), 'editable_username')));
+    Res.Add('firstName', string(JGetStr(AResp.Obj, 'first_name')));
+    Res.Add('lastName', string(JGetStr(AResp.Obj, 'last_name')));
+    Res.Add('isContact', JGetBool(AResp.Obj, 'is_contact'));
+    Status := JGetObj(AResp.Obj, 'status');
+    Res.Add('status', string(JGetStr(Status, '@type')));
+    Res.Add('wasOnline', JGetInt64(Status, 'was_online'));
+    if JGetStr(JGetObj(AResp.Obj, 'type'), '@type') = 'userTypeBot' then begin
+      Res.Strings['kind'] := 'bot';
+    end;
+  end;
+  InfoStep(AResp.Tag);
+end;
+
+{ userFullInfo: «о себе», день рождения, блокировка, подарки, описание
+  бота. }
+procedure TWebApi.InfoUserFullDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Res, Birth, B, Bot: TJSONObject;
+begin
+  if not InfoSlot(AResp.Tag, Res) then begin
+    Exit;
+  end;
+  if AResp.Success then begin
+    Res.Add('bio', string(JGetStr(JGetObj(AResp.Obj, 'bio'), 'text')));
+    Birth := JGetObj(AResp.Obj, 'birthdate');
+    if Birth <> nil then begin
+      B := TJSONObject.Create;
+      B.Add('day', JGetInt(Birth, 'day'));
+      B.Add('month', JGetInt(Birth, 'month'));
+      B.Add('year', JGetInt(Birth, 'year'));
+      Res.Add('birthdate', B);
+    end;
+    { block_list: null — не заблокирован (td_api.tl). }
+    Res.Add('isBlocked', JGetObj(AResp.Obj, 'block_list') <> nil);
+    Res.Add('giftCount', JGetInt(AResp.Obj, 'gift_count'));
+    Bot := JGetObj(AResp.Obj, 'bot_info');
+    if Bot <> nil then begin
+      Res.Add('description', string(JGetStr(Bot, 'description')));
+    end;
+  end;
+  InfoStep(AResp.Tag);
+end;
+
+{ supergroup / basicGroup: число участников, публичная ссылка. }
+procedure TWebApi.InfoGroupDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Res: TJSONObject;
+  User: utf8string;
+begin
+  if not InfoSlot(AResp.Tag, Res) then begin
+    Exit;
+  end;
+  if AResp.Success then begin
+    if Res.Find('memberCount') = nil then begin
+      Res.Add('memberCount', JGetInt(AResp.Obj, 'member_count'));
+    end;
+    User := JGetStr(JGetObj(AResp.Obj, 'usernames'), 'editable_username');
+    if User <> '' then begin
+      Res.Add('username', string(User));
+      Res.Add('link', 'https://t.me/' + string(User));
+    end;
+  end;
+  InfoStep(AResp.Tag);
+end;
+
+{ supergroupFullInfo / basicGroupFullInfo: описание, участники, ссылка-
+  приглашение (если публичной нет), можно ли смотреть участников. }
+procedure TWebApi.InfoGroupFullDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Res: TJSONObject;
+  Invite: utf8string;
+begin
+  if not InfoSlot(AResp.Tag, Res) then begin
+    Exit;
+  end;
+  if AResp.Success then begin
+    Res.Add('description', string(JGetStr(AResp.Obj, 'description')));
+    if JGetInt(AResp.Obj, 'member_count') > 0 then begin
+      if Res.Find('memberCount') <> nil then begin
+        Res.Integers['memberCount'] := JGetInt(AResp.Obj, 'member_count');
+      end else begin
+        Res.Add('memberCount', JGetInt(AResp.Obj, 'member_count'));
+      end;
+    end;
+    { У basicGroupFullInfo поля can_get_members нет — список участников
+      приходит в нём же. }
+    if JGetStr(AResp.Obj, '@type') = 'basicGroupFullInfo' then begin
+      Res.Add('canGetMembers', True);
+    end else begin
+      Res.Add('canGetMembers', JGetBool(AResp.Obj, 'can_get_members'));
+    end;
+    Invite := JGetStr(JGetObj(AResp.Obj, 'invite_link'), 'invite_link');
+    if Invite <> '' then begin
+      Res.Add('inviteLink', string(Invite));
+    end;
+  end;
+  InfoStep(AResp.Tag);
+end;
+
+procedure TWebApi.InfoCountDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Idx: integer;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag div INFO_TAG_MUL;
+  Idx := AResp.Tag mod INFO_TAG_MUL;
+  if not InfoSlot(Slot, Res) then begin
+    Exit;
+  end;
+  if AResp.Success and (Idx >= 0) and (Idx <= High(INFO_COUNT_KEYS)) then begin
+    TJSONObject(Res.Objects['counts']).Add(INFO_COUNT_KEYS[Idx], JGetInt(AResp.Obj, 'count'));
+  end;
+  InfoStep(Slot);
+end;
+
+{ chat.members: участники группы — getSupergroupMembers (последние,
+  до INFO_MEMBERS_MAX) или members из basicGroupFullInfo; затем getUser
+  по каждому тем же путём, что контакты (ContactUserDone), с ролью из
+  статуса участника. }
+function TWebApi.CmdChatMembers(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Row: TChatRow;
+  Slot: PtrInt;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Row := RequireChats.Lookup(AArgs.Get('chatId', Int64(0)));
+  if Row = nil then begin
+    raise Exception.Create('unknown chat');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('items', TJSONArray.Create);
+  FDeferred[Slot].Held.Add('left', 0);
+  FDeferred[Slot].Held.Add('replyKey', 'members');
+  FDeferred[Slot].Held.Add('roles', TJSONObject.Create);
+  if Row.SupergroupId <> 0 then begin
+    Msgs.Request('getSupergroupMembers',
+      '"supergroup_id":' + utf8string(IntToStr(Row.SupergroupId)) +
+      ',"filter":{"@type":"supergroupMembersFilterRecent"},"offset":0,"limit":' +
+      utf8string(IntToStr(INFO_MEMBERS_MAX)), @MembersListDone, Slot);
+  end else if Row.BasicGroupId <> 0 then begin
+    Msgs.Request('getBasicGroupFullInfo',
+      '"basic_group_id":' + utf8string(IntToStr(Row.BasicGroupId)), @MembersListDone, Slot);
+  end else begin
+    Reply(AConnId, AReqId, TJSONObject.Create);
+    ReleaseDeferred(Slot);
+  end;
+end;
+
+{ chatMembers.members или basicGroupFullInfo.members: chatMember
+  (member_id, status). Роль — по типу статуса: Creator / Administrator. }
+procedure TWebApi.MembersListDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr: TJSONArray;
+  M, Sender2: TJSONObject;
+  I, N: integer;
+  Id: Int64;
+  Role, St: utf8string;
+  Roles, Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Roles := TJSONObject(FDeferred[Slot].Held.Objects['roles']);
+  Arr := JGetArr(AResp.Obj, 'members');
+  N := 0;
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      M := TJSONObject(Arr.Items[I]);
+      Sender2 := JGetObj(M, 'member_id');
+      if JGetStr(Sender2, '@type') <> 'messageSenderUser' then begin
+        Continue;
+      end;
+      Id := JGetInt64(Sender2, 'user_id');
+      St := JGetStr(JGetObj(M, 'status'), '@type');
+      if St = 'chatMemberStatusCreator' then begin
+        Role := 'owner';
+      end else if St = 'chatMemberStatusAdministrator' then begin
+        Role := 'admin';
+      end else begin
+        Role := '';
+      end;
+      Roles.Add(string(IntToStr(Id)), string(Role));
+      Inc(N);
+    end;
+  end;
+  if N = 0 then begin
+    Res := TJSONObject.Create;
+    Res.Add('members', TJSONArray.Create);
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  FDeferred[Slot].Held.Integers['left'] := N;
+  for I := 0 to Roles.Count - 1 do begin
+    RequireMsgs.Request('getUser', '"user_id":' + utf8string(Roles.Names[I]), @ContactUserDone, Slot);
+  end;
+end;
+
+{ Действия панели — по одному методу TDLib, ответ ok (SimpleDone):
+  contact.add — addContact (importedContact: имя и фамилия; телефон не
+  делим), contact.remove — removeContacts, user.block — setMessageSender-
+  BlockList (blockListMain / null), chat.leave — leaveChat, contact.share
+  — карточка контакта (inputMessageContact) в выбранный чат. }
+function TWebApi.CmdInfoAction(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Act, Method, Body, UserId: utf8string;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Act := AArgs.Get('action', utf8string(''));
+  UserId := utf8string(IntToStr(StrToInt64Def(AArgs.Get('userId', '0'), 0)));
+  if Act = 'contact.add' then begin
+    if TrimU(AArgs.Get('first', utf8string(''))) = '' then begin
+      raise Exception.Create('First name cannot be empty');
+    end;
+    Method := 'addContact';
+    Body := '"user_id":' + UserId + ',"contact":{"@type":"importedContact","phone_number":""' +
+      ',"first_name":' + JsonStr(TrimU(AArgs.Get('first', utf8string('')))) +
+      ',"last_name":' + JsonStr(TrimU(AArgs.Get('last', utf8string('')))) +
+      ',"note":{"@type":"formattedText","text":""}},"share_phone_number":false';
+  end else if Act = 'contact.remove' then begin
+    Method := 'removeContacts';
+    Body := '"user_ids":[' + UserId + ']';
+  end else if Act = 'user.block' then begin
+    Method := 'setMessageSenderBlockList';
+    if AArgs.Get('block', False) then begin
+      Body := '"sender_id":{"@type":"messageSenderUser","user_id":' + UserId +
+        '},"block_list":{"@type":"blockListMain"}';
+    end else begin
+      Body := '"sender_id":{"@type":"messageSenderUser","user_id":' + UserId +
+        '},"block_list":null';
+    end;
+  end else if Act = 'chat.leave' then begin
+    Method := 'leaveChat';
+    Body := '"chat_id":' + utf8string(IntToStr(StrToInt64Def(AArgs.Get('chatId', '0'), 0)));
+  end else if Act = 'contact.share' then begin
+    Method := 'sendMessage';
+    Body := '"chat_id":' + utf8string(IntToStr(StrToInt64Def(AArgs.Get('toChatId', '0'), 0))) +
+      ',"input_message_content":{"@type":"inputMessageContact","contact":{"@type":"contact"' +
+      ',"phone_number":' + JsonStr(utf8string(AArgs.Get('phone', ''))) +
+      ',"first_name":' + JsonStr(utf8string(AArgs.Get('first', ''))) +
+      ',"last_name":' + JsonStr(utf8string(AArgs.Get('last', ''))) +
+      ',"vcard":"","user_id":' + UserId + '}}';
+  end else begin
+    raise Exception.Create('unknown action: ' + string(Act));
+  end;
+  Msgs.Request(Method, Body, @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ ------------------------------------------------------------------ }
+{ подарки профиля                                                    }
+{ ------------------------------------------------------------------ }
+
+{ Стикер подарка для страницы: id файла, формат (stickerFormat*) и адрес,
+  если уже на диске. }
+function GiftStickerJson(ASticker: TJSONObject): TJSONObject;
+var
+  FileObj, Local: TJSONObject;
+  Fmt: utf8string;
+begin
+  Result := TJSONObject.Create;
+  FileObj := JGetObj(ASticker, 'sticker');
+  Result.Add('fileId', JGetInt(FileObj, 'id'));
+  Fmt := JGetStr(JGetObj(ASticker, 'format'), '@type');
+  if Fmt = 'stickerFormatTgs' then begin
+    Result.Add('format', 'tgs');
+  end else if Fmt = 'stickerFormatWebm' then begin
+    Result.Add('format', 'webm');
+  end else begin
+    Result.Add('format', 'webp');
+  end;
+  Result.Add('url', '');
+  Local := JGetObj(FileObj, 'local');
+  if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+    Result.Strings['url'] := string(FileUrl(JGetInt(FileObj, 'id'), JGetStr(Local, 'path')));
+  end;
+end;
+
+{ Имя отправителя подарка: messageSenderUser — модель пользователей,
+  messageSenderChat — название чата; нет отправителя — ''. }
+function GiftSenderName(ASender: TJSONObject): utf8string;
+var
+  Users: TTdUsers;
+  U: TUserRow;
+  Chats: TTdChats;
+  Row: TChatRow;
+begin
+  Result := '';
+  if ASender = nil then begin
+    Exit;
+  end;
+  if JGetStr(ASender, '@type') = 'messageSenderUser' then begin
+    Users := TdUserList;
+    if Users <> nil then begin
+      U := Users.Find(JGetInt64(ASender, 'user_id'));
+      if U <> nil then begin
+        Result := U.DisplayName;
+      end;
+    end;
+  end else begin
+    Chats := TdChatList;
+    if Chats <> nil then begin
+      Row := Chats.Lookup(JGetInt64(ASender, 'chat_id'));
+      if Row <> nil then begin
+        Result := Row.Title;
+      end;
+    end;
+  end;
+end;
+
+{ Аватарка отправителя подарка — как в нативном клиенте, кружок в углу
+  плитки: человек — модель пользователей (фото докачивается там же),
+  канал или группа — строка чата. Пишет avatar, avatarThumb, color в
+  AItem; без отправителя — пусто. }
+procedure GiftSenderAvatar(AItem, ASender: TJSONObject);
+var
+  Users: TTdUsers;
+  U: TUserRow;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Id: Int64;
+begin
+  AItem.Add('senderAvatar', '');
+  AItem.Add('senderThumb', '');
+  AItem.Add('senderColor', 'a5');
+  { Куда вести клик по имени отправителя: личка с человеком или сам чат. }
+  AItem.Add('senderUserId', '');
+  AItem.Add('senderChatId', '');
+  if ASender = nil then begin
+    Exit;
+  end;
+  if JGetStr(ASender, '@type') = 'messageSenderUser' then begin
+    AItem.Strings['senderUserId'] := string(IntToStr(JGetInt64(ASender, 'user_id')));
+  end else begin
+    AItem.Strings['senderChatId'] := string(IntToStr(JGetInt64(ASender, 'chat_id')));
+  end;
+  if JGetStr(ASender, '@type') = 'messageSenderUser' then begin
+    Id := JGetInt64(ASender, 'user_id');
+    AItem.Strings['senderColor'] := string(AccentKeyFor(-1, Id));
+    Users := TdUserList;
+    if Users = nil then begin
+      Exit;
+    end;
+    U := Users.Find(Id);
+    if U = nil then begin
+      Exit;
+    end;
+    AItem.Strings['senderColor'] := string(AccentKeyFor(U.AccentColorId, Id));
+    AItem.Strings['senderAvatar'] := string(FileUrl(U.PhotoFileId, U.PhotoPath));
+    AItem.Strings['senderThumb'] := string(ThumbDataUri(U.Minithumb));
+    if U.PhotoPath = '' then begin
+      Users.EnsurePhoto(U);
+    end;
+  end else begin
+    Chats := TdChatList;
+    if Chats = nil then begin
+      Exit;
+    end;
+    Row := Chats.Lookup(JGetInt64(ASender, 'chat_id'));
+    if Row = nil then begin
+      Exit;
+    end;
+    AItem.Strings['senderColor'] := string(AccentKey(Row));
+    AItem.Strings['senderAvatar'] := string(FileUrl(Row.PhotoFileId, Row.PhotoPath));
+    AItem.Strings['senderThumb'] := string(ThumbDataUri(Row.Minithumb));
+  end;
+end;
+
+{ gifts.list: getReceivedGifts (td_api.tl коммита d1085f9) для владельца
+  чата — человек (messageSenderUser) или канал (messageSenderChat). Вид
+  (kind) — флаги exclude_*: unlimited, limited (с улучшением и без),
+  unique (улучшенные); sortByPrice — sort_by_price; offset — для «ещё».
+  Стикеры подарков докачиваются до ответа — по одному на разный файл. }
+function TWebApi.CmdGiftsList(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Owner, Kind, Flags: utf8string;
+  Slot: PtrInt;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Chats := RequireChats;
+  Row := Chats.Lookup(AArgs.Get('chatId', Int64(0)));
+  if Row = nil then begin
+    raise Exception.Create('unknown chat');
+  end;
+  if (Row.Kind = ckPrivate) and (Row.UserId <> 0) then begin
+    Owner := '{"@type":"messageSenderUser","user_id":' + utf8string(IntToStr(Row.UserId)) + '}';
+  end else begin
+    Owner := '{"@type":"messageSenderChat","chat_id":' + utf8string(IntToStr(Row.Id)) + '}';
+  end;
+  Kind := AArgs.Get('kind', utf8string('all'));
+  Flags := '"exclude_unsaved":false,"exclude_saved":false';
+  if Kind = 'unlimited' then begin
+    Flags := Flags + ',"exclude_unlimited":false,"exclude_upgradable":true,' +
+      '"exclude_non_upgradable":true,"exclude_upgraded":true';
+  end else if Kind = 'limited' then begin
+    Flags := Flags + ',"exclude_unlimited":true,"exclude_upgradable":false,' +
+      '"exclude_non_upgradable":false,"exclude_upgraded":true';
+  end else if Kind = 'unique' then begin
+    Flags := Flags + ',"exclude_unlimited":true,"exclude_upgradable":true,' +
+      '"exclude_non_upgradable":true,"exclude_upgraded":false';
+  end else begin
+    Flags := Flags + ',"exclude_unlimited":false,"exclude_upgradable":false,' +
+      '"exclude_non_upgradable":false,"exclude_upgraded":false';
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  Msgs.Request('getReceivedGifts',
+    '"business_connection_id":"","owner_id":' + Owner + ',"collection_id":0,' + Flags +
+    ',"exclude_without_colors":false,"exclude_hosted":false,"sort_by_price":' +
+    BoolJson(AArgs.Get('sortByPrice', False)) +
+    ',"offset":' + JsonStr(utf8string(AArgs.Get('offset', ''))) +
+    ',"limit":' + utf8string(IntToStr(GIFTS_PAGE)),
+    @GiftsListDone, Slot);
+end;
+
+procedure TWebApi.GiftsListDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr, Out: TJSONArray;
+  G, Gift, Inner, Item, Model, Res: TJSONObject;
+  I: integer;
+  IsUnique: boolean;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Out := TJSONArray.Create;
+  Arr := JGetArr(AResp.Obj, 'gifts');
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      G := TJSONObject(Arr.Items[I]);
+      Gift := JGetObj(G, 'gift');
+      Inner := JGetObj(Gift, 'gift');
+      if Inner = nil then begin
+        Continue;
+      end;
+      IsUnique := JGetStr(Gift, '@type') = 'sentGiftUpgraded';
+      Item := TJSONObject.Create;
+      Item.Add('id', string(JGetStr(G, 'received_gift_id')));
+      Item.Add('date', JGetInt64(G, 'date'));
+      Item.Add('text', string(JGetStr(JGetObj(G, 'text'), 'text')));
+      Item.Add('sender', string(GiftSenderName(JGetObj(G, 'sender_id'))));
+      GiftSenderAvatar(Item, JGetObj(G, 'sender_id'));
+      Item.Add('isPrivate', JGetBool(G, 'is_private'));
+      Item.Add('isSaved', JGetBool(G, 'is_saved'));
+      Item.Add('sellStars', JGetInt64(G, 'sell_star_count'));
+      Item.Add('unique', IsUnique);
+      if IsUnique then begin
+        Model := JGetObj(Inner, 'model');
+        Item.Add('title', string(JGetStr(Inner, 'title')));
+        Item.Add('number', JGetInt(Inner, 'number'));
+        Item.Add('model', string(JGetStr(Model, 'name')));
+        Item.Add('symbol', string(JGetStr(JGetObj(Inner, 'symbol'), 'name')));
+        Item.Add('backdrop', string(JGetStr(JGetObj(Inner, 'backdrop'), 'name')));
+        Item.Add('stars', 0);
+        Item.Add('sticker', GiftStickerJson(JGetObj(Model, 'sticker')));
+      end else begin
+        Item.Add('title', '');
+        Item.Add('stars', JGetInt64(Inner, 'star_count'));
+        Item.Add('limited', JGetObj(Inner, 'overall_limits') <> nil);
+        Item.Add('sticker', GiftStickerJson(JGetObj(Inner, 'sticker')));
+      end;
+      Out.Add(Item);
+    end;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('gifts', Out);
+  Res.Add('total', JGetInt(AResp.Obj, 'total_count'));
+  Res.Add('nextOffset', string(JGetStr(AResp.Obj, 'next_offset')));
+  FDeferred[Slot].Held.Add('reply', Res);
+  FDeferred[Slot].Held.Add('next', 0);
+  GiftsNext(Slot);
+end;
+
+{ Следующий нескачанный стикер (один файл на все подарки с ним) —
+  downloadFile synchronous; всё на месте — ответ. }
+procedure TWebApi.GiftsNext(ASlot: PtrInt);
+var
+  Res, S: TJSONObject;
+  Arr: TJSONArray;
+  I: integer;
+begin
+  Res := TJSONObject(FDeferred[ASlot].Held.Objects['reply']);
+  Arr := TJSONArray(Res.Arrays['gifts']);
+  I := FDeferred[ASlot].Held.Integers['next'];
+  while I < Arr.Count do begin
+    S := TJSONObject(TJSONObject(Arr.Items[I]).Objects['sticker']);
+    if (S.Strings['url'] = '') and (S.Integers['fileId'] <> 0) then begin
+      Break;
+    end;
+    Inc(I);
+  end;
+  FDeferred[ASlot].Held.Integers['next'] := I;
+  if I < Arr.Count then begin
+    S := TJSONObject(TJSONObject(Arr.Items[I]).Objects['sticker']);
+    RequireMsgs.Request('downloadFile',
+      '"file_id":' + utf8string(IntToStr(S.Integers['fileId'])) +
+      ',"priority":16,"offset":0,"limit":0,"synchronous":true', @GiftFileDone, ASlot);
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[ASlot].Held.Extract('reply'));
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  ReleaseDeferred(ASlot);
+end;
+
+procedure TWebApi.GiftFileDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, S, Local: TJSONObject;
+  Arr: TJSONArray;
+  I, FileId: integer;
+  Url: string;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[Slot].Held.Objects['reply']);
+  Arr := TJSONArray(Res.Arrays['gifts']);
+  I := FDeferred[Slot].Held.Integers['next'];
+  if I >= Arr.Count then begin
+    GiftsNext(Slot);
+    Exit;
+  end;
+  FileId := TJSONObject(TJSONObject(Arr.Items[I]).Objects['sticker']).Integers['fileId'];
+  Url := '-';
+  if AResp.Success then begin
+    Local := JGetObj(AResp.Obj, 'local');
+    if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      Url := string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
+    end;
+  end;
+  { Тот же файл у других подарков — тем же адресом; '-' — не скачалось,
+    дальше не ждём. }
+  for I := 0 to Arr.Count - 1 do begin
+    S := TJSONObject(TJSONObject(Arr.Items[I]).Objects['sticker']);
+    if S.Integers['fileId'] = FileId then begin
+      S.Strings['url'] := Url;
+    end;
+  end;
+  GiftsNext(Slot);
 end;
 
 { Кнопка «пользователь»: личка с ним (createPrivateChat), чтобы её открыть. }
@@ -6559,6 +7330,14 @@ begin
         CmdSendArticle(AConnId, ReqId, Args);
       end else if Cmd = 'map.thumb' then begin
         CmdMapThumb(AConnId, ReqId, Args);
+      end else if Cmd = 'chat.info' then begin
+        CmdChatInfo(AConnId, ReqId, Args);
+      end else if Cmd = 'chat.members' then begin
+        CmdChatMembers(AConnId, ReqId, Args);
+      end else if Cmd = 'gifts.list' then begin
+        CmdGiftsList(AConnId, ReqId, Args);
+      end else if Cmd = 'info.action' then begin
+        CmdInfoAction(AConnId, ReqId, Args);
       end else if Cmd = 'chat.greeting' then begin
         CmdChatGreeting(AConnId, ReqId, Args);
       end else if Cmd = 'greeting.send' then begin

@@ -331,7 +331,7 @@ export function hideContacts() {
 export const contactsShown = () => contactsMode;
 
 /** «В сети» / «был(а) …» по userStatus* (td_api.tl). */
-function statusText(c) {
+export function statusText(c) {
   switch (c.status) {
     case 'userStatusOnline':
       return 'online';

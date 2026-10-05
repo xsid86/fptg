@@ -1361,6 +1361,11 @@ const
   { Сколько своих аватарок показывает галерея (getUserProfilePhotos
     отдаёт до 100 за раз; каждое качается синхронно перед ответом). }
   ACCOUNT_PHOTOS_MAX = 30;
+  { Сколько участников группы показывает панель информации
+    (getSupergroupMembers, последние). }
+  INFO_MEMBERS_MAX = 200;
+  { Подарков за один запрос getReceivedGifts (не больше 100 по td_api.tl). }
+  GIFTS_PAGE = 60;
   { TDLib message-id granularity: id = server_message_id shl 20 —
     confirmed from tdlib_raw.log: every real message id has its low 20
     bits zero, and adjacent messages differ by exactly this constant.

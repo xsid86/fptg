@@ -28,6 +28,7 @@ import { mountLinks, openLink } from './ui/links.js';
 import { mountBots, redrawBotKeyboard } from './ui/bots.js';
 import { mountAttachMenu } from './ui/attachmenu.js';
 import { mountGreeting } from './ui/greeting.js';
+import { mountInfoPanel, addContactDialog } from './ui/infopanel.js';
 import { setMapFetcher, setMapProvider, setMapSaver } from './util/maps.js';
 import { mountSoloPlay } from './util/soloplay.js';
 import { mountNotices, notice } from './ui/notices.js';
@@ -564,6 +565,10 @@ async function boot() {
   setMapSaver((id) => call('settings.set', { key: 'maps.provider', value: id }).catch(report));
   on('srv:settings', (data) => setMapProvider(data?.mapsProvider ?? ''));
   mountGreeting({ call: (cmd, args) => call(cmd, args), report });
+  // Панель информации о чате — кнопка «i» в углу истории.
+  mountInfoPanel(qs('.workspace__history'), { call: (cmd, args) => call(cmd, args), report, notice });
+  // «Add contact» на карточке контакта в истории — то же окно, что в панели.
+  on('ui:add-contact', (args) => { addContactDialog(args); });
   mountAttachMenu(qs('#composer'), {
     call: (cmd, args) => call(cmd, args),
     report,

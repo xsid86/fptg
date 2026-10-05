@@ -7,6 +7,8 @@ sticker_debug.txt
 sticker_paint_input.bmp
 sticker_paint_result.bmp
 server_url.txt
+# Files the page uploads for sending (localserver /upload); cleared at start.
+uploads/
 web/.idea/
 web/assets/scss/*.css.map
 

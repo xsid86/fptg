@@ -44,7 +44,9 @@ const FILTERS = [
   ['link', 'Links', 'searchMessagesFilterUrl'],
   ['poll', 'Polls', 'searchMessagesFilterPoll'],
   ['pin', 'Pinned', 'searchMessagesFilterPinned'],
-  ['gift', 'Gifts', ''],
+  // Не фильтр истории: у TDLib нет searchMessagesFilter для подарков —
+  // кнопка открывает подарки профиля в панели информации (ui/infopanel.js).
+  ['gift', 'Gifts', '@gifts'],
   ['bookmark', 'Saved', ''],
 ];
 
@@ -64,6 +66,10 @@ function apply() {
 
 function toggleFilter(type) {
   if (!type) return;
+  if (type === '@gifts') {
+    emit('ui:open-gifts');
+    return;
+  }
   activeFilter = activeFilter === type ? '' : type;
   syncFilters();
   apply();
@@ -269,5 +275,12 @@ export function mountChatHeader(node) {
   build();
   onActiveChat(render);
   on('store:messages', syncFromState);
+  // Клик по счётчику медиа в панели информации (ui/infopanel.js) — тот же
+  // фильтр, что кнопка в полосе фильтров.
+  on('ui:set-filter', (type) => {
+    activeFilter = type;
+    syncFilters();
+    apply();
+  });
   render(null);
 }

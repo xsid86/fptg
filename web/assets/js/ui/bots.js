@@ -119,7 +119,7 @@ function showAlert(text) {
  * Окно выбора для кнопок-запросов: свои чаты нужного вида, поиск,
  * галочки (до max) или выбор одного. Resolve — выбранные чаты или null.
  */
-function pickChats({ title, candidates, max }) {
+export function pickChats({ title, candidates, max }) {
   return new Promise((resolve) => {
     const many = max > 1;
     const chosen = new Set();

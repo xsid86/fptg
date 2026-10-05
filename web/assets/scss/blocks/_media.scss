@@ -566,3 +566,59 @@ a.media--file:hover {
     background: var(--c-surface-hover);
   }
 }
+
+// ------------------------------------------------------------ контакт
+// ui/message.js, renderContact: карточка присланного контакта —
+// аватарка, имя, телефон; у людей в Telegram — Message и Add contact.
+.contact-card {
+  @include flex(column, stretch, flex-start, $space-3);
+  min-width: 240px;
+}
+
+.contact-card__main {
+  @include flex(row, center, flex-start, $space-5);
+  @include focus-ring;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.contact-card__avatar {
+  --avatar-color: var(--accent-color);
+  flex: 0 0 auto;
+}
+
+.contact-card__text {
+  @include flex(column, stretch, flex-start, $space-1);
+  min-width: 0;
+}
+
+.contact-card__name {
+  @include ellipsis;
+  color: var(--sender-color, var(--c-accent));
+  font-weight: $fw-medium;
+}
+
+.contact-card__phone {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.contact-card__buttons {
+  display: grid;
+  gap: $space-3;
+  grid-template-columns: 1fr 1fr;
+}
+
+.contact-card__button {
+  background: color-mix(in srgb, var(--sender-color, var(--c-accent)) 14%, transparent);
+  border-radius: $radius-md;
+  color: var(--c-text);
+  font-size: $fs-sm;
+  padding: $space-3;
+
+  &:hover {
+    background: color-mix(in srgb, var(--sender-color, var(--c-accent)) 24%, transparent);
+  }
+}

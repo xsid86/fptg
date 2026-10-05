@@ -10,6 +10,8 @@ import {addRing, xferText, xferLeft} from '../util/xfer.js';
 import {peopleOnHover} from './people.js';
 import {renderInlineKeyboard} from './bots.js';
 import {mapUrl, openMapPoint} from '../util/maps.js';
+import {fillAvatar} from '../util/avatar.js';
+import {copyText} from '../util/clipboard.js';
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -119,6 +121,7 @@ export function renderMessage(msg) {
     if (media) body.append(media);
     if (msg.kind === 'poll' && msg.poll) body.append(renderPoll(msg));
     if (msg.kind === 'location' && msg.location) body.append(renderLocation(msg));
+    if (msg.kind === 'contact' && msg.contact) body.append(renderContact(msg));
     if (msg.text) body.append(renderRichText(msg.text, msg.entities ?? []));
     if (msg.link) body.append(renderLinkPreview(msg));
     if (body.childNodes.length) card.append(body);
@@ -909,6 +912,48 @@ function renderSticker(msg, m) {
 }
 
 // ------------------------------------------------------------ poll
+// ---------------------------------------------------------- contact
+/**
+ * Карточка контакта: аватарка, имя, телефон. Человек в Telegram — клик
+ * открывает личку с ним (ui:open-contact, как в списке контактов) и
+ * есть «Add»; без аккаунта — только копирование телефона.
+ */
+function renderContact(msg) {
+    const c = msg.contact;
+    const avatar = el('span', {class: `avatar avatar--lg contact-card__avatar accent-${c.color}`});
+    fillAvatar(avatar, {id: c.userId, title: c.name || c.phone, avatar: c.avatar, avatarThumb: c.avatarThumb});
+    const inTelegram = c.userId && c.userId !== '0';
+    const card = el('div', {class: 'contact-card'},
+        el('button', {
+            class: 'contact-card__main', type: 'button',
+            title: inTelegram ? 'Open the chat' : 'Copy the phone number',
+            onclick: async () => {
+                if (inTelegram) {
+                    emit('ui:open-contact', {userId: c.userId});
+                } else if (c.phone) {
+                    await copyText(`+${c.phone.replace(/^\+/, '')}`);
+                }
+            },
+        },
+        avatar,
+        el('span', {class: 'contact-card__text'},
+            el('span', {class: 'contact-card__name'}, c.name || 'Contact'),
+            c.phone ? el('span', {class: 'contact-card__phone u-tabular'},
+                `+${c.phone.replace(/^\+/, '')}`) : null)));
+    if (inTelegram) {
+        card.append(el('div', {class: 'contact-card__buttons'},
+            el('button', {
+                class: 'btn contact-card__button', type: 'button',
+                onclick: () => emit('ui:open-contact', {userId: c.userId}),
+            }, 'Message'),
+            el('button', {
+                class: 'btn contact-card__button', type: 'button',
+                onclick: () => emit('ui:add-contact', {userId: c.userId, first: c.first, last: c.last}),
+            }, 'Add contact')));
+    }
+    return card;
+}
+
 // --------------------------------------------------------- location
 /**
  * Геопозиция, место (venue) или трансляция геопозиции: карта Telegram с
