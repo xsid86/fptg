@@ -468,10 +468,6 @@
   overflow: hidden;
   position: relative;
 
-  &:hover .media-tile__img {
-    opacity: 0.85;
-  }
-
   // Плитка, к сообщению которой прокручена история.
   &.is-current {
     outline: 2px solid var(--c-accent);
@@ -486,6 +482,13 @@
   object-fit: cover;
   position: absolute;
   width: 100%;
+}
+
+// Своим слоем композитора: без него Chromium уменьшает превью резко, с
+// зубцами, а под мышью (opacity выносит картинку в слой) — сглаженно, и
+// плитка менялась от наведения. Слой — постоянно, вид один.
+.media-tile__img {
+  transform: translateZ(0);
 }
 
 .media-tile__blur {

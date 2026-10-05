@@ -14,11 +14,8 @@ import { holdVideo, forget } from '../util/offscreen.js';
 // never an inline style.
 //
 // WHICH EMOJI ARE OFFERED is decided offline, by the generator that
-// wrote assets/data/emoji.json: Unicode's emoji-test.txt crossed with
-// emoji_atlas.dat, the very atlas emojiassets.pas draws from. So the
-// panel can only offer an emoji the native window can also draw - the
-// two views never disagree about what a message looks like, which is
-// the whole point of keeping them side by side.
+// wrote assets/data/emoji.json from Unicode's emoji-test.txt
+// (assets/data/build_emoji.py).
 //
 // Stickers and GIFs are the other half: those are not text at all. A
 // click SENDS one, the way it does in every Telegram client - there is

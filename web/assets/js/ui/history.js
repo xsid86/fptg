@@ -840,9 +840,24 @@ function updateFloatDate() {
  * and scrollIntoView needs a live viewport to centre into - there is
  * none while the window is not being drawn.
  */
+/**
+ * Узел, на котором стоит сообщение: свой — или альбома, куда оно входит.
+ * Альбом кэшируется под ключом `album:<id>`, и по id члена альбома
+ * своего узла нет вовсе — прокрутка к фото из альбома (сетка медиа в
+ * панели) раньше молча ничего не делала.
+ */
+function entryFor(id) {
+  const own = nodes.get(id);
+  if (own) return own;
+  for (const entry of nodes.values()) {
+    if (entry.group && entry.ids.includes(id)) return entry;
+  }
+  return null;
+}
+
 function showWanted() {
   if (wantMessage === null) return;
-  const entry = nodes.get(wantMessage);
+  const entry = entryFor(wantMessage);
   if (!entry?.node.isConnected) return;
   // NOT cleared here. The wish stands until the reader takes over -
   // see takeOver - because one correct placement is not enough while

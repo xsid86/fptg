@@ -178,8 +178,19 @@ function restoreVideo(video, info) {
       try { video.currentTime = info.at; } catch { /* past the end */ }
     }, { once: true });
   }
-  // NOT started here. Coming back within reach is not the same as
-  // coming into view, and only the view observer above decides that.
+  // Started here only if the view observer has ALREADY said "on screen":
+  // coming back within reach is still not the same as coming into view.
+  // Уже на экране — играть сразу. Порядок двух наблюдателей НЕ
+  // гарантирован, а внутри прокручиваемой истории запас REACH не
+  // действует (он расширяет только окно, не рамку прокрутки), так что
+  // оба срабатывают в одном кадре. Замерено живьём: «на экране» пришло
+  // РАНЬШЕ «рядом» — play() пропускался из-за ещё снятого источника, а
+  // вернувший его restore запустить не пытался; гифка стояла постером до
+  // клика (чаще всего в ветке комментариев).
+  if (info.loop && info.visible) {
+    if (info.loop === 'once') video.currentTime = 0;
+    video.play().catch(() => { /* went away mid-start */ });
+  }
 }
 
 /**

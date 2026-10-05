@@ -2,45 +2,26 @@
 
     python build_emoji.py [path to emoji-test.txt]
 
-Two sources, both read here rather than remembered:
-  - Unicode's emoji-test.txt (groups, names, CLDR order),
-  - emoji_atlas.dat, the very set the native window can draw.
-The intersection is what the picker offers, so an emoji picked in the
-web never turns into a blank box in the LCL window.
+The source is Unicode's emoji-test.txt (groups, names, CLDR order):
+every fully-qualified emoji of the nine picker groups.
+
+It used to be crossed with emoji_atlas.dat, the set the native LCL
+window could draw, so an emoji picked in the web never turned into a
+blank box there. The native window and the atlas are gone (2026-10-05);
+emoji.json as committed is still that intersection, and running this
+again offers everything emoji-test.txt lists.
 
 The input comes from unicode.org/Public/emoji/<version>/emoji-test.txt
 and is not kept in the repository, only its result is. Run this again
-when a newer Unicode version is worth picking up, or when the atlas is
-repacked - the two have to stay in step, which is the whole point of
-crossing them.
+when a newer Unicode version is worth picking up.
 """
-import io, json, os, struct, sys
+import io, json, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PROJ = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
 TEST_TXT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'emoji-test.txt')
 
 TONES = [0x1F3FB, 0x1F3FC, 0x1F3FD, 0x1F3FE, 0x1F3FF]
 TONESET = set(TONES)
-VS16 = 0xFE0F
-
-
-def atlas_keys(path):
-    with open(path, 'rb') as f:
-        blob = f.read()
-    assert blob[:4] == b'EMJ1', 'not an EMJ1 atlas'
-    count, = struct.unpack_from('<I', blob, 4)
-    pos = 8
-    keys = set()
-    for _ in range(count):
-        n = blob[pos]
-        pos += 1
-        cps = struct.unpack_from('<%dI' % n, blob, pos)
-        pos += 4 * n
-        ln, = struct.unpack_from('<I', blob, pos)
-        pos += 4 + ln
-        keys.add(tuple(cps))
-    return keys
 
 
 def parse_test(path):
@@ -71,13 +52,6 @@ text = lambda cps: ''.join(chr(c) for c in cps)
 base_of = lambda cps: tuple(c for c in cps if c not in TONESET)
 
 
-def drawable(cps, keys):
-    """The atlas is keyed off Noto's filenames, which leave VS16 out -
-    except for the keycaps, where the packer put the fully-qualified
-    key back. So both spellings have to be tried."""
-    return cps in keys or tuple(c for c in cps if c != VS16) in keys
-
-
 # A group's strip button is an emoji, not an icon: the sheet in
 # assets/img is for UI glyphs and says so at the top.
 ICON = {
@@ -103,7 +77,6 @@ SLUG = {
     'Flags': 'flags',
 }
 
-keys = atlas_keys(os.path.join(PROJ, 'emoji_atlas.dat'))
 version, rows = parse_test(TEST_TXT)
 
 # Skin tones fold into the emoji they belong to: one cell in the grid
@@ -112,16 +85,11 @@ tones = {}
 for group, cps, name in rows:
     if not (TONESET & set(cps)):
         continue
-    if not drawable(cps, keys):
-        continue
     tones.setdefault(base_of(cps), {})[sorted(TONESET & set(cps))[0]] = text(cps)
 
-groups, index, missing = [], {}, 0
+groups, index = [], {}
 for group, cps, name in rows:
     if group not in SLUG or (TONESET & set(cps)):
-        continue
-    if not drawable(cps, keys):
-        missing += 1
         continue
     if group not in index:
         index[group] = {'id': SLUG[group], 'name': group,
@@ -143,7 +111,6 @@ total = sum(len(g['items']) for g in groups)
 toned = sum(1 for g in groups for i in g['items'] if 't' in i)
 print('emoji.json: %d emoji in %d groups, %d of them with skin tones'
       % (total, len(groups), toned))
-print('left out for want of an atlas entry: %d' % missing)
 print('bytes: %d' % os.path.getsize(out))
 for g in groups:
     print('  %-14s %4d' % (g['id'], len(g['items'])))

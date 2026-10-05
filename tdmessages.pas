@@ -916,6 +916,9 @@ type
     procedure JoinChat(AChatId: Int64);
     property ThreadPostId: Int64 read FThreadPostId;
     property ThreadChatId: Int64 read FThreadChatId;
+    { message_thread_id открытой ветки (0 — не ветка): в группе
+      обсуждения это id корневого сообщения — копии поста. }
+    property ThreadId: Int64 read FThreadId;
     procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0;
       AUnreadFrom: Int64 = 0);
     function TopicPart: utf8string;

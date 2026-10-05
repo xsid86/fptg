@@ -1508,7 +1508,18 @@ begin
     is not loaded yet — it starts a getRepliedMessage of its own and
     the answer arrives through the ordinary change signal, so sending
     the ids alone now and the text later is correct rather than lossy. }
-  if ARow.ReplyMessageId <> 0 then begin
+  { В ветке комментариев ответ на сам пост цитатой не показывается: вся
+    ветка и так под ним (пост стоит сверху), а цитата выходила пустой
+    «…». TDLib называет пост двумя способами — сообщением канала
+    (ThreadChatId/ThreadPostId) или корневой копией в группе обсуждения,
+    чей id совпадает с message_thread_id. Ответы другим комментаторам
+    остаются. }
+  if (ARow.ReplyMessageId <> 0) and (AMsgs.ThreadId <> 0)
+     and (((ARow.ReplyChatId = AMsgs.ThreadChatId)
+           and (ARow.ReplyMessageId = AMsgs.ThreadPostId))
+          or (ARow.ReplyMessageId = AMsgs.ThreadId)) then begin
+    { без цитаты }
+  end else if ARow.ReplyMessageId <> 0 then begin
     Sub := TJSONObject.Create;
     Sub.Add('id', ARow.ReplyMessageId);
     { Which chat the quoted message lives in. TDLib fills chat_id on
