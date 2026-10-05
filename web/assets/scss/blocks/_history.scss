@@ -452,6 +452,188 @@
   }
 }
 
+// Сетка фото и видео: квадратные превью вплотную, как у нативного клиента.
+.media-grid {
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.media-tile {
+  @include focus-ring;
+  aspect-ratio: 1;
+  background: color-mix(in srgb, var(--c-text) 8%, transparent);
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+
+  &:hover .media-tile__img {
+    opacity: 0.85;
+  }
+
+  // Плитка, к сообщению которой прокручена история.
+  &.is-current {
+    outline: 2px solid var(--c-accent);
+    outline-offset: -2px;
+  }
+}
+
+.media-tile__blur,
+.media-tile__img {
+  height: 100%;
+  inset: 0;
+  object-fit: cover;
+  position: absolute;
+  width: 100%;
+}
+
+.media-tile__blur {
+  filter: blur(6px);
+  transform: scale(1.1);
+}
+
+// Видео: значок и длительность в углу.
+.media-tile__badge {
+  @include flex(row, center, flex-start, $space-1);
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: $radius-pill;
+  bottom: $space-2;
+  color: var(--c-light);
+  font-size: $fs-xs;
+  left: $space-2;
+  padding: 1px $space-2;
+  position: absolute;
+}
+
+// Музыка и ссылки — списком строк: обложка или картинка сайта слева,
+// текст, дата справа.
+.media-list {
+  @include flex(column, stretch, flex-start, 2px);
+}
+
+.media-row {
+  @include flex(row, flex-start, flex-start, $space-4);
+  @include focus-ring;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-3;
+  text-align: left;
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-text) 6%, transparent);
+  }
+
+  &.is-current {
+    background: color-mix(in srgb, var(--c-accent) 16%, transparent);
+  }
+}
+
+.media-row__cover {
+  @include flex(row, center, center);
+  @include size(44px);
+  background: color-mix(in srgb, var(--c-text) 8%, transparent);
+  border-radius: $radius-md;
+  color: var(--c-text-faint);
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.media-row__img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+
+  &.is-blur {
+    filter: blur(4px);
+  }
+}
+
+// Буква сайта или расширение файла на цветном квадрате (нет картинки).
+.media-row__letter {
+  @include flex(row, center, center);
+  background: var(--accent-color);
+  color: var(--c-light);
+  font-size: $fs-lg;
+  font-weight: $fw-medium;
+  height: 100%;
+  overflow: hidden;
+  width: 100%;
+}
+
+// Расширение файла длиннее буквы — мельче.
+.media-row__letter.is-ext {
+  font-size: $fs-sm;
+}
+
+.media-row__cover.is-round {
+  border-radius: 50%;
+}
+
+// Аватарка отправителя голосового — во весь кружок.
+.media-row__avatar {
+  --avatar-color: var(--accent-color);
+  @include size(100%);
+}
+
+// Непрослушанное голосовое — точка акцентным цветом после длительности.
+.media-row.is-unlistened .media-row__sub--icon::after {
+  @include size(6px);
+  background: var(--c-accent);
+  border-radius: 50%;
+  content: '';
+}
+
+.media-row__text {
+  @include flex(column, stretch, flex-start, 2px);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.media-row__title {
+  @include ellipsis;
+  font-weight: $fw-medium;
+}
+
+.media-row__sub {
+  @include ellipsis;
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+}
+
+// Строка со значком (голосовое): значок, длительность, точка.
+.media-row__sub--icon {
+  @include flex(row, center, flex-start, $space-1);
+}
+
+// Описание ссылки — не больше двух строк.
+.media-row__desc {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--c-text-dim);
+  display: -webkit-box;
+  font-size: $fs-sm;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.media-row__url {
+  @include ellipsis;
+  color: var(--c-accent);
+  font-size: $fs-sm;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.media-row__date {
+  color: var(--c-text-faint);
+  flex: 0 0 auto;
+  font-size: $fs-xs;
+}
+
 // Ряды одной высоты: плитка растягивается на весь ряд, а её содержимое
 // остаётся прижатым к верху.
 .gift-grid {

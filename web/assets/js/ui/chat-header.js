@@ -35,15 +35,20 @@ import { fillAvatar } from '../util/avatar.js';
 // constants.pas; they travel as strings because the server takes the
 // constructor name straight through to the request.
 const FILTERS = [
-  ['image', 'Photos', 'searchMessagesFilterPhoto'],
-  ['video', 'Videos', 'searchMessagesFilterVideo'],
-  ['gif', 'GIFs', 'searchMessagesFilterAnimation'],
-  ['audio', 'Music', 'searchMessagesFilterAudio'],
-  ['mic', 'Voice messages', 'searchMessagesFilterVoiceNote'],
-  ['file', 'Files', 'searchMessagesFilterDocument'],
-  ['link', 'Links', 'searchMessagesFilterUrl'],
+  // Фото, видео, GIF, музыка, ссылки, голосовые, файлы и закреплённые — не фильтр
+  // истории, а сетка или
+  // список в панели информации, как у нативного клиента (ui/infopanel.js,
+  // media.list): в один экран влезает куда больше, а клик по плитке
+  // прокручивает к сообщению полную историю.
+  ['image', 'Photos', '@photo'],
+  ['video', 'Videos', '@video'],
+  ['gif', 'GIFs', '@gif'],
+  ['audio', 'Music', '@audio'],
+  ['mic', 'Voice messages', '@voice'],
+  ['file', 'Files', '@file'],
+  ['link', 'Links', '@link'],
   ['poll', 'Polls', 'searchMessagesFilterPoll'],
-  ['pin', 'Pinned', 'searchMessagesFilterPinned'],
+  ['pin', 'Pinned', '@pinned'],
   // Не фильтр истории: у TDLib нет searchMessagesFilter для подарков —
   // кнопка открывает подарки профиля в панели информации (ui/infopanel.js).
   ['gift', 'Gifts', '@gifts'],
@@ -55,6 +60,9 @@ const STUB_NOTE = 'answered by TDLib with something that is not a list of messag
 let root = null;
 let parts = null;
 let activeFilter = '';
+// Что показывает сетка медиа в панели информации ('photo' | 'video' | ''):
+// её кнопка в полосе подсвечена, пока сетка открыта.
+let mediaView = '';
 let lastChatId = null;
 // What the bar last drew for the thread - title, picture, colour and
 // comment count rolled into one string. Empty means "no thread".
@@ -70,6 +78,10 @@ function toggleFilter(type) {
     emit('ui:open-gifts');
     return;
   }
+  if (['@photo', '@video', '@gif', '@audio', '@link', '@voice', '@file', '@pinned'].includes(type)) {
+    emit('ui:open-media', type.slice(1));
+    return;
+  }
   activeFilter = activeFilter === type ? '' : type;
   syncFilters();
   apply();
@@ -77,7 +89,8 @@ function toggleFilter(type) {
 
 function syncFilters() {
   for (const { type, node } of parts.filters) {
-    node.classList.toggle('is-active', Boolean(type) && type === activeFilter);
+    node.classList.toggle('is-active', Boolean(type)
+      && (type === activeFilter || type === `@${mediaView || '-'}`));
   }
 }
 
@@ -281,6 +294,16 @@ export function mountChatHeader(node) {
     activeFilter = type;
     syncFilters();
     apply();
+  });
+  on('info:media-view', (filter) => {
+    mediaView = filter;
+    // Сетка листает полную историю — фильтр истории ей мешал бы (откуда
+    // бы сетку ни открыли: кнопкой здесь или счётчиком в панели).
+    if (filter && activeFilter) {
+      activeFilter = '';
+      apply();
+    }
+    syncFilters();
   });
   render(null);
 }

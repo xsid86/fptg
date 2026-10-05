@@ -1366,6 +1366,14 @@ const
   INFO_MEMBERS_MAX = 200;
   { Подарков за один запрос getReceivedGifts (не больше 100 по td_api.tl). }
   GIFTS_PAGE = 60;
+  { Сетка фото и видео в панели информации (media.list): сообщений за
+    один запрос searchChatMessages (не больше 100 по td_api.tl) и
+    сторона, с которой размер фото уже годится в превью плитки —
+    первый photoSize не меньше этого по длинной стороне (тип «m»). }
+  MEDIA_GRID_PAGE = 60;
+  MEDIA_GRID_THUMB_SIDE = 320;
+  { То же для картинки строки ссылки — она мелкая (тип «s»). }
+  MEDIA_LINK_THUMB_SIDE = 100;
   { TDLib message-id granularity: id = server_message_id shl 20 —
     confirmed from tdlib_raw.log: every real message id has its low 20
     bits zero, and adjacent messages differ by exactly this constant.

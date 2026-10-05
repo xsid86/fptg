@@ -234,6 +234,10 @@ type
     procedure GiftsListDone(Sender: TObject; const AResp: TTdResponse);
     procedure GiftsNext(ASlot: PtrInt);
     procedure GiftFileDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdMediaList(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure MediaListDone(Sender: TObject; const AResp: TTdResponse);
+    procedure MediaFileDone(Sender: TObject; const AResp: TTdResponse);
+    procedure MediaReplyIfDone(ASlot: PtrInt);
     procedure SharePhoneMeDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineBotDone(Sender: TObject; const AResp: TTdResponse);
     procedure InlineResultsDone(Sender: TObject; const AResp: TTdResponse);
@@ -6694,6 +6698,401 @@ begin
   GiftsNext(Slot);
 end;
 
+{ ------------------------------------------------------------------ }
+{ медиа чата в панели информации: фото, видео, GIF, музыка, ссылки   }
+{ ------------------------------------------------------------------ }
+
+{ photoSize для превью: первый не меньше ASide по длинной стороне (размеры
+  в photo.sizes идут по возрастанию), нет такого — самый большой. Файл
+  выбранного размера (поле photo); нет размеров — nil. Годится и для
+  chatPhoto — у него тот же sizes. }
+function PickPhotoFile(APhoto: TJSONObject; ASide: integer): TJSONObject;
+var
+  Sizes: TJSONArray;
+  Size: TJSONObject;
+  J, Side: integer;
+begin
+  Result := nil;
+  Sizes := JGetArr(APhoto, 'sizes');
+  if (Sizes = nil) or (Sizes.Count = 0) then begin
+    Exit;
+  end;
+  Size := nil;
+  for J := 0 to Sizes.Count - 1 do begin
+    if not (Sizes.Items[J] is TJSONObject) then begin
+      Continue;
+    end;
+    Size := TJSONObject(Sizes.Items[J]);
+    Side := JGetInt(Size, 'width');
+    if JGetInt(Size, 'height') > Side then begin
+      Side := JGetInt(Size, 'height');
+    end;
+    if Side >= ASide then begin
+      Break;
+    end;
+  end;
+  Result := JGetObj(Size, 'photo');
+end;
+
+{ Картинка предпросмотра ссылки (linkPreviewType*, td_api.tl коммита
+  d1085f9): photo у статьи, фото, приложения, чата и прочих, thumbnail у
+  встроенных плееров, cover у видео. Нет ничего — nil. }
+function LinkPreviewPhoto(APreview: TJSONObject): TJSONObject;
+var
+  T: TJSONObject;
+begin
+  T := JGetObj(APreview, 'type');
+  Result := JGetObj(T, 'photo');
+  if Result = nil then begin
+    Result := JGetObj(T, 'thumbnail');
+  end;
+  if Result = nil then begin
+    Result := JGetObj(T, 'cover');
+  end;
+end;
+
+{ Превью-файл thumbnail (видео, GIF, обложка альбома): JPEG — картинкой,
+  MPEG4 — роликом (у GIF обычно так); прочие форматы не показать — nil.
+  AKind получает 'img' или 'video'. }
+function ThumbFile(AThumb: TJSONObject; out AKind: utf8string): TJSONObject;
+var
+  Fmt: utf8string;
+begin
+  Result := nil;
+  AKind := 'img';
+  Fmt := JGetStr(JGetObj(AThumb, 'format'), '@type');
+  if (Fmt = 'thumbnailFormatJpeg') or (Fmt = 'thumbnailFormatPng') or
+     (Fmt = 'thumbnailFormatWebp') or (Fmt = 'thumbnailFormatGif') then begin
+    Result := JGetObj(AThumb, 'file');
+  end else if Fmt = 'thumbnailFormatMpeg4' then begin
+    AKind := 'video';
+    Result := JGetObj(AThumb, 'file');
+  end;
+end;
+
+{ Адреса из текста: сущности textEntityTypeUrl (offset/length — в UTF-16,
+  режет страница: у неё строки в той же единице) и textEntityTypeTextUrl
+  (адрес в самой сущности). }
+function UrlEntitiesJson(AText: TJSONObject): TJSONArray;
+var
+  Ents: TJSONArray;
+  E, T, Item: TJSONObject;
+  I: integer;
+  ET: utf8string;
+begin
+  Result := TJSONArray.Create;
+  Ents := JGetArr(AText, 'entities');
+  if Ents = nil then begin
+    Exit;
+  end;
+  for I := 0 to Ents.Count - 1 do begin
+    if not (Ents.Items[I] is TJSONObject) then begin
+      Continue;
+    end;
+    E := TJSONObject(Ents.Items[I]);
+    T := JGetObj(E, 'type');
+    ET := JGetStr(T, '@type');
+    if (ET <> 'textEntityTypeUrl') and (ET <> 'textEntityTypeTextUrl') then begin
+      Continue;
+    end;
+    Item := TJSONObject.Create;
+    Item.Add('offset', JGetInt(E, 'offset'));
+    Item.Add('length', JGetInt(E, 'length'));
+    Item.Add('url', string(JGetStr(T, 'url')));
+    Result.Add(Item);
+  end;
+end;
+
+{ media.list: медиа чата для панели информации, как у нативного клиента —
+  searchChatMessages (td_api.tl коммита d1085f9) с фильтром по виду
+  (filter: photo, video, gif, audio, link, voice, file, pinned), от
+  новых к старым; from —
+  next_from_message_id прошлой страницы (0 — с начала). Историю это не
+  трогает: фильтр модели (search.set) остаётся каким был. }
+function TWebApi.CmdMediaList(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Kind, Filter: utf8string;
+  Slot: PtrInt;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Kind := AArgs.Get('filter', utf8string(''));
+  if Kind = 'video' then begin
+    Filter := 'searchMessagesFilterVideo';
+  end else if Kind = 'gif' then begin
+    Filter := 'searchMessagesFilterAnimation';
+  end else if Kind = 'audio' then begin
+    Filter := 'searchMessagesFilterAudio';
+  end else if Kind = 'link' then begin
+    Filter := 'searchMessagesFilterUrl';
+  end else if Kind = 'voice' then begin
+    Filter := 'searchMessagesFilterVoiceNote';
+  end else if Kind = 'file' then begin
+    Filter := 'searchMessagesFilterDocument';
+  end else if Kind = 'pinned' then begin
+    Filter := 'searchMessagesFilterPinned';
+  end else begin
+    Kind := 'photo';
+    Filter := 'searchMessagesFilterPhoto';
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('kind', string(Kind));
+  Msgs.Request('searchChatMessages',
+    '"chat_id":' + utf8string(IntToStr(AArgs.Get('chatId', Int64(0)))) +
+    ',"query":"","from_message_id":' + utf8string(IntToStr(AArgs.Get('from', Int64(0)))) +
+    ',"offset":0,"limit":' + utf8string(IntToStr(MEDIA_GRID_PAGE)) +
+    ',"filter":{"@type":"' + Filter + '"}',
+    @MediaListDone, Slot);
+end;
+
+{ Запись на сообщение: id, date, вид, minithumbnail (размытая подложка
+  сразу), превью (fileId, url, если файл уже на диске; thumbKind — img
+  или video) и поля вида:
+    photo — превью: photoSize от MEDIA_GRID_THUMB_SIDE;
+    video, gif — thumbnail (JPEG или MPEG4), duration;
+    audio — title, performer, fileName, duration, обложка альбома;
+    voice — duration, isListened, отправитель (sender и аватарка, как у
+      подарков: GiftSenderName / GiftSenderAvatar);
+    file — fileName, size, mime, превью документа (только картинкой);
+    pinned — любое сообщение: text (превью, как в списке чатов —
+      MessagePreview), отправитель и картинка, если она есть (фото —
+      photoSize от MEDIA_LINK_THUMB_SIDE, видео, GIF, документ — их
+      JPEG-превью);
+    link — text и urls (сущности-адреса из текста или подписи), preview
+      (url, siteName, title, description) и его картинка — photoSize от
+      MEDIA_LINK_THUMB_SIDE; нет предпросмотра — картинка самого фото.
+  Нескачанные превью качаются все разом (downloadFile synchronous);
+  Held['left'] считает ответы, на нуле — ответ странице. }
+procedure TWebApi.MediaListDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr, Out: TJSONArray;
+  M, Content, Media, Mini, FileObj, Local, Item, Res, Text, Preview, PJ: TJSONObject;
+  I, Left: integer;
+  Want, CType, B64, TKind: utf8string;
+  Thumb: RawByteString;
+  Glyphs: TPreviewGlyphArray;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Want := FDeferred[Slot].Held.Get('kind', 'photo');
+  Out := TJSONArray.Create;
+  Arr := JGetArr(AResp.Obj, 'messages');
+  if Arr <> nil then begin
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      M := TJSONObject(Arr.Items[I]);
+      Content := JGetObj(M, 'content');
+      CType := JGetStr(Content, '@type');
+      Item := TJSONObject.Create;
+      Item.Add('id', JGetInt64(M, 'id'));
+      Item.Add('date', JGetInt64(M, 'date'));
+      Item.Add('kind', string(Want));
+      FileObj := nil;
+      Mini := nil;
+      TKind := 'img';
+      if Want = 'pinned' then begin
+        Item.Add('text', string(MessagePreview(Content, Glyphs)));
+        Item.Add('sender', string(GiftSenderName(JGetObj(M, 'sender_id'))));
+        GiftSenderAvatar(Item, JGetObj(M, 'sender_id'));
+        if CType = 'messagePhoto' then begin
+          Media := JGetObj(Content, 'photo');
+          FileObj := PickPhotoFile(Media, MEDIA_LINK_THUMB_SIDE);
+        end else if CType = 'messageVideo' then begin
+          Media := JGetObj(Content, 'video');
+          FileObj := ThumbFile(JGetObj(Media, 'thumbnail'), TKind);
+        end else if CType = 'messageAnimation' then begin
+          Media := JGetObj(Content, 'animation');
+          FileObj := ThumbFile(JGetObj(Media, 'thumbnail'), TKind);
+        end else if CType = 'messageDocument' then begin
+          Media := JGetObj(Content, 'document');
+          FileObj := ThumbFile(JGetObj(Media, 'thumbnail'), TKind);
+        end else begin
+          Media := nil;
+        end;
+        Mini := JGetObj(Media, 'minithumbnail');
+        { В строке — только картинка. }
+        if TKind <> 'img' then begin
+          FileObj := nil;
+          TKind := 'img';
+        end;
+      end else if Want = 'link' then begin
+        Text := JGetObj(Content, 'text');
+        if Text = nil then begin
+          Text := JGetObj(Content, 'caption');
+        end;
+        Item.Add('text', string(JGetStr(Text, 'text')));
+        Item.Add('urls', UrlEntitiesJson(Text));
+        Preview := JGetObj(Content, 'link_preview');
+        if Preview <> nil then begin
+          PJ := TJSONObject.Create;
+          PJ.Add('url', string(JGetStr(Preview, 'url')));
+          PJ.Add('siteName', string(JGetStr(Preview, 'site_name')));
+          PJ.Add('title', string(JGetStr(Preview, 'title')));
+          PJ.Add('description', string(JGetStr(JGetObj(Preview, 'description'), 'text')));
+          Item.Add('preview', PJ);
+          Media := LinkPreviewPhoto(Preview);
+        end else if CType = 'messagePhoto' then begin
+          Media := JGetObj(Content, 'photo');
+        end else begin
+          Media := nil;
+        end;
+        Mini := JGetObj(Media, 'minithumbnail');
+        FileObj := PickPhotoFile(Media, MEDIA_LINK_THUMB_SIDE);
+      end else if CType = 'messagePhoto' then begin
+        Media := JGetObj(Content, 'photo');
+        Mini := JGetObj(Media, 'minithumbnail');
+        FileObj := PickPhotoFile(Media, MEDIA_GRID_THUMB_SIDE);
+      end else if (CType = 'messageVideo') or (CType = 'messageAnimation') then begin
+        if CType = 'messageVideo' then begin
+          Media := JGetObj(Content, 'video');
+        end else begin
+          Media := JGetObj(Content, 'animation');
+        end;
+        Mini := JGetObj(Media, 'minithumbnail');
+        FileObj := ThumbFile(JGetObj(Media, 'thumbnail'), TKind);
+        Item.Add('duration', JGetInt(Media, 'duration'));
+      end else if CType = 'messageAudio' then begin
+        Media := JGetObj(Content, 'audio');
+        Mini := JGetObj(Media, 'album_cover_minithumbnail');
+        FileObj := ThumbFile(JGetObj(Media, 'album_cover_thumbnail'), TKind);
+        { Обложка-ролик в строке списка ни к чему. }
+        if TKind <> 'img' then begin
+          FileObj := nil;
+          TKind := 'img';
+        end;
+        Item.Add('duration', JGetInt(Media, 'duration'));
+        Item.Add('title', string(JGetStr(Media, 'title')));
+        Item.Add('performer', string(JGetStr(Media, 'performer')));
+        Item.Add('fileName', string(JGetStr(Media, 'file_name')));
+      end else if CType = 'messageVoiceNote' then begin
+        Media := JGetObj(Content, 'voice_note');
+        Item.Add('duration', JGetInt(Media, 'duration'));
+        Item.Add('isListened', JGetBool(Content, 'is_listened'));
+        Item.Add('sender', string(GiftSenderName(JGetObj(M, 'sender_id'))));
+        GiftSenderAvatar(Item, JGetObj(M, 'sender_id'));
+      end else if CType = 'messageDocument' then begin
+        Media := JGetObj(Content, 'document');
+        Mini := JGetObj(Media, 'minithumbnail');
+        FileObj := ThumbFile(JGetObj(Media, 'thumbnail'), TKind);
+        if TKind <> 'img' then begin
+          FileObj := nil;
+          TKind := 'img';
+        end;
+        Item.Add('fileName', string(JGetStr(Media, 'file_name')));
+        Item.Add('mime', string(JGetStr(Media, 'mime_type')));
+        Local := JGetObj(Media, 'document');
+        if JGetInt64(Local, 'size') > 0 then begin
+          Item.Add('size', JGetInt64(Local, 'size'));
+        end else begin
+          Item.Add('size', JGetInt64(Local, 'expected_size'));
+        end;
+      end else begin
+        Item.Free;
+        Continue;
+      end;
+      Item.Add('thumb', '');
+      B64 := JGetStr(Mini, 'data');
+      if B64 <> '' then begin
+        try
+          Thumb := DecodeStringBase64(string(B64));
+          Item.Strings['thumb'] := string(ThumbDataUri(Thumb));
+        except
+          { Битая подложка — без неё. }
+        end;
+      end;
+      Item.Add('thumbKind', string(TKind));
+      Item.Add('fileId', JGetInt(FileObj, 'id'));
+      Item.Add('url', '');
+      Local := JGetObj(FileObj, 'local');
+      if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+        Item.Strings['url'] := string(FileUrl(JGetInt(FileObj, 'id'), JGetStr(Local, 'path')));
+      end;
+      Out.Add(Item);
+    end;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('items', Out);
+  Res.Add('total', JGetInt(AResp.Obj, 'total_count'));
+  Res.Add('nextFrom', JGetInt64(AResp.Obj, 'next_from_message_id'));
+  FDeferred[Slot].Held.Add('reply', Res);
+  Left := 0;
+  for I := 0 to Out.Count - 1 do begin
+    Item := TJSONObject(Out.Items[I]);
+    if (Item.Strings['url'] = '') and (Item.Integers['fileId'] <> 0) then begin
+      Inc(Left);
+    end;
+  end;
+  FDeferred[Slot].Held.Add('left', Left);
+  for I := 0 to Out.Count - 1 do begin
+    Item := TJSONObject(Out.Items[I]);
+    if (Item.Strings['url'] = '') and (Item.Integers['fileId'] <> 0) then begin
+      RequireMsgs.Request('downloadFile',
+        '"file_id":' + utf8string(IntToStr(Item.Integers['fileId'])) +
+        ',"priority":16,"offset":0,"limit":0,"synchronous":true', @MediaFileDone, Slot);
+    end;
+  end;
+  MediaReplyIfDone(Slot);
+end;
+
+procedure TWebApi.MediaFileDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Arr: TJSONArray;
+  Item, Local: TJSONObject;
+  I, FileId: integer;
+  Url: string;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  { '-' — не скачалось: плитка остаётся с подложкой. Ответ ошибкой не
+    называет файл, поэтому '-' получает первый ещё ждущий. }
+  Url := '-';
+  FileId := 0;
+  if AResp.Success then begin
+    FileId := JGetInt(AResp.Obj, 'id');
+    Local := JGetObj(AResp.Obj, 'local');
+    if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      Url := string(FileUrl(FileId, JGetStr(Local, 'path')));
+    end;
+  end;
+  Arr := TJSONArray(TJSONObject(FDeferred[Slot].Held.Objects['reply']).Arrays['items']);
+  for I := 0 to Arr.Count - 1 do begin
+    Item := TJSONObject(Arr.Items[I]);
+    if Item.Strings['url'] <> '' then begin
+      Continue;
+    end;
+    if (FileId = 0) and (Item.Integers['fileId'] <> 0) then begin
+      Item.Strings['url'] := Url;
+      Break;
+    end;
+    if (FileId <> 0) and (Item.Integers['fileId'] = FileId) then begin
+      Item.Strings['url'] := Url;
+    end;
+  end;
+  FDeferred[Slot].Held.Integers['left'] := FDeferred[Slot].Held.Integers['left'] - 1;
+  MediaReplyIfDone(Slot);
+end;
+
+procedure TWebApi.MediaReplyIfDone(ASlot: PtrInt);
+begin
+  if FDeferred[ASlot].Held.Integers['left'] > 0 then begin
+    Exit;
+  end;
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId,
+    TJSONObject(FDeferred[ASlot].Held.Extract('reply')));
+  ReleaseDeferred(ASlot);
+end;
+
 { Кнопка «пользователь»: личка с ним (createPrivateChat), чтобы её открыть. }
 function TWebApi.CmdBotUserChat(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
@@ -7336,6 +7735,8 @@ begin
         CmdChatMembers(AConnId, ReqId, Args);
       end else if Cmd = 'gifts.list' then begin
         CmdGiftsList(AConnId, ReqId, Args);
+      end else if Cmd = 'media.list' then begin
+        CmdMediaList(AConnId, ReqId, Args);
       end else if Cmd = 'info.action' then begin
         CmdInfoAction(AConnId, ReqId, Args);
       end else if Cmd = 'chat.greeting' then begin

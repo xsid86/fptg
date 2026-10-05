@@ -9,6 +9,7 @@ import { openViewer } from './viewer.js';
 import { formDialog, field, pickChats } from './bots.js';
 import { statusText } from './chat-list.js';
 import { stickerNode } from './message.js';
+import { duration, listTime, initial, fileSize } from '../util/format.js';
 
 // Панель информации о чате — человек, бот, группа или канал. Открывается
 // кнопкой «i» в правом верхнем углу истории и выезжает справа поверх неё
@@ -17,7 +18,7 @@ import { stickerNode } from './message.js';
 // Что внутри, повторяет нативный клиент: аватарка (у людей — галерея их
 // фото), имя и статус, кнопки Chat / Mute / Call / More, телефон, «о себе»,
 // имя пользователя, день рождения, описание и ссылка группы, счётчики
-// медиа (клик — тот же фильтр истории, что в шапке чата), подарки,
+// медиа (сеткой или списком здесь же), подарки,
 // участники группы и действия: поделиться контактом, добавить / изменить /
 // удалить контакт, заблокировать, выйти из группы.
 //
@@ -27,15 +28,16 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
 
 // Счётчики медиа: ключ из chat.info, подпись и фильтр истории (тот же, что
-// у кнопок в шапке чата — FILTERS в ui/chat-header.js).
+// у кнопок в шапке чата — FILTERS в ui/chat-header.js). '@вид' — не
+// фильтр, а сетка или список здесь же, в панели (openMedia).
 const COUNTS = [
-  ['photo', 'image', 'photos', 'searchMessagesFilterPhoto'],
-  ['video', 'video', 'videos', 'searchMessagesFilterVideo'],
-  ['document', 'file', 'files', 'searchMessagesFilterDocument'],
-  ['audio', 'audio', 'audio files', 'searchMessagesFilterAudio'],
-  ['url', 'link', 'links', 'searchMessagesFilterUrl'],
-  ['voice', 'mic', 'voice messages', 'searchMessagesFilterVoiceNote'],
-  ['animation', 'gif', 'GIFs', 'searchMessagesFilterAnimation'],
+  ['photo', 'image', 'photos', '@photo'],
+  ['video', 'video', 'videos', '@video'],
+  ['document', 'file', 'files', '@file'],
+  ['audio', 'audio', 'audio files', '@audio'],
+  ['url', 'link', 'links', '@link'],
+  ['voice', 'mic', 'voice messages', '@voice'],
+  ['animation', 'gif', 'GIFs', '@gif'],
 ];
 
 let hooks = {};
@@ -49,6 +51,7 @@ let asked = 0;         // номер запроса: устаревший отв
 
 function setOpen(on) {
   open = on;
+  if (!on) setView('info');
   panel.classList.toggle('is-open', on);
   toggle.classList.toggle('is-active', on);
   toggle.setAttribute('aria-expanded', String(on));
@@ -66,17 +69,18 @@ async function load() {
   try {
     const next = await hooks.call('chat.info', { chatId });
     if (my !== asked) return;
-    // Другой чат — подарки прежнего ни к чему.
-    if (info && info.chatId !== chatId) view = 'info';
+    // Другой чат — подарки и медиа прежнего ни к чему (сетка, открытая
+    // уже для этого чата кнопкой в шапке, остаётся).
+    if (info && info.chatId !== chatId && !(view === 'media' && media.chatId === chatId)) setView('info');
     // Мост называет личку 'private' (и 'secret' — секретный чат), как
     // список чатов (ChatKindStr); панели это один вид — человек. Без этого
     // у контактов не было ни действий, ни меню More.
     if (next.kind === 'private' || next.kind === 'secret') next.kind = 'user';
     info = next;
-    // На подарках фоновое обновление сведений сетку не перестраивает:
-    // она от них не зависит, а перестройка заново запускала стикеры и
-    // не давала разглядеть элементы в инспекторе.
-    if (view === 'gifts') return;
+    // На подарках и медиа фоновое обновление сведений сетку не
+    // перестраивает: она от них не зависит, а перестройка заново
+    // запускала стикеры и не давала разглядеть элементы в инспекторе.
+    if (view !== 'info') return;
     render();
   } catch (error) {
     if (my === asked) {
@@ -257,11 +261,23 @@ async function loadMembers(box, i) {
 // Открывается строкой «N gifts» в панели и кнопкой Gifts в шапке чата.
 const GIFT_KINDS = [['all', 'All'], ['limited', 'Limited'], ['unlimited', 'Unlimited'], ['unique', 'Unique']];
 
-let view = 'info';         // 'info' | 'gifts'
+let view = 'info';         // 'info' | 'gifts' | 'media'
 let gifts = { kind: 'all', sortByPrice: false, items: [], next: '', total: 0, loading: false };
 
+/** Смена вида; шапке чата — какая сетка медиа открыта (подсветка кнопки). */
+function setView(next) {
+  const was = view === 'media' ? media.filter : '';
+  if (view === 'media' && next !== 'media') {
+    mediaSeq += 1;      // ответ идущей загрузки больше некуда дописывать
+    mediaParts = null;
+  }
+  view = next;
+  const now = view === 'media' ? media.filter : '';
+  if (was !== now) emit('info:media-view', now);
+}
+
 function openGifts() {
-  view = 'gifts';
+  setView('gifts');
   gifts = { kind: gifts.kind, sortByPrice: gifts.sortByPrice, items: [], next: '', total: 0, loading: false };
   if (!open) setOpen(true);
   loadGifts(true);
@@ -370,7 +386,7 @@ function giftDetails(g) {
 function renderGifts() {
   const back = el('button', {
     class: 'btn info-panel__back', type: 'button',
-    onclick: () => { view = 'info'; render(); },
+    onclick: () => { setView('info'); render(); },
   }, icon('chevron-left'), info?.title || 'Back');
   const chips = el('div', { class: 'gift-filter' },
     ...GIFT_KINDS.map(([kind, label]) => el('button', {
@@ -419,6 +435,320 @@ function renderGifts() {
   clear(body).append(...parts);
 }
 
+// ------------------------------------------------------------ media
+// Медиа чата в панели, как у нативного клиента (media.list —
+// searchChatMessages с фильтром): фото, видео и GIF — сеткой квадратных
+// превью, музыка, ссылки, голосовые, файлы и закреплённые — списком строк. Клик по плитке или строке
+// панель не закрывает: история прокручивается к этому сообщению
+// (ui:open-source), и можно идти дальше. Следующая страница подгружается,
+// когда прокрутка панели подходит к концу; новое дописывается в конец,
+// уже показанное не перестраивается.
+//
+// Вид: ключ, подпись кнопки, подпись счётчика, пустой список, раскладка.
+const MEDIA_KINDS = [
+  ['photo', 'Photos', 'photos', 'No photos here.', 'grid'],
+  ['video', 'Videos', 'videos', 'No videos here.', 'grid'],
+  ['gif', 'GIFs', 'GIFs', 'No GIFs here.', 'grid'],
+  ['audio', 'Music', 'audio files', 'No music here.', 'list'],
+  ['link', 'Links', 'links', 'No links here.', 'list'],
+  ['voice', 'Voice', 'voice messages', 'No voice messages here.', 'list'],
+  ['file', 'Files', 'files', 'No files here.', 'list'],
+  ['pinned', 'Pinned', 'pinned messages', 'No pinned messages.', 'list'],
+];
+// За сколько пикселей до конца прокрутки просить следующую страницу.
+const MEDIA_PRELOAD_PX = 400;
+// Цвета буквы-заглушки у ссылки без картинки — запасная палитра (f0..f7,
+// как у отправителей без своего цвета).
+const MEDIA_LETTER_COLORS = 8;
+
+let media = { filter: 'photo', chatId: null, items: [], next: 0, total: 0, loading: false, done: false };
+let mediaParts = null;     // { title, grid, foot } — узлы открытого вида
+let mediaSeq = 0;          // свой счётчик запросов, как у подарков
+let mediaCurrent = null;   // плитка или строка, к сообщению которой ушла история
+
+function mediaKind() {
+  return MEDIA_KINDS.find(([k]) => k === media.filter) ?? MEDIA_KINDS[0];
+}
+
+function openMedia(filter) {
+  media = { filter, chatId: store.activeChatId, items: [], next: 0, total: 0, loading: false, done: false };
+  mediaCurrent = null;
+  setView('media');
+  // Смена вида внутри медиа (Photos -> Music) view не меняет — шапке
+  // сообщаем сами.
+  emit('info:media-view', filter);
+  if (!open) setOpen(true);
+  renderMedia();
+  loadMedia(true);
+}
+
+async function loadMedia(fresh) {
+  if (!fresh && (media.loading || media.done)) return;
+  const my = ++mediaSeq;
+  const { chatId, filter } = media;
+  media.loading = true;
+  mediaFoot();
+  try {
+    const r = await hooks.call('media.list', { chatId, filter, from: fresh ? 0 : media.next });
+    if (my !== mediaSeq) return;   // перебит — другой вид или другой чат
+    const items = r.items ?? [];
+    media.items = media.items.concat(items);
+    media.next = r.nextFrom ?? 0;
+    media.total = r.total ?? media.items.length;
+    media.done = !media.next || !items.length;
+    if (view === 'media' && mediaParts) {
+      mediaParts.grid.append(...items.map(mediaItem));
+      mediaParts.title.textContent = mediaTitle();
+    }
+  } catch (error) {
+    if (my !== mediaSeq) return;
+    media.done = true;
+    hooks.report(error);
+  }
+  media.loading = false;
+  if (view !== 'media') return;
+  mediaFoot();
+  // Страница не заполнила панель — прокрутки не будет, просим следующую.
+  mediaMaybeMore();
+}
+
+function mediaTitle() {
+  const [, label, plural] = mediaKind();
+  return media.total ? `${media.total} ${plural}` : label;
+}
+
+/** Перейти к сообщению в истории; плитка или строка отмечается. */
+function mediaGo(node, item) {
+  mediaCurrent?.classList.remove('is-current');
+  mediaCurrent = node;
+  node.classList.add('is-current');
+  emit('ui:open-source', { chatId: media.chatId, messageId: item.id });
+}
+
+function realUrl(item) {
+  return item.url && item.url !== '-' ? item.url : '';
+}
+
+/** Превью: картинка или беззвучный ролик (MPEG4-превью у GIF и видео). */
+function mediaPreview(item, cls) {
+  const url = realUrl(item);
+  if (!url) return null;
+  if (item.thumbKind !== 'video') return el('img', { class: cls, src: url, alt: '', loading: 'lazy' });
+  const video = el('video', { class: cls, src: url, loop: true, playsinline: true, preload: 'metadata' });
+  video.muted = true;
+  return video;
+}
+
+function mediaItem(item) {
+  if (item.kind === 'audio') return audioRow(item);
+  if (item.kind === 'voice') return voiceRow(item);
+  if (item.kind === 'file') return fileRow(item);
+  if (item.kind === 'pinned') return pinnedRow(item);
+  if (item.kind === 'link') return linkRow(item);
+  return mediaTile(item);
+}
+
+function mediaTile(item) {
+  const preview = mediaPreview(item, 'media-tile__img');
+  const tile = el('button', {
+    class: 'media-tile', type: 'button',
+    title: { video: 'Video', gif: 'GIF' }[item.kind] ?? 'Photo',
+    onclick: () => mediaGo(tile, item),
+  },
+  // Подложка — размытая minithumbnail, пока превью нет (или не скачалось).
+  item.thumb ? el('img', { class: 'media-tile__blur', src: item.thumb, alt: '' }) : null,
+  preview,
+  item.kind === 'video'
+    ? el('span', { class: 'media-tile__badge' }, icon('play', 'icon--sm'),
+      item.duration ? duration(item.duration) : null)
+    : null,
+  item.kind === 'gif' ? el('span', { class: 'media-tile__badge' }, 'GIF') : null);
+  // Ролик-превью оживает под мышью, как у нативного клиента: два десятка
+  // играющих разом в одной панели ни к чему.
+  if (preview?.tagName === 'VIDEO') {
+    tile.addEventListener('mouseenter', () => preview.play().catch(() => {}));
+    tile.addEventListener('mouseleave', () => preview.pause());
+  }
+  return tile;
+}
+
+function audioRow(item) {
+  const url = realUrl(item);
+  let cover = icon('audio');
+  if (url) cover = el('img', { class: 'media-row__img', src: url, alt: '', loading: 'lazy' });
+  else if (item.thumb) cover = el('img', { class: 'media-row__img is-blur', src: item.thumb, alt: '' });
+  const sub = [item.performer, item.duration ? duration(item.duration) : ''].filter(Boolean).join(' · ');
+  const row = el('button', {
+    class: 'media-row', type: 'button', onclick: () => mediaGo(row, item),
+  },
+  el('span', { class: 'media-row__cover' }, cover),
+  el('span', { class: 'media-row__text' },
+    el('span', { class: 'media-row__title' }, item.title || item.fileName || 'Audio'),
+    sub ? el('span', { class: 'media-row__sub' }, sub) : null),
+  el('span', { class: 'media-row__date' }, listTime(item.date)));
+  return row;
+}
+
+/** Квадрат-заглушка с буквами; цвет — от текста, стабильный (f0..f7). */
+function letterTile(text, label) {
+  let hash = 0;
+  for (const ch of text) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+  const long = typeof label === 'string' && label.length > 1;
+  return el('span', { class: `media-row__letter accent-f${hash % MEDIA_LETTER_COLORS}${long ? ' is-ext' : ''}` }, label);
+}
+
+/** Голосовое: аватарка отправителя, его имя, длительность; дата справа. */
+function voiceRow(item) {
+  const avatar = el('span', { class: `avatar media-row__avatar accent-${item.senderColor || 'a5'}` });
+  fillAvatar(avatar, { title: item.sender || '?', avatar: item.senderAvatar, avatarThumb: item.senderThumb });
+  const row = el('button', {
+    class: `media-row${item.isListened ? '' : ' is-unlistened'}`, type: 'button',
+    onclick: () => mediaGo(row, item),
+  },
+  el('span', { class: 'media-row__cover is-round' }, avatar),
+  el('span', { class: 'media-row__text' },
+    el('span', { class: 'media-row__title' }, item.sender || 'Voice message'),
+    el('span', { class: 'media-row__sub media-row__sub--icon' }, icon('mic', 'icon--sm'),
+      item.duration ? duration(item.duration) : 'Voice message')),
+  el('span', { class: 'media-row__date' }, listTime(item.date)));
+  return row;
+}
+
+/** Закреплённое: картинка сообщения или аватарка отправителя, имя, текст. */
+function pinnedRow(item) {
+  const url = realUrl(item);
+  let cover;
+  let round = false;
+  if (url) cover = el('img', { class: 'media-row__img', src: url, alt: '', loading: 'lazy' });
+  else if (item.thumb) cover = el('img', { class: 'media-row__img is-blur', src: item.thumb, alt: '' });
+  else {
+    round = true;
+    cover = el('span', { class: `avatar media-row__avatar accent-${item.senderColor || 'a5'}` });
+    fillAvatar(cover, { title: item.sender || '?', avatar: item.senderAvatar, avatarThumb: item.senderThumb });
+  }
+  const row = el('button', {
+    class: 'media-row', type: 'button', onclick: () => mediaGo(row, item),
+  },
+  el('span', { class: `media-row__cover${round ? ' is-round' : ''}` }, cover),
+  el('span', { class: 'media-row__text' },
+    el('span', { class: 'media-row__title' }, item.sender || 'Pinned message'),
+    item.text ? el('span', { class: 'media-row__desc' }, item.text) : null),
+  el('span', { class: 'media-row__date' }, listTime(item.date)));
+  return row;
+}
+
+/** Файл: превью или расширение на цветном квадрате, имя, размер; дата справа. */
+function fileRow(item) {
+  const url = realUrl(item);
+  const name = item.fileName || 'File';
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 && name.length - dot <= 6 ? name.slice(dot + 1).toUpperCase() : '';
+  let cover;
+  if (url) cover = el('img', { class: 'media-row__img', src: url, alt: '', loading: 'lazy' });
+  else if (item.thumb) cover = el('img', { class: 'media-row__img is-blur', src: item.thumb, alt: '' });
+  else cover = letterTile(ext || name, ext || icon('file'));
+  const row = el('button', {
+    class: 'media-row', type: 'button', title: name, onclick: () => mediaGo(row, item),
+  },
+  el('span', { class: 'media-row__cover' }, cover),
+  el('span', { class: 'media-row__text' },
+    el('span', { class: 'media-row__title' }, name),
+    item.size ? el('span', { class: 'media-row__sub' }, fileSize(item.size)) : null),
+  el('span', { class: 'media-row__date' }, listTime(item.date)));
+  return row;
+}
+
+function hostOf(url) {
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+/** Адреса сообщения без повторов: сущности текста, иначе адрес предпросмотра. */
+function linkUrls(item) {
+  const text = item.text ?? '';
+  const urls = (item.urls ?? []).map((u) => u.url || text.substr(u.offset, u.length)).filter(Boolean);
+  if (!urls.length && item.preview?.url) urls.push(item.preview.url);
+  return [...new Set(urls)];
+}
+
+function linkRow(item) {
+  const urls = linkUrls(item);
+  const p = item.preview;
+  const host = hostOf(urls[0] ?? p?.url ?? '');
+  const url = realUrl(item);
+  let pic;
+  if (url) {
+    pic = el('img', { class: 'media-row__img', src: url, alt: '', loading: 'lazy' });
+  } else if (item.thumb) {
+    pic = el('img', { class: 'media-row__img is-blur', src: item.thumb, alt: '' });
+  } else {
+    // Буква сайта на цветном квадрате; цвет — от имени сайта, стабильный.
+    const name = p?.siteName || host;
+    pic = letterTile(name, initial(name));
+  }
+  // В строке есть ссылки — кнопкой её не сделать (ссылка внутри кнопки
+  // недопустима), поэтому div с ролью кнопки и Enter с клавиатуры.
+  const row = el('div', {
+    class: 'media-row media-row--link', role: 'button', tabindex: '0',
+    onclick: () => mediaGo(row, item),
+    onkeydown: (event) => {
+      if (event.key === 'Enter' && event.target === row) mediaGo(row, item);
+    },
+  },
+  el('span', { class: 'media-row__cover' }, pic),
+  el('span', { class: 'media-row__text' },
+    el('span', { class: 'media-row__title' }, p?.title || p?.siteName || host || 'Link'),
+    p?.description || item.text
+      ? el('span', { class: 'media-row__desc' }, p?.description || item.text)
+      : null,
+    ...urls.map((u) => el('a', {
+      class: 'media-row__url', href: /^[a-z][a-z0-9+.-]*:/i.test(u) ? u : `https://${u}`,
+      target: '_blank', rel: 'noopener',
+      // Ссылка открывается сама (t.me — внутри приложения, ui/links.js);
+      // переход к сообщению строке при этом не нужен.
+      onclick: (event) => event.stopPropagation(),
+    }, u.replace(/^https?:\/\//i, '')))),
+  el('span', { class: 'media-row__date' }, listTime(item.date)));
+  return row;
+}
+
+function mediaFoot() {
+  if (!mediaParts) return;
+  const { foot } = mediaParts;
+  if (media.loading) foot.textContent = 'Loading…';
+  else if (!media.items.length) foot.textContent = mediaKind()[3];
+  else foot.textContent = '';
+  foot.hidden = !foot.textContent;
+}
+
+function mediaMaybeMore() {
+  if (view !== 'media' || media.loading || media.done) return;
+  if (body.scrollHeight - body.scrollTop - body.clientHeight < MEDIA_PRELOAD_PX) loadMedia(false);
+}
+
+function renderMedia() {
+  const back = el('button', {
+    class: 'btn info-panel__back', type: 'button',
+    onclick: () => { setView('info'); render(); },
+  }, icon('chevron-left'), info?.chatId === media.chatId && info.title ? info.title : 'Back');
+  const chips = el('div', { class: 'gift-filter' },
+    ...MEDIA_KINDS.map(([kind, label]) => el('button', {
+      class: `gift-filter__chip${media.filter === kind ? ' is-active' : ''}`, type: 'button',
+      onclick: () => { if (media.filter !== kind) openMedia(kind); },
+    }, label)));
+  const title = el('div', { class: 'info-panel__section-title' }, mediaTitle());
+  const grid = el('div', { class: mediaKind()[4] === 'grid' ? 'media-grid' : 'media-list' },
+    ...media.items.map(mediaItem));
+  const foot = el('p', { class: 'info-panel__hint', hidden: true });
+  mediaParts = { title, grid, foot };
+  clear(body).append(back, title, chips, grid, foot);
+  body.scrollTop = 0;
+  mediaFoot();
+}
+
 // ----------------------------------------------------------- render
 function render() {
   const i = info;
@@ -427,6 +757,11 @@ function render() {
     renderGifts();
     return;
   }
+  if (view === 'media') {
+    if (!mediaParts) renderMedia();
+    return;
+  }
+  mediaParts = null;
   const avatar = el('span', { class: `avatar info-panel__avatar accent-${i.color}` });
   fillAvatar(avatar, {
     id: i.chatId, title: i.title, avatar: i.avatar, avatarThumb: i.avatarThumb, avatarAnim: i.avatarAnim,
@@ -481,7 +816,7 @@ function render() {
     if (!n) continue;
     counts.push(el('button', {
       class: 'info-panel__count', type: 'button',
-      onclick: () => emit('ui:set-filter', filter),
+      onclick: () => (filter.startsWith('@') ? openMedia(filter.slice(1)) : emit('ui:set-filter', filter)),
     }, icon(iconName), el('span', {}, `${n} ${label}`)));
   }
 
@@ -528,12 +863,25 @@ export function mountInfoPanel(box, options) {
   panel.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') setOpen(false);
   });
+  body.addEventListener('scroll', mediaMaybeMore, { passive: true });
   box.append(toggle, panel);
   // Кнопка Gifts в шапке чата (ui/chat-header.js).
+  // Кнопки медиа в шапке чата (Photos … Files): сетка или список,
+  // повторный клик — закрыть.
+  on('ui:open-media', (filter) => {
+    if (store.activeChatId === null) return;
+    if (open && view === 'media' && media.filter === filter && media.chatId === store.activeChatId) {
+      setView('info');
+      mediaParts = null;
+      render();
+      return;
+    }
+    openMedia(filter);
+  });
   on('ui:open-gifts', async () => {
     if (store.activeChatId === null) return;
     if (!open || !info || info.chatId !== store.activeChatId) {
-      view = 'info';
+      setView('info');
       setOpen(true);
       // Подарки просятся от имени владельца из chat.info — ждём его.
       const wait = () => new Promise((resolve) => setTimeout(resolve, 100));

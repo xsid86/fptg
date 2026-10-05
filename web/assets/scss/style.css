@@ -3684,6 +3684,224 @@ body {
   color: var(--c-light);
 }
 
+.media-grid {
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.media-tile:focus {
+  outline: none !important;
+}
+.media-tile:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.media-tile {
+  aspect-ratio: 1;
+  background: color-mix(in srgb, var(--c-text) 8%, transparent);
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+.media-tile:hover .media-tile__img {
+  opacity: 0.85;
+}
+.media-tile.is-current {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+
+.media-tile__blur,
+.media-tile__img {
+  height: 100%;
+  inset: 0;
+  object-fit: cover;
+  position: absolute;
+  width: 100%;
+}
+
+.media-tile__blur {
+  filter: blur(6px);
+  transform: scale(1.1);
+}
+
+.media-tile__badge {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 999px;
+  bottom: 4px;
+  color: var(--c-light);
+  font-size: 11px;
+  left: 4px;
+  padding: 1px 4px;
+  position: absolute;
+}
+
+.media-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 2px;
+}
+
+.media-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+}
+.media-row:focus {
+  outline: none !important;
+}
+.media-row:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.media-row {
+  border-radius: 8px;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: 6px;
+  text-align: left;
+}
+.media-row:hover {
+  background: color-mix(in srgb, var(--c-text) 6%, transparent);
+}
+.media-row.is-current {
+  background: color-mix(in srgb, var(--c-accent) 16%, transparent);
+}
+
+.media-row__cover {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--c-text) 8%, transparent);
+  border-radius: 8px;
+  color: var(--c-text-faint);
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.media-row__img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+.media-row__img.is-blur {
+  filter: blur(4px);
+}
+
+.media-row__letter {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-color);
+  color: var(--c-light);
+  font-size: 16px;
+  font-weight: 500;
+  height: 100%;
+  overflow: hidden;
+  width: 100%;
+}
+
+.media-row__letter.is-ext {
+  font-size: 12px;
+}
+
+.media-row__cover.is-round {
+  border-radius: 50%;
+}
+
+.media-row__avatar {
+  --avatar-color: var(--accent-color);
+  width: 100%;
+  height: 100%;
+  flex: 0 0 auto;
+}
+
+.media-row.is-unlistened .media-row__sub--icon::after {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  background: var(--c-accent);
+  border-radius: 50%;
+  content: "";
+}
+
+.media-row__text {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.media-row__title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.media-row__sub {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-text-faint);
+  font-size: 12px;
+}
+
+.media-row__sub--icon {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+}
+
+.media-row__desc {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--c-text-dim);
+  display: -webkit-box;
+  font-size: 12px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.media-row__url {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-accent);
+  font-size: 12px;
+}
+.media-row__url:hover {
+  text-decoration: underline;
+}
+
+.media-row__date {
+  color: var(--c-text-faint);
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
 .gift-grid {
   display: grid;
   gap: 6px;
