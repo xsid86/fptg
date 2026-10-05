@@ -19,7 +19,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="567"/>
+      <BuildNr Value="571"/>
       <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -81,40 +81,6 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="login.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="login.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FormLogin"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-      </Unit>
-      <Unit>
-        <Filename Value="splash.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="splash.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FormSplash"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-      </Unit>
-      <Unit>
-        <Filename Value="main.lfm"/>
-        <IsPartOfProject Value="True"/>
-        <HasResources Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="main.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FormMain"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-      </Unit>
-      <Unit>
         <Filename Value="tdauth.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
@@ -128,10 +94,6 @@
       </Unit>
       <Unit>
         <Filename Value="constants.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="cardpaint.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -159,44 +121,7 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="uiframe.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framelog.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FrameLog"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framelog.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framewelcome.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FrameWelcome"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framewelcome.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
         <Filename Value="tdchats.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framechats.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FrameChats"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framechats.lfm"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -217,135 +142,6 @@
       </Unit>
       <Unit>
         <Filename Value="tdaccentcolors.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="audiodevices.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="ffdecode.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="audioplayer.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="videoplayer.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="photodecoder.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="mediaplayer.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="rlottie.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="lottieplayer.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="msglayout.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framehistory.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FrameHistory"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framehistory.lfm"/>
-        <IsPartOfProject Value="True"/>
-        <HasResources Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="mediaviewer.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="chatheader.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="ChatHeaderPanel"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="chatheader.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="msginput.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="MessageInputPanel"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="msginput.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="settings.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FormSettings"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-      </Unit>
-      <Unit>
-        <Filename Value="settings.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framesettingsgeneral.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FrameSettingsGeneral"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framesettingsgeneral.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framesettingsaudio.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FrameSettingsAudio"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framesettingsaudio.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framesettingsautodownload.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FrameSettingsAutoDownload"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framesettingsautodownload.lfm"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framesettingsstorage.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="FrameSettingsStorage"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Frame"/>
-      </Unit>
-      <Unit>
-        <Filename Value="framesettingsstorage.lfm"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -381,10 +177,6 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="emojiassets.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
         <Filename Value="customemoji.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
@@ -398,10 +190,6 @@
       </Unit>
       <Unit>
         <Filename Value="webauth.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="thinscrollbar.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
