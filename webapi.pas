@@ -170,6 +170,10 @@ type
     procedure UnbindStale;
     procedure ActiveSwitched;
     function  CmdMessageForward(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdMessageTranslate(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure MessageTranslateDone(Sender: TObject; const AResp: TTdResponse);
+    procedure TranslateEntitiesDone(Sender: TObject; const AResp: TTdResponse);
+    procedure TranslateReply(ASlot: PtrInt; AFormatted: TJSONObject);
     function  CmdBotValidateOrder(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure BotValidateOrderDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdBotTmpPassword(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
@@ -6619,6 +6623,9 @@ var
   Res: TJSONObject;
   Users: TTdUsers;
   URow: TUserRow;
+  Chats: TTdChats;
+  CRow: TChatRow;
+  FolderId: integer;
 begin
   Slot := AResp.Tag;
   if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
@@ -6666,6 +6673,29 @@ begin
           end;
         end;
       end;
+    end;
+    { Папка лички с человеком — тот же чип, что в списке чатов. Id лички
+      равен id пользователя; чата может ещё не быть (никогда не писали) —
+      тогда «без папки», а меню сперва создаст личку (main.js). }
+    Chats := TdChatList;
+    FolderId := 0;
+    CRow := nil;
+    if Chats <> nil then begin
+      CRow := Chats.Lookup(Id);
+      FolderId := Chats.RowFolderId(CRow);
+    end;
+    Item.Add('folderId', FolderId);
+    { В папку попадает только чат, у которого есть место в списке (main
+      или archive). Личка без переписки там не стоит: addChatToList
+      отвечает "Chat is not in a chat list" (живой tdlib_raw.log), а
+      editChatFolder такую принимает, но TDLib потом сам выкидывает её
+      из папки (DialogFilterManager: "Skip nonjoined"). Странице — чтобы
+      меню не обещало невозможного. }
+    Item.Add('inList', (CRow <> nil) and (CRow.InList or CRow.InArchive));
+    if FolderId <> 0 then begin
+      Item.Add('folder', string(Chats.FolderTitle(FolderId)));
+    end else begin
+      Item.Add('folder', '');
     end;
     Status := JGetObj(AResp.Obj, 'status');
     Item.Add('status', string(JGetStr(Status, '@type')));
@@ -7935,6 +7965,109 @@ begin
   ReleaseDeferred(ASlot);
 end;
 
+{ message.translate (id, lang) — перевод текста или подписи сообщения
+  открытого чата на стороне Telegram: translateMessageText (td_api.tl
+  коммита d1085f9; tone "" — нейтральный). Ответ — formattedText;
+  форматирование Telegram сохраняет только у Premium. Странице — text и
+  entities в том же виде, что у сообщения. }
+function TWebApi.CmdMessageTranslate(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  Id: Int64;
+  Lang: utf8string;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Id := ArgId(AArgs, 'id');
+  Lang := AArgs.Get('lang', utf8string(''));
+  if (Id = 0) or (Lang = '') or (Msgs.ChatId = 0) then begin
+    raise Exception.Create('message.translate needs a message and a language');
+  end;
+  Msgs.Request('translateMessageText',
+    '"chat_id":' + utf8string(IntToStr(Msgs.ChatId)) +
+    ',"message_id":' + utf8string(IntToStr(Id)) +
+    ',"to_language_code":' + JsonStr(Lang) + ',"tone":""',
+    @MessageTranslateDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+{ Без Premium Telegram отдаёт перевод БЕЗ сущностей (проверено живым
+  tdlib_raw.log: "entities":[] при ссылке в тексте) — ссылки, упоминания
+  и хэштеги переставали быть ссылками. Тогда текст ещё раз проходит
+  getTextEntities (находит URL, почту, @упоминания, #хэштеги — td_api.tl
+  коммита d1085f9), и найденное ставится на свои места. Перевод с
+  форматированием (Premium) остаётся как есть. }
+procedure TWebApi.MessageTranslateDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Ents: TJSONArray;
+  Text: utf8string;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Ents := JGetArr(AResp.Obj, 'entities');
+  Text := JGetStr(AResp.Obj, 'text');
+  if ((Ents = nil) or (Ents.Count = 0)) and (Text <> '') then begin
+    FDeferred[Slot].Held := TJSONObject.Create;
+    FDeferred[Slot].Held.Add('text', string(Text));
+    RequireMsgs.Request('getTextEntities', '"text":' + JsonStr(Text),
+      @TranslateEntitiesDone, Slot);
+    Exit;
+  end;
+  TranslateReply(Slot, AResp.Obj);
+end;
+
+procedure TWebApi.TranslateEntitiesDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  FT: TJSONObject;
+  Arr: TJSONArray;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  FT := TJSONObject.Create;
+  try
+    FT.Add('@type', 'formattedText');
+    FT.Add('text', FDeferred[Slot].Held.Get('text', ''));
+    Arr := nil;
+    if AResp.Success then begin
+      Arr := JGetArr(AResp.Obj, 'entities');
+    end;
+    if Arr <> nil then begin
+      FT.Add('entities', Arr.Clone);
+    end else begin
+      FT.Add('entities', TJSONArray.Create);
+    end;
+    TranslateReply(Slot, FT);
+  finally
+    FT.Free;
+  end;
+end;
+
+procedure TWebApi.TranslateReply(ASlot: PtrInt; AFormatted: TJSONObject);
+var
+  Res: TJSONObject;
+  Text: utf8string;
+  Ents: TMsgEntityArray;
+begin
+  RequireMsgs.ParseFormattedText(AFormatted, Text, Ents);
+  Res := TJSONObject.Create;
+  Res.Add('text', string(Text));
+  Res.Add('entities', EntitiesJson(Ents));
+  Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  ReleaseDeferred(ASlot);
+end;
+
 { message.forward (id, toChatId) — пересылка из открытого чата:
   forwardMessages (td_api.tl коммита d1085f9) без topic_id и options,
   обычной пересылкой (send_copy false), с подписью. }
@@ -8570,6 +8703,8 @@ begin
       end else if Cmd = 'message.menu' then begin
         { Answers later, from the TDLib callback - see TDeferredReply. }
         CmdMessageMenu(AConnId, ReqId, Args);
+      end else if Cmd = 'message.translate' then begin
+        CmdMessageTranslate(AConnId, ReqId, Args);
       end else if Cmd = 'message.forward' then begin
         CmdMessageForward(AConnId, ReqId, Args);
       end else if Cmd = 'message.link' then begin

@@ -10,7 +10,7 @@
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
         <TopLine Value="113"/>
-        <CursorPos X="5" Y="146"/>
+        <CursorPos Y="146"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
       </Unit>
@@ -228,7 +228,12 @@
         <UsageCount Value="22"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="-1"/>
+    <JumpHistory>
+      <Position>
+        <Filename Value="FPTelegram.lpr"/>
+        <Caret Line="146" Column="5" TopLine="113"/>
+      </Position>
+    </JumpHistory>
     <RunParams>
       <FormatVersion Value="2"/>
       <Modes ActiveMode=""/>

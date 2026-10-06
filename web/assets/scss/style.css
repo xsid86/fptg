@@ -2314,8 +2314,24 @@ body {
     transform: rotate(360deg);
   }
 }
+.is-ring-loading {
+  position: relative;
+}
+.is-ring-loading::after {
+  animation: spinner-turn 0.75s linear infinite;
+  border: var(--ring-width, 3px) solid var(--c-accent);
+  border-radius: 50%;
+  border-right-color: transparent;
+  content: "";
+  inset: var(--ring-inset, -6px);
+  pointer-events: none;
+  position: absolute;
+  z-index: 3;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .spinner {
+  .spinner,
+  .is-ring-loading::after {
     animation-duration: 2s;
   }
 }
@@ -2585,6 +2601,20 @@ body {
 .contact-row:hover * {
   color: var(--c-light);
 }
+.contact-row:hover .chat-item__folder--none,
+.contact-row:hover .chat-item__folder--none * {
+  color: var(--c-dark);
+}
+
+.contact-row {
+  --chat-color: var(--accent-color, var(--c-accent));
+}
+
+.contact-row__folder {
+  align-self: flex-start;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
 
 .chat-item {
   content-visibility: auto;
@@ -2851,6 +2881,7 @@ body {
 
 .chat-header__avatar {
   --avatar-color: var(--chat-color);
+  --ring-inset: 0;
   cursor: pointer;
 }
 .chat-header__avatar:focus-visible:focus {
@@ -3422,6 +3453,54 @@ body {
   pointer-events: none;
 }
 
+.translate-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+.translate-toggle:focus {
+  outline: none !important;
+}
+.translate-toggle:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.translate-toggle {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-accent) 60%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  color: var(--c-accent);
+  cursor: pointer;
+  position: absolute;
+  right: 16px;
+  top: calc(16px + 36px + 6px);
+  z-index: 5;
+}
+.translate-toggle[hidden] {
+  display: none;
+}
+.translate-toggle.is-on {
+  background: var(--c-accent);
+  color: var(--c-light);
+}
+
+.translate-toggle__glyph {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.message__translated {
+  color: var(--c-text-faint);
+  font-size: 11px;
+  font-style: italic;
+  margin-top: 4px;
+}
+
 .info-toggle__glyph {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 20px;
@@ -3514,6 +3593,9 @@ body {
 .info-panel__avatar-btn {
   border-radius: 999px;
   cursor: pointer;
+  display: inline-flex;
+  line-height: 0;
+  padding: 0;
 }
 
 .info-panel__avatar {

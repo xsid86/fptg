@@ -17,6 +17,7 @@ import {
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountPayments } from './ui/payments.js';
+import { mountTranslate } from './ui/translate.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
@@ -82,7 +83,7 @@ function report(err) {
  * carry no icons because TDLib describes a folder's icon by name only -
  * see CmdChatsFolders in webapi.pas.
  */
-async function showFolderMenu(id, anchor) {
+async function showFolderMenu(id, anchor, contact = null) {
   let folders;
   try {
     folders = await call('chats.folders');
@@ -93,11 +94,17 @@ async function showFolderMenu(id, anchor) {
 
   // Read the current folder off the row we already have rather than
   // asking again: 0 means "in no folder", the same convention the
-  // server uses in both directions.
+  // server uses in both directions. A contact's row brings its own -
+  // its private chat need not be in the list on screen at all.
   const chat = store.chats.find((row) => row.id === id);
-  const current = chat?.folderId ?? 0;
+  const current = contact ? contact.current : (chat?.folderId ?? 0);
 
-  const move = (folderId) => call('chat.folder.set', { id, folderId }).catch(report);
+  // После переноса из строки контакта список контактов перечитывается.
+  // (Контакту без переписки кнопки не дают вовсе — chat-list.js.)
+  const done = () => { if (contact) emit('ui:contacts-stale'); };
+  const move = (folderId) => call('chat.folder.set', { id, folderId })
+    .then(done)
+    .catch(report);
 
   const items = folders.map((folder) => ({
     label: folder.title,
@@ -120,7 +127,9 @@ async function showFolderMenu(id, anchor) {
     onSelect: () => {
       const title = prompt(`New folder name (up to ${FOLDER_NAME_MAX} characters):`, '');
       if (title === null) return;
-      call('chat.folder.create', { id, title }).catch(report);
+      call('chat.folder.create', { id, title })
+        .then(done)
+        .catch(report);
     },
   });
 
@@ -392,7 +401,8 @@ function wireActions() {
     call('chat.action', { id, action }).catch(report);
   });
 
-  on('ui:folder-menu', ({ id, anchor }) => showFolderMenu(id, anchor));
+  on('ui:folder-menu', ({ id, anchor, userId, current }) =>
+    showFolderMenu(id, anchor, userId ? { current: current ?? 0 } : null));
 
   // The comments pill under a channel post, and the way back out.
   on('ui:comments', ({ msg }) => {
@@ -430,7 +440,9 @@ const CONTACTS_REFRESH_MS = 5000;
 // за включение (живой лог: 46 файлов скачались меньше чем за 40 с).
 const CONTACTS_PHOTO_RETRY_MS = 2000;
 const CONTACTS_PHOTO_TRIES = 20;
+const CONTACTS_STALE_MS = 3000;
 let contactsAsked = 0;
+let contactsStaleUntil = 0;
 let contactsTries = 0;
 let contactsTimer = 0;
 // Включён ли режим контактов (кнопка — не переключатель: её подпись
@@ -486,7 +498,17 @@ function wireSidebar() {
     tab.addEventListener('click', () => setSidebarView(tab.dataset.view));
   }
   on('srv:chats', () => {
-    if (contactsOn && Date.now() - contactsAsked > CONTACTS_REFRESH_MS) loadContacts();
+    if (!contactsOn) return;
+    const now = Date.now();
+    if (now < contactsStaleUntil || now - contactsAsked > CONTACTS_REFRESH_MS) loadContacts();
+  });
+  // Папку контакта сменили из его строки: новые позиции чата приходят
+  // от TDLib несколькими обновлениями (вынуть из старых папок, добавить
+  // в новую), поэтому CONTACTS_STALE_MS список перечитывается на каждое,
+  // без обычной паузы — иначе чип показал бы промежуточное состояние.
+  on('ui:contacts-stale', () => {
+    contactsStaleUntil = Date.now() + CONTACTS_STALE_MS;
+    if (contactsOn) loadContacts();
   });
   // Клик по контакту: личка с ним (createPrivateChat — bot.userChat),
   // список возвращается к чатам.
@@ -585,6 +607,8 @@ async function boot() {
   mountGreeting({ call: (cmd, args) => call(cmd, args), report });
   // Панель информации о чате — кнопка «i» в углу истории.
   mountInfoPanel(qs('.workspace__history'), { call: (cmd, args) => call(cmd, args), report, notice });
+  // Перевод сообщений чата — кнопка под «i» (ui/translate.js).
+  mountTranslate(qs('.workspace__history'), { report });
   // Оплата счетов: кнопки «Купить» и ссылки t.me/$имя (ui:pay-invoice).
   mountPayments({ call: (cmd, args) => call(cmd, args), report, notice });
   // «Add contact» на карточке контакта в истории — то же окно, что в панели.

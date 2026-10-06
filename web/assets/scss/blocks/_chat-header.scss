@@ -37,6 +37,9 @@
 
 .chat-header__avatar {
   --avatar-color: var(--chat-color);
+  // .avatar режет всё за кругом (overflow: hidden) - кольцо загрузки
+  // галереи идёт по краю внутри.
+  --ring-inset: 0;
   cursor: pointer;
 
   &:focus-visible {

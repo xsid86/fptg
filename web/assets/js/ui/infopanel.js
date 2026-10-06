@@ -242,10 +242,17 @@ function actions(i) {
   return list;
 }
 
-async function openPhotos(i) {
+// host — аватарка, по которой кликнули: account.photos ждёт, пока все
+// фото докачаются (на длинной истории — секунды), и всё это время вокруг
+// неё крутится кольцо (.is-ring-loading, components/_spinner.scss).
+// Повторный клик, пока кольцо крутится, второй запрос не шлёт.
+async function openPhotos(i, host = null) {
   if (!i.userId) return;
+  if (host?.classList.contains('is-ring-loading')) return;
+  host?.classList.add('is-ring-loading');
   try {
     const r = await hooks.call('account.photos', { userId: i.userId });
+    host?.classList.remove('is-ring-loading');
     const photos = (r.photos ?? []).filter((p) => p.url && p.url !== '-');
     if (!photos.length) return;
     openViewer(photos.map((p) => (p.animUrl && p.animUrl !== '-'
@@ -255,6 +262,8 @@ async function openPhotos(i) {
         media: { fullUrl: p.url, url: p.url, thumb: p.thumb, w: p.w, h: p.h, fullW: p.w, fullH: p.h } })), 0);
   } catch (error) {
     hooks.report(error);
+  } finally {
+    host?.classList.remove('is-ring-loading');
   }
 }
 
@@ -839,7 +848,7 @@ function render() {
   const head = el('div', { class: 'info-panel__head' },
     el('button', {
       class: 'info-panel__avatar-btn', type: 'button',
-      title: i.userId ? 'Photos' : '', onclick: () => openPhotos(i),
+      title: i.userId ? 'Photos' : '', onclick: (event) => openPhotos(i, event.currentTarget),
     }, avatar),
     el('div', { class: 'info-panel__title' }, i.title || ''),
     idLine(i),
@@ -960,7 +969,7 @@ export function mountInfoPanel(box, options) {
   });
   // Аватарка в шапке чата: у человека — галерея его фото, у группы и
   // канала (истории аватарок у них нет) — сама панель.
-  on('ui:chat-photos', async () => {
+  on('ui:chat-photos', async ({ anchor } = {}) => {
     const chatId = store.activeChatId;
     if (chatId === null) return;
     let i = info && info.chatId === chatId ? info : null;
@@ -972,7 +981,7 @@ export function mountInfoPanel(box, options) {
         return;
       }
     }
-    if (i?.userId) openPhotos(i);
+    if (i?.userId) openPhotos(i, anchor ?? null);
     else if (!open) setOpen(true);
   });
   // Кнопка Gifts в шапке чата (ui/chat-header.js).

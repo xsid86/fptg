@@ -101,5 +101,24 @@
     * {
       color: var(--c-light);
     }
+
+    // Чип «no folder» светлый — светлый текст на нём пропал бы.
+    .chat-item__folder--none,
+    .chat-item__folder--none * {
+      color: var(--c-dark);
+    }
   }
+}
+
+// Чип папки лички (ui/chat-list.js, renderContacts) — вид чипа строки
+// чата (.chat-item__folder), место — правый верхний угол строки. Цвет
+// берёт из акцента контакта, как чип чата — из акцента чата.
+.contact-row {
+  --chat-color: var(--accent-color, var(--c-accent));
+}
+
+.contact-row__folder {
+  align-self: flex-start;
+  flex: 0 0 auto;
+  margin-left: auto;
 }

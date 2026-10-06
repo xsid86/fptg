@@ -10,6 +10,28 @@
 
 @keyframes spinner-turn { to { transform: rotate(360deg); } }
 
+// Кольцо загрузки вокруг круглого элемента (аватарка, пока качается
+// галерея её фото) - незамкнутая дуга, как spinner-border в Bootstrap.
+// Хозяин получает класс на время ожидания (ui/infopanel.js, openPhotos).
+// --ring-inset: отрицательный - кольцо снаружи; 0 - по краю внутри
+// (для хозяина с overflow: hidden, как .avatar в шапке чата).
+.is-ring-loading {
+  position: relative;
+
+  &::after {
+    animation: spinner-turn .75s linear infinite;
+    border: var(--ring-width, 3px) solid var(--c-accent);
+    border-radius: 50%;
+    border-right-color: transparent;
+    content: '';
+    inset: var(--ring-inset, -6px);
+    pointer-events: none;
+    position: absolute;
+    z-index: 3;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .spinner { animation-duration: 2s; }
+  .spinner,
+  .is-ring-loading::after { animation-duration: 2s; }
 }

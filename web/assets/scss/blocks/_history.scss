@@ -231,6 +231,47 @@
   }
 }
 
+// Перевод чата — круглая кнопка под «i»; включённая — залита акцентом,
+// выключенная — приглушена (ui/translate.js).
+.translate-toggle {
+  @include flex(row, center, center);
+  @include focus-ring;
+  @include size(36px);
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-accent) 60%, transparent);
+  border-radius: $radius-pill;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  color: var(--c-accent);
+  cursor: pointer;
+  position: absolute;
+  right: $space-6;
+  top: calc(#{$space-6} + 36px + #{$space-3});
+  z-index: 5;
+
+  &[hidden] {
+    display: none;
+  }
+
+  &.is-on {
+    background: var(--c-accent);
+    color: var(--c-light);
+  }
+}
+
+.translate-toggle__glyph {
+  font-size: $fs-sm;
+  font-weight: $fw-bold;
+  line-height: 1;
+}
+
+// Пометка под переведённым текстом сообщения.
+.message__translated {
+  color: var(--c-text-faint);
+  font-size: $fs-xs;
+  font-style: italic;
+  margin-top: $space-2;
+}
+
 .info-toggle__glyph {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 20px;
@@ -287,6 +328,12 @@
   @include focus-ring;
   border-radius: $radius-pill;
   cursor: pointer;
+  // Ровно по аватарке: строчный потомок давал кнопке хвост под базовую
+  // линию, и кольцо загрузки (.is-ring-loading, растянутое по кнопке)
+  // выходило овалом.
+  display: inline-flex;
+  line-height: 0;
+  padding: 0;
 }
 
 .info-panel__avatar {

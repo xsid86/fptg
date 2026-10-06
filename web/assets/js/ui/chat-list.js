@@ -172,6 +172,7 @@ function avatar(chat) {
 }
 
 // Which row the viewport is resting on, so a rebuild can put it back.
+// key — data-атрибут строки: chatId у чатов, userId у контактов.
 //
 // A row rather than a pixel offset, and that is not belt-and-braces: the
 // list is sorted by date, so a message arriving in a chat further down
@@ -179,19 +180,20 @@ function avatar(chat) {
 // scrollTop alone would then hold the pixel and slide the content. The
 // native list anchors the same way and for the same reason (TMsgScroller
 // keeps FRowIds alongside its offsets).
-function scrollAnchor() {
+function scrollAnchor(key = 'chatId') {
   const edge = root.getBoundingClientRect().top;
   for (const node of root.children) {
-    if (!node.dataset.chatId) continue;
+    if (!node.dataset[key]) continue;
     const box = node.getBoundingClientRect();
-    if (box.bottom > edge) return { id: node.dataset.chatId, offset: box.top - edge };
+    if (box.bottom > edge) return { key, id: node.dataset[key], offset: box.top - edge };
   }
   return null;
 }
 
 function restoreScroll(anchor) {
   if (!anchor) return;
-  const node = root.querySelector(`.chat-item[data-chat-id="${anchor.id}"]`);
+  const attr = anchor.key === 'userId' ? 'data-user-id' : 'data-chat-id';
+  const node = [...root.children].find((n) => n.getAttribute(attr) === anchor.id);
   // The anchor chat can be gone (left, or filtered out of this list).
   // Nothing sensible to line up with, so leave the list where a fresh
   // render puts it.
@@ -368,6 +370,11 @@ function renderContacts() {
   const key = JSON.stringify([needle, contacts]);
   if (key === contactsDrawn && root.childElementCount) return;
   contactsDrawn = key;
+  // Список перечитывается целиком (смена папки, докачанные аватарки,
+  // статусы) — без якоря clear() сбрасывал прокрутку к началу. Якорь —
+  // строка, а не пиксели: онлайн-контакты стоят сверху и сдвигают
+  // остальных, когда статус меняется.
+  const keep = scrollAnchor('userId');
   const list = contacts.filter(contactMatches).sort((a, b) => {
     const ao = a.status === 'userStatusOnline' ? 0 : 1;
     const bo = b.status === 'userStatusOnline' ? 0 : 1;
@@ -384,17 +391,48 @@ function renderContacts() {
   clear(root).append(...list.map((c) => {
     const avatar = el('span', { class: `avatar avatar--md contact-row__avatar accent-${c.color}` });
     fillAvatar(avatar, { id: c.userId, title: c.title, avatar: c.avatar, avatarThumb: c.avatarThumb });
-    return el('button', {
-      class: 'contact-row', type: 'button',
-      onclick: () => emit('ui:open-contact', { userId: c.userId }),
+    // Чип папки лички — тот же, что у строки чата, и то же меню
+    // (ui:folder-menu), текущая папка — с сервера. Только у тех, чья личка
+    // стоит в списке (inList): без переписки её нет ни в одном, а в папку
+    // Telegram берёт только чаты из списков — кнопка была бы мёртвой.
+    const folder = c.inList !== true ? null : el('button', {
+      class: `chip chat-item__folder contact-row__folder${c.folder ? '' : ' chat-item__folder--none'}`,
+      type: 'button',
+      title: c.folder ? `Folder: ${c.folder}` : 'Put this chat in a folder',
+      onclick: (event) => {
+        event.stopPropagation();
+        emit('ui:folder-menu', {
+          id: Number(c.userId), userId: c.userId, current: c.folderId ?? 0,
+          anchor: event.currentTarget,
+        });
+      },
+    }, el('span', { textContent: c.folder || 'no folder' }));
+    // div с ролью кнопки, не <button>: внутри настоящая кнопка папки, а
+    // кнопка в кнопке — невалидная разметка (см. chatItem).
+    const open = () => emit('ui:open-contact', { userId: c.userId });
+    return el('div', {
+      class: `contact-row accent-${c.color}`,
+      role: 'button',
+      dataset: { userId: String(c.userId) },
+      tabIndex: 0,
+      onclick: open,
+      onkeydown: (event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open();
+        }
+      },
     },
     avatar,
     el('span', { class: 'contact-row__text' },
       el('span', { class: 'contact-row__name' }, c.title || c.username || c.phone || '(no name)'),
       el('span', {
         class: `contact-row__status${c.status === 'userStatusOnline' ? ' is-online' : ''}`,
-      }, statusText(c))));
+      }, statusText(c))),
+    folder);
   }));
+  restoreScroll(keep);
 }
 
 function render() {

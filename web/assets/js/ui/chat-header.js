@@ -119,9 +119,10 @@ function build() {
   const avatar = el('span', {
     class: 'avatar avatar--lg chat-header__avatar',
     role: 'button', tabindex: '0', title: 'Photos',
-    onclick: () => emit('ui:chat-photos'),
+    // anchor — на неё вешается кольцо загрузки, пока галерея качается.
+    onclick: (event) => emit('ui:chat-photos', { anchor: event.currentTarget }),
     onkeydown: (event) => {
-      if (event.key === 'Enter') emit('ui:chat-photos');
+      if (event.key === 'Enter') emit('ui:chat-photos', { anchor: event.currentTarget });
     },
   });
   // One button, two jobs: on a narrow screen it goes back to the chat

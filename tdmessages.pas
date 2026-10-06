@@ -927,6 +927,11 @@ type
     procedure JoinChat(AChatId: Int64);
     property ThreadPostId: Int64 read FThreadPostId;
     property ThreadChatId: Int64 read FThreadChatId;
+    { formattedText (ответ translateText/translateMessageText и т.п.) —
+      в текст и сущности так же, как текст сообщения (ExtractFormatted:
+      UTF-16 -> байтовые смещения). }
+    procedure ParseFormattedText(AFormatted: TJSONObject;
+      out APlainText: utf8string; out AEntities: TMsgEntityArray);
     { message_thread_id открытой ветки (0 — не ветка): в группе
       обсуждения это id корневого сообщения — копии поста. }
     property ThreadId: Int64 read FThreadId;
@@ -2577,6 +2582,26 @@ procedure TTdMessages.RetryTick(Sender: TObject);
 begin
   FRetryTimer.Enabled := False;
   LoadOlder;
+end;
+
+procedure TTdMessages.ParseFormattedText(AFormatted: TJSONObject;
+  out APlainText: utf8string; out AEntities: TMsgEntityArray);
+var
+  Wrap: TJSONObject;
+begin
+  APlainText := '';
+  SetLength(AEntities, 0);
+  if AFormatted = nil then begin
+    Exit;
+  end;
+  { Обёртка под messageText — тот же разбор, что у сообщений. }
+  Wrap := TJSONObject.Create;
+  try
+    Wrap.Add('text', AFormatted.Clone);
+    ExtractFormatted(Wrap, 'messageText', APlainText, AEntities);
+  finally
+    Wrap.Free;
+  end;
 end;
 
 procedure TTdMessages.ExtractFormatted(AContent: TJSONObject; const AType: utf8string;

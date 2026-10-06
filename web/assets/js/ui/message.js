@@ -12,6 +12,7 @@ import {renderInlineKeyboard} from './bots.js';
 import {mapUrl, openMapPoint} from '../util/maps.js';
 import {fillAvatar} from '../util/avatar.js';
 import {copyText} from '../util/clipboard.js';
+import {translationFor, watchTranslation} from './translate.js';
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -122,12 +123,16 @@ export function renderMessage(msg) {
     if (msg.kind === 'poll' && msg.poll) body.append(renderPoll(msg));
     if (msg.kind === 'location' && msg.location) body.append(renderLocation(msg));
     if (msg.kind === 'contact' && msg.contact) body.append(renderContact(msg));
-    if (msg.text) body.append(renderRichText(msg.text, msg.entities ?? []));
+    // Перевод чата включён и готов — он вместо текста (ui/translate.js).
+    const tr = translationFor(msg);
+    if (msg.text) body.append(renderRichText(tr ? tr.text : msg.text, tr ? tr.entities : (msg.entities ?? [])));
+    if (tr) body.append(el('div', {class: 'message__translated'}, 'Translated'));
     if (msg.link) body.append(renderLinkPreview(msg));
     if (body.childNodes.length) card.append(body);
 
     const footer = renderFooter(msg, bare);
     if (footer) card.append(footer);
+    watchTranslation(card, msg);
     // Кнопки бота под сообщением (ui/bots.js).
     if (msg.keyboard?.length) card.append(renderInlineKeyboard(msg));
     return withMenu(card, msg);
@@ -186,7 +191,10 @@ export function renderAlbum(msgs) {
     // message happened to carry it - so it is looked for rather than
     // taken from the first.
     const captioned = msgs.find((m) => m.text);
-    if (captioned) body.append(renderRichText(captioned.text, captioned.entities ?? []));
+    const ctr = captioned ? translationFor(captioned) : null;
+    if (captioned) body.append(renderRichText(ctr ? ctr.text : captioned.text, ctr ? ctr.entities : (captioned.entities ?? [])));
+    if (ctr) body.append(el('div', {class: 'message__translated'}, 'Translated'));
+    if (captioned) watchTranslation(card, captioned);
     card.append(body);
 
     // The strip belongs to whichever message in the run carries the
