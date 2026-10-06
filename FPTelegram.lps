@@ -208,6 +208,11 @@
         <UsageCount Value="45"/>
       </Unit>
       <Unit>
+        <Filename Value="tdcalls.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="tdstickers.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="22"/>
@@ -228,12 +233,7 @@
         <UsageCount Value="22"/>
       </Unit>
     </Units>
-    <JumpHistory>
-      <Position>
-        <Filename Value="FPTelegram.lpr"/>
-        <Caret Line="146" Column="5" TopLine="113"/>
-      </Position>
-    </JumpHistory>
+    <JumpHistory HistoryIndex="-1"/>
     <RunParams>
       <FormatVersion Value="2"/>
       <Modes ActiveMode=""/>

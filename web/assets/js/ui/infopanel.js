@@ -4,7 +4,7 @@ import { store, setActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
 import { fillAvatar } from '../util/avatar.js';
 import { copyText } from '../util/clipboard.js';
-import { openMenu } from '../util/menu.js';
+import { openMenu, reanchorMenu } from '../util/menu.js';
 import { openViewer } from './viewer.js';
 import { formDialog, field, pickChats } from './bots.js';
 import { statusText } from './chat-list.js';
@@ -880,7 +880,22 @@ function render() {
       }
       load();
     }),
-    actionButton('mic', 'Call', () => hooks.notice('Calls are not supported in this app yet')),
+    // Звонок: человеку — личный (ui/call.js), голосом или с видео;
+    // группе и каналу — видеочат (ui/videochat.js).
+    actionButton('mic', 'Call', (event) => {
+      if (i.kind === 'group' || i.kind === 'channel') {
+        emit('ui:vchat-open', { chatId: i.chatId, title: i.title });
+        return;
+      }
+      if (i.kind !== 'user' || !i.userId) {
+        hooks.notice('Calls are available with people, groups and channels');
+        return;
+      }
+      openMenu(event.currentTarget, [
+        { label: 'Voice call', onSelect: () => emit('ui:call-start', { userId: i.userId, video: false }) },
+        { label: 'Video call', onSelect: () => emit('ui:call-start', { userId: i.userId, video: true }) },
+      ]);
+    }),
     more);
 
   const rows = [];
@@ -927,7 +942,18 @@ function render() {
         class: `info-panel__link${danger ? ' is-danger' : ''}`, type: 'button', onclick: run,
       }, label))));
   }
+  // Панель перестраивается целиком (в том числе по srv:chats, пока
+  // открыта), и кнопка, под которой открыто меню (Call, More), заменяется
+  // новой. Меню без якоря не закрывается, а падает в угол экрана —
+  // поэтому якорь переносится на новую кнопку с той же подписью
+  // (reanchorMenu ничего не делает, если меню открыто не от неё).
+  const oldActions = new Map([...body.querySelectorAll('.info-panel__action')]
+    .map((n) => [n.textContent, n]));
   clear(body).append(...parts);
+  for (const n of body.querySelectorAll('.info-panel__action')) {
+    const old = oldActions.get(n.textContent);
+    if (old) reanchorMenu(old, n);
+  }
 }
 
 // ------------------------------------------------------------ mount

@@ -63,7 +63,7 @@ implementation
 uses
   Classes, SysUtils, SyncObjs, ExtCtrls, base64, fgl, fpjson, jsonparser,
   constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
-  tdusers, tdstickers, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
+  tdusers, tdstickers, tdcalls, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
   autodownload, customemoji, webui, tdstorage, miniapp, desknotify,
   tdsupergroups, tdattachbots, servicetext, tdaccount;
 
@@ -138,6 +138,9 @@ type
       как супергруппы). Раньше её единственный OnChanged держало нативное
       окно истории. }
     FBoundUsers: TTdUsers;
+    { Звонки активного аккаунта: каждое изменение и каждый сигнальный
+      пакет — событием странице (call, call.signal). }
+    FBoundCalls: TTdCalls;
     FUsersDirty: boolean;
     { updateSupergroup на старте приходят пачкой — в событие страницы
       сводятся таймером, как стикеры. }
@@ -194,6 +197,27 @@ type
     procedure StickersChanged(Sender: TObject);
     procedure GroupsChanged(Sender: TObject);
     procedure UsersChanged(Sender: TObject);
+    procedure CallChanged(Sender: TObject; ACallId: integer);
+    procedure CallSignal(Sender: TObject; ACallId: integer; const AData: utf8string);
+    procedure GroupCallChanged(Sender: TObject; AGroupCallId: integer);
+    procedure GroupParticipantChanged(Sender: TObject; AGroupCallId: integer;
+      AParticipant: TJSONObject);
+    procedure ChatVideoChatChanged(Sender: TObject; AChatId: Int64;
+      AGroupCallId: integer; AHasParticipants: boolean);
+    function  CmdVchatInfo(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure VchatChatDone(Sender: TObject; const AResp: TTdResponse);
+    procedure VchatGroupDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdVchatJoin(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure VchatJoinDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdVchatParticipants(AArgs: TJSONObject): TJSONData;
+    function  CmdVchatSimple(const ACmd: utf8string; AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    procedure VchatCreateDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdCallStart(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure CallStartDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdCallSimple(const ACmd: utf8string; AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdCallList: TJSONData;
     procedure AuthChanged(Sender: TObject);
     procedure StorageChanged(Sender: TObject);
     function  TakeDeferred(AConnId: Int64; AReqId: integer;
@@ -1506,6 +1530,59 @@ begin
   end;
 end;
 
+{ Звонок в истории — messageCall (is_video, discard_reason, duration) и
+  messageGroupCall (is_active, was_missed, is_video, duration) по
+  td_api.tl коммита d1085f9. Модель держит их как mckOther; без этого
+  страница рисовала пустой пузырь. reason — хвост типа
+  callDiscardReason* маленькими буквами (missed, declined,
+  disconnected, hungup, empty...). nil — не звонок. }
+function CallMessageJson(const ARaw: utf8string): TJSONObject;
+var
+  Data: TJSONData;
+  O: TJSONObject;
+  T, Reason: utf8string;
+begin
+  Result := nil;
+  if ARaw = '' then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARaw));
+  except
+    Exit;
+  end;
+  try
+    if not (Data is TJSONObject) then begin
+      Exit;
+    end;
+    O := TJSONObject(Data);
+    T := JGetStr(O, '@type');
+    if (T <> 'messageCall') and (T <> 'messageGroupCall') then begin
+      Exit;
+    end;
+    Result := TJSONObject.Create;
+    Result.Add('group', T = 'messageGroupCall');
+    Result.Add('video', JGetBool(O, 'is_video'));
+    Result.Add('duration', JGetInt(O, 'duration'));
+    Reason := JGetStr(JGetObj(O, 'discard_reason'), '@type');
+    if Copy(Reason, 1, 17) = 'callDiscardReason' then begin
+      Reason := LowerCase(Copy(Reason, 18, MaxInt));
+    end;
+    if T = 'messageGroupCall' then begin
+      if JGetBool(O, 'is_active') then begin
+        Reason := 'active';
+      end else if JGetBool(O, 'was_missed') then begin
+        Reason := 'missed';
+      end else begin
+        Reason := 'hungup';
+      end;
+    end;
+    Result.Add('reason', string(Reason));
+  finally
+    Data.Free;
+  end;
+end;
+
 { Геопозиция сообщения — из сырого content (td_api.tl коммита d1085f9):
   messageLocation (location), messageVenue (venue: location, title,
   address), messageLiveLocation (location: liveLocation — его location,
@@ -1597,6 +1674,12 @@ begin
       if Loc <> nil then begin
         Result.Strings['kind'] := 'contact';
         Result.Add('contact', Loc);
+      end else begin
+        Loc := CallMessageJson(ARow.ContentRaw);
+        if Loc <> nil then begin
+          Result.Strings['kind'] := 'call';
+          Result.Add('call', Loc);
+        end;
       end;
     end;
   end;
@@ -1877,6 +1960,17 @@ begin
       FBoundUsers.OnChanged := @UsersChanged;
     end;
   end;
+
+  if TdCallList <> FBoundCalls then begin
+    FBoundCalls := TdCallList;
+    if FBoundCalls <> nil then begin
+      FBoundCalls.OnChanged := @CallChanged;
+      FBoundCalls.OnSignal := @CallSignal;
+      FBoundCalls.OnGroup := @GroupCallChanged;
+      FBoundCalls.OnParticipant := @GroupParticipantChanged;
+      FBoundCalls.OnChatVideoChat := @ChatVideoChatChanged;
+    end;
+  end;
 end;
 
 { Unsubscribes, but only from objects that are still the current ones.
@@ -1905,6 +1999,14 @@ begin
     FBoundUsers.OnChanged := nil;
   end;
   FBoundUsers := nil;
+  if (FBoundCalls <> nil) and (FBoundCalls = TdCallList) then begin
+    FBoundCalls.OnChanged := nil;
+    FBoundCalls.OnSignal := nil;
+    FBoundCalls.OnGroup := nil;
+    FBoundCalls.OnParticipant := nil;
+    FBoundCalls.OnChatVideoChat := nil;
+  end;
+  FBoundCalls := nil;
 end;
 
 { Принадлежит ли модель какому-нибудь живому аккаунту. Модели
@@ -1923,7 +2025,7 @@ begin
     A := TdApp.Accounts[I];
     if (TObject(A.Chats) = AObj) or (TObject(A.Messages) = AObj)
        or (TObject(A.Stickers) = AObj) or (TObject(A.Supergroups) = AObj)
-       or (TObject(A.Users) = AObj) then begin
+       or (TObject(A.Users) = AObj) or (TObject(A.Calls) = AObj) then begin
       Result := True;
       Exit;
     end;
@@ -1962,6 +2064,14 @@ begin
     FBoundUsers.OnChanged := nil;
   end;
   FBoundUsers := nil;
+  if ModelAlive(FBoundCalls) then begin
+    FBoundCalls.OnChanged := nil;
+    FBoundCalls.OnSignal := nil;
+    FBoundCalls.OnGroup := nil;
+    FBoundCalls.OnParticipant := nil;
+    FBoundCalls.OnChatVideoChat := nil;
+  end;
+  FBoundCalls := nil;
 end;
 
 { Сменился активный аккаунт. Модели — другие, снимки того, что видела
@@ -2337,6 +2447,233 @@ end;
 procedure TWebApi.UsersChanged(Sender: TObject);
 begin
   FUsersDirty := True;
+end;
+
+{ ------------------------------------------------------------------ }
+{ звонки (tdcalls.pas; страница — ui/call.js, calls/*.js)            }
+{ ------------------------------------------------------------------ }
+
+{ Звонок для страницы. state — хвост типа callState* с маленькой буквы
+  (pending, exchangingKeys, ready, hangingUp, discarded, error). Для
+  ready — всё, что нужно WebRTC: ключ (base64, 256 байт), версия
+  протокола, серверы, эмодзи для сверки ключа, allowP2p. Имя и
+  аватарка собеседника — чтобы окно звонка не спрашивало их отдельно. }
+function CallToJson(ACall: TJSONObject): TJSONObject;
+var
+  State, Proto, Srv, SrvType, Item: TJSONObject;
+  Arr, Out, Emojis, Versions: TJSONArray;
+  Kind: utf8string;
+  I: integer;
+  UserId: Int64;
+  Users: TTdUsers;
+  U: TUserRow;
+begin
+  Result := TJSONObject.Create;
+  UserId := JGetInt64(ACall, 'user_id');
+  Result.Add('id', JGetInt(ACall, 'id'));
+  Result.Add('userId', UserId);
+  Result.Add('outgoing', JGetBool(ACall, 'is_outgoing'));
+  Result.Add('video', JGetBool(ACall, 'is_video'));
+  Result.Add('name', '');
+  Users := TdUserList;
+  if Users <> nil then begin
+    U := Users.Find(UserId);
+    if U <> nil then begin
+      Result.Strings['name'] := string(U.DisplayName);
+    end;
+  end;
+  AddSenderAvatar(Result, UserId, 0);
+
+  State := JGetObj(ACall, 'state');
+  Kind := JGetStr(State, '@type');
+  if Copy(Kind, 1, 9) = 'callState' then begin
+    Kind := Copy(Kind, 10, MaxInt);
+    if Kind <> '' then begin
+      Kind[1] := LowerCase(Kind[1]);
+    end;
+  end;
+  Result.Add('state', string(Kind));
+  if Kind = 'pending' then begin
+    Result.Add('created', JGetBool(State, 'is_created'));
+    Result.Add('received', JGetBool(State, 'is_received'));
+  end else if Kind = 'ready' then begin
+    Result.Add('key', string(JGetStr(State, 'encryption_key')));
+    Result.Add('allowP2p', JGetBool(State, 'allow_p2p'));
+    Result.Add('config', string(JGetStr(State, 'config')));
+    Result.Add('customParameters', string(JGetStr(State, 'custom_parameters')));
+    Proto := JGetObj(State, 'protocol');
+    Versions := JGetArr(Proto, 'library_versions');
+    if (Versions <> nil) and (Versions.Count > 0) then begin
+      Result.Add('version', Versions.Strings[0]);
+    end else begin
+      Result.Add('version', '');
+    end;
+    Emojis := TJSONArray.Create;
+    Arr := JGetArr(State, 'emojis');
+    if Arr <> nil then begin
+      for I := 0 to Arr.Count - 1 do begin
+        Emojis.Add(Arr.Strings[I]);
+      end;
+    end;
+    Result.Add('emojis', Emojis);
+    { Серверы: WebRTC-тип (STUN/TURN) годится браузеру как есть;
+      рефлекторы Telegram — свой протокол, страница их пропускает, но
+      они отдаются, чтобы было видно, что пришло. }
+    Out := TJSONArray.Create;
+    Arr := JGetArr(State, 'servers');
+    if Arr <> nil then begin
+      for I := 0 to Arr.Count - 1 do begin
+        if Arr.Items[I].JSONType <> jtObject then begin
+          Continue;
+        end;
+        Srv := TJSONObject(Arr.Items[I]);
+        SrvType := JGetObj(Srv, 'type');
+        Item := TJSONObject.Create;
+        Item.Add('id', string(IntToStr(JGetInt64(Srv, 'id'))));
+        Item.Add('ip', string(JGetStr(Srv, 'ip_address')));
+        Item.Add('ipv6', string(JGetStr(Srv, 'ipv6_address')));
+        Item.Add('port', JGetInt(Srv, 'port'));
+        if JGetStr(SrvType, '@type') = 'callServerTypeWebrtc' then begin
+          Item.Add('type', 'webrtc');
+          Item.Add('username', string(JGetStr(SrvType, 'username')));
+          Item.Add('password', string(JGetStr(SrvType, 'password')));
+          Item.Add('turn', JGetBool(SrvType, 'supports_turn'));
+          Item.Add('stun', JGetBool(SrvType, 'supports_stun'));
+        end else begin
+          Item.Add('type', 'reflector');
+          Item.Add('tcp', JGetBool(SrvType, 'is_tcp'));
+        end;
+        Out.Add(Item);
+      end;
+    end;
+    Result.Add('servers', Out);
+  end else if Kind = 'discarded' then begin
+    Kind := JGetStr(JGetObj(State, 'reason'), '@type');
+    if Copy(Kind, 1, 17) = 'callDiscardReason' then begin
+      Kind := LowerCase(Copy(Kind, 18, MaxInt));
+    end;
+    Result.Add('reason', string(Kind));
+    Result.Add('needRating', JGetBool(State, 'need_rating'));
+  end else if Kind = 'error' then begin
+    Result.Add('error', string(JGetStr(JGetObj(State, 'error'), 'message')));
+  end;
+end;
+
+procedure TWebApi.CallChanged(Sender: TObject; ACallId: integer);
+var
+  C: TJSONObject;
+begin
+  if not (Sender is TTdCalls) then begin
+    Exit;
+  end;
+  C := TTdCalls(Sender).Find(ACallId);
+  if C <> nil then begin
+    PushEvent('call', CallToJson(C));
+  end;
+end;
+
+procedure TWebApi.CallSignal(Sender: TObject; ACallId: integer; const AData: utf8string);
+var
+  D: TJSONObject;
+begin
+  D := TJSONObject.Create;
+  D.Add('id', ACallId);
+  D.Add('data', string(AData));
+  PushEvent('call.signal', D);
+end;
+
+{ call.list: звонки, которые идут сейчас, — для страницы, открытой или
+  перезагруженной посреди звонка (входящий ещё звонит). }
+function TWebApi.CmdCallList: TJSONData;
+var
+  Calls: TTdCalls;
+  Arr: TJSONArray;
+  I: integer;
+  Res: TJSONObject;
+begin
+  Arr := TJSONArray.Create;
+  Calls := TdCallList;
+  if Calls <> nil then begin
+    for I := 0 to Calls.Count - 1 do begin
+      Arr.Add(CallToJson(Calls.CallAt(I)));
+    end;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('calls', Arr);
+  Result := Res;
+end;
+
+{ call.start (userId, video): createCall -> (id). Дальше звонок живёт
+  событиями call. }
+function TWebApi.CmdCallStart(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Calls: TTdCalls;
+  UserId: Int64;
+begin
+  Result := True;
+  Calls := TdCallList;
+  if Calls = nil then begin
+    raise Exception.Create('not signed in');
+  end;
+  UserId := ArgId(AArgs, 'userId');
+  if UserId <= 0 then begin
+    raise Exception.Create('call.start needs a userId');
+  end;
+  Calls.StartCall(UserId, (AArgs <> nil) and AArgs.Get('video', False),
+    @CallStartDone, TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.CallStartDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('id', JGetInt(AResp.Obj, 'id'));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ call.accept (id), call.discard (id, duration, video, connectionId,
+  disconnected), call.signal (id, data в base64) — ответ (ok). }
+function TWebApi.CmdCallSimple(const ACmd: utf8string; AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Calls: TTdCalls;
+  Id: integer;
+begin
+  Result := True;
+  Calls := TdCallList;
+  if Calls = nil then begin
+    raise Exception.Create('not signed in');
+  end;
+  if AArgs = nil then begin
+    raise Exception.Create(string(ACmd) + ' needs an id');
+  end;
+  Id := integer(ArgId(AArgs, 'id'));
+  if Id <= 0 then begin
+    raise Exception.Create(string(ACmd) + ' needs an id');
+  end;
+  if ACmd = 'call.accept' then begin
+    Calls.AcceptCall(Id, @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  end else if ACmd = 'call.discard' then begin
+    Calls.DiscardCall(Id, AArgs.Get('disconnected', False),
+      AArgs.Get('duration', 0), AArgs.Get('video', False),
+      ArgId(AArgs, 'connectionId'),
+      @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  end else begin
+    Calls.SendSignal(Id, utf8string(AArgs.Get('data', '')),
+      @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  end;
 end;
 
 procedure TWebApi.AuthChanged(Sender: TObject);
@@ -8245,6 +8582,375 @@ begin
 end;
 
 { Общий ответ «сделано / ошибка» для отложенных команд без данных. }
+{ ------------------------------------------------------------------ }
+{ видеочаты (групповые звонки чатов): tdcalls.pas; страница —         }
+{ ui/videochat.js, calls/group.js                                    }
+{ ------------------------------------------------------------------ }
+
+{ groupCall для страницы — то, что нужно окну видеочата. }
+function GroupCallToJson(AGroup: TJSONObject): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.Add('id', JGetInt(AGroup, 'id'));
+  Result.Add('title', string(JGetStr(AGroup, 'title')));
+  Result.Add('active', JGetBool(AGroup, 'is_active'));
+  Result.Add('joined', JGetBool(AGroup, 'is_joined'));
+  Result.Add('needRejoin', JGetBool(AGroup, 'need_rejoin'));
+  Result.Add('canManage', JGetBool(AGroup, 'can_be_managed'));
+  Result.Add('count', JGetInt(AGroup, 'participant_count'));
+  Result.Add('scheduled', JGetInt(AGroup, 'scheduled_start_date'));
+  Result.Add('rtmp', JGetBool(AGroup, 'is_rtmp_stream'));
+  Result.Add('myVideo', JGetBool(AGroup, 'is_my_video_enabled'));
+  Result.Add('canEnableVideo', JGetBool(AGroup, 'can_enable_video'));
+  Result.Add('muteNew', JGetBool(AGroup, 'mute_new_participants'));
+end;
+
+{ Видеоканал участника: endpoint и группы SSRC (SIM/FID). nil — нет. }
+function PartVideoJson(AInfo: TJSONObject): TJSONData;
+var
+  Res, G, Src: TJSONObject;
+  Groups, Ids, Out: TJSONArray;
+  I, J: integer;
+begin
+  if AInfo = nil then begin
+    Result := TJSONNull.Create;
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('endpoint', string(JGetStr(AInfo, 'endpoint_id')));
+  Res.Add('paused', JGetBool(AInfo, 'is_paused'));
+  Out := TJSONArray.Create;
+  Groups := JGetArr(AInfo, 'source_groups');
+  if Groups <> nil then begin
+    for I := 0 to Groups.Count - 1 do begin
+      if Groups.Items[I].JSONType <> jtObject then begin
+        Continue;
+      end;
+      Src := TJSONObject(Groups.Items[I]);
+      G := TJSONObject.Create;
+      G.Add('semantics', string(JGetStr(Src, 'semantics')));
+      Ids := TJSONArray.Create;
+      if JGetArr(Src, 'source_ids') <> nil then begin
+        for J := 0 to JGetArr(Src, 'source_ids').Count - 1 do begin
+          { SSRC — беззнаковые 32 бита, TDLib отдаёт int32: на странице
+            приводятся к беззнаковым (>>> 0). }
+          Ids.Add(JGetArr(Src, 'source_ids').Integers[J]);
+        end;
+      end;
+      G.Add('sources', Ids);
+      Out.Add(G);
+    end;
+  end;
+  Res.Add('groups', Out);
+  Result := Res;
+end;
+
+{ Участник видеочата для страницы. }
+function PartToJson(APart: TJSONObject): TJSONObject;
+var
+  Sender: TJSONObject;
+  Key: utf8string;
+  Id: Int64;
+  Users: TTdUsers;
+  U: TUserRow;
+  Chats: TTdChats;
+  Row: TChatRow;
+  Name: utf8string;
+begin
+  Result := TJSONObject.Create;
+  Sender := JGetObj(APart, 'participant_id');
+  Key := ParticipantKey(Sender);
+  Result.Add('key', string(Key));
+  Name := '';
+  if JGetStr(Sender, '@type') = 'messageSenderUser' then begin
+    Id := JGetInt64(Sender, 'user_id');
+    Result.Add('kind', 'user');
+    Users := TdUserList;
+    if Users <> nil then begin
+      U := Users.Find(Id);
+      if U <> nil then begin
+        Name := U.DisplayName;
+      end;
+    end;
+    AddSenderAvatar(Result, Id, 0);
+  end else begin
+    Id := JGetInt64(Sender, 'chat_id');
+    Result.Add('kind', 'chat');
+    Chats := TdChatList;
+    if Chats <> nil then begin
+      Row := Chats.Lookup(Id);
+      if Row <> nil then begin
+        Name := Row.Title;
+      end;
+    end;
+    AddSenderAvatar(Result, 0, Id);
+  end;
+  Result.Add('id', Id);
+  Result.Add('name', string(Name));
+  Result.Add('self', JGetBool(APart, 'is_current_user'));
+  Result.Add('audioSource', JGetInt(APart, 'audio_source_id'));
+  Result.Add('screenAudioSource', JGetInt(APart, 'screen_sharing_audio_source_id'));
+  Result.Add('video', PartVideoJson(JGetObj(APart, 'video_info')));
+  Result.Add('screen', PartVideoJson(JGetObj(APart, 'screen_sharing_video_info')));
+  Result.Add('speaking', JGetBool(APart, 'is_speaking'));
+  Result.Add('handRaised', JGetBool(APart, 'is_hand_raised'));
+  Result.Add('mutedAll', JGetBool(APart, 'is_muted_for_all_users'));
+  Result.Add('mutedMe', JGetBool(APart, 'is_muted_for_current_user'));
+  Result.Add('canUnmuteSelf', JGetBool(APart, 'can_unmute_self'));
+  Result.Add('canMuteAll', JGetBool(APart, 'can_be_muted_for_all_users'));
+  Result.Add('canUnmuteAll', JGetBool(APart, 'can_be_unmuted_for_all_users'));
+  Result.Add('volume', JGetInt(APart, 'volume_level'));
+  Result.Add('order', string(JGetStr(APart, 'order')));
+end;
+
+{ 'u123' / 'c-100...' -> MessageSender JSON для запросов TDLib. }
+function SenderFromKey(const AKey: utf8string): utf8string;
+begin
+  Result := '';
+  if Length(AKey) < 2 then begin
+    Exit;
+  end;
+  if AKey[1] = 'u' then begin
+    Result := '{"@type":"messageSenderUser","user_id":'
+      + utf8string(IntToStr(StrToInt64Def(string(Copy(AKey, 2, MaxInt)), 0))) + '}';
+  end else if AKey[1] = 'c' then begin
+    Result := '{"@type":"messageSenderChat","chat_id":'
+      + utf8string(IntToStr(StrToInt64Def(string(Copy(AKey, 2, MaxInt)), 0))) + '}';
+  end;
+end;
+
+procedure TWebApi.GroupCallChanged(Sender: TObject; AGroupCallId: integer);
+var
+  G: TJSONObject;
+begin
+  if not (Sender is TTdCalls) then begin
+    Exit;
+  end;
+  G := TTdCalls(Sender).FindGroup(AGroupCallId);
+  if G <> nil then begin
+    PushEvent('vchat', GroupCallToJson(G));
+  end;
+end;
+
+procedure TWebApi.GroupParticipantChanged(Sender: TObject; AGroupCallId: integer;
+  AParticipant: TJSONObject);
+var
+  D: TJSONObject;
+begin
+  D := TJSONObject.Create;
+  D.Add('callId', AGroupCallId);
+  D.Add('participant', PartToJson(AParticipant));
+  PushEvent('vchat.participant', D);
+end;
+
+procedure TWebApi.ChatVideoChatChanged(Sender: TObject; AChatId: Int64;
+  AGroupCallId: integer; AHasParticipants: boolean);
+var
+  D: TJSONObject;
+begin
+  D := TJSONObject.Create;
+  D.Add('chatId', AChatId);
+  D.Add('groupCallId', AGroupCallId);
+  D.Add('hasParticipants', AHasParticipants);
+  PushEvent('chat.videochat', D);
+end;
+
+{ vchat.info (chatId): getChat -> video_chat.group_call_id; есть —
+  getGroupCall. Ответ (groupCallId, call или null). }
+function TWebApi.CmdVchatInfo(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+begin
+  Result := True;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  { Held — признак слота для AccountSlot. }
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('getChat', '"chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'chatId'))),
+    @VchatChatDone, Slot);
+end;
+
+procedure TWebApi.VchatChatDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Id: integer;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Id := JGetInt(JGetObj(AResp.Obj, 'video_chat'), 'group_call_id');
+  if Id = 0 then begin
+    Res := TJSONObject.Create;
+    Res.Add('groupCallId', 0);
+    Res.Add('call', TJSONNull.Create);
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  RequireMsgs.Request('getGroupCall', '"group_call_id":' + utf8string(IntToStr(Id)),
+    @VchatGroupDone, Slot);
+end;
+
+procedure TWebApi.VchatGroupDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('groupCallId', JGetInt(AResp.Obj, 'id'));
+  Res.Add('call', GroupCallToJson(AResp.Obj));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ vchat.join (groupCallId, ssrc, payload, muted, video): joinVideoChat ->
+  Text с ответом SFU (payload). Сразу после — loadGroupCallParticipants:
+  участники приходят обновлениями (событие vchat.participant). }
+function TWebApi.CmdVchatJoin(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+const
+  B: array[boolean] of utf8string = ('false', 'true');
+var
+  Id: integer;
+  Slot: PtrInt;
+begin
+  Result := True;
+  Id := integer(ArgId(AArgs, 'groupCallId'));
+  if Id <= 0 then begin
+    raise Exception.Create('vchat.join needs a groupCallId');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('groupCallId', Id);
+  RequireMsgs.Request('joinVideoChat', '"group_call_id":' + utf8string(IntToStr(Id))
+    + ',"join_parameters":{"@type":"groupCallJoinParameters","audio_source_id":'
+    + utf8string(IntToStr(integer(AArgs.Get('ssrc', Int64(0)))))
+    + ',"payload":' + JsonStr(utf8string(AArgs.Get('payload', '')))
+    + ',"is_muted":' + B[AArgs.Get('muted', True)]
+    + ',"is_my_video_enabled":' + B[AArgs.Get('video', False)]
+    + '},"invite_hash":""',
+    @VchatJoinDone, Slot);
+end;
+
+procedure TWebApi.VchatJoinDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+  Id: integer;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Id := FDeferred[Slot].Held.Get('groupCallId', 0);
+  Res := TJSONObject.Create;
+  Res.Add('payload', string(JGetStr(AResp.Obj, 'text')));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+  RequireMsgs.Request('loadGroupCallParticipants', '"group_call_id":'
+    + utf8string(IntToStr(Id)) + ',"limit":' + utf8string(IntToStr(VCHAT_LOAD_PARTICIPANTS)),
+    nil, 0);
+end;
+
+{ vchat.participants (groupCallId): известные модели участники — для
+  страницы, открытой посреди видеочата. }
+function TWebApi.CmdVchatParticipants(AArgs: TJSONObject): TJSONData;
+var
+  Calls: TTdCalls;
+  Map: TJSONObject;
+  Arr: TJSONArray;
+  I: integer;
+  Res: TJSONObject;
+begin
+  Arr := TJSONArray.Create;
+  Calls := TdCallList;
+  if Calls <> nil then begin
+    Map := Calls.GroupParticipants(integer(ArgId(AArgs, 'groupCallId')));
+    if Map <> nil then begin
+      for I := 0 to Map.Count - 1 do begin
+        if Map.Items[I].JSONType = jtObject then begin
+          Arr.Add(PartToJson(TJSONObject(Map.Items[I])));
+        end;
+      end;
+    end;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('participants', Arr);
+  Result := Res;
+end;
+
+{ Простые команды видеочата — ответ (ok) или (groupCallId) у create:
+    vchat.create (chatId)              createVideoChat
+    vchat.leave (groupCallId)          leaveGroupCall
+    vchat.end (groupCallId)            endGroupCall
+    vchat.mute (groupCallId, key, muted)  toggleGroupCallParticipantIsMuted
+    vchat.video (groupCallId, enabled)    toggleGroupCallIsMyVideoEnabled
+    vchat.load (groupCallId)           loadGroupCallParticipants }
+function TWebApi.CmdVchatSimple(const ACmd: utf8string; AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+const
+  B: array[boolean] of utf8string = ('false', 'true');
+var
+  Id: utf8string;
+  Who: utf8string;
+  Calls: TTdCalls;
+  Slot: PtrInt;
+begin
+  Result := True;
+  if AArgs = nil then begin
+    raise Exception.Create(string(ACmd) + ' needs arguments');
+  end;
+  Id := utf8string(IntToStr(ArgId(AArgs, 'groupCallId')));
+  if ACmd = 'vchat.create' then begin
+    Slot := TakeDeferred(AConnId, AReqId, 0);
+    FDeferred[Slot].Held := TJSONObject.Create;
+    RequireMsgs.Request('createVideoChat', '"chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'chatId')))
+      + ',"title":"","start_date":0,"is_rtmp_stream":false',
+      @VchatCreateDone, Slot);
+  end else if ACmd = 'vchat.leave' then begin
+    Calls := TdCallList;
+    if Calls <> nil then begin
+      Calls.DropParticipants(integer(ArgId(AArgs, 'groupCallId')));
+    end;
+    RequireMsgs.Request('leaveGroupCall', '"group_call_id":' + Id,
+      @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  end else if ACmd = 'vchat.end' then begin
+    RequireMsgs.Request('endGroupCall', '"group_call_id":' + Id,
+      @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  end else if ACmd = 'vchat.mute' then begin
+    Who := SenderFromKey(utf8string(AArgs.Get('key', '')));
+    if Who = '' then begin
+      raise Exception.Create('vchat.mute needs a participant key');
+    end;
+    RequireMsgs.Request('toggleGroupCallParticipantIsMuted', '"group_call_id":' + Id
+      + ',"participant_id":' + Who + ',"is_muted":' + B[AArgs.Get('muted', True)],
+      @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  end else if ACmd = 'vchat.video' then begin
+    RequireMsgs.Request('toggleGroupCallIsMyVideoEnabled', '"group_call_id":' + Id
+      + ',"is_my_video_enabled":' + B[AArgs.Get('enabled', False)],
+      @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  end else begin
+    RequireMsgs.Request('loadGroupCallParticipants', '"group_call_id":' + Id
+      + ',"limit":' + utf8string(IntToStr(VCHAT_LOAD_PARTICIPANTS)),
+      @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  end;
+end;
+
+procedure TWebApi.VchatCreateDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('groupCallId', JGetInt(AResp.Obj, 'id'));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
 procedure TWebApi.SimpleDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -8768,6 +9474,23 @@ begin
         CmdMentionSearch(AConnId, ReqId, Args);
       end else if Cmd = 'contacts.list' then begin
         CmdContactsList(AConnId, ReqId);
+      end else if Cmd = 'call.list' then begin
+        Reply(AConnId, ReqId, CmdCallList);
+      end else if Cmd = 'call.start' then begin
+        CmdCallStart(AConnId, ReqId, Args);
+      end else if (Cmd = 'call.accept') or (Cmd = 'call.discard')
+                  or (Cmd = 'call.signal') then begin
+        CmdCallSimple(Cmd, AConnId, ReqId, Args);
+      end else if Cmd = 'vchat.info' then begin
+        CmdVchatInfo(AConnId, ReqId, Args);
+      end else if Cmd = 'vchat.join' then begin
+        CmdVchatJoin(AConnId, ReqId, Args);
+      end else if Cmd = 'vchat.participants' then begin
+        Reply(AConnId, ReqId, CmdVchatParticipants(Args));
+      end else if (Cmd = 'vchat.create') or (Cmd = 'vchat.leave') or (Cmd = 'vchat.end')
+                  or (Cmd = 'vchat.mute') or (Cmd = 'vchat.video')
+                  or (Cmd = 'vchat.load') then begin
+        CmdVchatSimple(Cmd, AConnId, ReqId, Args);
       end else if Cmd = 'attach.bots' then begin
         Reply(AConnId, ReqId, CmdAttachBots);
       end else if Cmd = 'account.get' then begin

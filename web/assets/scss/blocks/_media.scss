@@ -622,3 +622,61 @@ a.media--file:hover {
     background: color-mix(in srgb, var(--sender-color, var(--c-accent)) 24%, transparent);
   }
 }
+
+// ------------------------------------------------------------ звонок
+// Звонок в истории (ui/message.js, renderCall): значок в кружке, что за
+// звонок и сколько длился, справа — перезвонить (или Join у группового).
+// Неудавшийся (пропущенный, отклонённый) — значок цветом ошибки.
+$call-card-icon: 40px;
+
+.call-card {
+  @include flex(row, center, flex-start, $space-5);
+  min-width: 240px;
+  padding: $space-2 0;
+}
+
+.call-card__icon {
+  @include flex(row, center, center);
+  @include size($call-card-icon);
+  background: color-mix(in srgb, var(--c-ok) 20%, transparent);
+  border-radius: 50%;
+  color: var(--c-ok);
+  flex: 0 0 auto;
+
+  .call-card.is-failed & {
+    background: color-mix(in srgb, var(--c-danger) 20%, transparent);
+    color: var(--c-danger);
+  }
+}
+
+.call-card__text {
+  @include flex(column, stretch, flex-start, $space-1);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.call-card__title {
+  font-weight: $fw-medium;
+}
+
+.call-card__sub {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.call-card__again {
+  @include flex(row, center, center);
+  @include focus-ring;
+  @include size(36px);
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  color: var(--c-accent);
+  cursor: pointer;
+  flex: 0 0 auto;
+  @include transition;
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-accent) 15%, transparent);
+  }
+}

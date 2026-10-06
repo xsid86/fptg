@@ -1,0 +1,444 @@
+@use "../abstracts" as *;
+
+// Окно звонка (ui/call.js): карточка поверх приложения у верхнего края.
+// Без видео — компактная (аватарка, имя, состояние, кнопки); с видео
+// (call--video) — шире, видео собеседника во всю карточку, своя камера
+// маленьким окошком в углу.
+// Пять кнопок разговора (Mute, Camera, Devices, Full screen, End) по
+// $call-btn-slot с промежутком $space-4 + поля карточки.
+$call-width: 420px;
+$call-btn-slot: 64px;
+$call-video-width: 640px;
+$call-avatar: 56px;
+$call-btn: 48px;
+$call-local-w: 160px;
+
+.call {
+  left: 50%;
+  position: fixed;
+  top: $space-7;
+  transform: translateX(-50%);
+  z-index: $z-modal;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.call__card {
+  @include flex(column, stretch, flex-start, $space-5);
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: $radius-lg;
+  box-shadow: 0 2rem 4rem var(--c-shadow);
+  color: var(--c-text);
+  max-width: calc(100vw - #{2 * $space-6});
+  padding: $space-6;
+  width: $call-width;
+
+  .call--video & {
+    width: $call-video-width;
+  }
+
+  .call--incoming & {
+    border-color: var(--c-ok);
+  }
+}
+
+.call__head {
+  @include flex(row, center, flex-start, $space-5);
+}
+
+.call__avatar {
+  @include size($call-avatar);
+  flex: 0 0 auto;
+}
+
+.call__who {
+  @include flex(column, stretch, flex-start, $space-1);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.call__name {
+  @include ellipsis;
+  font-size: $fs-md;
+  font-weight: $fw-bold;
+}
+
+.call__status {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+
+  .call--ended & {
+    color: var(--c-danger);
+  }
+}
+
+// Эмодзи ключа: совпадают у обоих — разговор не подслушан.
+.call__emojis {
+  flex: 0 0 auto;
+  font-size: $fs-lg;
+  letter-spacing: 2px;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.call__media {
+  border-radius: $radius-md;
+  display: none;
+  overflow: hidden;
+  position: relative;
+
+  .call--video & {
+    display: block;
+  }
+}
+
+.call__remote {
+  aspect-ratio: 16 / 9;
+  background: #000;
+  display: block;
+  object-fit: contain;
+  width: 100%;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.call__local {
+  border: 2px solid var(--c-surface);
+  border-radius: $radius-md;
+  bottom: $space-4;
+  position: absolute;
+  right: $space-4;
+  transform: scaleX(-1);
+  width: $call-local-w;
+
+  &[hidden] {
+    display: none;
+  }
+
+  // Своё видео без собеседника — во всю ширину, не уголком.
+  .call__remote[hidden] + & {
+    border: 0;
+    position: static;
+    width: 100%;
+  }
+}
+
+.call__audio {
+  display: none;
+}
+
+.call__remote-muted {
+  color: var(--c-warn);
+  font-size: $fs-sm;
+  text-align: center;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.call__actions {
+  @include flex(row, flex-start, center, $space-4);
+  // На узком окне кнопки уходят на вторую строку, а не за край карточки.
+  flex-wrap: wrap;
+}
+
+.call__btn {
+  min-width: $call-btn-slot;
+  white-space: nowrap;
+  @include flex(column, center, center, $space-2);
+  @include focus-ring;
+  background: none;
+  border: 0;
+  color: var(--c-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: $fs-xs;
+
+  &[hidden] {
+    display: none;
+  }
+
+  .icon {
+    @include size($call-btn);
+    background: var(--c-surface-hover);
+    border-radius: 50%;
+    padding: 12px;
+    @include transition;
+  }
+
+  &:hover .icon {
+    filter: brightness(1.15);
+  }
+}
+
+.call__btn--accept .icon {
+  background: var(--c-ok);
+  color: var(--c-light);
+}
+
+.call__btn--hangup .icon {
+  background: var(--c-danger);
+  color: var(--c-light);
+}
+
+// Микрофон выключен — кнопка залита предупреждением; камера включена —
+// акцентом.
+.call__btn--toggle.is-off .icon {
+  background: var(--c-warn);
+  color: var(--c-dark);
+}
+
+.call__btn--toggle.is-on .icon {
+  background: var(--c-accent);
+  color: var(--c-light);
+}
+
+// Знак ⛶ вместо иконки спрайта — в том же кружке.
+.call__glyph {
+  @include flex(row, center, center);
+  font-size: 22px;
+  line-height: 1;
+}
+
+// ------------------------------------------------------ во весь экран
+// .call целиком в полноэкранном режиме (ui/call.js, toggleFull): UA сам
+// растягивает элемент на экран и снимает transform; карточка — во весь
+// экран, видео собеседника занимает всё, что осталось над кнопками.
+.call:fullscreen {
+  background: #000;
+
+  .call__card {
+    border: 0;
+    border-radius: 0;
+    height: 100%;
+    max-width: none;
+    width: 100%;
+  }
+
+  .call__media {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .call__remote {
+    aspect-ratio: auto;
+    height: 100%;
+  }
+
+  .call__local {
+    width: 240px;
+  }
+}
+
+// ============================================================ видеочат
+// ui/videochat.js: то же окно-карточка, что у звонка (.call), но с
+// сеткой плиток участников. Плитка — видео или аватарка, внизу имя и
+// микрофон; говорящий — рамка акцентом.
+$vchat-width: 720px;
+$vchat-tile-h: 150px;
+$vchat-tile-h-many: 110px;
+$vchat-avatar: 64px;
+
+.vchat__card {
+  @include flex(column, stretch, flex-start, $space-5);
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: $radius-lg;
+  box-shadow: 0 2rem 4rem var(--c-shadow);
+  color: var(--c-text);
+  max-height: calc(100vh - #{2 * $space-7});
+  max-width: calc(100vw - #{2 * $space-6});
+  padding: $space-6;
+  width: $vchat-width;
+}
+
+.vchat__head {
+  @include flex(row, center, space-between, $space-5);
+}
+
+.vchat__who {
+  @include flex(column, stretch, flex-start, $space-1);
+  min-width: 0;
+}
+
+.vchat__title {
+  @include ellipsis;
+  font-size: $fs-md;
+  font-weight: $fw-bold;
+}
+
+.vchat__count,
+.vchat__status {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.vchat__grid {
+  display: grid;
+  gap: $space-4;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.vchat__tile {
+  @include flex(column, center, center);
+  background: color-mix(in srgb, var(--c-bg) 70%, #000);
+  border: 2px solid transparent;
+  border-radius: $radius-md;
+  height: $vchat-tile-h;
+  overflow: hidden;
+  position: relative;
+  @include transition;
+
+  .vchat--many & {
+    height: $vchat-tile-h-many;
+  }
+
+  &.is-speaking {
+    border-color: var(--c-ok);
+  }
+}
+
+.vchat__avatar {
+  @include size($vchat-avatar);
+}
+
+.vchat__video {
+  @include absolute-fill;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+
+  &.is-mirrored {
+    transform: scaleX(-1);
+  }
+
+  .vchat__tile--screen & {
+    object-fit: contain;
+  }
+}
+
+.vchat__name {
+  @include flex(row, center, flex-start, $space-2);
+  background: linear-gradient(to top, rgba(0, 0, 0, .6), transparent);
+  bottom: 0;
+  color: #fff;
+  font-size: $fs-sm;
+  left: 0;
+  padding: $space-3 $space-4 $space-2;
+  position: absolute;
+  right: 0;
+
+  span {
+    @include ellipsis;
+  }
+}
+
+.vchat__mic.is-off {
+  color: var(--c-danger);
+}
+
+.vchat__audio {
+  display: none;
+}
+
+.call__btn:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.vchat:fullscreen {
+  background: #000;
+
+  .vchat__card {
+    border: 0;
+    border-radius: 0;
+    height: 100%;
+    max-height: none;
+    max-width: none;
+    width: 100%;
+  }
+
+  .vchat__grid {
+    flex: 1 1 auto;
+    grid-auto-rows: 1fr;
+  }
+
+  .vchat__tile {
+    height: auto;
+    min-height: $vchat-tile-h;
+  }
+}
+
+// ------------------------------------------------------ громкость
+// Панель устройств и громкости (calls/devices.js, devicePanel): кнопка
+// Devices в окне звонка и раздел Calls в настройках. Строка — подпись,
+// список устройств или ползунок с процентами (микрофон 0..200%, выход
+// 0..100%).
+.call-levels {
+  @include flex(column, stretch, flex-start, $space-3);
+  background: var(--c-surface-hover);
+  border-radius: $radius-md;
+  padding: $space-4 $space-5;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.call-levels__row {
+  @include flex(row, center, flex-start, $space-4);
+  font-size: $fs-sm;
+}
+
+.call-levels__label {
+  flex: 0 0 80px;
+  color: var(--c-text-dim);
+}
+
+.call-levels__value {
+  flex: 0 0 40px;
+  text-align: right;
+}
+
+// Стрелка своя: у родной браузер не даёт сдвинуть отступ. Две
+// половинки «галочки» — градиенты цветом текста (следует за темой);
+// правый край стрелки — на том же отступе, что текст слева ($space-3).
+$select-arrow: 5px;
+
+.call-levels__select {
+  @include focus-ring;
+  appearance: none;
+  background-color: var(--c-surface);
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - #{$space-3} - #{$select-arrow}) 50%,
+    calc(100% - #{$space-3}) 50%;
+  background-repeat: no-repeat;
+  background-size: $select-arrow $select-arrow;
+  border: 1px solid var(--c-border);
+  border-radius: $radius-md;
+  color: var(--c-text);
+  flex: 1 1 auto;
+  font: inherit;
+  min-width: 0;
+  padding: $space-2 calc(#{$space-3} * 2 + #{$select-arrow} * 2) $space-2 $space-3;
+}
+
+// Браузер не называет устройства без разрешения на микрофон/камеру.
+.call-levels__allow {
+  align-self: flex-start;
+  font-size: $fs-sm;
+}

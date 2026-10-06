@@ -6,6 +6,7 @@ import { fillAvatar } from '../util/avatar.js';
 import { openViewer, closeViewer, viewerOpen } from './viewer.js';
 import { NAME_COLORS, PROFILE_COLORS } from '../util/palette.js';
 import { MAP_PROVIDERS, setMapProvider } from '../util/maps.js';
+import { devicePanel } from '../calls/devices.js';
 
 // Настройки приложения.
 //
@@ -23,6 +24,7 @@ const SECTIONS = [
   { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
   { id: 'general', label: 'General', icon: 'settings', render: renderGeneral },
   { id: 'notifications', label: 'Notifications', icon: 'bell', render: renderNotifications },
+  { id: 'calls', label: 'Calls', icon: 'mic', render: renderCalls },
   { id: 'maps', label: 'Location service', icon: 'pin', render: renderMaps },
   { id: 'downloads', label: 'Downloads', icon: 'download', render: renderDownloads },
   { id: 'autodownload', label: 'Auto download', icon: 'image', render: renderAutoDownload },
@@ -577,6 +579,17 @@ function renderAccount() {
 }
 
 // ----------------------------------------------------------- sections
+// Устройства звонков и громкость — та же панель, что в окне звонка
+// (calls/devices.js). Хранится в браузере этой страницы, не на сервере.
+function renderCalls() {
+  return [
+    group('Devices and volume', devicePanel()),
+    el('p', { class: 'settings__hint' },
+      'Saved in this browser: another device running the app keeps its own choice. '
+      + 'Changes apply to a call in progress right away.'),
+  ];
+}
+
 function renderGeneral() {
   const tray = uid();
   const device = uid();

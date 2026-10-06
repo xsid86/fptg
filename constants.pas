@@ -1377,6 +1377,8 @@ const
   MAP_THUMB_SCALE = 2;
   MAP_THUMB_ZOOM = 16;
   WEBVIEW2_PERMISSION_KIND_GEOLOCATION = 3;
+  WEBVIEW2_PERMISSION_KIND_MICROPHONE = 1;
+  WEBVIEW2_PERMISSION_KIND_CAMERA = 2;
   WEBVIEW2_PERMISSION_STATE_ALLOW = 1;
   { Предел длины «о себе», если getOption("bio_length_max") не ответил:
     70 без Premium, 140 с ним (живой лог: 140 у Premium-аккаунта). }
@@ -1650,6 +1652,20 @@ const
     command: exactly the kind of tax that is easy to add and hard to
     remove once things depend on it. }
   WEBAPI_FALLBACK_TICK_MS = 200;
+
+  { Звонки (tdcalls.pas). Версия протокола tgcalls — только 10.0.0
+    (InstanceV2ReferenceImpl): сигналинг там — обычные SDP offer/answer
+    и ICE-кандидаты в JSON, которые браузерный RTCPeerConnection даёт
+    как есть. 11.0.0 добавляет поверх SCTP-обёртку сигналинга — её у
+    страницы нет, поэтому не предлагается. Сервер выбирает лучшую общую
+    версию из списков обеих сторон (core.telegram.org/api/calls).
+    Слои — как у tgcalls: Meta::MaxLayer() = 92, минимальный 65. }
+  CALL_LIBRARY_VERSIONS: array[0..0] of utf8string = ('10.0.0');
+  CALL_MIN_LAYER = 65;
+  CALL_MAX_LAYER = 92;
+  { Сколько участников видеочата просить за раз (loadGroupCallParticipants):
+    остальные приходят обновлениями по мере того, как говорят. }
+  VCHAT_LOAD_PARTICIPANTS = 100;
 
 implementation
 

@@ -1,0 +1,201 @@
+// Styling Cross-Browser Compatible Range Inputs with Sass
+// Github: https://github.com/darlanrod/input-range-sass
+// Author: Darlan Rod https://github.com/darlanrod
+// Version 1.6.0
+// MIT License
+//
+// Что поменяно под проект:
+// - цвета — переменные темы (var(--c-accent)): осветление и затемнение
+//   не Sass color.adjust() (он считает при компиляции и var() не
+//   принимает), а CSS color-mix(), которое считает браузер;
+// - заливка до бегунка — градиент дорожки по --range-fill (процент
+//   ставит util/rangefill.js), в Firefox — ::-moz-range-progress;
+// - подключается через @forward в components/_index.scss (as range-*),
+//   не @import.
+
+@use "sass:math";
+
+// Цвета — переменные темы: они известны только браузеру, поэтому
+// осветление/затемнение ниже — CSS color-mix(), а не Sass color.adjust()
+// (тот считает при компиляции и var() принять не может).
+// До бегунка — акцент, после — акцент с прозрачностью 25%, бегунок —
+// акцент. Где бегунок, знает только браузер: процент приходит
+// переменной --range-fill (util/rangefill.js, без атрибута style).
+$track-fill-color: var(--c-accent) !default;
+$track-color: color-mix(in srgb, var(--c-accent) 25%, transparent) !default;
+$thumb-color: var(--c-accent) !default;
+
+$thumb-radius: 4px !default;
+$thumb-height: 8px !default;
+$thumb-width: 8px !default;
+$thumb-shadow-size: 2px !default;
+$thumb-shadow-blur: 2px !default;
+$thumb-shadow-color: rgba(0, 0, 0, .2) !default;
+$thumb-border-width: 0 !default;
+$thumb-border-color: none !default;
+
+$track-width: 100% !default;
+$track-height: 2px !default;
+$track-shadow-size: 0 !default;
+$track-shadow-blur: 0 !default;
+$track-shadow-color: rgba(0, 0, 0, 0) !default;
+$track-border-width: 0 !default;
+$track-border-color: transparent !default;
+
+$track-radius: 5px !default;
+$contrast: 5% !default;
+
+$ie-bottom-track-color: color-mix(in srgb, $track-color, black #{$contrast}) !default;
+// Дорожка Chromium: заливка до бегунка градиентом по --range-fill.
+$track-bg: linear-gradient(to right, $track-fill-color var(--range-fill, 0%), $track-color var(--range-fill, 0%)) !default;
+
+@mixin shadow($shadow-size, $shadow-blur, $shadow-color) {
+  box-shadow: $shadow-size $shadow-size $shadow-blur $shadow-color, 0 0 $shadow-size color-mix(in srgb, $shadow-color, white 5%);
+}
+
+@mixin track {
+  cursor: default;
+  height: $track-height;
+  transition: all .2s ease;
+  width: $track-width;
+}
+
+@mixin thumb {
+  @include shadow($thumb-shadow-size, $thumb-shadow-blur, $thumb-shadow-color);
+  background: $thumb-color;
+  border: $thumb-border-width solid $thumb-border-color;
+  border-radius: $thumb-radius;
+  box-sizing: border-box;
+  cursor: default;
+  height: $thumb-height;
+  width: $thumb-width;
+}
+
+[type="range"] {
+  -webkit-appearance: none;
+  background: transparent;
+  margin: math.div($thumb-height, 2) 0;
+  width: $track-width;
+
+  &::-moz-focus-outer {
+    border: 0;
+  }
+
+  &:focus {
+    outline: 0;
+
+    &::-webkit-slider-runnable-track {
+      background: $track-bg;
+    }
+
+    &::-ms-fill-lower {
+      background: $track-color;
+    }
+
+    &::-ms-fill-upper {
+      background: color-mix(in srgb, $track-color, white #{$contrast});
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, $thumb-color, white 20%);
+    outline-offset: 2px;
+  }
+
+  &::-webkit-slider-runnable-track {
+    @include track;
+    @include shadow($track-shadow-size, $track-shadow-blur, $track-shadow-color);
+    background: $track-bg;
+    border: $track-border-width solid $track-border-color;
+    border-radius: $track-radius;
+  }
+
+  &::-webkit-slider-thumb {
+    @include thumb;
+    -webkit-appearance: none;
+    margin-top: calc((#{$track-height} - #{$thumb-height}) / 2);
+
+    &:hover {
+      background: color-mix(in srgb, $thumb-color, white 10%);
+    }
+  }
+
+  &::-moz-range-track {
+    @include shadow($track-shadow-size, $track-shadow-blur, $track-shadow-color);
+    @include track;
+    background: $track-color;
+    border: $track-border-width solid $track-border-color;
+    border-radius: $track-radius;
+    height: math.div($track-height, 2);
+
+    &:active {
+      background: color-mix(in srgb, $track-color, white #{$contrast});
+    }
+  }
+
+  &::-moz-range-progress {
+    background: $track-fill-color;
+    border-radius: $track-radius;
+    height: math.div($track-height, 2);
+  }
+
+  &::-moz-range-thumb {
+    @include thumb;
+
+    &:hover {
+      background: color-mix(in srgb, $thumb-color, white 10%);
+    }
+  }
+
+  &::-ms-track {
+    @include track;
+    background: transparent;
+    border-color: transparent;
+    border-width: math.div($thumb-height, 2) 0;
+    color: transparent;
+  }
+
+  &::-ms-fill-lower {
+    @include shadow($track-shadow-size, $track-shadow-blur, $track-shadow-color);
+    background: $ie-bottom-track-color;
+    border: $track-border-width solid $track-border-color;
+    border-radius: ($track-radius * 2);
+
+    &:active {
+      background: color-mix(in srgb, $track-color, white #{$contrast});
+    }
+  }
+
+  &::-ms-fill-upper {
+    @include shadow($track-shadow-size, $track-shadow-blur, $track-shadow-color);
+    background: $track-color;
+    border: $track-border-width solid $track-border-color;
+    border-radius: ($track-radius * 2);
+
+    &:active {
+      background: color-mix(in srgb, $track-color, white #{$contrast});
+    }
+  }
+
+  &::-ms-thumb {
+    @include thumb;
+    margin-top: math.div($track-height, 4);
+
+    &:hover {
+      background: color-mix(in srgb, $thumb-color, white 10%);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.5;
+
+    &::-webkit-slider-thumb,
+    &::-moz-range-thumb,
+    &::-ms-thumb,
+    &::-webkit-slider-runnable-track,
+    &::-ms-fill-lower,
+    &::-ms-fill-upper {
+      cursor: not-allowed;
+    }
+  }
+}

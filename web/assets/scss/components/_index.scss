@@ -8,3 +8,7 @@
 @forward "spinner";
 @forward "switch";
 @forward "xfer";
+// Ползунки (input range): библиотека input-range-sass, переделанная под
+// переменные темы. Префикс range- — чтобы её короткие имена (shadow,
+// track, $contrast) не попадали в общее пространство компонентов.
+@forward "inputrange" as range-*;

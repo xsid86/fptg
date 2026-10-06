@@ -516,8 +516,13 @@ var
   Uri: UnicodeString;
 begin
   Result := S_OK;
+  { Геопозиция — для «отправить место»; микрофон и камера — для звонков
+    (WebRTC на странице) и голосовых. Только своей странице (адрес
+    локального сервера), чужим — решение рантайма по умолчанию. }
   if (args = nil) or Failed(args.get_PermissionKind(Kind))
-     or (Kind <> WEBVIEW2_PERMISSION_KIND_GEOLOCATION) then begin
+     or ((Kind <> WEBVIEW2_PERMISSION_KIND_GEOLOCATION)
+         and (Kind <> WEBVIEW2_PERMISSION_KIND_MICROPHONE)
+         and (Kind <> WEBVIEW2_PERMISSION_KIND_CAMERA)) then begin
     Exit;
   end;
   P := nil;

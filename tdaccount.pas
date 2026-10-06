@@ -15,7 +15,7 @@ uses
   Windows,
   Classes, SysUtils, ExtCtrls, fpjson, jsonparser, base64,
   tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages, tdusers, tdaccentcolors,
-  tdsupergroups, tdstickers, tdattachbots;
+  tdsupergroups, tdstickers, tdattachbots, tdcalls;
 
 type
 
@@ -63,6 +63,7 @@ type
     FSupergroups: TTdSupergroups;
     FAttachBots: TTdAttachBots;
     FStickers: TTdStickers;
+    FCalls:    TTdCalls;
 
     FUpdateL: array of ITdUpdateListener;
     FStateL:  array of ITdStateListener;
@@ -164,6 +165,8 @@ type
     { Sticker sets and saved animations. Fetches nothing until asked
       — see TTdStickers.EnsureLoaded. }
     property Stickers: TTdStickers read FStickers;
+    { Личные звонки: сигнальная часть (tdcalls.pas). }
+    property Calls: TTdCalls read FCalls;
     property Requests: TTdRequests read FReq;
     property Auth: TTdAuth read FAuth;
     property State: TTdAuthState read FState;
@@ -291,10 +294,12 @@ begin
   FSupergroups := TTdSupergroups.Create(Self, Self, FReq);
   FAttachBots := TTdAttachBots.Create(Self, Self);
   FStickers := TTdStickers.Create(Self, Self, FReq);
+  FCalls := TTdCalls.Create(Self, Self, FReq);
 end;
 
 procedure TTdAccount.DestroyEngine;
 begin
+  FreeAndNil(FCalls);
   FreeAndNil(FStickers);
   FreeAndNil(FAttachBots);
   FreeAndNil(FSupergroups);

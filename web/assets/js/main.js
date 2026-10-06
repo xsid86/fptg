@@ -18,6 +18,8 @@ import {
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountPayments } from './ui/payments.js';
 import { mountTranslate } from './ui/translate.js';
+import { mountCalls } from './ui/call.js';
+import { mountVideoChat } from './ui/videochat.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
@@ -611,6 +613,10 @@ async function boot() {
   mountTranslate(qs('.workspace__history'), { report });
   // Оплата счетов: кнопки «Купить» и ссылки t.me/$имя (ui:pay-invoice).
   mountPayments({ call: (cmd, args) => call(cmd, args), report, notice });
+  // Звонки: окно звонка и WebRTC (ui/call.js, calls/*.js); начать — ui:call-start.
+  mountCalls({ call: (cmd, args) => call(cmd, args), report, notice });
+  // Видеочаты групп и каналов (ui/videochat.js, calls/group.js); открыть — ui:vchat-open.
+  mountVideoChat({ call: (cmd, args) => call(cmd, args), report, notice });
   // «Add contact» на карточке контакта в истории — то же окно, что в панели.
   on('ui:add-contact', (args) => { addContactDialog(args); });
   mountAttachMenu(qs('#composer'), {

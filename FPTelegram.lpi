@@ -19,7 +19,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="596"/>
+      <BuildNr Value="601"/>
       <StringTable CompanyName="xsid86" InternalName="FPTelegram" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -186,6 +186,10 @@
       </Unit>
       <Unit>
         <Filename Value="tdsupergroups.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="tdcalls.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

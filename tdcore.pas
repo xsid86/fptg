@@ -7,7 +7,8 @@ interface
 uses
   Classes, SysUtils, IniFiles, ExtCtrls,
   constants, tdauth, tdrecv, tdsession, tdreq, tdchats, tdmessages, tdusers,
-  tdaccentcolors, tdaccount, tdsupergroups, tdstickers, tdattachbots;
+  tdaccentcolors, tdaccount, tdsupergroups, tdstickers, tdattachbots,
+  tdcalls;
 
 type
   { Aliases so forms don't need to add tdsession to their uses clause.
@@ -188,6 +189,8 @@ function TdUserList: TTdUsers;
 function TdAccentColorList: TTdAccentColors;
 { Same unit-name pitfall (tdsupergroups) as TdMsgList/TdUserList above. }
 function TdSupergroupList: TTdSupergroups;
+{ Звонки активного аккаунта (то же совпадение имени с юнитом tdcalls). }
+function TdCallList: TTdCalls;
 { Same unit-name pitfall (tdstickers) once more. }
 function TdStickerList: TTdStickers;
 { Боты меню вложений активного аккаунта (tdattachbots). }
@@ -367,6 +370,18 @@ begin
   A := TdApp.Active;
   if A <> nil then begin
     Result := A.AttachBots;
+  end else begin
+    Result := nil;
+  end;
+end;
+
+function TdCallList: TTdCalls;
+var
+  A: TTdAccount;
+begin
+  A := TdApp.Active;
+  if A <> nil then begin
+    Result := A.Calls;
   end else begin
     Result := nil;
   end;

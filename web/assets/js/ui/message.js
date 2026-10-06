@@ -123,6 +123,7 @@ export function renderMessage(msg) {
     if (msg.kind === 'poll' && msg.poll) body.append(renderPoll(msg));
     if (msg.kind === 'location' && msg.location) body.append(renderLocation(msg));
     if (msg.kind === 'contact' && msg.contact) body.append(renderContact(msg));
+    if (msg.kind === 'call' && msg.call) body.append(renderCall(msg));
     // Перевод чата включён и готов — он вместо текста (ui/translate.js).
     const tr = translationFor(msg);
     if (msg.text) body.append(renderRichText(tr ? tr.text : msg.text, tr ? tr.entities : (msg.entities ?? [])));
@@ -969,6 +970,59 @@ function renderContact(msg) {
             }, 'Add contact')));
     }
     return card;
+}
+
+// ------------------------------------------------------------- call
+/**
+ * Звонок в истории (messageCall / messageGroupCall, webapi.pas
+ * CallMessageJson): значок, что за звонок, длительность или чем
+ * кончился, и кнопка — перезвонить тем же видом (ui:call-back, ui/call.js)
+ * или войти в идущий видеочат (ui:vchat-join).
+ */
+const CALL_REASON = {
+    missed: 'Missed',
+    declined: 'Declined',
+    disconnected: 'Disconnected',
+};
+
+function renderCall(msg) {
+    const c = msg.call;
+    const kind = c.video ? 'video call' : 'call';
+    let title;
+    let failed = false;
+    if (c.group) {
+        title = c.reason === 'active' ? 'Ongoing group call' : (c.reason === 'missed' ? 'Missed group call' : 'Group call');
+        failed = c.reason === 'missed';
+    } else if (c.reason === 'missed' || c.reason === 'declined') {
+        // Свой неотвеченный — «отменённый», чужой — «пропущенный».
+        title = msg.outgoing
+            ? (c.reason === 'declined' ? `Declined ${kind}` : `Cancelled ${kind}`)
+            : `Missed ${kind}`;
+        failed = true;
+    } else {
+        title = `${msg.outgoing ? 'Outgoing' : 'Incoming'} ${kind}`;
+    }
+    const sub = c.duration > 0
+        ? duration(c.duration)
+        : (CALL_REASON[c.reason] ?? (c.reason === 'active' ? 'In progress' : ''));
+    const again = c.group
+        ? (c.reason === 'active'
+            ? el('button', {
+                class: 'btn call-card__button', type: 'button',
+                onclick: () => emit('ui:vchat-join'),
+            }, 'Join')
+            : null)
+        : el('button', {
+            class: 'call-card__again', type: 'button',
+            title: c.video ? 'Video call again' : 'Call again',
+            onclick: () => emit('ui:call-back', {video: !!c.video}),
+        }, icon(c.video ? 'video' : 'mic'));
+    return el('div', {class: `call-card${failed ? ' is-failed' : ''}${msg.outgoing ? ' is-outgoing' : ''}`},
+        el('span', {class: 'call-card__icon'}, icon(c.video ? 'video' : 'mic')),
+        el('span', {class: 'call-card__text'},
+            el('span', {class: 'call-card__title'}, title),
+            sub ? el('span', {class: 'call-card__sub u-tabular'}, sub) : null),
+        again);
 }
 
 // --------------------------------------------------------- location
