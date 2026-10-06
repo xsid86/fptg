@@ -360,6 +360,18 @@ function wireActions() {
   // moving the view in the wrong chat.
   on('ui:open-source', ({ chatId, messageId }) => {
     if (!messageId) return;
+    // Цитата в ветке комментариев указывает на сообщение группы
+    // обсуждения — того чата, что открыт в модели (messages.chatId), а
+    // не канала, который числится открытым на странице. Прыжок — внутри
+    // ветки; переключение на группу вывело бы из ветки в её общую ленту.
+    const held = store.messages;
+    if (held?.thread && chatId === held.chatId) {
+      call('thread.jump', { messageId: String(messageId) })
+        .then(applyMessages)
+        .then(() => emit('ui:show-message', messageId))
+        .catch(report);
+      return;
+    }
     if (chatId && chatId !== store.activeChatId) {
       // The jump rides WITH the opening request rather than following
       // it. A chat opened at its newest end first would put unread

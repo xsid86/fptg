@@ -306,6 +306,7 @@ type
     function  CmdMessagesTrim: TJSONData;
     function  CmdMessagesRead(AArgs: TJSONObject): TJSONData;
     function  CmdThreadOpen(AArgs: TJSONObject): TJSONData;
+    function  CmdThreadJump(AArgs: TJSONObject): TJSONData;
     function  CmdThreadClose: TJSONData;
     function  CmdChatJoin(AArgs: TJSONObject): TJSONData;
     function  CmdPresenceGet: TJSONData;
@@ -3080,6 +3081,21 @@ begin
   end;
   Msgs.JoinChat(Id);
   Result := nil;
+end;
+
+{ thread.jump (messageId) — к сообщению внутри открытой ветки (цитата
+  в комментарии). chat.open с jumpTo тут не годится: он открыл бы группу
+  обсуждения обычным чатом и вывел из ветки. }
+function TWebApi.CmdThreadJump(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  if Msgs.ThreadId = 0 then begin
+    raise Exception.Create('no comment thread is open');
+  end;
+  Msgs.JumpTo(ArgId(AArgs, 'messageId'));
+  Result := CmdMessagesList;
 end;
 
 function TWebApi.CmdThreadClose: TJSONData;
@@ -8503,6 +8519,8 @@ begin
         Reply(AConnId, ReqId, CmdMessagesOlder);
       end else if Cmd = 'thread.open' then begin
         ReplyMessages(AConnId, ReqId, CmdThreadOpen(Args), False);
+      end else if Cmd = 'thread.jump' then begin
+        ReplyMessages(AConnId, ReqId, CmdThreadJump(Args), False);
       end else if Cmd = 'thread.close' then begin
         ReplyMessages(AConnId, ReqId, CmdThreadClose, False);
       end else if Cmd = 'messages.trim' then begin

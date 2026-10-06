@@ -5553,6 +5553,20 @@ begin
     puts the message somewhere in the middle of the batch rather than
     right at the end — showing part of the conversation around it, not
     just what came before. }
+  { В ветке комментариев — история ВЕТКИ вокруг цели
+    (getMessageThreadHistory: те же from_message_id/offset, td_api.tl
+    коммита d1085f9). getChatHistory группы обсуждения подмешал бы в
+    ветку комментарии к чужим постам. }
+  if FThreadPostId <> 0 then begin
+    FReq.SendRequest('getMessageThreadHistory',
+      '"chat_id":' + utf8string(IntToStr(FThreadChatId)) +
+      ',"message_id":' + utf8string(IntToStr(FThreadPostId)) +
+      ',"from_message_id":' + utf8string(IntToStr(AMessageId)) +
+      ',"offset":' + utf8string(IntToStr(-(FLoadLimit div 2))) +
+      ',"limit":' + utf8string(IntToStr(FLoadLimit)),
+      @JumpDone, PtrInt(AMessageId));
+    Exit;
+  end;
   FReq.SendRequest('getChatHistory',
     '"chat_id":' + utf8string(IntToStr(FChatId)) +
     ',"from_message_id":' + utf8string(IntToStr(AMessageId)) +
