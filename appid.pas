@@ -41,7 +41,7 @@ uses
 const
   { Any unique string; the convention is Company.Product. It never
     reaches the user's eyes - the shortcut's NAME is what is shown. }
-  APP_USER_MODEL_ID = 'Avenix.TGOrchestrator';
+  APP_USER_MODEL_ID = 'Avenix.FPTelegram';
   { And the shortcut, whose file name IS the name in the notification's
     header. }
   SHORTCUT_NAME = APP_TITLE + '.lnk';
@@ -78,13 +78,25 @@ begin
   end;
 end;
 
-function StartMenuPath: WideString;
+function StartMenuPath(const AName: WideString): WideString;
 var
   Buf: array[0..MAX_PATH] of WideChar;
 begin
   Result := '';
   if SHGetSpecialFolderPathW(0, @Buf[0], CSIDL_PROGRAMS, False) then begin
-    Result := WideString(Buf) + '\' + SHORTCUT_NAME;
+    Result := WideString(Buf) + '\' + AName;
+  end;
+end;
+
+{ Ярлык прежнего названия (APP_TITLE_LEGACY) указывает на tg.exe,
+  которого больше нет, и держит старый AppUserModelID — убрать. }
+procedure DropLegacyShortcut;
+var
+  Path: WideString;
+begin
+  Path := StartMenuPath(WideString(APP_TITLE_LEGACY) + '.lnk');
+  if (Path <> '') and FileExists(string(Path)) then begin
+    DeleteFile(string(Path));
   end;
 end;
 
@@ -134,7 +146,8 @@ begin
   Started := Hr = S_OK;
   try
     try
-      EnsureShortcut(StartMenuPath);
+      DropLegacyShortcut;
+      EnsureShortcut(StartMenuPath(SHORTCUT_NAME));
     except
       { A missing shortcut costs a nicer notification header, nothing
         more. It is not worth refusing to start over. }

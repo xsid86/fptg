@@ -16469,7 +16469,7 @@ const ShapeExpressionInterface = (function () {
     var _propertyGroup = propertyGroupFactory(interfaceFunction, propertyGroup);
     var _dashPropertyGroup = propertyGroupFactory(dashOb, _propertyGroup);
     function addPropertyToDashOb(i) {
-      // TG Orchestrator: штрих обводки без имени (nm) — бывает в стикерах
+      // FPTelegram: штрих обводки без имени (nm) — бывает в стикерах
       // Telegram (подарок «50 звёзд»). defineProperty с именем undefined
       // второй раз бросал «Cannot redefine property: undefined», слой не
       // строился, и стикер не рисовался вовсе. Безымянный или повторный

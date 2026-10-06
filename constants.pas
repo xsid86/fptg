@@ -37,7 +37,14 @@ const
     every Windows notification. One constant because those three must
     agree; the shortcut is matched BY NAME, so changing this leaves the
     old one behind in the Start menu. }
-  APP_TITLE = 'TG Orchestrator';
+  APP_TITLE = 'FPTelegram';
+  { Прежнее название (до 2026-10-06): ярлык в «Пуске» с ним удаляется
+    при старте (appid.pas), папка профиля WebView2 с ним переезжает в
+    новую (webview2.pas). }
+  APP_TITLE_LEGACY = 'TG Orchestrator';
+  { Папки данных в %LOCALAPPDATA%: нынешняя и прежняя. }
+  APP_DATA_DIR = 'FPTelegram';
+  APP_DATA_DIR_LEGACY = 'tgorchestrator';
 
   { ================= avatarcache.pas ================= }
 
@@ -1371,6 +1378,11 @@ const
     сторона, с которой размер фото уже годится в превью плитки —
     первый photoSize не меньше этого по длинной стороне (тип «m»). }
   MEDIA_GRID_PAGE = 60;
+  { Сколько id временных (pending) сообщений, уже заменённых через
+    updateMessageSendSucceeded, помнит модель истории — чтобы опоздавший
+    ответ sendMessage не вернул такое сообщение обратно (TTdMessages.
+    FReplaced). Хватает с запасом: это отправки одного открытого чата. }
+  REPLACED_IDS_MAX = 256;
   { Временный пароль для оплаты сохранённой картой (createTemporaryPassword
     valid_for; td_api.tl: от 60 до 86400 секунд). }
   PAYMENT_TMP_PASSWORD_SEC = 1800;
@@ -1611,7 +1623,7 @@ const
   DESKNOTIFY_DARK_TEXT = $BBB2AA;    { #AAB2BB }
   MINIAPP_BAR_H = MINIAPP_BAR_PAD + MINIAPP_BAR_BUTTON_H + MINIAPP_BAR_PAD;
   MINIAPP_BUTTON_H = 44;
-  MINIAPP_APP_NAME = 'TGOrchestrator';
+  MINIAPP_APP_NAME = 'FPTelegram';
 
   { A SAFETY NET, not the delivery path (webapi.pas). A socket thread
     that queues a command also wakes the main thread immediately

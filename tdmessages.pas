@@ -467,6 +467,7 @@ type
   end;
 
   TMsgMap = specialize TFPGMap<Int64, TMsgRow>;
+  TInt64List = specialize TFPGList<Int64>;
 
   { What a send needs to remember across parseTextEntities.
 
@@ -583,6 +584,13 @@ type
     FSession: ITdSession;
     FReq:     TTdRequests;
     FAll:     TMsgMap;    { every known message in the open chat, by id }
+    { id временных сообщений, уже заменённых настоящими
+      (updateMessageSendSucceeded). Ответ на sendMessage несёт ТО ЖЕ
+      временное сообщение и мог прийти в модель позже замены — оно
+      возвращалось в историю с часиками и висело до смены чата (живой
+      случай, tdlib_raw.log 2026-10-06 10:13). ApplyMessage их не
+      впускает. }
+    FReplaced: TInt64List;
     FRows:    TFPList;    { the same set, in chronological order }
     FTimer:   TTimer;
     FDirty:   boolean;
@@ -1590,6 +1598,7 @@ begin
   FReq := AReq;
   FAll := TMsgMap.Create;
   FAll.Sorted := True;
+  FReplaced := TInt64List.Create;
   FRows := TFPList.Create;
   FReplyCache := TReplyMap.Create;
   FReplyCache.Sorted := True;
@@ -1647,6 +1656,7 @@ begin
   TdSessionUnsubscribe(FSession, Self);
   FSession := nil;
   Clear;
+  FReplaced.Free;
   FRows.Free;
   FAll.Free;
   FReplyCache.Free;
@@ -4079,6 +4089,10 @@ begin
   end;
   Id := JGetInt64(AMsg, 'id');
   if Id = 0 then begin
+    Exit;
+  end;
+  { Уже заменено настоящим — опоздавший ответ отправки (см. FReplaced). }
+  if FReplaced.IndexOf(Id) >= 0 then begin
     Exit;
   end;
 
@@ -7049,6 +7063,10 @@ begin
         сообщения (см. SendFiles). }
       ForgetUploadMessage(OldId, False);
       if OldId <> 0 then begin
+        if FReplaced.Count >= REPLACED_IDS_MAX then begin
+          FReplaced.Delete(0);
+        end;
+        FReplaced.Add(OldId);
         Idx := FAll.IndexOf(OldId);
         if Idx >= 0 then begin
           ForgetRowFiles(FAll.Data[Idx]);

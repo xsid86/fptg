@@ -3,7 +3,7 @@ unit localserver;
 {$mode objfpc}{$H+}
 
 { A loopback HTTP + WebSocket server living inside this very exe,
-  started on every launch (tg.lpr). The existing UI knows of it only
+  started on every launch (FPTelegram.lpr). The existing UI knows of it only
   through the one menu item that opens its URL, and it touches no
   model itself: this is the transport half of the "web UI alongside
   the native one" plan, standing on its own.
@@ -126,7 +126,7 @@ type
 { The port to serve on: LOCAL_SERVER_PORT unless --server-port=N
   overrode it on the command line. There is no flag for whether to
   serve at all any more — the server is part of every launch, see
-  tg.lpr. }
+  FPTelegram.lpr. }
 function ConfiguredServerPort: word;
 
 { Binds and starts. False means the port was taken or the socket could
@@ -1333,7 +1333,7 @@ begin
     not hold application exit, and needed at all because these threads
     outlive the object they point at otherwise — the same
     "don't let ExitProcess catch a thread mid-work" discipline the
-    decoder threads already get in tg.lpr. }
+    decoder threads already get in FPTelegram.lpr. }
   GStopping := True;
   GServer.Terminate;
   GServer.WaitFor;

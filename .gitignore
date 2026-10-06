@@ -8,8 +8,8 @@ web/.idea/
 web/assets/scss/*.css.map
 
 # Build output: rebuilt by lazbuild, 50 MB per copy in history.
-tg.exe
-tg.dbg
+FPTelegram.exe
+FPTelegram.dbg
 lib/
 
 # Lazarus/lazbuild backups of edited project files.

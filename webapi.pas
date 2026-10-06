@@ -693,7 +693,7 @@ begin
   Result := TJSONObject.Create;
   { The utf8string -> string casts below are identity at run time: the
     program sets DefaultSystemCodePage to CP_UTF8 before anything else
-    (tg.lpr), so both types carry the same code page and no transcoding
+    (FPTelegram.lpr), so both types carry the same code page and no transcoding
     happens. Worth knowing for any harness that links this unit without
     doing the same — it would quietly mangle every non-Latin title. }
   Result.Add('id',       ARow.Id);

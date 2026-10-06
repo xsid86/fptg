@@ -6,11 +6,11 @@
     <BuildModes Active="Release"/>
     <Units>
       <Unit>
-        <Filename Value="tg.lpr"/>
+        <Filename Value="FPTelegram.lpr"/>
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
-        <TopLine Value="120"/>
-        <CursorPos X="68" Y="153"/>
+        <TopLine Value="122"/>
+        <CursorPos X="5" Y="152"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
       </Unit>
@@ -59,28 +59,31 @@
         <Loaded Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tg.lpi"/>
+        <Filename Value="FPTelegram.lpi"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
+        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
-        <Filename Value="tg.lps"/>
+        <Filename Value="FPTelegram.lps"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <UsageCount Value="164"/>
+        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
-        <Filename Value="tg.res"/>
+        <Filename Value="FPTelegram.res"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <WindowIndex Value="-1"/>
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
+        <DefaultSyntaxHighlighter Value="None"/>
       </Unit>
       <Unit>
         <Filename Value="qrrender.pas"/>
@@ -171,7 +174,7 @@
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="12"/>
         <TopLine Value="1250"/>
-        <CursorPos X="84" Y="1280"/>
+        <CursorPos X="38" Y="1280"/>
         <UsageCount Value="24"/>
         <Loaded Value="True"/>
       </Unit>

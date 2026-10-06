@@ -174,13 +174,13 @@ type
 
 implementation
 
-{ The running exe's own embedded VERSIONINFO — the same numbers tg.lpi's
+{ The running exe's own embedded VERSIONINFO — the same numbers FPTelegram.lpi's
   UseVersionInfo/BuildNr produce and Explorer's file Properties > Details
   tab already shows, read directly via the real Win32 version API rather
   than hand-tracked separately in Pascal, so the string sent to
   setTdlibParameters (CreateEngine below) can never drift from what's
   actually compiled into THIS binary. Major/Minor/Release aren't set in
-  tg.lpi (all 0 as of this writing, see the project's own VersionInfo),
+  FPTelegram.lpi (all 0 as of this writing, see the project's own VersionInfo),
   only BuildNr auto-increments — formatted as all four parts regardless,
   so a future version bump just starts showing up here automatically.
   Returns '0.0.0.0' if the query fails for any reason (should not happen

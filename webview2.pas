@@ -678,8 +678,16 @@ begin
   { Its own profile folder beside the app's other data rather than
     somewhere under the user's Edge profile: this is a separate browser
     instance and should not inherit or disturb anything. }
+  { Прежнее название проекта — прежняя папка: переезжает целиком, чтобы
+    не потерять localStorage страницы (тема, запомненные выборы). Только
+    если новой ещё нет. }
+  if (not DirectoryExists(GetEnvironmentVariable('LOCALAPPDATA') + '\' + APP_DATA_DIR))
+     and DirectoryExists(GetEnvironmentVariable('LOCALAPPDATA') + '\' + APP_DATA_DIR_LEGACY) then begin
+    RenameFile(GetEnvironmentVariable('LOCALAPPDATA') + '\' + APP_DATA_DIR_LEGACY,
+      GetEnvironmentVariable('LOCALAPPDATA') + '\' + APP_DATA_DIR);
+  end;
   DataDir := UnicodeString(GetEnvironmentVariable('LOCALAPPDATA'))
-    + '\tgorchestrator\webview2';
+    + '\' + UnicodeString(APP_DATA_DIR) + '\webview2';
 
   Handler := TEnvHandler.Create(Self);
   try

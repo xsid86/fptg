@@ -1,4 +1,4 @@
-program tg;
+program FPTelegram;
 
 {$mode objfpc}{$H+}
 
@@ -86,7 +86,6 @@ begin
   EnsureAppId;
 
   RequireDerivedFormResource := True;
-  Application.Title:='TG Orchestrator';
   Application.Scaled:=True;
   {$PUSH}{$WARN 5044 OFF}
   Application.MainFormOnTaskbar := True;

@@ -89,7 +89,7 @@ type
       to the application, not the user. }
     function LoadConfig: boolean;
     { Persists api_id/api_hash to config.ini/[telegram] — used by the
-      first-run TFormApiConfig dialog (apisetup.pas, shown from tg.lpr
+      first-run TFormApiConfig dialog (apisetup.pas, shown from FPTelegram.lpr
       when LoadConfig above fails) so the user doesn't have to hand-
       edit the ini file. Does not update FApiId/FApiHash itself: the
       caller calls LoadConfig again right after, which reads them back

@@ -5,13 +5,13 @@
     <PathDelim Value="\"/>
     <General>
       <SessionStorage Value="InProjectDir"/>
-      <Title Value="TG Orchestrator"/>
+      <Title Value="FPTelegram"/>
       <Scaled Value="True"/>
       <ResourceType Value="res"/>
       <UseXPManifest Value="True"/>
       <XPManifest>
         <DpiAware Value="True"/>
-        <TextName Value="xsidsoftware.tgorchestrator.tgorchestrator"/>
+        <TextName Value="xsidsoftware.fptelegram.fptelegram"/>
         <TextDesc Value="Manage Telegram like a PRO"/>
       </XPManifest>
       <Icon Value="0"/>
@@ -19,8 +19,8 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="585"/>
-      <StringTable CompanyName="xsid86" InternalName="TG Orchestrator" LegalCopyright="xsid86"/>
+      <BuildNr Value="588"/>
+      <StringTable CompanyName="xsid86" InternalName="FPTelegram" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
       <Item Name="Debug" Default="True"/>
@@ -29,7 +29,7 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="tg"/>
+            <Filename Value="FPTelegram"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
@@ -77,7 +77,7 @@
     </RequiredPackages>
     <Units>
       <Unit>
-        <Filename Value="tg.lpr"/>
+        <Filename Value="FPTelegram.lpr"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -101,15 +101,15 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tg.lpi"/>
+        <Filename Value="FPTelegram.lpi"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tg.lps"/>
+        <Filename Value="FPTelegram.lps"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tg.res"/>
+        <Filename Value="FPTelegram.res"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -206,7 +206,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="tg"/>
+      <Filename Value="FPTelegram"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
