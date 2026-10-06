@@ -55,15 +55,9 @@ uses
   { you can add units after this };
 
 {$R *.res}
-{ The application's icon.
-
-  tg.ico is the tray icon of the former native main window, lifted
-  out of its .lfm when the web window became the application and
-  needed a tray icon of its own. Rebuild the resource after changing
-  the file with:
-
-    fpcres -of res -o tg_icon.res tg_icon.rc }
-{$R tg_icon.res}
+{ Иконка программы — иконка проекта Lazarus: FPTelegram.ico рядом с
+  .lpi, сборка сама кладёт её в FPTelegram.res как MAINICON
+  (ide/packages/ideproject/projecticon.pas, UpdateResources). }
 
 var
   ServerPort: word;

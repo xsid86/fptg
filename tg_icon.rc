@@ -1,3 +1,0 @@
-// The application icon. Rebuild after changing tg.ico with:
-//   fpcres -of res -o tg_icon.res tg_icon.rc
-MAINICON ICON "tg.ico"

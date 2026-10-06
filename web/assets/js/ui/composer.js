@@ -2,6 +2,7 @@ import { qs, qsa, el } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
 import { store, onActiveChat, openThread, chatJoin } from '../core/store.js';
 import { mountMentions, closeMentions } from './mentions.js';
+import { call } from '../core/net.js';
 
 // The message box, and the same formatting toolbar msginput.pas has.
 //
@@ -144,6 +145,37 @@ export function editMessage(msg) {
   drawBanner();
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
+}
+
+// Сколько своих сообщений (от новых к старым) перебирает стрелка вверх в
+// поиске того, которое ещё можно править.
+const EDIT_LAST_LOOKBACK = 5;
+
+/**
+ * Стрелка вверх в пустом поле — правка последнего своего сообщения, как
+ * у Telegram Desktop. Можно ли его править, решает Telegram
+ * (message.menu -> canEdit: срок, права), поэтому кандидаты проверяются
+ * по очереди, от новых к старым.
+ */
+async function editLastOwn() {
+  const items = store.messages?.items ?? [];
+  const own = [];
+  for (let i = items.length - 1; i >= 0 && own.length < EDIT_LAST_LOOKBACK; i -= 1) {
+    const m = items[i];
+    if (m.outgoing && !m.service && m.text) own.push(m);
+  }
+  for (const m of own) {
+    try {
+      const info = await call('message.menu', { id: String(m.id) });
+      if (info?.canEdit) {
+        // Пока шёл вопрос, человек мог начать печатать — не затирать.
+        if (!input.value && !pending) editMessage(m);
+        return;
+      }
+    } catch {
+      return;
+    }
+  }
 }
 
 function updateEnabled(chat) {
@@ -411,6 +443,12 @@ export function mountComposer(node) {
     if (event.key === 'Escape' && pending) {
       event.preventDefault();
       cancelPending();
+      return;
+    }
+    if (event.key === 'ArrowUp' && !input.value && !pending && canSend
+        && !event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      editLastOwn();
       return;
     }
     // Enter sends, Ctrl+Enter inserts a newline - the same split the

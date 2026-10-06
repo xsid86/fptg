@@ -1,4 +1,10 @@
+# Настройки и аккаунты — зашифрованный файл (secureconfig.pas) и его
+# временная/отложенная копии; config.ini/accounts.ini — прежние открытые.
+fptelegram.dat
+fptelegram.dat.tmp
+fptelegram.dat.unreadable
 config.ini
+accounts.ini
 tdlib/
 tdlib_raw.log
 server_url.txt

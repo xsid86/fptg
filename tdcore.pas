@@ -287,7 +287,7 @@ uses
   { In the implementation on purpose: tdstorage's own implementation
     uses this unit back, and a cycle is only legal while at least one
     side of it is down here. }
-  tdstorage;
+  tdstorage, secureconfig;
 
 var
   GCore: TTdCore = nil;
@@ -403,7 +403,7 @@ end;
 
 procedure TdLoadPresence;
 begin
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+  with OpenConfig do begin
     try
       tdmessages.SetPresenceInvisible(ReadBool('ui', 'invisible', False));
     finally
@@ -420,7 +420,7 @@ begin
   { The flag first, and unconditionally: it is ours, not TDLib's, and
     it has to be right even when there is no client to tell. }
   tdmessages.SetPresenceInvisible(AInvisible);
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+  with OpenConfig do begin
     try
       WriteBool('ui', 'invisible', AInvisible);
     finally
@@ -453,7 +453,7 @@ procedure TdLoadDownloadLimits;
 var
   Concurrency, SpeedKB: integer;
 begin
-  with TIniFile.Create(TdApp.BaseDir + 'config.ini') do begin
+  with OpenConfig do begin
     try
       Concurrency := ReadInteger('downloads', 'concurrency',
         DOWNLOAD_CONCURRENCY_DEFAULT);
@@ -493,7 +493,7 @@ end;
   Читаются редко — при открытии настроек и при закрытии окна. }
 function ConfigIni: TIniFile;
 begin
-  Result := TIniFile.Create(TdApp.BaseDir + 'config.ini');
+  Result := OpenConfig;
 end;
 
 function TdCloseToTray: boolean;
@@ -804,6 +804,7 @@ begin
   FAccounts := TFPList.Create;
   FActive := -1;
   FBaseDir := ExtractFilePath(ParamStr(0));
+  SecureConfigSetDir(FBaseDir);
 
   FPendingRemove := TFPList.Create;
   FRemoveTimer := TTimer.Create(nil);
@@ -848,7 +849,7 @@ var
   Ini: TIniFile;
 begin
   FConfigError := '';
-  Ini := TIniFile.Create(FBaseDir + 'config.ini');
+  Ini := OpenConfig;
   try
     FApiId   := Ini.ReadInteger('telegram', 'api_id', 0);
     FApiHash := utf8string(Ini.ReadString('telegram', 'api_hash', ''));
@@ -861,9 +862,9 @@ begin
   end;
 
   if FApiId = 0 then begin
-    FConfigError := 'api_id is not set in config.ini (section [telegram]).';
+    FConfigError := 'api_id is not set in the settings.';
   end else if FApiHash = '' then begin
-    FConfigError := 'api_hash is not set in config.ini (section [telegram]).';
+    FConfigError := 'api_hash is not set in the settings.';
   end;
 
   Result := FConfigError = '';
@@ -882,7 +883,7 @@ begin
     time this method ran, api_hash never making it to disk even though
     api_id already had. Same pattern SaveAccounts already uses, just
     not followed here originally. }
-  with TIniFile.Create(FBaseDir + 'config.ini') do begin
+  with OpenConfig do begin
     try
       CacheUpdates := True;
       WriteInteger('telegram', 'api_id', AApiId);
@@ -900,7 +901,7 @@ begin
     Exit;
   end;
   FDeviceModel := AValue;
-  with TIniFile.Create(FBaseDir + 'config.ini') do begin
+  with OpenConfig do begin
     try
       WriteString('telegram', 'device_model', string(FDeviceModel));
     finally
@@ -917,10 +918,10 @@ var
   Slot: integer;
   A: TTdAccount;
 begin
-  Ini := TIniFile.Create(ManifestPath);
+  Ini := OpenConfig;
   try
-    N := Ini.ReadInteger('general', 'count', 0);
-    Act := Ini.ReadInteger('general', 'active', 0);
+    N := Ini.ReadInteger(SECURE_CONFIG_ACCOUNTS_SECTION, 'count', 0);
+    Act := Ini.ReadInteger(SECURE_CONFIG_ACCOUNTS_SECTION, 'active', 0);
     for I := 0 to N - 1 do begin
       Sect := 'acc' + IntToStr(I);
       Slot := Ini.ReadInteger(Sect, 'slot', I);
@@ -952,7 +953,7 @@ var
   I: integer;
   A: TTdAccount;
 begin
-  Ini := TIniFile.Create(ManifestPath);
+  Ini := OpenConfig;
   try
     { CacheUpdates=True defers every Write* below to the single
       UpdateFile call at the end — without it, TIniFile rewrites the
@@ -961,8 +962,8 @@ begin
       of one; see SaveApiCredentials's comment above for the concrete
       failure this caused (a transient lock between two such writes). }
     Ini.CacheUpdates := True;
-    Ini.WriteInteger('general', 'count', FAccounts.Count);
-    Ini.WriteInteger('general', 'active', FActive);
+    Ini.WriteInteger(SECURE_CONFIG_ACCOUNTS_SECTION, 'count', FAccounts.Count);
+    Ini.WriteInteger(SECURE_CONFIG_ACCOUNTS_SECTION, 'active', FActive);
     for I := 0 to FAccounts.Count - 1 do begin
       A := TTdAccount(FAccounts[I]);
       Ini.WriteInteger('acc' + IntToStr(I), 'slot', A.Slot);

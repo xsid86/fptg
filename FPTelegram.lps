@@ -9,8 +9,8 @@
         <Filename Value="FPTelegram.lpr"/>
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
-        <TopLine Value="122"/>
-        <CursorPos X="5" Y="152"/>
+        <TopLine Value="113"/>
+        <CursorPos X="5" Y="146"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
       </Unit>
@@ -50,6 +50,11 @@
         <Loaded Value="True"/>
       </Unit>
       <Unit>
+        <Filename Value="secureconfig.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="tdjson.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="4"/>
@@ -66,14 +71,12 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
-        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="FPTelegram.lps"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <UsageCount Value="164"/>
-        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="FPTelegram.res"/>
@@ -83,7 +86,6 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
-        <DefaultSyntaxHighlighter Value="None"/>
       </Unit>
       <Unit>
         <Filename Value="qrrender.pas"/>

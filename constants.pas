@@ -1297,6 +1297,22 @@ const
 
   SHUTDOWN_TIMEOUT = 5000;
   MANIFEST = 'accounts.ini';
+  { Настройки и список аккаунтов — один зашифрованный файл
+    (secureconfig.pas); config.ini и MANIFEST — прежние открытые файлы,
+    их содержимое переезжает внутрь при первом запуске. }
+  SECURE_CONFIG_FILE = 'fptelegram.dat';
+  SECURE_CONFIG_MAGIC = 'FPTS';
+  SECURE_CONFIG_VERSION = 1;
+  { Дополнительная энтропия DPAPI — строка программы: блоб ключа
+    раскрывается только вместе с ней (и только у того же пользователя
+    Windows). }
+  SECURE_CONFIG_ENTROPY = 'FPTelegram/settings/v1';
+  { Секция списка аккаунтов (бывшая [general] из accounts.ini). }
+  SECURE_CONFIG_ACCOUNTS_SECTION = 'accounts';
+  { Файл, который не расшифровался (чужой пользователь, другая машина,
+    повреждение), откладывается с этим суффиксом, а не стирается. }
+  SECURE_CONFIG_BAD_SUFFIX = '.unreadable';
+  LEGACY_CONFIG_FILE = 'config.ini';
 
   { ================= tdjson.pas ================= }
 

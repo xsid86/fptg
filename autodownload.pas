@@ -47,7 +47,7 @@ function AutoDownloadChatKind(AChatId: Int64): string;
 implementation
 
 uses
-  IniFiles, constants, tdcore, tdchats;
+  IniFiles, constants, tdcore, tdchats, secureconfig;
 
 var
   GGrid: array[0..High(AUTODL_MEDIA_KINDS)] of
@@ -91,7 +91,7 @@ begin
   if TdApp = nil then begin
     Exit;
   end;
-  Ini := TIniFile.Create(TdApp.BaseDir + 'config.ini');
+  Ini := OpenConfig;
   try
     for M := 0 to High(AUTODL_MEDIA_KINDS) do begin
       for C := 0 to High(AUTODL_CHAT_KINDS) do begin
@@ -122,7 +122,7 @@ begin
     raise Exception.CreateFmt('unknown auto-download cell: %s.%s',
       [AMediaKind, AChatKind]);
   end;
-  Ini := TIniFile.Create(TdApp.BaseDir + 'config.ini');
+  Ini := OpenConfig;
   try
     Ini.WriteBool('autodownload', AUTODL_MEDIA_KINDS[M] + '.' +
       AUTODL_CHAT_KINDS[C], AValue);

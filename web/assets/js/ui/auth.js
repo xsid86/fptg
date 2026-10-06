@@ -89,7 +89,7 @@ function screenApiConfig() {
     el('a', { href: 'https://my.telegram.org/apps', target: '_blank',
       rel: 'noopener noreferrer' }, 'my.telegram.org'),
     ', under API development tools, '
-    + 'and paste the pair here. They are stored in config.ini beside '
+    + 'and paste the pair here. They are stored encrypted in the settings beside '
     + 'the program and are not sent anywhere else.'],
     form(() => hooks.send('api.save',
       { apiId: Number(text(id.input.value)), apiHash: text(hash.input.value) }),
