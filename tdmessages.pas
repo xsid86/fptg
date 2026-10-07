@@ -34,6 +34,9 @@ type
       was tried on this file and got nowhere (and must not be retried). }
     Unthrottled: boolean;
     GaveUp: boolean;
+    { Ответ «скачан», а файла нет — уже снимали deleteFile и качали
+      заново. Второй раз так же — сдаться, а не ходить по кругу. }
+    StaleRetried: boolean;
   end;
 
   { Telegram's three sticker formats — confirmed against the official
@@ -813,6 +816,7 @@ type
     { Reads a TDLib file object and releases its slot if TDLib is done
       with it — finished, or not downloading any more. }
     procedure NoteFileDownloadState(AFile: TJSONObject);
+    procedure StaleFileDeleted(Sender: TObject; const AResp: TTdResponse);
     procedure ExtractDocMeta(AContent: TJSONObject; const AType: utf8string;
       out AFileName: utf8string; out AFileSize: Int64;
       out AFileId: integer; out ALocalPath: utf8string);
@@ -888,7 +892,7 @@ type
     function IsReplyPending(AId: Int64): boolean;
     procedure MarkReplyPending(AId: Int64);
     procedure ClearReplyPending(AId: Int64);
-    procedure RequestReply(AMessageId: Int64);
+    procedure RequestReply(AChatId, AMessageId: Int64);
     procedure GetRepliedDone(Sender: TObject; const AResp: TTdResponse);
   public
     { The model belongs to an account, the resolver is passed in from
@@ -1325,6 +1329,27 @@ implementation
 
 uses
   customemoji;
+
+{ «Скачан» — только если файл и правда на диске.
+
+  is_downloading_completed сам по себе этого не гарантирует: после
+  optimizeStorage (ApplyCacheLimit, TTL кеша) TDLib ещё отдаёт старый
+  путь как скачанный — живой tdlib_raw.log 2026-10-07: фото сообщения
+  «скачано», а files/photos/<имя>.jpg на диске нет, страница рисовала
+  битую картинку (/media/<id> -> 404). Модель на таком файле считает
+  его НЕ скачанным; сам downloadFile на нём сразу отвечает тем же
+  «скачан» — это ловит NoteFileDownloadState (deleteFile и заново). }
+function CompletedLocal(ALocal: TJSONObject): boolean;
+var
+  Path: utf8string;
+begin
+  Result := False;
+  if (ALocal = nil) or not JGetBool(ALocal, 'is_downloading_completed') then begin
+    Exit;
+  end;
+  Path := JGetStr(ALocal, 'path');
+  Result := (Path <> '') and FileExists(string(Path));
+end;
 
 var
   GDownloadConcurrency: integer = DOWNLOAD_CONCURRENCY_DEFAULT;
@@ -2943,7 +2968,7 @@ procedure TTdMessages.ExtractAudioMeta(AContent: TJSONObject; const AType: utf8s
     end;
     AId := JGetInt(FO, 'id');
     LO := JGetObj(FO, 'local');
-    if (LO <> nil) and JGetBool(LO, 'is_downloading_completed') then begin
+    if (LO <> nil) and CompletedLocal(LO) then begin
       APath := JGetStr(LO, 'path');
     end;
   end;
@@ -3037,7 +3062,7 @@ begin
   end;
   AFileId := JGetInt(FileObj, 'id');
   LocalObj := JGetObj(FileObj, 'local');
-  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+  if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
     ALocalPath := JGetStr(LocalObj, 'path');
   end;
 end;
@@ -3074,7 +3099,7 @@ begin
   end;
   AFileId := JGetInt(FileObj, 'id');
   LocalObj := JGetObj(FileObj, 'local');
-  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+  if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
     ALocalPath := JGetStr(LocalObj, 'path');
   end;
 end;
@@ -3183,6 +3208,7 @@ begin
   FActiveDownloads[Idx].Stalls := 0;
   FActiveDownloads[Idx].Unthrottled := DownloadSpeedLimit <= 0;
   FActiveDownloads[Idx].GaveUp := False;
+  FActiveDownloads[Idx].StaleRetried := False;
   if FActiveDownloads[Idx].Unthrottled then begin
     FReq.SendRequest('downloadFile',
       '"file_id":' + utf8string(IntToStr(AFileId)) +
@@ -3373,6 +3399,16 @@ begin
   if Local = nil then begin
     Exit;
   end;
+  if JGetBool(Local, 'is_downloading_completed') and not CompletedLocal(Local)
+     and not FActiveDownloads[Idx].StaleRetried then begin
+    { TDLib считает файл скачанным, а его нет (см. CompletedLocal):
+      deleteFile — чтобы TDLib забыл запись, дальше та же загрузка
+      (StaleFileDeleted). Слот остаётся за этим файлом. }
+    FActiveDownloads[Idx].StaleRetried := True;
+    FReq.SendRequest('deleteFile', '"file_id":' + utf8string(IntToStr(FileId)),
+      @StaleFileDeleted, FileId);
+    Exit;
+  end;
   if JGetBool(Local, 'is_downloading_completed') then begin
     ReleaseDownloadSlot(FileId);
     Exit;
@@ -3414,6 +3450,26 @@ begin
   end;
 end;
 
+procedure TTdMessages.StaleFileDeleted(Sender: TObject; const AResp: TTdResponse);
+var
+  Idx: integer;
+  FileId: integer;
+begin
+  FileId := integer(AResp.Tag);
+  Idx := ActiveDownloadIndex(FileId);
+  if (Idx < 0) or (FReq = nil) then begin
+    Exit;
+  end;
+  { Целиком и без окон: файл уже был у нас, ограничение скорости тут
+    только задержит то, что страница ждёт прямо сейчас. }
+  FActiveDownloads[Idx].Unthrottled := True;
+  FActiveDownloads[Idx].NextOffset := 0;
+  FReq.SendRequest('downloadFile',
+    '"file_id":' + utf8string(IntToStr(FileId)) +
+    ',"priority":32,"offset":0,"limit":0,"synchronous":false',
+    FActiveDownloads[Idx].Callback, FileId);
+end;
+
 procedure TTdMessages.ExtractDocMeta(AContent: TJSONObject; const AType: utf8string;
   out AFileName: utf8string; out AFileSize: Int64;
   out AFileId: integer; out ALocalPath: utf8string);
@@ -3440,7 +3496,7 @@ begin
   AFileSize := JGetInt64(FileObj, 'size');
   AFileId := JGetInt(FileObj, 'id');
   LocalObj := JGetObj(FileObj, 'local');
-  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+  if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
     ALocalPath := JGetStr(LocalObj, 'path');
   end;
 end;
@@ -3595,7 +3651,7 @@ begin
   end;
   ARow.LinkPhotoFileId := JGetInt(FileObj, 'id');
   LocalObj := JGetObj(FileObj, 'local');
-  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+  if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
     ARow.LinkPhotoPath := JGetStr(LocalObj, 'path');
   end;
 end;
@@ -3656,7 +3712,7 @@ begin
   end;
   R := FLinkByFile.Data[Idx];
   Local := JGetObj(AFile, 'local');
-  if (Local = nil) or (not JGetBool(Local, 'is_downloading_completed')) then begin
+  if (Local = nil) or (not CompletedLocal(Local)) then begin
     Exit;
   end;
   Path := JGetStr(Local, 'path');
@@ -3742,7 +3798,7 @@ begin
     if FileObj <> nil then begin
       AFileId := JGetInt(FileObj, 'id');
       LocalObj := JGetObj(FileObj, 'local');
-      if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+      if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
         ALocalPath := JGetStr(LocalObj, 'path');
       end;
     end;
@@ -3756,7 +3812,7 @@ begin
     if FileObj <> nil then begin
       ABestFileId := JGetInt(FileObj, 'id');
       LocalObj := JGetObj(FileObj, 'local');
-      if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+      if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
         ABestLocalPath := JGetStr(LocalObj, 'path');
       end;
     end;
@@ -3809,7 +3865,7 @@ begin
   end;
   AFileId := JGetInt(FileObj, 'id');
   LocalObj := JGetObj(FileObj, 'local');
-  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+  if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
     ALocalPath := JGetStr(LocalObj, 'path');
   end;
 end;
@@ -3865,7 +3921,7 @@ begin
     if ThumbFileObj <> nil then begin
       AThumbFileId := JGetInt(ThumbFileObj, 'id');
       LocalObj := JGetObj(ThumbFileObj, 'local');
-      if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+      if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
         AThumbLocalPath := JGetStr(LocalObj, 'path');
       end;
     end;
@@ -3877,7 +3933,7 @@ begin
   end;
   AFileId := JGetInt(FileObj, 'id');
   LocalObj := JGetObj(FileObj, 'local');
-  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+  if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
     ALocalPath := JGetStr(LocalObj, 'path');
   end;
 end;
@@ -3938,7 +3994,7 @@ begin
   end;
   AFileId := JGetInt(FileObj, 'id');
   LocalObj := JGetObj(FileObj, 'local');
-  if (LocalObj <> nil) and JGetBool(LocalObj, 'is_downloading_completed') then begin
+  if (LocalObj <> nil) and CompletedLocal(LocalObj) then begin
     ALocalPath := JGetStr(LocalObj, 'path');
   end;
 end;
@@ -4030,7 +4086,7 @@ begin
     Active := True;
     Done := JGetInt64(Remote, 'uploaded_size');
   end else if (Local <> nil) and (JGetBool(Local, 'is_downloading_active')
-      or (AInFlight and not JGetBool(Local, 'is_downloading_completed'))) then begin
+      or (AInFlight and not CompletedLocal(Local))) then begin
     { AInFlight — файл в нашей очереди загрузок. С ограничением скорости
       TDLib между окнами говорит is_downloading_active = false, и без
       этого кольцо мигало бы на каждом окне. }
@@ -5724,11 +5780,16 @@ begin
   ASenderUserId := 0;
   ASenderChatId := 0;
   APreviewText := '';
-  if (AMessageId = 0) or (AChatId <> FChatId) then begin
+  if AMessageId = 0 then begin
     Exit;
   end;
 
-  R := Lookup(AMessageId);
+  { Цитата из другого чата (комментарий цитирует пост канала, ответ из
+    другого чата) — в FAll её нет, только кеш и запрос. }
+  R := nil;
+  if (AChatId = 0) or (AChatId = FChatId) then begin
+    R := Lookup(AMessageId);
+  end;
   if R <> nil then begin
     ASenderUserId := R.SenderUserId;
     ASenderChatId := R.SenderChatId;
@@ -5746,17 +5807,27 @@ begin
     Exit;
   end;
 
-  RequestReply(AMessageId);
+  if AChatId = 0 then begin
+    AChatId := FChatId;
+  end;
+  RequestReply(AChatId, AMessageId);
 end;
 
-procedure TTdMessages.RequestReply(AMessageId: Int64);
+{ Цитируемое сообщение — getMessage(chat_id, message_id) в ЕГО чате.
+
+  Не getRepliedMessage: тому нужен id ОТВЕТА (td_api.tl: «message_id
+  Identifier of the reply message»), а здесь на руках id цитаты. Так
+  было раньше — живой tdlib_raw.log 2026-10-07: 47 из 47 вызовов
+  ответили 404, и цитаты незагруженных сообщений навсегда оставались
+  «…» (с повторным запросом на каждой перерисовке). }
+procedure TTdMessages.RequestReply(AChatId, AMessageId: Int64);
 begin
-  if (FReq = nil) or (FChatId = 0) or IsReplyPending(AMessageId) then begin
+  if (FReq = nil) or (AChatId = 0) or IsReplyPending(AMessageId) then begin
     Exit;
   end;
   MarkReplyPending(AMessageId);
-  FReq.SendRequest('getRepliedMessage',
-    '"chat_id":' + utf8string(IntToStr(FChatId)) +
+  FReq.SendRequest('getMessage',
+    '"chat_id":' + utf8string(IntToStr(AChatId)) +
     ',"message_id":' + utf8string(IntToStr(AMessageId)),
     @GetRepliedDone, PtrInt(AMessageId));
 end;
@@ -5772,10 +5843,15 @@ begin
   Id := Int64(AResp.Tag);
   ClearReplyPending(Id);
   if not AResp.Success then begin
-    { Silently doesn't show a quote — the same approach as a getUser
-      miss in tdusers.pas: the quoted message may have been deleted,
-      not a reason to clutter the status bar for every such case in
-      the history. }
+    { Сообщения нет (удалено) — так и сказать в цитате и запомнить,
+      иначе каждая перерисовка спрашивала бы снова, а цитата навсегда
+      оставалась «…». }
+    if FReplyCache.IndexOf(Id) < 0 then begin
+      P := TMsgReplyPreview.Create;
+      P.PreviewText := REPLY_DELETED_TEXT;
+      FReplyCache.Add(Id, P);
+      Touch;
+    end;
     Exit;
   end;
 
@@ -5894,7 +5970,7 @@ begin
   end;
 
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(FByFile.Data[Idx].AudioLocalPath, FByFile.Data[Idx].AudioDownloadRequested);
@@ -5975,7 +6051,7 @@ begin
   end;
 
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(FAudioCoverByFile.Data[Idx].AudioCoverLocalPath, FAudioCoverByFile.Data[Idx].AudioCoverDownloadRequested);
@@ -6056,7 +6132,7 @@ begin
   end;
 
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(FVoiceByFile.Data[Idx].VoiceLocalPath, FVoiceByFile.Data[Idx].VoiceDownloadRequested);
@@ -6147,7 +6223,7 @@ begin
   end;
 
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(FDocByFile.Data[Idx].DocLocalPath, FDocByFile.Data[Idx].DocDownloadRequested);
@@ -6268,7 +6344,7 @@ begin
     Touch;
   end;
 
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(R.PhotoLocalPath, R.PhotoDownloadRequested);
@@ -6346,7 +6422,7 @@ begin
   end;
 
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(FPhotoBestByFile.Data[Idx].PhotoBestLocalPath, FPhotoBestByFile.Data[Idx].PhotoBestDownloadRequested);
@@ -6479,7 +6555,7 @@ begin
   end;
 
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(FAnimByFile.Data[Idx].AnimLocalPath, FAnimByFile.Data[Idx].AnimDownloadRequested);
@@ -6573,7 +6649,7 @@ begin
     Touch;
   end;
 
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(R.VideoLocalPath, R.VideoDownloadRequested);
@@ -6650,7 +6726,7 @@ begin
   end;
 
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(FVideoThumbByFile.Data[Idx].VideoThumbLocalPath, FVideoThumbByFile.Data[Idx].VideoThumbDownloadRequested);
@@ -6731,7 +6807,7 @@ begin
   end;
 
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     { Not "still downloading" only - it is also how a file that has
       been DELETED is reported. See ForgetFile. }
     ForgetFile(FStickerByFile.Data[Idx].StickerLocalPath, FStickerByFile.Data[Idx].StickerDownloadRequested);
@@ -6925,7 +7001,7 @@ begin
     FileId := JGetInt(FileObj, 'id');
     LocalPath := '';
     LocalObj := JGetObj(FileObj, 'local');
-    if JGetBool(LocalObj, 'is_downloading_completed') then begin
+    if CompletedLocal(LocalObj) then begin
       LocalPath := JGetStr(LocalObj, 'path');
     end;
     CustomEmojiSetSticker(Id, FileId, Format, LocalPath);
@@ -6967,7 +7043,7 @@ begin
     Exit;
   end;
   Local := JGetObj(AFile, 'local');
-  if not JGetBool(Local, 'is_downloading_completed') then begin
+  if not CompletedLocal(Local) then begin
     Exit;
   end;
   Path := JGetStr(Local, 'path');

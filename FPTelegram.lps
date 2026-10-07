@@ -8,7 +8,6 @@
       <Unit>
         <Filename Value="FPTelegram.lpr"/>
         <IsPartOfProject Value="True"/>
-        <IsVisibleTab Value="True"/>
         <TopLine Value="113"/>
         <CursorPos Y="146"/>
         <UsageCount Value="164"/>
@@ -131,6 +130,7 @@
       <Unit>
         <Filename Value="tdmessages.pas"/>
         <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="8"/>
         <TopLine Value="245"/>
         <CursorPos X="28" Y="245"/>

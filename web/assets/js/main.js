@@ -19,6 +19,7 @@ import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.
 import { mountPayments } from './ui/payments.js';
 import { mountTranslate } from './ui/translate.js';
 import { mountCalls } from './ui/call.js';
+import { setCanTranscribe } from './ui/message.js';
 import { mountVideoChat } from './ui/videochat.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountAuth, showAuth } from './ui/auth.js';
@@ -162,6 +163,10 @@ function applyMessages(state) {
   // really ends instead: leaving the thread, or opening a chat.
   if (state?.thread) state.thread.post = threadPost;
   const fresh = setCustomEmoji(state?.customEmoji);
+  // Кнопка расшифровки голосовых — только у Premium (ui/message.js).
+  // Узлы истории кэшируются по содержимому сообщения — при смене флага
+  // (купили Premium) уже нарисованные голосовые перерисовать.
+  if (state && 'canTranscribe' in state && setCanTranscribe(state.canTranscribe)) invalidateHistory();
   setMessages(state);
   // A custom emoji's file arriving changes no message, so the history's
   // per-payload node cache cannot see it. Told explicitly, it redraws.
@@ -403,6 +408,7 @@ function wireActions() {
     call('chat.action', { id, action }).catch(report);
   });
 
+  on('ui:transcribe', ({ id }) => call('message.transcribe', { id }).catch(report));
   on('ui:folder-menu', ({ id, anchor, userId, current }) =>
     showFolderMenu(id, anchor, userId ? { current: current ?? 0 } : null));
 

@@ -680,3 +680,122 @@ $call-card-icon: 40px;
     background: color-mix(in srgb, var(--c-accent) 15%, transparent);
   }
 }
+
+// -------------------------------------------------- расшифровка голосовых
+// ui/message.js, renderVoice: «→A» в правом верхнем углу карточки
+// голосового (только у Premium), под карточкой — текст.
+//
+// Кнопка — в «рамке»: div с отступом $voice-tx-border, в нём кнопка.
+// Рамка видна каймой вокруг кнопки и служит холстом анимации: пока
+// Telegram распознаёт, по ней по кругу бежит пятно радиального
+// градиента (центр градиента — анимируемые --voice-tx-x/y, @property).
+$voice-tx-border: 2px;
+$voice-tx-w: 30px;
+$voice-tx-h: 20px;
+$voice-tx-radius: 6px;
+$voice-tx-orbit: 1.2s;
+
+@property --voice-tx-x {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+@property --voice-tx-y {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+.voice {
+  @include flex(column, stretch, flex-start, $space-3);
+}
+
+// Заголовку не заезжать под кнопку.
+.media--audio.has-tx .audio__body {
+  padding-right: calc(#{$voice-tx-w} + #{2 * $voice-tx-border});
+}
+
+.voice__tx {
+  background: color-mix(in srgb, var(--c-audio) 35%, transparent);
+  border-radius: calc(#{$voice-tx-radius} + #{$voice-tx-border});
+  line-height: 0;
+  padding: $voice-tx-border;
+  position: absolute;
+  right: $space-3;
+  top: $space-3;
+
+  &.is-on {
+    background: var(--c-audio);
+  }
+
+  &.is-busy {
+    animation: voice-tx-orbit $voice-tx-orbit linear infinite;
+    background: radial-gradient(circle at var(--voice-tx-x) var(--voice-tx-y),
+      var(--c-audio) 0%,
+      color-mix(in srgb, var(--c-audio) 15%, transparent) 70%);
+  }
+}
+
+// Центр пятна обходит рамку по периметру.
+@keyframes voice-tx-orbit {
+  0%   { --voice-tx-x: 0%;   --voice-tx-y: 0%; }
+  25%  { --voice-tx-x: 100%; --voice-tx-y: 0%; }
+  50%  { --voice-tx-x: 100%; --voice-tx-y: 100%; }
+  75%  { --voice-tx-x: 0%;   --voice-tx-y: 100%; }
+  100% { --voice-tx-x: 0%;   --voice-tx-y: 0%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice__tx.is-busy {
+    animation-duration: calc(#{$voice-tx-orbit} * 3);
+  }
+}
+
+.voice__tx-btn {
+  @include flex(row, center, center);
+  @include focus-ring;
+  @include size($voice-tx-w, $voice-tx-h);
+  background: color-mix(in srgb, var(--c-audio) 15%, white);
+  border: 0;
+  border-radius: $voice-tx-radius;
+  color: var(--c-audio);
+  cursor: pointer;
+  @include transition;
+
+  &:hover {
+    background: color-mix(in srgb, var(--c-audio) 30%, white);
+  }
+
+  .voice__tx.is-on & {
+    background: var(--c-audio);
+    color: var(--c-accent-text);
+  }
+
+  .voice__tx.is-busy & {
+    pointer-events: none;
+  }
+}
+
+// Иконка «звук → текст» (img/icons.svg, i-transcribe).
+.voice__tx-icon {
+  @include size($voice-tx-h - 4px);
+}
+
+.voice__speech {
+  line-height: $lh-base;
+  white-space: pre-wrap;
+
+  &[hidden] {
+    display: none;
+  }
+
+  &.is-pending {
+    color: var(--c-text-dim);
+  }
+
+  &.is-error {
+    color: var(--c-danger);
+    font-size: $fs-sm;
+  }
+}

@@ -1043,6 +1043,53 @@ end;
   the video, the track, a document) are NOT: the page asks for those
   with media.ensure when it decides to, which is the web equivalent of
   the native "first click downloads". }
+{ Расшифровка голосового — voice_note.speech_recognition_result
+  (td_api.tl коммита d1085f9): speechRecognitionResultPending
+  (partial_text), ...Text (text), ...Error (error). Запускается
+  recognizeSpeech (message.transcribe), результат приходит обновлением
+  содержимого сообщения. null — не расшифровывали. }
+function SpeechJson(const ARaw: utf8string): TJSONData;
+var
+  Data: TJSONData;
+  R, Res: TJSONObject;
+  T: utf8string;
+begin
+  Result := TJSONNull.Create;
+  if ARaw = '' then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARaw));
+  except
+    Exit;
+  end;
+  try
+    if not (Data is TJSONObject) then begin
+      Exit;
+    end;
+    R := JGetObj(JGetObj(TJSONObject(Data), 'voice_note'), 'speech_recognition_result');
+    if R = nil then begin
+      Exit;
+    end;
+    T := JGetStr(R, '@type');
+    Res := TJSONObject.Create;
+    if T = 'speechRecognitionResultText' then begin
+      Res.Add('state', 'text');
+      Res.Add('text', string(JGetStr(R, 'text')));
+    end else if T = 'speechRecognitionResultPending' then begin
+      Res.Add('state', 'pending');
+      Res.Add('text', string(JGetStr(R, 'partial_text')));
+    end else begin
+      Res.Add('state', 'error');
+      Res.Add('text', string(JGetStr(JGetObj(R, 'error'), 'message')));
+    end;
+    Result.Free;
+    Result := Res;
+  finally
+    Data.Free;
+  end;
+end;
+
 function MediaJson(AMsgs: TTdMessages; ARow: TMsgRow): TJSONObject;
 var
   Xfer: TJSONObject;
@@ -1103,6 +1150,7 @@ begin
       Result := TJSONObject.Create;
       Result.Add('duration', ARow.VoiceDuration);
       Result.Add('url', string(FileUrl(ARow.VoiceFileId, ARow.VoiceLocalPath)));
+      Result.Add('speech', SpeechJson(ARow.ContentRaw));
     end;
     mckFile: begin
       Result := TJSONObject.Create;
@@ -3263,6 +3311,9 @@ begin
     list on a full answer and merges on a partial one. }
   Res.Add('full',         True);
   Res.Add('chatId',       Msgs.ChatId);
+  { Расшифровка голосовых — только у Premium (recognizeSpeech без него
+    отвечает ошибкой): без Premium страница кнопку не показывает. }
+  Res.Add('canTranscribe', (TdApp.Active <> nil) and TdApp.Active.IsPremium);
   { The open chat's own row, for the bar above the history.
 
     The page looks the open chat up in the list it holds, and the chat
@@ -9474,6 +9525,17 @@ begin
         CmdMentionSearch(AConnId, ReqId, Args);
       end else if Cmd = 'contacts.list' then begin
         CmdContactsList(AConnId, ReqId);
+      end else if Cmd = 'message.transcribe' then begin
+        { recognizeSpeech (chat_id, message_id) — открытого чата (в ветке
+          это группа обсуждения, как у остальных команд сообщения).
+          Ответ (ok); текст приходит обновлением сообщения. }
+        if TdMsgList = nil then begin
+          raise Exception.Create('no chat open');
+        end;
+        TdMsgList.Request('recognizeSpeech', '"chat_id":'
+          + utf8string(IntToStr(TdMsgList.ChatId)) + ',"message_id":'
+          + utf8string(IntToStr(ArgId(Args, 'id'))),
+          @SimpleDone, TakeDeferred(AConnId, ReqId, 0));
       end else if Cmd = 'call.list' then begin
         Reply(AConnId, ReqId, CmdCallList);
       end else if Cmd = 'call.start' then begin

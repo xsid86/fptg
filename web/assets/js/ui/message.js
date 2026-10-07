@@ -827,10 +827,70 @@ function renderAudio(msg, m) {
     return audioCard(msg, m, 'audio', title);
 }
 
+// Расшифровка голосовых (recognizeSpeech) — только у Premium: без него
+// Telegram отвечает ошибкой, поэтому кнопки нет вовсе. Флаг приходит с
+// каждым ответом messages.list (canTranscribe), main.js кладёт его сюда.
+let canTranscribe = false;
+
+/** true — флаг поменялся (уже нарисованным голосовым нужна перерисовка). */
+export function setCanTranscribe(value) {
+    const changed = canTranscribe !== !!value;
+    canTranscribe = !!value;
+    return changed;
+}
+
+// Свёрнутые расшифровки (id сообщений): сворачивание — класс на узле,
+// без перерисовки; запомнено, чтобы перерисовка не разворачивала.
+const speechFolded = new Set();
+
 function renderVoice(msg, m) {
     // A voice note never has a cover or a title: the native side passes
     // this very label as the file name and shows the microphone frame.
-    return audioCard(msg, m, 'mic', 'Voice message');
+    const card = audioCard(msg, m, 'mic', 'Voice message');
+    const sp = m.speech;
+    if (!canTranscribe && !sp) return card;
+
+    const text = sp ? el('div', {
+        class: `voice__speech${sp.state === 'error' ? ' is-error' : ''}${sp.state === 'pending' ? ' is-pending' : ''}`,
+        hidden: speechFolded.has(msg.id),
+    }, sp.state === 'error'
+        ? (sp.text || 'Could not transcribe this message')
+        : `${sp.text || ''}${sp.state === 'pending' ? '\u2026' : ''}`) : null;
+
+    // Кнопка — в правом верхнем углу карточки, в «рамке»: div с
+    // отступом 2px, в нём кнопка. Рамка — холст для анимации: пока
+    // Telegram распознаёт (pending или только что нажали), по ней бежит
+    // пятно радиального градиента (blocks/_media.scss, voice-tx-orbit).
+    if (canTranscribe) {
+        const folded = speechFolded.has(msg.id);
+        const frame = el('div', {
+            class: `voice__tx${sp && sp.state !== 'pending' && !folded ? ' is-on' : ''}`
+                + `${sp?.state === 'pending' ? ' is-busy' : ''}`,
+        });
+        const button = el('button', {
+            class: 'voice__tx-btn',
+            type: 'button',
+            title: sp ? 'Show or hide the text' : 'Transcribe to text',
+            onclick: (event) => {
+                event.stopPropagation();
+                if (!sp) {
+                    frame.classList.add('is-busy');
+                    emit('ui:transcribe', {id: msg.id});
+                    return;
+                }
+                const fold = !speechFolded.has(msg.id);
+                if (fold) speechFolded.add(msg.id);
+                else speechFolded.delete(msg.id);
+                if (text) text.hidden = fold;
+                frame.classList.toggle('is-on', !fold && sp.state !== 'pending');
+            },
+        }, icon('transcribe', 'voice__tx-icon'));
+        frame.append(button);
+        card.classList.add('has-tx');
+        card.append(frame);
+    }
+
+    return text ? el('div', {class: 'voice'}, card, text) : card;
 }
 
 /**

@@ -17,6 +17,10 @@
   > * {
     flex-shrink: 0;
   }
+
+  &:has(.contact-row) {
+    gap: .25rem;
+  }
 }
 
 // The history's button, the other way up: same corner of its own

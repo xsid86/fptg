@@ -2617,6 +2617,9 @@ body {
 .chat-list > * {
   flex-shrink: 0;
 }
+.chat-list:has(.contact-row) {
+  gap: 0.25rem;
+}
 
 .chat-list__to-top {
   background: var(--c-surface);
@@ -6437,6 +6440,127 @@ a.media--file:hover {
 }
 .call-card__again:hover {
   background: color-mix(in srgb, var(--c-accent) 15%, transparent);
+}
+
+@property --voice-tx-x {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+@property --voice-tx-y {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+.voice {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.media--audio.has-tx .audio__body {
+  padding-right: calc(30px + 4px);
+}
+
+.voice__tx {
+  background: color-mix(in srgb, var(--c-audio) 35%, transparent);
+  border-radius: calc(6px + 2px);
+  line-height: 0;
+  padding: 2px;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+}
+.voice__tx.is-on {
+  background: var(--c-audio);
+}
+.voice__tx.is-busy {
+  animation: voice-tx-orbit 1.2s linear infinite;
+  background: radial-gradient(circle at var(--voice-tx-x) var(--voice-tx-y), var(--c-audio) 0%, color-mix(in srgb, var(--c-audio) 15%, transparent) 70%);
+}
+
+@keyframes voice-tx-orbit {
+  0% {
+    --voice-tx-x: 0%;
+    --voice-tx-y: 0%;
+  }
+  25% {
+    --voice-tx-x: 100%;
+    --voice-tx-y: 0%;
+  }
+  50% {
+    --voice-tx-x: 100%;
+    --voice-tx-y: 100%;
+  }
+  75% {
+    --voice-tx-x: 0%;
+    --voice-tx-y: 100%;
+  }
+  100% {
+    --voice-tx-x: 0%;
+    --voice-tx-y: 0%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice__tx.is-busy {
+    animation-duration: calc(1.2s * 3);
+  }
+}
+.voice__tx-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+.voice__tx-btn:focus {
+  outline: none !important;
+}
+.voice__tx-btn:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.voice__tx-btn {
+  width: 30px;
+  height: 20px;
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--c-audio) 15%, white);
+  border: 0;
+  border-radius: 6px;
+  color: var(--c-audio);
+  cursor: pointer;
+  transition: all 0.25s ease-in-out;
+}
+.voice__tx-btn:hover {
+  background: color-mix(in srgb, var(--c-audio) 30%, white);
+}
+.voice__tx.is-on .voice__tx-btn {
+  background: var(--c-audio);
+  color: var(--c-accent-text);
+}
+.voice__tx.is-busy .voice__tx-btn {
+  pointer-events: none;
+}
+
+.voice__tx-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.voice__speech {
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.voice__speech[hidden] {
+  display: none;
+}
+.voice__speech.is-pending {
+  color: var(--c-text-dim);
+}
+.voice__speech.is-error {
+  color: var(--c-danger);
+  font-size: 12px;
 }
 
 .link-preview {

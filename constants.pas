@@ -1666,6 +1666,9 @@ const
   { Сколько участников видеочата просить за раз (loadGroupCallParticipants):
     остальные приходят обновлениями по мере того, как говорят. }
   VCHAT_LOAD_PARTICIPANTS = 100;
+  { Цитата на сообщение, которого больше нет (getMessage ответил
+    ошибкой) — как у официальных клиентов. }
+  REPLY_DELETED_TEXT = 'Deleted message';
 
 implementation
 

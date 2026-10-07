@@ -43,6 +43,10 @@ type
       same way FApiId/FApiHash already are. }
     FDeviceModel: utf8string;
     FUserId:   Int64;
+    { Telegram Premium у этого аккаунта: getMe.is_premium, дальше —
+      updateOption is_premium. Нужен странице, чтобы прятать то, что
+      без Premium недоступно (расшифровка голосовых). }
+    FIsPremium: boolean;
     FPhone:    utf8string;
     FUsername: utf8string;
     FPhotoFileId:  integer;
@@ -142,6 +146,7 @@ type
 
     property Slot: integer read FSlot;
     property UserId: Int64 read FUserId;
+    property IsPremium: boolean read FIsPremium;
     property Phone: utf8string read FPhone;
     property Username: utf8string read FUsername;
     { Own avatar — for the account menu. The mini-thumbnail arrives
@@ -485,6 +490,12 @@ begin
      and (JGetStr(AData, '@type') = 'updateFile') then begin
     ApplyPhotoFile(JGetObj(AData, 'file'));
   end;
+  { Premium купили или он кончился — TDLib сообщает опцией
+    (td_api.tl: updateOption name value; value — optionValueBoolean). }
+  if (AData <> nil) and (JGetStr(AData, '@type') = 'updateOption')
+     and (JGetStr(AData, 'name') = 'is_premium') then begin
+    FIsPremium := JGetBool(JGetObj(AData, 'value'), 'value');
+  end;
 
   Snap := Copy(FUpdateL);
   for I := 0 to High(Snap) do begin
@@ -651,6 +662,7 @@ begin
   end;
 
   FUserId := JGetInt64(AResp.Obj, 'id');
+  FIsPremium := JGetBool(AResp.Obj, 'is_premium');
   FPhone := JGetStr(AResp.Obj, 'phone_number');
 
   ApplyMyPhoto(JGetObj(AResp.Obj, 'profile_photo'));
