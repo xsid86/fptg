@@ -5,7 +5,7 @@ unit tdcore;
 interface
 
 uses
-  Classes, SysUtils, IniFiles, ExtCtrls,
+  Classes, SysUtils, IniFiles, tdtimer,
   constants, tdauth, tdrecv, tdsession, tdreq, tdchats, tdmessages, tdusers,
   tdaccentcolors, tdaccount, tdsupergroups, tdstickers, tdattachbots,
   tdcalls;
@@ -60,13 +60,13 @@ type
 
     FShuttingDown: boolean;
     FClosed: boolean;
-    FCloseTimer: TTimer;
+    FCloseTimer: TTdTimer;
     FOnShutdownComplete: TNotifyEvent;
     FOnActiveChanged: TTdCoreEvent;
     FActiveL: array of ITdActiveListener;
 
     FPendingRemove: TFPList;
-    FRemoveTimer: TTimer;
+    FRemoveTimer: TTdTimer;
 
     procedure AccountInfoChanged(Sender: TObject);
     procedure AccountStateNotify(Sender: TObject);
@@ -822,12 +822,12 @@ begin
   SecureConfigSetDir(FBaseDir);
 
   FPendingRemove := TFPList.Create;
-  FRemoveTimer := TTimer.Create(nil);
+  FRemoveTimer := TTdTimer.Create(nil);
   FRemoveTimer.Interval := 1;
   FRemoveTimer.OnTimer := @RemoveTick;
   FRemoveTimer.Enabled := False;
 
-  FCloseTimer := TTimer.Create(nil);
+  FCloseTimer := TTdTimer.Create(nil);
   FCloseTimer.Enabled := False;
   FCloseTimer.Interval := SHUTDOWN_TIMEOUT;
   FCloseTimer.OnTimer := @CloseTimeout;

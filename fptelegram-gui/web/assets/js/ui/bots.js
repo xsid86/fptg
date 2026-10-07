@@ -4,6 +4,7 @@ import { icon } from '../util/icons.js';
 import { openMenu } from '../util/menu.js';
 import { copyText } from '../util/clipboard.js';
 import { openLink } from './links.js';
+import { openMiniApp } from './shell.js';
 import { store } from '../core/store.js';
 import { fillAvatar } from '../util/avatar.js';
 import { customEmojiNode } from '../util/emoji.js';
@@ -73,14 +74,16 @@ function pageTheme() {
 /** source: inline (msg — сообщение с кнопкой), menu, keyboard (buttonText). */
 async function openApp(source, url, msg, buttonText = '') {
   try {
-    await hooks.call('webapp.open', {
+    // Сервер отдаёт адрес и всё для окна; открывает окно оболочка
+    // (или вкладка браузера) — ui/shell.js.
+    openMiniApp(await hooks.call('webapp.open', {
       source,
       url,
       msgId: msg ? String(msg.id) : '',
       buttonText,
       title: (source === 'inline' && msg?.senderName) || store.activeChat?.title || 'Mini App',
       theme: pageTheme(),
-    });
+    }));
   } catch (error) {
     hooks.report(error);
   }
@@ -89,9 +92,9 @@ async function openApp(source, url, msg, buttonText = '') {
 /** Бот меню вложений (ui/attachmenu.js) — Mini App в открытом чате. */
 export async function openAttachBot(botId, name) {
   try {
-    await hooks.call('webapp.open', {
+    openMiniApp(await hooks.call('webapp.open', {
       source: 'attach', botId: String(botId), url: '', title: name || 'Mini App', theme: pageTheme(),
-    });
+    }));
   } catch (error) {
     hooks.report(error);
   }

@@ -36,7 +36,7 @@ procedure EnsureAppId;
 implementation
 
 uses
-  Windows, SysUtils, ActiveX, ShlObj, ComObj, constants;
+  Windows, SysUtils, ActiveX, ShlObj, ComObj, constants, guiconst;
 
 const
   { Any unique string; the convention is Company.Product. It never

@@ -25,6 +25,7 @@ import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
 import { mountToasts } from './ui/toasts.js';
+import { mountShell } from './ui/shell.js';
 import { mountThemeToggle } from './ui/theme.js';
 import { mountSettings } from './ui/settings.js';
 import { mountAttach } from './ui/attach.js';
@@ -320,17 +321,6 @@ function wireActions() {
     call('media.ensure', args).catch(() => {});
   });
 
-  // Ссылка t.me из окна мини-приложения (miniapp.pas) — тем же путём,
-  // что ссылка в сообщении.
-  on('srv:openLink', (data) => openLink(data?.url));
-
-  // Клик по уведомлению на рабочем столе (desknotify.pas). Событие
-  // уходит всем подключённым страницам, а относится только к той, что
-  // в нашем окне WebView2: вкладка обычного браузера чат не меняет.
-  on('srv:openChat', (data) => {
-    if (window.chrome?.webview && data?.chatId) setActiveChat(data.chatId);
-  });
-
   on('ui:cancel-transfer', (args) => {
     call('message.cancelTransfer', args).catch(report);
   });
@@ -584,6 +574,10 @@ async function boot() {
   });
   mountStatusBar(qs('#status-bar'));
   mountToasts(qs('#toasts'));
+  // Окно FPTelegram вокруг страницы: карточки на рабочем столе,
+  // мини-приложения, трей (ui/shell.js). Клик по карточке и ссылки из
+  // мини-приложения приходят оттуда же.
+  mountShell({ call: (cmd, args) => call(cmd, args), openLink, report });
   mountThemeToggle(qs('#theme-toggle'));
   mountSettings(qs('#settings'), qs('#settings-open'), {
     load: (cmd, args) => call(cmd, args),

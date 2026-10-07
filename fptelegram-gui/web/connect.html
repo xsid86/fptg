@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPTelegram</title>
+<!-- Окно ввода подключения к серверу. Его показывает оболочка из своих
+     файлов (file://), до подключения: сервера ещё нет. Классы — экрана
+     входа (.auth), своего SCSS нет. Скрипт обычный, не модуль: модули
+     по file:// Chromium не грузит. -->
+<link rel="stylesheet" href="assets/scss/style.css">
+<script src="assets/js/connect.js" defer></script>
+</head>
+<body>
+<div class="auth" id="auth">
+  <div class="auth__backdrop">
+    <div class="auth__card">
+      <h1 class="auth__title">Connect to the server</h1>
+      <p class="auth__note">The server prints these when it starts:
+        address, port and token. They are stored encrypted beside the
+        program. You can also paste the whole web interface link into the
+        address field.</p>
+      <form class="auth__form" id="form">
+        <label class="auth__field">
+          <span class="auth__label">Address</span>
+          <input class="auth__input" type="text" id="host" autofocus
+            spellcheck="false" autocomplete="off" placeholder="127.0.0.1">
+        </label>
+        <label class="auth__field">
+          <span class="auth__label">Port</span>
+          <input class="auth__input" type="text" id="port" inputmode="numeric"
+            autocomplete="off" placeholder="7654">
+        </label>
+        <label class="auth__field">
+          <span class="auth__label">Token</span>
+          <input class="auth__input" type="password" id="token"
+            spellcheck="false" autocomplete="off">
+        </label>
+        <button class="auth__submit" type="submit" id="submit">Connect</button>
+      </form>
+      <p class="auth__error" id="error" hidden></p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -5,7 +5,7 @@ unit tdchats;
 interface
 
 uses
-  Classes, SysUtils, base64, customemoji, fgl, ExtCtrls, fpjson, jsonparser,
+  Classes, SysUtils, base64, customemoji, fgl, tdtimer, fpjson, jsonparser,
   constants, tdauth, tdsession, tdreq;
 
 type
@@ -231,7 +231,7 @@ type
       updateUser can change either one on its own (see ApplyUser). }
     FPremiumUsers: TBotMap;
     FRows:  TFPList;      { displayed, sorted }
-    FTimer: TTimer;
+    FTimer: TTdTimer;
     FDirty: boolean;
     FLoading: boolean;
     FAllLoaded: boolean;
@@ -910,7 +910,7 @@ begin
   FArchiveRows := TFPList.Create;
   FLoadLimit := 30;
 
-  FTimer := TTimer.Create(Self);
+  FTimer := TTdTimer.Create(Self);
   FTimer.Interval := CHATS_COALESCE_MS;
   FTimer.OnTimer := @Rebuild;
   FTimer.Enabled := False;

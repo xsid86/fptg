@@ -61,11 +61,10 @@ procedure WebApiStop;
 implementation
 
 uses
-  Classes, SysUtils, SyncObjs, ExtCtrls, base64, fgl, fpjson, jsonparser,
-  constants, Graphics, tdreq, tdauth, tdchats, tdmessages,
+  Classes, SysUtils, SyncObjs, tdtimer, base64, fgl, fpjson, jsonparser,
+  constants, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcalls, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
-  autodownload, customemoji, webui, tdstorage, miniapp, desknotify,
-  tdsupergroups, tdattachbots, servicetext, tdaccount;
+  autodownload, customemoji, tdstorage, tdsupergroups, tdattachbots, servicetext, tdaccount;
 
 type
   { A request whose answer is not here yet.
@@ -115,7 +114,7 @@ type
 
   TWebApi = class
   private
-    FTimer: TTimer;
+    FTimer: TTdTimer;
     FActiveHook: TWebActiveHook;
     { Куда вернуться при отмене добавления аккаунта (accounts.cancel);
       -1 — не запоминали. }
@@ -190,7 +189,6 @@ type
     function  CmdAccountsCancel: TJSONData;
     function  CmdAccountsLogout: TJSONData;
     procedure ChatsChanged(Sender: TObject);
-    procedure DeskCardClick(AChatId: Int64);
     procedure ChatArrived(Sender: TObject; ARow: TChatRow;
       const APreview: utf8string);
     procedure MessagesChanged(Sender: TObject);
@@ -375,6 +373,15 @@ type
     function  CmdBotInfo(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
     function  CmdBotUserChat(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdWebAppClose(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdWebAppCustom(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    procedure WebAppCustomDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdWebAppAllowWrite(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdWebAppSendData(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
     function  CmdWebAppOpen(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
@@ -1875,26 +1882,12 @@ end;
 { TWebApi                                                            }
 { ------------------------------------------------------------------ }
 
-{ Ссылка t.me из мини-приложения — странице: та откроет её тем же путём,
-  что ссылку в сообщении (ui/links.js). }
-procedure MiniAppLinkToPage(const AUrl: utf8string);
-var
-  D: TJSONObject;
-begin
-  if GApi = nil then begin
-    Exit;
-  end;
-  D := TJSONObject.Create;
-  D.Add('url', string(AUrl));
-  GApi.PushEvent('openLink', D);
-end;
-
 constructor TWebApi.Create;
 begin
   inherited Create;
   FLock := SyncObjs.TCriticalSection.Create;
   FQueue := TFPList.Create;
-  FTimer := TTimer.Create(nil);
+  FTimer := TTdTimer.Create(nil);
   FTimer.Interval := WEBAPI_FALLBACK_TICK_MS;
   FTimer.OnTimer := @Tick;
   FTimer.Enabled := True;
@@ -1903,21 +1896,15 @@ begin
   FSnaps := TConnSnapMap.Create;
   FSnaps.Sorted := True;
   FInlineBots := TStringList.Create;
-  MiniAppTgLink := @MiniAppLinkToPage;
-  DeskNotifyOnClick := @DeskCardClick;
   FAddReturn := -1;
   FActiveHook := TWebActiveHook.Create(nil);
   TdApp.SubscribeActive(FActiveHook);
-  SetDeskNotifyCorner(TdDeskNotifyCorner);
-  SetDeskNotifyLimit(TdDeskNotifyLimit);
-  SetDeskNotifyFonts(TdDeskNotifyTitleFont, TdDeskNotifyTextFont);
 end;
 
 destructor TWebApi.Destroy;
 var
   I: integer;
 begin
-  DeskNotifyOnClick := nil;
   TdApp.UnsubscribeActive(FActiveHook);
   FreeAndNil(FActiveHook);
   FTimer.Enabled := False;
@@ -2744,21 +2731,15 @@ begin
 end;
 
 { A message arrived somewhere. The model has already ruled out our own
-  messages and muted chats; what is left is WHERE to say so.
-
-  Для окна WebView2 — карточкой на рабочем столе, как у Telegram
-  Desktop (desknotify.pas): всегда, кроме случая, когда окно перед
-  глазами и этот чат в нём открыт. Только при живом веб-окне — без него
-  клику некуда вести. Страница в нашем окне свою карточку не рисует.
-
-  Событие arrival уходит странице всё равно: страница в обычном
-  браузере рисовать на рабочем столе не может, и карточку внутри себя
-  она решает показать сама (ui/toasts.js). }
+  messages and muted chats; what is left is WHERE to say so — and that
+  is the page's call, not ours: the page knows whether it is in our
+  window (then it asks the shell for a desktop card, ui/shell.js) or in
+  a plain browser (its own card, ui/toasts.js), and whether the chat is
+  on screen. }
 procedure TWebApi.ChatArrived(Sender: TObject; ARow: TChatRow;
   const APreview: utf8string);
 var
   Data: TJSONObject;
-  M: TTdMessages;
 begin
   if ARow = nil then begin
     Exit;
@@ -2771,37 +2752,9 @@ begin
   Data.Add('text', string(APreview));
   Data.Add('color', string(AccentKey(ARow)));
   Data.Add('avatar', string(FileUrl(ARow.PhotoFileId, ARow.PhotoPath)));
+  { Пока фото не скачано — размытая миниатюра, как у карточки звонка. }
+  Data.Add('thumb', string(ThumbDataUri(ARow.Minithumb)));
   PushEvent('arrival', Data);
-
-  if (WebUiForm <> nil) and TdDeskNotify then begin
-    M := TdMsgList;
-    if not (WebUiIsShowing and (M <> nil) and (M.ChatId = ARow.Id)) then begin
-      ShowDeskNotify(ARow.Id, ARow.Title, APreview, ARow.PhotoPath, ARow.Minithumb);
-    end;
-  end;
-end;
-
-{ Клик по карточке на рабочем столе: окно вперёд, чат открывает
-  страница — выбор чата живёт в ней (store.setActiveChat). }
-procedure TWebApi.DeskCardClick(AChatId: Int64);
-var
-  Data: TJSONObject;
-begin
-  WebUiReveal;
-  { 0 — образец из настроек, открывать нечего. }
-  if AChatId = 0 then begin
-    Exit;
-  end;
-  Data := TJSONObject.Create;
-  Data.Add('chatId', AChatId);
-  PushEvent('openChat', Data);
-end;
-
-{ Образец карточки — при смене угла и при включении: сразу видно, где и
-  как они будут появляться (так делает и Telegram Desktop). }
-procedure ShowDeskNotifySample;
-begin
-  ShowDeskNotifySamples(APP_TITLE, DESKNOTIFY_SAMPLE_TEXT);
 end;
 
 procedure TWebApi.Enqueue(AConnId: Int64; const AText: utf8string);
@@ -3637,9 +3590,6 @@ begin
     TdApp.SetDeviceModel(Model);
   end else if Key = 'notify.enabled' then begin
     TdSetDeskNotify(AArgs.Get('value', True));
-    if TdDeskNotify then begin
-      ShowDeskNotifySample;
-    end;
   end else if Key = 'notify.corner' then begin
     Code := AArgs.Get('value', utf8string(''));
     Corner := -1;
@@ -3652,8 +3602,6 @@ begin
       raise Exception.Create('unknown corner: ' + string(Code));
     end;
     TdSetDeskNotifyCorner(Corner);
-    SetDeskNotifyCorner(Corner);
-    ShowDeskNotifySample;
   end else if Key = 'maps.provider' then begin
     Code := AArgs.Get('value', utf8string(''));
     Corner := -1;
@@ -3668,16 +3616,10 @@ begin
     TdSetMapsProvider(string(Code));
   end else if Key = 'notify.titleFont' then begin
     TdSetDeskNotifyTitleFont(AArgs.Get('value', DESKNOTIFY_TITLE_FONT_DEFAULT));
-    SetDeskNotifyFonts(TdDeskNotifyTitleFont, TdDeskNotifyTextFont);
-    ShowDeskNotifySample;
   end else if Key = 'notify.textFont' then begin
     TdSetDeskNotifyTextFont(AArgs.Get('value', DESKNOTIFY_TEXT_FONT_DEFAULT));
-    SetDeskNotifyFonts(TdDeskNotifyTitleFont, TdDeskNotifyTextFont);
-    ShowDeskNotifySample;
   end else if Key = 'notify.limit' then begin
     TdSetDeskNotifyLimit(AArgs.Get('value', DESKNOTIFY_LIMIT_DEFAULT));
-    SetDeskNotifyLimit(TdDeskNotifyLimit);
-    ShowDeskNotifySample;
   end else if Key = 'downloads.concurrency' then begin
     TdSetDownloadConcurrency(AArgs.Get('value', DOWNLOAD_CONCURRENCY_DEFAULT));
   end else if Key = 'downloads.speedKb' then begin
@@ -4344,15 +4286,13 @@ end;
     'none'      - credentials are there but no account exists yet. }
 { The QR login code, drawn here rather than in the page.
 
-  The renderer is the one the native window uses (qrrender.pas, on
-  QRCodeGenLib) - the alternative was a second QR implementation in
-  JavaScript, vendored and maintained, to draw the same square from
-  the same string. A data URI rather than a URL because it is tiny,
-  it changes with every link, and there is nothing to cache. }
+  The renderer is qrrender.pas (QRCodeGenLib + FPImage, no LCL) - the
+  alternative was a second QR implementation in JavaScript, vendored
+  and maintained, to draw the same square from the same string. A
+  data URI rather than a URL because it is tiny, it changes with
+  every link, and there is nothing to cache. }
 function QrDataUri(const ALink: utf8string): utf8string;
 var
-  Bmp: TBitmap;
-  Png: TPortableNetworkGraphic;
   Stream: TMemoryStream;
   Raw: RawByteString;
 begin
@@ -4360,18 +4300,11 @@ begin
   if ALink = '' then begin
     Exit;
   end;
-  Bmp := TBitmap.Create;
   Stream := TMemoryStream.Create;
-  { The LCL's own PNG graphic rather than a raw FPImage writer: it
-    takes the bitmap by Assign and knows how to write itself, which is
-    the whole conversion. }
-  Png := TPortableNetworkGraphic.Create;
   try
-    if DrawQrToBitmap(ALink, Bmp, 320) = 0 then begin
+    if DrawQrToPng(ALink, Stream, 320) = 0 then begin
       Exit;
     end;
-    Png.Assign(Bmp);
-    Png.SaveToStream(Stream);
     SetLength(Raw, Stream.Size);
     Stream.Position := 0;
     if Stream.Size > 0 then begin
@@ -4380,9 +4313,7 @@ begin
     Result := 'data:image/png;base64,' +
       utf8string(EncodeStringBase64(string(Raw)));
   finally
-    Png.Free;
     Stream.Free;
-    Bmp.Free;
   end;
 end;
 
@@ -8580,7 +8511,9 @@ begin
 end;
 
 { Ответ — webAppInfo (launch_id, url: webAppUrl) у openWebApp или сам
-  webAppUrl у getWebAppUrl; окно открывается здесь, странице — ok. }
+  webAppUrl у getWebAppUrl. Окно открывает не сервер: странице уходит
+  всё, что нужно окну мини-приложения, — в нашем окне она отдаёт это
+  оболочке (miniapp.pas), в браузере открывает адрес вкладкой. }
 procedure TWebApi.WebAppOpenDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -8612,13 +8545,80 @@ begin
     ReleaseDeferred(Slot);
     Exit;
   end;
-  Theme := TJSONObject(Held.Find('theme').Clone);
-  OpenMiniApp(Url, utf8string(Held.Get('title', '')), Held.Get('bot', Int64(0)), Launch,
-    utf8string(Held.Get('buttonText', '')), Theme);
   Res := TJSONObject.Create;
-  Res.Add('ok', True);
+  Res.Add('url', string(Url));
+  Res.Add('title', Held.Get('title', ''));
+  { Строками: int53/int64 в JS без потерь. }
+  Res.Add('bot', IntToStr(Held.Get('bot', Int64(0))));
+  Res.Add('launch', IntToStr(Launch));
+  Res.Add('buttonText', Held.Get('buttonText', ''));
+  Res.Add('theme', Held.Find('theme').Clone);
   Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
   ReleaseDeferred(Slot);
+end;
+
+{ Запросы окна мини-приложения к TDLib (их передаёт страница: окно —
+  в другом процессе и, может быть, на другой машине). Только эти четыре
+  метода и только с этими полями — не общий проход к TDLib. }
+function TWebApi.CmdWebAppClose(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+begin
+  RequireMsgs.Request('closeWebApp',
+    '"web_app_launch_id":' + utf8string(IntToStr(StrToInt64Def(string(AArgs.Get('launch', '')), 0))),
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
+end;
+
+function TWebApi.CmdWebAppCustom(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+begin
+  RequireMsgs.Request('sendWebAppCustomRequest',
+    '"bot_user_id":' + utf8string(IntToStr(StrToInt64Def(string(AArgs.Get('bot', '')), 0))) +
+    ',"method":' + JsonStr(utf8string(AArgs.Get('method', ''))) +
+    ',"parameters":' + JsonStr(utf8string(AArgs.Get('params', '{}'))),
+    @WebAppCustomDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
+end;
+
+{ customRequestResult.result — JSON строкой; разбирает её окно. }
+procedure TWebApi.WebAppCustomDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('result', string(JGetStr(AResp.Obj, 'result')));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+function TWebApi.CmdWebAppAllowWrite(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+begin
+  RequireMsgs.Request('allowBotToSendMessages',
+    '"bot_user_id":' + utf8string(IntToStr(StrToInt64Def(string(AArgs.Get('bot', '')), 0))),
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
+end;
+
+function TWebApi.CmdWebAppSendData(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+begin
+  RequireMsgs.Request('sendWebAppData',
+    '"bot_user_id":' + utf8string(IntToStr(StrToInt64Def(string(AArgs.Get('bot', '')), 0))) +
+    ',"button_text":' + JsonStr(utf8string(AArgs.Get('buttonText', ''))) +
+    ',"data":' + JsonStr(utf8string(AArgs.Get('data', ''))),
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
+  Result := True;
 end;
 
 { Кнопки-запросы клавиатуры бота: поделиться пользователями, чатом,
@@ -9569,6 +9569,14 @@ begin
         CmdBotUserChat(AConnId, ReqId, Args);
       end else if Cmd = 'webapp.open' then begin
         CmdWebAppOpen(AConnId, ReqId, Args);
+      end else if Cmd = 'webapp.close' then begin
+        CmdWebAppClose(AConnId, ReqId, Args);
+      end else if Cmd = 'webapp.custom' then begin
+        CmdWebAppCustom(AConnId, ReqId, Args);
+      end else if Cmd = 'webapp.allowWrite' then begin
+        CmdWebAppAllowWrite(AConnId, ReqId, Args);
+      end else if Cmd = 'webapp.sendData' then begin
+        CmdWebAppSendData(AConnId, ReqId, Args);
       end else if Cmd = 'bot.shareUsers' then begin
         CmdBotShareUsers(AConnId, ReqId, Args);
       end else if Cmd = 'bot.shareChat' then begin

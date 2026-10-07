@@ -491,6 +491,11 @@ begin
     GDir := ExtractFilePath(ParamStr(0));
   end;
 
+  { Файл под прежним именем — тот же формат, только переименовать. }
+  if (not FileExists(StorePath)) and FileExists(GDir + SECURE_CONFIG_FILE_OLD) then begin
+    SysUtils.RenameFile(GDir + SECURE_CONFIG_FILE_OLD, StorePath);
+  end;
+
   if FileExists(StorePath) then begin
     try
       GText := Unpack(ReadAll(StorePath));
@@ -532,6 +537,7 @@ procedure SecureConfigSetDir(const ADir: string);
 begin
   GDir := IncludeTrailingPathDelimiter(ADir);
 end;
+
 
 function OpenConfig: TSecureIni;
 begin

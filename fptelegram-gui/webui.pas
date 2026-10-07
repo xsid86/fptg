@@ -5,11 +5,15 @@ unit webui;
 
   Built in code rather than from a .lfm because there is nothing to
   design: the whole client area belongs to a native child window owned
-  by the WebView2 runtime, and no LCL control ever sits on it. Same
-  reasoning as TMediaViewerPanel.
+  by the WebView2 runtime, and no LCL control ever sits on it.
 
-  It talks to the same local server the browser did - one URL, one
-  token, one implementation. Nothing here knows about TDLib. }
+  Окно — отдельная программа от сервера (FPTelegramServer) и о TDLib не
+  знает ничего. Подключается по адресу, порту и токену из conf.dat
+  (guiconn.pas); нет их или сервер не отвечает — показывает окно ввода
+  (web/connect.html из своих файлов). Подключившись, показывает
+  страницу сервера, и дальше всё, что окну нужно от сервера, идёт через
+  неё (ui/shell.js): настройки, карточки на рабочем столе,
+  мини-приложения, окошко звонка. }
 
 {$mode objfpc}{$H+}
 
@@ -17,8 +21,8 @@ interface
 
 uses
   Windows, SysUtils, Classes, Forms, Controls, Dialogs, LCLIntf, ExtCtrls,
-  Menus,
-  constants, webview2;
+  Menus, fpjson,
+  constants, guiconst, guiconn, webview2;
 
 type
   TFormWebUi = class(TForm)
@@ -40,16 +44,24 @@ type
     { A real quit, as opposed to the close button with close-to-tray
       on. Set by the tray's Exit and nothing else. }
     FQuitting: boolean;
-    { TDLib has confirmed every client is closed, so the window may
-      actually go. }
-    FTdClosed: boolean;
-    FGiveUp: TTimer;
+    { Настройка сервера (Settings → General), её присылает страница. }
+    FCloseToTray: boolean;
+    { Подключение: последнее проверяемое и номер проверки — ответ на
+      устаревшую проверку отбрасывается. }
+    FAddr: TServerAddress;
+    FProbeSerial: integer;
+    { Проверка начата из окна ввода (ответ — ему), а не при запуске. }
+    FProbeFromPage: boolean;
 
     procedure TrayShowClick(Sender: TObject);
     procedure TrayQuitClick(Sender: TObject);
     procedure TrayDblClick(Sender: TObject);
-    procedure ShutdownDone(Sender: TObject);
-    procedure GiveUpTick(Sender: TObject);
+    procedure TrayConnectionClick(Sender: TObject);
+    procedure CardClick(AChatId: Int64);
+    procedure ProbeDone(ASerial: integer; AResult: TProbeResult;
+      const AMessage: string);
+    procedure ShowConnectPage(const AError: string; ABusy: boolean);
+    procedure HandlePageMessage(O: TJSONObject);
     procedure ViewExternalUri(Sender: TObject; const AUri: utf8string);
     procedure ViewUnavailable(Sender: TObject; const AMessage: string);
     procedure ViewAcceleratorKey(Sender: TObject; AVirtualKey: word;
@@ -64,6 +76,8 @@ type
     destructor Destroy; override;
     procedure Resize; override;
     procedure Open(const AUrl: utf8string);
+    { Подключиться по сохранённому, а без него — окно ввода. }
+    procedure ConnectSaved;
     { Builds the tray icon. Called once, by SetWebUiPrimary. }
     procedure SetupTray;
     { Показать окно и вывести вперёд — как двойной клик по трею. }
@@ -78,10 +92,9 @@ type
     property FullScreen: boolean read FFullScreen;
   end;
 
-{ Shows the web UI in its own window, creating it on first use. Returns
-  False when there is no WebView2 runtime to host it - the caller then
-  decides what to tell the user. }
-function ShowWebUi(const AUrl: utf8string): boolean;
+{ Создаёт окно и подключается к серверу (сохранённое подключение или
+  окно ввода). False — нет WebView2: что сказать, решает вызывающий. }
+function StartWebUi: boolean;
 
 { True while the web window is the one the user is looking at. False
   when it is hidden in the tray, minimised, or simply behind something
@@ -96,8 +109,8 @@ procedure WebUiReveal;
   miniapp.pas), чтобы те держались над ним и не выходили на панель задач. }
 function WebUiForm: TForm;
 
-{ Сообщение главной странице (chrome.webview, событие message). От
-  окошка звонка (callpopup.pas): что нажали на карточке. }
+{ Сообщение главной странице (chrome.webview, событие message): нажатие
+  на окошке звонка, запрос мини-приложения, клик по карточке. }
 procedure WebUiPostJson(const AJson: utf8string);
 
 { Says that this window IS the application rather than a second view
@@ -113,11 +126,7 @@ procedure SetWebUiPrimary(AOn: boolean);
 implementation
 
 uses
-  { Only for the shutdown and for the one setting the tray honours.
-    In the implementation section so the interface stays free of the
-    account layer - this unit is a window, not a model. }
-  tdcore,
-  fpjson, jsonparser, callpopup;
+  jsonparser, base64, synacode, callpopup, desknotify, miniapp;
 
 var
   GForm: TFormWebUi = nil;
@@ -181,16 +190,40 @@ begin
   FView.OnAcceleratorKey := @ViewAcceleratorKey;
   FView.OnFullScreenElement := @ViewFullScreenElement;
   FView.OnWebMessage := @ViewMessage;
+  DeskNotifyOnClick := @CardClick;
+end;
+
+{ data:…;base64,XXXX -> байты; всё прочее — пусто. }
+function DataUriBytes(const AUri: string): RawByteString;
+var
+  P: integer;
+begin
+  Result := '';
+  P := Pos(',', AUri);
+  if (Copy(AUri, 1, 5) = 'data:') and (P > 0) and (Pos(';base64', Copy(AUri, 1, P)) > 0) then begin
+    Result := DecodeStringBase64(Copy(AUri, P + 1, MaxInt));
+  end;
+end;
+
+function CornerIndex(const ACode: string): integer;
+var
+  I: integer;
+begin
+  Result := DESKNOTIFY_CORNER_DEFAULT;
+  for I := Low(DESKNOTIFY_CORNERS) to High(DESKNOTIFY_CORNERS) do begin
+    if DESKNOTIFY_CORNERS[I] = ACode then begin
+      Result := I;
+    end;
+  end;
 end;
 
 { Просьбы страницы к оболочке (chrome.webview.postMessage, JSON-строка).
-  Пока одна: callpopup (show, url) — показать или спрятать окошко
-  входящего звонка (callpopup.pas). Решает страница; оболочка только
-  исполняет — на другой платформе это делает своя оболочка. }
+  Протокол — ui/shell.js; окно ввода подключения шлёт connect. Решает
+  страница, оболочка только исполняет — на другой платформе это делает
+  своя оболочка. }
 procedure TFormWebUi.ViewMessage(Sender: TObject; const AText: UnicodeString);
 var
   Data: TJSONData;
-  O: TJSONObject;
 begin
   try
     Data := GetJSON(UTF8Encode(AText));
@@ -198,24 +231,190 @@ begin
     Exit;
   end;
   try
-    if not (Data is TJSONObject) then begin
-      Exit;
-    end;
-    O := TJSONObject(Data);
-    if O.Get('t', '') = 'callpopup' then begin
-      if O.Get('show', False) then begin
-        CallPopupShow(utf8string(O.Get('url', '')));
-      end else begin
-        CallPopupHide;
-      end;
+    if Data is TJSONObject then begin
+      HandlePageMessage(TJSONObject(Data));
     end;
   finally
     Data.Free;
   end;
 end;
 
+procedure TFormWebUi.HandlePageMessage(O: TJSONObject);
+var
+  T: string;
+  N, Res: TJSONObject;
+  Addr: TServerAddress;
+begin
+  T := O.Get('t', '');
+  if T = 'callpopup' then begin
+    if O.Get('show', False) then begin
+      CallPopupShow(utf8string(O.Get('url', '')));
+    end else begin
+      CallPopupHide;
+    end;
+  end else if T = 'connect' then begin
+    Addr.Host := Trim(O.Get('host', ''));
+    Addr.Port := O.Get('port', 0);
+    Addr.Token := Trim(O.Get('token', ''));
+    FAddr := Addr;
+    Inc(FProbeSerial);
+    FProbeFromPage := True;
+    ProbeServer(Addr, FProbeSerial, @ProbeDone);
+  end else if T = 'config' then begin
+    FCloseToTray := O.Get('closeToTray', False);
+    if O.Find('notify') is TJSONObject then begin
+      N := TJSONObject(O.Find('notify'));
+      SetDeskNotifyCorner(CornerIndex(N.Get('corner', '')));
+      SetDeskNotifyLimit(N.Get('limit', DESKNOTIFY_LIMIT_DEFAULT));
+      SetDeskNotifyFonts(N.Get('titleFont', DESKNOTIFY_TITLE_FONT_DEFAULT),
+        N.Get('textFont', DESKNOTIFY_TEXT_FONT_DEFAULT));
+    end;
+  end else if T = 'notify' then begin
+    ShowDeskNotify(O.Get('chatId', Int64(0)), utf8string(O.Get('title', '')),
+      utf8string(O.Get('text', '')), DataUriBytes(O.Get('photo', '')),
+      DataUriBytes(O.Get('thumb', '')));
+  end else if T = 'notifySample' then begin
+    ShowDeskNotifySamples(APP_TITLE, DESKNOTIFY_SAMPLE_TEXT);
+  end else if T = 'miniapp' then begin
+    { theme переходит во владение окна мини-приложения. }
+    if O.Find('theme') is TJSONObject then begin
+      Res := TJSONObject(O.Find('theme').Clone);
+    end else begin
+      Res := TJSONObject.Create;
+    end;
+    OpenMiniApp(utf8string(O.Get('url', '')), utf8string(O.Get('title', '')),
+      StrToInt64Def(O.Get('bot', ''), 0), StrToInt64Def(O.Get('launch', ''), 0),
+      utf8string(O.Get('buttonText', '')), Res);
+  end else if T = 'miniappResp' then begin
+    Res := nil;
+    if O.Find('result') is TJSONObject then begin
+      Res := TJSONObject(O.Find('result'));
+    end;
+    MiniAppResponse(O.Get('id', Int64(0)), O.Get('ok', False), Res, O.Get('error', ''));
+  end;
+end;
+
+{ Клик по карточке на рабочем столе: окно вперёд, чат открывает
+  страница (выбор чата живёт в ней). 0 — образец из настроек. }
+procedure TFormWebUi.CardClick(AChatId: Int64);
+var
+  O: TJSONObject;
+begin
+  Reveal;
+  if AChatId = 0 then begin
+    Exit;
+  end;
+  O := TJSONObject.Create;
+  try
+    O.Add('t', 'openChat');
+    O.Add('chatId', AChatId);
+    FView.PostJson(utf8string(O.AsJSON));
+  finally
+    O.Free;
+  end;
+end;
+
+{ Адрес своего файла для Navigate: file:///C:/…, пробелы и прочее,
+  что в адресе значит своё, — экранированы. }
+function FileUrl(const APath: string): string;
+var
+  I: integer;
+  C: char;
+begin
+  Result := 'file:///';
+  for I := 1 to Length(APath) do begin
+    C := APath[I];
+    case C of
+      '\': Result := Result + '/';
+      ' ': Result := Result + '%20';
+      '#': Result := Result + '%23';
+      '%': Result := Result + '%25';
+      '?': Result := Result + '%3F';
+    else
+      Result := Result + C;
+    end;
+  end;
+end;
+
+{ Окно ввода подключения — с тем, что было введено, и с причиной, почему
+  не подключилось. ABusy — проверка уже идёт («Connecting…»). }
+procedure TFormWebUi.ShowConnectPage(const AError: string; ABusy: boolean);
+var
+  Url: string;
+begin
+  Url := FileUrl(ExtractFilePath(ParamStr(0)) + CONNECT_PAGE)
+    + '?host=' + EncodeURLElement(FAddr.Host)
+    + '&token=' + EncodeURLElement(FAddr.Token)
+    + '&error=' + EncodeURLElement(AError);
+  if FAddr.Port > 0 then begin
+    Url := Url + '&port=' + IntToStr(FAddr.Port);
+  end;
+  if ABusy then begin
+    Url := Url + '&busy=1';
+  end;
+  FView.Navigate(utf8string(Url));
+end;
+
+procedure TFormWebUi.ConnectSaved;
+begin
+  if not LoadServerAddress(FAddr) then begin
+    FAddr.Host := LOCAL_SERVER_BIND;
+    FAddr.Port := LOCAL_SERVER_PORT;
+    FAddr.Token := '';
+    ShowConnectPage('', False);
+    Exit;
+  end;
+  ShowConnectPage('', True);
+  Inc(FProbeSerial);
+  FProbeFromPage := False;
+  ProbeServer(FAddr, FProbeSerial, @ProbeDone);
+end;
+
+procedure TFormWebUi.ProbeDone(ASerial: integer; AResult: TProbeResult;
+  const AMessage: string);
+var
+  Err: string;
+  O: TJSONObject;
+begin
+  if ASerial <> FProbeSerial then begin
+    Exit;
+  end;
+  if AResult = prOk then begin
+    SaveServerAddress(FAddr);
+    FView.Navigate(utf8string(ServerPageUrl(FAddr)));
+    Exit;
+  end;
+  if AResult = prBadToken then begin
+    Err := 'The server did not accept this token.';
+  end else if AMessage <> '' then begin
+    Err := 'Could not reach the server: ' + AMessage;
+  end else begin
+    Err := 'Could not reach the server.';
+  end;
+  if FProbeFromPage then begin
+    O := TJSONObject.Create;
+    try
+      O.Add('t', 'connectState');
+      O.Add('busy', False);
+      O.Add('error', Err);
+      FView.PostJson(utf8string(O.AsJSON));
+    finally
+      O.Free;
+    end;
+  end else begin
+    ShowConnectPage(Err, False);
+  end;
+end;
+
+procedure TFormWebUi.TrayConnectionClick(Sender: TObject);
+begin
+  Reveal;
+  ShowConnectPage('', False);
+end;
+
 destructor TFormWebUi.Destroy;
 begin
+  DeskNotifyOnClick := nil;
   FreeAndNil(FView);
   if GForm = Self then begin
     GForm := nil;
@@ -238,7 +437,9 @@ end;
 
 procedure TFormWebUi.Open(const AUrl: utf8string);
 begin
-  FView.Navigate(AUrl);
+  if AUrl <> '' then begin
+    FView.Navigate(AUrl);
+  end;
   Show;
   BringToFront;
   { Keys only reach the runtime when the page has the focus, and F11 is
@@ -346,94 +547,31 @@ begin
     Exit;                  { one complaint per window, not one per retry }
   end;
   FFailed := True;
-  { Two different pieces of advice, because there are two different
-    situations. As a second view of a running application, the native
-    window is right there and has a menu item for the browser. As the
-    application itself, there is no menu to point at - only the file
-    the server writes its address into. }
-  if GPrimary then begin
-    MessageDlg('Web interface',
-      AMessage + LineEnding + LineEnding
-      + 'The Microsoft Edge WebView2 Runtime is needed to show the '
-      + 'interface in this window. Until it is installed, open the '
-      + 'address in server_url.txt (beside the program) in any '
-      + 'browser instead.',
-      mtError, [mbOK], 0);
-  end else begin
-    MessageDlg('Web interface',
-      AMessage + LineEnding + LineEnding
-      + 'The Microsoft Edge WebView2 Runtime is needed to show the web '
-      + 'interface in its own window. Without it, Tools - Open web '
-      + 'interface in a browser still works.',
-      mtError, [mbOK], 0);
-  end;
+  MessageDlg(APP_TITLE,
+    AMessage + LineEnding + LineEnding
+    + 'The Microsoft Edge WebView2 Runtime is needed to show the '
+    + 'interface in this window. Until it is installed, open the '
+    + 'web interface link the server prints in any browser instead.',
+    mtError, [mbOK], 0);
   Close;
 end;
 
-{ Whether the window may actually close, and the place where the
-  application is shut down properly.
 
-  TDLib REQUIRES every client to be closed before the process exits,
-  and that is asynchronous: BeginShutdown answers False and calls back
-  once the clients confirm. The native main window has always done
-  this (TFormMain.FormCloseQuery); when this window became the
-  application, the step was missed - and an application that never
-  closes its clients is one that has to be killed from Task Manager,
-  which is exactly how it was reported. }
+{ Может ли окно закрыться. TDLib — у сервера, закрывать тут нечего:
+  сервер живёт своей жизнью и после окна. }
 function TFormWebUi.CloseQuery: boolean;
 begin
   Result := inherited CloseQuery;
   if (not Result) or (not GPrimary) then begin
     Exit;
   end;
-
   { The close button with close-to-tray on: out of sight, still
-    running. Quit from the tray is what actually ends it. }
-  { Спрашивается в момент закрытия, а не запоминается при старте:
-    страница настроек меняет это значение на ходу. }
-  if (not FQuitting) and (FTray <> nil) and TdCloseToTray then begin
+    running. Quit from the tray is what actually ends it. Значение —
+    последнее, что прислала страница (настройки меняются на ходу). }
+  if (not FQuitting) and (FTray <> nil) and FCloseToTray then begin
     Result := False;
     Hide;
-    Exit;
   end;
-
-  if FTdClosed then begin
-    Exit;
-  end;
-
-  { Hidden before TDLib has confirmed anything: closing the clients
-    fires a burst of updates, and there is no reason to watch them go
-    by. Same reasoning as the native window's. }
-  Hide;
-  FTdClosed := TdApp.BeginShutdown(@ShutdownDone);
-  Result := FTdClosed;
-  if not Result then begin
-    { And a bound on the wait. Without one, a client that never
-      confirms leaves the application unclosable - the very thing this
-      is here to prevent. }
-    if FGiveUp = nil then begin
-      FGiveUp := TTimer.Create(Self);
-      FGiveUp.Interval := 5000;
-      FGiveUp.OnTimer := @GiveUpTick;
-    end;
-    FGiveUp.Enabled := True;
-  end;
-end;
-
-procedure TFormWebUi.ShutdownDone(Sender: TObject);
-begin
-  if FGiveUp <> nil then begin
-    FGiveUp.Enabled := False;
-  end;
-  FTdClosed := True;
-  Close;
-end;
-
-procedure TFormWebUi.GiveUpTick(Sender: TObject);
-begin
-  FGiveUp.Enabled := False;
-  FTdClosed := True;
-  Close;
 end;
 
 procedure TFormWebUi.DoClose(var CloseAction: TCloseAction);
@@ -444,8 +582,7 @@ begin
   CloseAction := caHide;
   { Unless this window is the application - see SetWebUiPrimary. There
     is no main form to close in that case, so nothing else would ever
-    end the message loop. Only reached once CloseQuery has agreed,
-    which means TDLib is already closed. }
+    end the message loop. Only reached once CloseQuery has agreed. }
   if GPrimary then begin
     Application.Terminate;
   end;
@@ -470,6 +607,11 @@ begin
   Item.Caption := 'Show window';
   Item.OnClick := @TrayShowClick;
   Item.Default := True;
+  Pop.Items.Add(Item);
+
+  Item := TMenuItem.Create(Pop);
+  Item.Caption := 'Connection...';
+  Item.OnClick := @TrayConnectionClick;
   Pop.Items.Add(Item);
 
   Item := TMenuItem.Create(Pop);
@@ -528,7 +670,7 @@ begin
   Close;
 end;
 
-function ShowWebUi(const AUrl: utf8string): boolean;
+function StartWebUi: boolean;
 begin
   Result := WebView2Available;
   if not Result then begin
@@ -537,7 +679,8 @@ begin
   if GForm = nil then begin
     GForm := TFormWebUi.CreateNew(Application);
   end;
-  GForm.Open(AUrl);
+  GForm.Open('');
+  GForm.ConnectSaved;
 end;
 
 end.

@@ -25,13 +25,16 @@ type
 
 { Показывает карточку. Если у чата карточка уже есть, она обновляется,
   уходит вниз стопки как самая свежая и живёт заново — второй не
-  появляется. }
-procedure ShowDeskNotify(AChatId: Int64; const ATitle, AText, APhotoPath: utf8string;
-  const AMinithumb: RawByteString);
+  появляется. APhoto и AThumb — байты картинки (фото чата и размытая
+  миниатюра); пустые — инициалы на цветном круге. }
+procedure ShowDeskNotify(AChatId: Int64; const ATitle, AText: utf8string;
+  const APhoto, AThumb: RawByteString);
 
 { Угол экрана — индекс в DESKNOTIFY_CORNERS. Уже показанные карточки
   переезжают туда сразу, без анимации. }
 procedure SetDeskNotifyCorner(AIndex: integer);
+{ Нынешний угол — по нему же встаёт окошко звонка (callpopup.pas). }
+function DeskNotifyCorner: integer;
 { Сколько карточек одновременно. Лишние старшие тут же начинают таять. }
 procedure SetDeskNotifyLimit(ACount: integer);
 { Размер шрифта заголовка и текста (при 96 dpi). Показанные карточки
@@ -51,7 +54,7 @@ implementation
 
 uses
   Windows, Classes, SysUtils, Math, Graphics, Forms, ExtCtrls, Registry,
-  LazUTF8, BGRABitmap, BGRABitmapTypes, constants, avatarcache;
+  LazUTF8, BGRABitmap, BGRABitmapTypes, constants, guiconst, avatarcache;
 
 { В модуле Windows у FPC 3.2.2 этой функции нет (есть только в
   jwawinuser). Параметры-указатели — как в WinUser.h. }
@@ -403,6 +406,11 @@ begin
   end;
 end;
 
+function DeskNotifyCorner: integer;
+begin
+  Result := GCorner;
+end;
+
 procedure SetDeskNotifyCorner(AIndex: integer);
 var
   I: integer;
@@ -613,7 +621,7 @@ begin
 end;
 
 procedure PutCard(AChatId: Int64; ASample: boolean;
-  const ATitle, AText, APhotoPath: utf8string; const AMinithumb: RawByteString);
+  const ATitle, AText: utf8string; const APhoto, AThumb: RawByteString);
 var
   C: TCard;
   I: integer;
@@ -664,7 +672,7 @@ begin
   C.Text := OneLine(AText);
   C.Dark := SystemIsDark;
   FreeAndNil(C.Avatar);
-  C.Avatar := RenderAvatarBmp(APhotoPath, AMinithumb, ATitle, AChatId,
+  C.Avatar := RenderAvatarBmp(APhoto, AThumb, ATitle, AChatId,
     Sc(DESKNOTIFY_AVATAR), True);
   C.LifeLeft := DESKNOTIFY_LIFE_MS;
   C.Moved := False;
@@ -683,10 +691,10 @@ begin
   StartTimer;
 end;
 
-procedure ShowDeskNotify(AChatId: Int64; const ATitle, AText, APhotoPath: utf8string;
-  const AMinithumb: RawByteString);
+procedure ShowDeskNotify(AChatId: Int64; const ATitle, AText: utf8string;
+  const APhoto, AThumb: RawByteString);
 begin
-  PutCard(AChatId, False, ATitle, AText, APhotoPath, AMinithumb);
+  PutCard(AChatId, False, ATitle, AText, APhoto, AThumb);
 end;
 
 procedure SetDeskNotifyLimit(ACount: integer);

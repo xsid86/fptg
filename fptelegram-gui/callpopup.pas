@@ -31,7 +31,7 @@ implementation
 
 uses
   Windows, Classes, SysUtils, Forms, Controls, LCLType, fpjson, jsonparser,
-  constants, tdcore, webview2, webui;
+  constants, guiconst, desknotify, webview2, webui;
 
 type
   TFormCallPopup = class(TForm)
@@ -97,7 +97,7 @@ begin
   end;
 end;
 
-{ Место — угол уведомлений из настроек (TdDeskNotifyCorner, тот же,
+{ Место — угол уведомлений из настроек (DeskNotifyCorner, тот же,
   что у desknotify) с тем же отступом от края рабочей области.
 
   Позиция — SetWindowPos напрямую, не SetBounds: окно показано мимо LCL
@@ -118,7 +118,7 @@ begin
   W := Sc(DESKNOTIFY_WIDTH);
   H := Sc(CALLPOPUP_HEIGHT);
   Work := Screen.WorkAreaRect;
-  Code := DESKNOTIFY_CORNERS[TdDeskNotifyCorner];
+  Code := DESKNOTIFY_CORNERS[DeskNotifyCorner];
   if Code[1] = 't' then begin
     Y := Work.Top + Sc(DESKNOTIFY_MARGIN);
   end else begin

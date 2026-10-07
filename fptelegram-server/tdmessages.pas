@@ -5,7 +5,7 @@ unit tdmessages;
 interface
 
 uses
-  Classes, SysUtils, base64, fgl, ExtCtrls, fpjson, jsonparser,
+  Classes, SysUtils, base64, fgl, tdtimer, fpjson, jsonparser,
   constants, tdauth, tdsession, tdreq, tdchats;
 
 type
@@ -595,7 +595,7 @@ type
       впускает. }
     FReplaced: TInt64List;
     FRows:    TFPList;    { the same set, in chronological order }
-    FTimer:   TTimer;
+    FTimer:   TTdTimer;
     FDirty:   boolean;
     FChatId:  Int64;
     FLoadingOlder: boolean;
@@ -650,7 +650,7 @@ type
       anchor are given before history is considered exhausted; see
       HistoryDone/RetryTick. }
     FNoProgressRetries: integer;
-    FRetryTimer: TTimer;
+    FRetryTimer: TTdTimer;
 
     { Filter/search mode — see SetSearchFilter. Both empty means the
       ordinary, unfiltered history; otherwise the SAME FAll/FRows/
@@ -749,7 +749,7 @@ type
     { Hands the byte windows out, one per tick, round-robin over the
       active throttled downloads — see GrantChunk. Runs only while a
       speed limit is set AND something is downloading. }
-    FChunkTimer: TTimer;
+    FChunkTimer: TTdTimer;
     FChunkCursor: integer;
     { Token bucket for the speed cap, in bytes, shared by every paced
       download of this instance. Refilled at the configured rate on
@@ -1656,19 +1656,19 @@ begin
   FStickerByFile.Sorted := True;
   FLoadLimit := 50;
 
-  FTimer := TTimer.Create(Self);
+  FTimer := TTdTimer.Create(Self);
   FTimer.Interval := MESSAGES_COALESCE_MS;
   FTimer.OnTimer := @Rebuild;
   FTimer.Enabled := False;
 
-  FRetryTimer := TTimer.Create(Self);
+  FRetryTimer := TTdTimer.Create(Self);
   FRetryTimer.Interval := RETRY_DELAY_MS;
   FRetryTimer.OnTimer := @RetryTick;
   FRetryTimer.Enabled := False;
 
   { Hands out the download byte windows while a speed limit is set —
     see the media download queue below. }
-  FChunkTimer := TTimer.Create(Self);
+  FChunkTimer := TTdTimer.Create(Self);
   FChunkTimer.Interval := DOWNLOAD_CHUNK_INTERVAL_MS;
   FChunkTimer.OnTimer := @ChunkTick;
   FChunkTimer.Enabled := False;

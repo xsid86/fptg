@@ -1,5 +1,10 @@
 # Настройки и аккаунты — зашифрованный файл (secureconfig.pas) и его
 # временная/отложенная копии; config.ini/accounts.ini — прежние открытые.
+# У обеих программ (сервер — аккаунты, окно — подключение);
+# fptelegram.dat — прежнее имя у сервера.
+conf.dat
+conf.dat.tmp
+conf.dat.unreadable
 fptelegram.dat
 fptelegram.dat.tmp
 fptelegram.dat.unreadable
@@ -16,6 +21,8 @@ fptelegram-gui/web/assets/scss/*.css.map
 # Build output: rebuilt by lazbuild, 50 MB per copy in history.
 FPTelegram.exe
 FPTelegram.dbg
+FPTelegramServer.exe
+FPTelegramServer.dbg
 lib/
 
 # Lazarus/lazbuild backups of edited project files.

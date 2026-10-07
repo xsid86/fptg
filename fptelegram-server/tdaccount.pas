@@ -5,17 +5,9 @@ unit tdaccount;
 interface
 
 uses
-  { Windows first — same reasoning as everywhere else in this project
-    that touches raw Win32 API (framehistory.pas's own uses-clause
-    comment covers it in full): GetFileVersionInfoSize/GetFileVersionInfo/
-    VerQueryValue (AppVersionString, implementation section) are the
-    real Win32 version API, and later units here don't redeclare any
-    of those names, but keeping the convention avoids having to
-    remember which units are safe to reorder later. }
-  Windows,
-  Classes, SysUtils, ExtCtrls, fpjson, jsonparser, base64,
+  Classes, SysUtils, tdtimer, fpjson, jsonparser, base64,
   tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages, tdusers, tdaccentcolors,
-  tdsupergroups, tdstickers, tdattachbots, tdcalls;
+  tdsupergroups, tdstickers, tdattachbots, tdcalls, fileinfo;
 
 type
 
@@ -78,7 +70,7 @@ type
     FLoggingOut: boolean;
     FClosing:    boolean;
     FClosed:     boolean;
-    FRestartTimer: TTimer;
+    FRestartTimer: TTdTimer;
 
     procedure CreateEngine;
     procedure DestroyEngine;
@@ -182,43 +174,38 @@ type
 
 implementation
 
-{ The running exe's own embedded VERSIONINFO — the same numbers FPTelegram.lpi's
-  UseVersionInfo/BuildNr produce and Explorer's file Properties > Details
-  tab already shows, read directly via the real Win32 version API rather
-  than hand-tracked separately in Pascal, so the string sent to
-  setTdlibParameters (CreateEngine below) can never drift from what's
-  actually compiled into THIS binary. Major/Minor/Release aren't set in
-  FPTelegram.lpi (all 0 as of this writing, see the project's own VersionInfo),
-  only BuildNr auto-increments — formatted as all four parts regardless,
-  so a future version bump just starts showing up here automatically.
-  Returns '0.0.0.0' if the query fails for any reason (should not happen
-  for our own already-running exe, but this only ever reaches Telegram's
-  servers, not shown to the user directly — not worth raising an error
-  over). }
+{ Версия из ресурса VERSIONINFO самого exe — те же числа, что дают
+  UseVersionInfo/BuildNr проекта и показывает Проводник в свойствах
+  файла. Читается из ресурсов программы, а не ведётся руками, чтобы
+  строка для setTdlibParameters (CreateEngine ниже) не разошлась с
+  тем, что реально собрано. Растёт только BuildNr; уходят все четыре
+  числа.
+
+  fileinfo (fcl-extra), а не Win32 API версий: ресурсы FPC хранит в
+  своём формате на любой платформе, и тот же вызов работает в сборке
+  сервера под Linux. Нет ресурса версии — '0.0.0.0': строка уходит
+  только серверам Telegram, пользователь её не видит. }
 function AppVersionString: utf8string;
 var
-  Size, Handle: DWORD;
-  Buf: array of byte;
-  FixedInfo: PVSFixedFileInfo;
-  Len: UINT;
-  ExeName: string;
+  Quad: TVersionQuad;
 begin
   Result := '0.0.0.0';
-  ExeName := ParamStr(0);
-  Size := Windows.GetFileVersionInfoSize(PChar(ExeName), Handle);
-  if Size = 0 then begin
+  { Без ресурса fileinfo бросает EResNotFound — перехвачено ниже, но
+    отладчик IDE останавливается на любом исключении. Поэтому сперва
+    спросить, есть ли ресурс (тип 16 — RT_VERSION; в System он
+    объявлен только для не-Windows, в Windows — в модуле Windows). }
+  if System.FindResource(HInstance, MAKEINTRESOURCE(1), MAKEINTRESOURCE(16)) = 0 then begin
     Exit;
   end;
-  SetLength(Buf, Size);
-  if not Windows.GetFileVersionInfo(PChar(ExeName), Handle, Size, @Buf[0]) then begin
-    Exit;
+  try
+    if GetProgramVersion(Quad) then begin
+      Result := utf8string(VersionQuadToStr(Quad));
+    end;
+  except
+    on Exception do begin
+      Result := '0.0.0.0';
+    end;
   end;
-  if not Windows.VerQueryValue(@Buf[0], '\', Pointer(FixedInfo), Len) then begin
-    Exit;
-  end;
-  Result := utf8string(Format('%d.%d.%d.%d', [
-    HiWord(FixedInfo^.dwFileVersionMS), LoWord(FixedInfo^.dwFileVersionMS),
-    HiWord(FixedInfo^.dwFileVersionLS), LoWord(FixedInfo^.dwFileVersionLS)]));
 end;
 
 { ---------------- lifecycle ---------------- }
@@ -240,7 +227,7 @@ begin
   FDataDir := ABaseDir + 'tdlib' + PathDelim + 'acc' + IntToStr(ASlot);
   FFilesDir := FDataDir + PathDelim + 'files';
 
-  FRestartTimer := TTimer.Create(Self);
+  FRestartTimer := TTdTimer.Create(Self);
   FRestartTimer.Interval := 1;
   FRestartTimer.OnTimer := @RestartTick;
   FRestartTimer.Enabled := False;

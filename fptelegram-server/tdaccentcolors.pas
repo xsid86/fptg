@@ -5,13 +5,13 @@ unit tdaccentcolors;
 interface
 
 uses
-  Classes, SysUtils, Graphics, fpjson,
+  Classes, SysUtils, fpjson,
   constants, tdauth, tdsession, tdreq;
 
 type
   TAccentColorEntry = record
     Id: integer;
-    Color: TColor;
+    Color: TTdColor;
   end;
 
   TTdAccentColorsEvent = procedure(Sender: TObject) of object;
@@ -42,7 +42,7 @@ type
       for it has arrived, and it's not 0..6) — the caller decides what
       fallback color to use (see framehistory.pas: falls back to
       SENDER_PALETTE). }
-    function TryGetColor(AId: integer; out AColor: TColor): boolean;
+    function TryGetColor(AId: integer; out AColor: TTdColor): boolean;
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -71,12 +71,12 @@ begin
   inherited Destroy;
 end;
 
-function TTdAccentColors.TryGetColor(AId: integer; out AColor: TColor): boolean;
+function TTdAccentColors.TryGetColor(AId: integer; out AColor: TTdColor): boolean;
 var
   I: integer;
 begin
   Result := False;
-  AColor := clNone;
+  AColor := 0;
   if (AId >= Low(BUILT_IN_COLORS)) and (AId <= High(BUILT_IN_COLORS)) then begin
     AColor := BUILT_IN_COLORS[AId];
     Result := True;
@@ -116,7 +116,9 @@ begin
       form a gradient, not needed for a solid fill. }
     PackedRGB := Colors.Items[0].AsInteger;
     FEntries[N].Id := Id;
-    FEntries[N].Color := RGBToColor((PackedRGB shr 16) and $FF, (PackedRGB shr 8) and $FF, PackedRGB and $FF);
+    { $RRGGBB -> $00BBGGRR }
+    FEntries[N].Color := TTdColor(((PackedRGB shr 16) and $FF)
+      or (PackedRGB and $FF00) or ((PackedRGB and $FF) shl 16));
     Inc(N);
   end;
   SetLength(FEntries, N);

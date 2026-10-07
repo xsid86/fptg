@@ -2,11 +2,10 @@ unit localserver;
 
 {$mode objfpc}{$H+}
 
-{ A loopback HTTP + WebSocket server living inside this very exe,
-  started on every launch (FPTelegram.lpr). The existing UI knows of it only
-  through the one menu item that opens its URL, and it touches no
-  model itself: this is the transport half of the "web UI alongside
-  the native one" plan, standing on its own.
+{ The HTTP + WebSocket server of FPTelegramServer: it serves the page,
+  carries commands and events over the socket, and media over plain
+  HTTP. It touches no model itself. Its clients are the window
+  (FPTelegram, fptelegram-gui) and any ordinary browser.
 
   WHY BOTH PROTOCOLS, and not just the WebSocket: media has to be
   ordinary HTTP with Range support, because <video>/<audio> seek by
@@ -28,24 +27,24 @@ unit localserver;
   user happens to have open, because browsers allow cross-origin
   requests to localhost and WebSocket has no same-origin policy of its
   own. Without a check, any tab could drive the user's Telegram
-  account. Hence: a random per-run token required on every request
-  (query parameter, or the cookie the root page gets), plus an Origin
-  check on the upgrade. Both, not either — the token stops non-browser
+  account. Hence: a random token required on every request (query
+  parameter, or the cookie the root page gets), plus an Origin check
+  on the upgrade. Both, not either — the token stops non-browser
   callers, the Origin check stops a page that somehow learned the
   token from using it.
 
-  The token is written to server_url.txt next to the exe, and the
-  main window's Tools menu opens the same URL directly. The file is
-  kept even though the menu item exists: it is how anything OTHER than
-  this process (a script, a second browser, a phone on the same
-  machine) can find the address. Either way it is a local secret for
-  the length of one run. }
+  Токен постоянный (ServerToken, в conf.dat): окно хранит
+  подключение у себя, и токен, меняющийся с каждым запуском, рвал бы
+  его. Сервер печатает адрес, порт и токен при старте и пишет ссылку в
+  server_url.txt рядом с exe; --new-token выдаёт новый. Слушает по
+  умолчанию только 127.0.0.1; --bind открывает сеть — тогда токен идёт
+  открытым HTTP (TLS — в TODO). }
 
 interface
 
 uses
   Classes, SysUtils, SyncObjs, blcksock, synsock, constants, wsframe,
-  webfiles;
+  webfiles, secureconfig;
 
 type
   TLocalServer = class;
@@ -108,6 +107,7 @@ type
   TLocalServer = class(TThread)
   private
     FPort:     word;
+    FBindAddr: string;
     FToken:    string;
     FWebRoot:  string;
     FBound:    boolean;
@@ -115,9 +115,10 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(APort: word);
+    constructor Create(APort: word; const ABindAddr, AToken, AWebRoot: string);
     destructor Destroy; override;
     property Port: word read FPort;
+    property BindAddr: string read FBindAddr;
     property Token: string read FToken;
     property WebRoot: string read FWebRoot;
     property Bound: boolean read FBound;
@@ -129,13 +130,31 @@ type
   FPTelegram.lpr. }
 function ConfiguredServerPort: word;
 
+{ Адрес, на котором слушать: LOCAL_SERVER_BIND (только эта машина), если
+  --bind=АДРЕС не сказал иного. 0.0.0.0 — все сети машины (сервер на
+  VPS): тогда защищает только токен, и идёт он открытым HTTP. }
+function ConfiguredBindAddress: string;
+
+{ Папка страницы: --web-dir=ПУТЬ или LOCAL_SERVER_WEB_DIR рядом с exe. }
+function ConfiguredWebDir: string;
+
+{ Токен подключения. Постоянный — лежит в зашифрованных настройках
+  сервера (secureconfig), чтобы сохранённое у GUI подключение не
+  протухало с каждым перезапуском. ARenew (--new-token) выдаёт новый,
+  и все сохранённые подключения перестают работать. }
+function ServerToken(ARenew: boolean): string;
+
 { Binds and starts. False means the port was taken or the socket could
   not be created — the caller decides whether that is fatal. }
-function StartLocalServer(APort: word): boolean;
+function StartLocalServer(APort: word; const ABindAddr, AToken, AWebDir: string): boolean;
 procedure StopLocalServer;
 
 { The full URL including the token, empty when not running. }
 function LocalServerUrl: string;
+
+{ Адрес, по которому к серверу обращаться с этой машины: адрес
+  привязки, а для 0.0.0.0 — 127.0.0.1. }
+function LocalServerHost: string;
 
 { Путь к файлу, принятому через POST /upload, по его id — или '', если
   id не того вида или такого файла нет. Страница присылает обратно
@@ -651,6 +670,13 @@ begin
   end;
   Result := (O = 'http://127.0.0.1:' + IntToStr(FOwner.Port))
          or (O = 'http://localhost:' + IntToStr(FOwner.Port));
+  { Сервер слушает не только петлю (--bind): страницу открыли по адресу
+    машины, и её Origin — этот адрес, то есть Host запроса. Чужую
+    страницу, подменившую себе DNS на наш адрес, это пропустит — её
+    остановит токен: cookie у неё нет, а самого токена она не знает. }
+  if (not Result) and (FOwner.BindAddr <> LOCAL_SERVER_BIND) then begin
+    Result := O = 'http://' + LowerCase(HeaderValue('host'));
+  end;
 end;
 
 function TServerConn.MapPath(out AFileName: string): boolean;
@@ -1159,20 +1185,20 @@ end;
 { TLocalServer                                                       }
 { ------------------------------------------------------------------ }
 
-constructor TLocalServer.Create(APort: word);
+constructor TLocalServer.Create(APort: word; const ABindAddr, AToken, AWebRoot: string);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
   FPort := APort;
-  FToken := NewToken;
-  FWebRoot := IncludeTrailingPathDelimiter(
-    ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_WEB_DIR);
+  FBindAddr := ABindAddr;
+  FToken := AToken;
+  FWebRoot := IncludeTrailingPathDelimiter(AWebRoot);
 
   FListener := TTCPBlockSocket.Create;
   FListener.CreateSocket;
-  { 127.0.0.1 and not 0.0.0.0: this must not be reachable from the
-    network, whatever else is wrong with the token. }
-  FListener.Bind('127.0.0.1', IntToStr(FPort));
+  { По умолчанию 127.0.0.1, не 0.0.0.0: из сети сервер не виден, что бы
+    ни случилось с токеном. Другое — только явно, --bind. }
+  FListener.Bind(FBindAddr, IntToStr(FPort));
   FBound := FListener.LastError = 0;
   if FBound then begin
     FListener.Listen;
@@ -1226,6 +1252,51 @@ begin
   end;
 end;
 
+function ParamValue(const APrefix: string): string;
+var
+  I: integer;
+begin
+  Result := '';
+  for I := 1 to ParamCount do begin
+    if Copy(ParamStr(I), 1, Length(APrefix)) = APrefix then begin
+      Result := Copy(ParamStr(I), Length(APrefix) + 1, MaxInt);
+    end;
+  end;
+end;
+
+function ConfiguredBindAddress: string;
+begin
+  Result := Trim(ParamValue('--bind='));
+  if Result = '' then begin
+    Result := LOCAL_SERVER_BIND;
+  end;
+end;
+
+function ConfiguredWebDir: string;
+begin
+  Result := Trim(ParamValue('--web-dir='));
+  if Result = '' then begin
+    Result := ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_WEB_DIR;
+  end;
+  Result := ExpandFileName(Result);
+end;
+
+function ServerToken(ARenew: boolean): string;
+var
+  Ini: TSecureIni;
+begin
+  Ini := OpenConfig;
+  try
+    Result := Ini.ReadString(SERVER_CONFIG_SECTION, SERVER_CONFIG_TOKEN, '');
+    if ARenew or (Length(Result) <> LOCAL_SERVER_TOKEN_BYTES * 2) then begin
+      Result := NewToken;
+      Ini.WriteString(SERVER_CONFIG_SECTION, SERVER_CONFIG_TOKEN, Result);
+    end;
+  finally
+    Ini.Free;
+  end;
+end;
+
 procedure SetWebMessageHandler(AHandler: TWebMessageEvent);
 begin
   GOnMessage := AHandler;
@@ -1272,12 +1343,23 @@ begin
   end;
 end;
 
+function LocalServerHost: string;
+begin
+  Result := '';
+  if GServer <> nil then begin
+    Result := GServer.BindAddr;
+    if (Result = '0.0.0.0') or (Result = '::') or (Result = '') then begin
+      Result := LOCAL_SERVER_BIND;
+    end;
+  end;
+end;
+
 function LocalServerUrl: string;
 begin
   if GServer = nil then begin
     Result := '';
   end else begin
-    Result := 'http://127.0.0.1:' + IntToStr(GServer.Port) + '/?t=' + GServer.Token;
+    Result := 'http://' + LocalServerHost + ':' + IntToStr(GServer.Port) + '/?t=' + GServer.Token;
   end;
 end;
 
@@ -1301,14 +1383,14 @@ begin
   end;
 end;
 
-function StartLocalServer(APort: word): boolean;
+function StartLocalServer(APort: word; const ABindAddr, AToken, AWebDir: string): boolean;
 begin
   if GServer <> nil then begin
     Result := True;
     Exit;
   end;
   GStopping := False;
-  GServer := TLocalServer.Create(APort);
+  GServer := TLocalServer.Create(APort, ABindAddr, AToken, AWebDir);
   if not GServer.Bound then begin
     FreeAndNil(GServer);
     Result := False;

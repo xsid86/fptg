@@ -42,16 +42,13 @@ uses
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
   Forms, Controls, Dialogs, SysUtils,
-  constants,
-  tdjson, tdrecv, tdclient, tdauth, tdsession, tdreq, tdchats, tdmessages,
-  tdstorage,
-  tdusers, tdaccentcolors, tdaccount, tdcore,
-  wsframe, webfiles, localserver, webapi, webauth, webui, autodownload,
-  appid
-  { Нативных форм больше нет (2026-10-05): интерфейс — только веб-страница
-    в окне WebView2 (webui) и в браузере. Юниты форм в uses не
-    возвращать — собранный без них проект и есть доказательство, что
-    веб от них не зависит. }
+  { Общие с сервером модули — по пути, а не через OtherUnitFiles: так
+    окну видны ровно эти два, и случайная зависимость от ядра TDLib не
+    соберётся. constants — общие значения (APP_TITLE, пределы настроек
+    карточек), secureconfig — шифрование conf.dat. }
+  constants in '..\fptelegram-server\constants.pas',
+  secureconfig in '..\fptelegram-server\secureconfig.pas',
+  guiconst, guiconn, webview2, webui, callpopup, desknotify, miniapp, appid
   { you can add units after this };
 
 {$R *.res}
@@ -59,19 +56,11 @@ uses
   .lpi, сборка сама кладёт её в FPTelegram.res как MAINICON
   (ide/packages/ideproject/projecticon.pas, UpdateResources). }
 
-var
-  ServerPort: word;
-
 begin
-  { Defensive, app-wide belt-and-suspenders fix alongside tdrecv's own
-    PreDecodeUnicodeEscapes (see its comment for the full story): this
-    machine's DefaultSystemCodePage defaults to 1251 (Windows-1251),
-    not UTF-8 -- any OTHER implicit UnicodeString/AnsiString conversion
-    elsewhere in the app (not just fpjson's \uXXXX handling, already
-    bypassed at the source in tdrecv) would otherwise silently lose
-    non-Latin1 characters through the system ANSI codepage. Must run
-    before anything does such a conversion, hence first line of the
-    program. }
+  { Defensive, app-wide: this machine's DefaultSystemCodePage defaults to
+    1251 (Windows-1251), not UTF-8 - any implicit UnicodeString/AnsiString
+    conversion would otherwise silently lose non-Latin1 characters through
+    the system ANSI codepage. First line of the program. }
   DefaultSystemCodePage := CP_UTF8;
 
   { Before any window or tray icon exists: this is what Windows files
@@ -86,61 +75,22 @@ begin
   {$POP}
   Application.Initialize;
 
-  { Ни одна форма не должна появиться сама: кто и когда показывается,
-    решают сами формы по состоянию авторизации. }
+  { Ни одна форма не должна появиться сама: окно показывает себя само. }
   Application.ShowMainForm := False;
 
-  { The web UI's transport, and it goes up FIRST - before the config
-    is even read: the very first thing a fresh install needs is a way
-    to be told an api_id, and the page is where that is asked. Nothing
-    here depends on the config - the port comes from the command line
-    or a constant, and the command bridge reports "no account yet"
-    perfectly well, that being one of the states the page knows how to
-    draw. }
-  ServerPort := ConfiguredServerPort;
-  if not StartLocalServer(ServerPort) then begin
-    { Нативного окна, на которое раньше откатывались, больше нет. Почти
-      всегда порт занят второй копией программы. }
-    MessageDlg(APP_TITLE,
-      'Could not start the local server on port ' + IntToStr(ServerPort) + '.'
-      + LineEnding + LineEnding
-      + 'Another copy of the program is probably running already. '
-      + 'Close it, or start this one with --server-port=N.',
-      mtError, [mbOK], 0);
-    Exit;
-  end;
-  WebApiStart;
-
-  { THE WEB INTERFACE IS THE APPLICATION'S FACE - and now the only one.
-    Its own window comes up immediately: no splash, no login form, no
-    main window. Signing in - including the api_id/api_hash a fresh
-    install has to be told - happens in the page. }
-  if not ShowWebUi(utf8string(LocalServerUrl)) then begin
+  { Окно — только окно: сервер (FPTelegramServer) — отдельная программа.
+    Окно подключается к нему по сохранённым адресу, порту и токену или
+    спрашивает их (webui.pas, guiconn.pas). }
+  if not StartWebUi then begin
     MessageDlg(APP_TITLE,
       'The Microsoft Edge WebView2 Runtime is needed to show the interface.'
       + LineEnding + LineEnding
       + 'Install it from https://developer.microsoft.com/microsoft-edge/webview2/ '
       + 'and start the program again.',
       mtError, [mbOK], 0);
-    StopLocalServer;
-    WebApiStop;
     Exit;
   end;
   SetWebUiPrimary(True);
-  { The account layer comes up as soon as there is a pair to bring it
-    up with: now, if config.ini already has one, or later from the
-    page's api.save. The settings the native window used to read on
-    its way up apply here too; the cache ceiling needs a live client,
-    so it goes off the transition to Ready (TWebApi.AuthChanged). }
-  TdLoadPresence;
-  TdLoadDownloadLimits;
-  TdApp.EnsureStarted;
 
   Application.Run;
-
-  { The server goes first and the bridge second, so that by the time
-    the command queue is freed there are no socket threads left that
-    could still be filling it. }
-  StopLocalServer;
-  WebApiStop;
 end.

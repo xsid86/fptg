@@ -5,10 +5,10 @@ unit qrrender;
 interface
 
 uses
-  Classes, SysUtils, Graphics,
+  Classes, SysUtils, FPImage, FPWritePNG,
   constants, QlpQrCode, QlpIQrCode;
 
-{ Renders a QR code for AText into ABitmap.
+{ Renders a QR code for AText as a PNG into AStream.
 
   The output side is the largest that fits within ASizePx at an
   integer module scale. A fractional scale would give modules of
@@ -16,18 +16,22 @@ uses
   instead of being stretched.
 
   Returns the actual side length in pixels, or 0 on failure.
-  Centering is the caller's responsibility (TImage.Center := True). }
-function DrawQrToBitmap(const AText: utf8string; ABitmap: TBitmap; ASizePx: integer): integer;
+
+  Без LCL: картинка — FPImage (fcl-image), сервер должен собираться
+  консольным и под Linux. }
+function DrawQrToPng(const AText: utf8string; AStream: TStream; ASizePx: integer): integer;
 
 implementation
 
-function DrawQrToBitmap(const AText: utf8string; ABitmap: TBitmap; ASizePx: integer): integer;
+function DrawQrToPng(const AText: utf8string; AStream: TStream; ASizePx: integer): integer;
 var
   Qr: IQrCode;
-  Modules, Total, Scale, Side, X, Y, Px, Py: integer;
+  Img: TFPMemoryImage;
+  Writer: TFPWriterPNG;
+  Modules, Total, Scale, Side, X, Y: integer;
 begin
   Result := 0;
-  if (ABitmap = nil) or (AText = '') or (ASizePx <= 0) then begin
+  if (AStream = nil) or (AText = '') or (ASizePx <= 0) then begin
     Exit;
   end;
 
@@ -47,25 +51,31 @@ begin
   end;
   Side := Total * Scale;
 
-  ABitmap.PixelFormat := pf24bit;
-  ABitmap.SetSize(Side, Side);
-
-  { Colors are hardcoded black-on-white, not clWindow/clWindowText:
-    in dark theme that would invert the code, which most phone
-    cameras fail to scan. }
-  ABitmap.Canvas.Brush.Style := bsSolid;
-  ABitmap.Canvas.Brush.Color := clWhite;
-  ABitmap.Canvas.FillRect(0, 0, Side, Side);
-
-  ABitmap.Canvas.Brush.Color := clBlack;
-  for Y := 0 to Modules - 1 do begin
-    for X := 0 to Modules - 1 do begin
-      if Qr.GetModule(X, Y) then begin
-        Px := (X + QR_QUIET_ZONE) * Scale;
-        Py := (Y + QR_QUIET_ZONE) * Scale;
-        ABitmap.Canvas.FillRect(Px, Py, Px + Scale, Py + Scale);
+  Img := TFPMemoryImage.Create(Side, Side);
+  Writer := TFPWriterPNG.Create;
+  try
+    { Colors are hardcoded black-on-white, not the theme's: in dark
+      theme that would invert the code, which most phone cameras fail
+      to scan. Модуль кода — клетка Scale x Scale. }
+    for Y := 0 to Side - 1 do begin
+      for X := 0 to Side - 1 do begin
+        if (X div Scale >= QR_QUIET_ZONE) and (Y div Scale >= QR_QUIET_ZONE)
+          and (X div Scale < Modules + QR_QUIET_ZONE)
+          and (Y div Scale < Modules + QR_QUIET_ZONE)
+          and Qr.GetModule(X div Scale - QR_QUIET_ZONE, Y div Scale - QR_QUIET_ZONE) then begin
+          Img.Colors[X, Y] := colBlack;
+        end else begin
+          Img.Colors[X, Y] := colWhite;
+        end;
       end;
     end;
+    Writer.GrayScale := True;
+    Writer.WordSized := False;
+    Writer.UseAlpha := False;
+    Img.SaveToStream(AStream, Writer);
+  finally
+    Writer.Free;
+    Img.Free;
   end;
 
   Result := Side;

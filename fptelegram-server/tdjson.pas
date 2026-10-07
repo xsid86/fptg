@@ -118,6 +118,10 @@ end;
 
 initialization
   GLogLock := TCriticalSection.Create;
+  { До первого клиента: уровень общий на процесс (td_api.tl,
+    setLogVerbosityLevel: "Can be called synchronously"). }
+  TdExecute(utf8string('{"@type":"setLogVerbosityLevel","new_verbosity_level":'
+    + IntToStr(TDLIB_LOG_VERBOSITY) + '}'));
 
 finalization
   FreeAndNil(GLogFile);

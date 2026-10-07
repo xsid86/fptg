@@ -9,40 +9,10 @@
         <Filename Value="FPTelegram.lpr"/>
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
-        <TopLine Value="113"/>
-        <CursorPos Y="146"/>
+        <TopLine Value="63"/>
+        <CursorPos Y="96"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdauth.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdclient.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdcore.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\constants.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\secureconfig.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdjson.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
       </Unit>
       <Unit>
         <Filename Value="FPTelegram.lpi"/>
@@ -69,112 +39,22 @@
         <UsageCount Value="164"/>
       </Unit>
       <Unit>
-        <Filename Value="..\fptelegram-server\qrrender.pas"/>
+        <Filename Value="..\fptelegram-server\constants.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
-        <Filename Value="..\fptelegram-server\tdreq.pas"/>
+        <Filename Value="..\fptelegram-server\secureconfig.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
-        <Filename Value="..\fptelegram-server\tdchats.pas"/>
+        <Filename Value="guiconst.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
-        <Filename Value="..\fptelegram-server\avatarcache.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdrecv.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdmessages.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdusers.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdaccentcolors.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdstorage.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\wsframe.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\webfiles.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\localserver.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\webapi.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\autodownload.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdsession.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdaccount.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\customemoji.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdsupergroups.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdcalls.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="callpopup.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\tdstickers.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UsageCount Value="20"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\fptelegram-server\webauth.pas"/>
+        <Filename Value="guiconn.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>
       </Unit>
@@ -187,6 +67,31 @@
         <Filename Value="webui.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="22"/>
+      </Unit>
+      <Unit>
+        <Filename Value="callpopup.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="desknotify.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="avatarcache.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="miniapp.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="appid.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
       </Unit>
     </Units>
     <JumpHistory HistoryIndex="-1"/>

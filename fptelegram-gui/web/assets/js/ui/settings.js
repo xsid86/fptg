@@ -7,6 +7,7 @@ import { openViewer, closeViewer, viewerOpen } from './viewer.js';
 import { NAME_COLORS, PROFILE_COLORS } from '../util/palette.js';
 import { MAP_PROVIDERS, setMapProvider } from '../util/maps.js';
 import { devicePanel } from '../calls/devices.js';
+import { shellSettings, postShell } from './shell.js';
 
 // Настройки приложения.
 //
@@ -143,6 +144,12 @@ async function commit(args, input, read) {
   try {
     data = await hooks.load('settings.set', args);
     if (input && read) read(input, data);
+    // Закрытие в трей и карточки исполняет окно (ui/shell.js); поменяли
+    // карточки — показать образец, как Telegram Desktop.
+    shellSettings(data);
+    if (String(args?.key).startsWith('notify.') && data?.notify?.enabled) {
+      postShell({ t: 'notifySample' });
+    }
   } catch (error) {
     hooks.report(error);
     // Отказ (например, пустое имя устройства) — вернуть поле к тому,

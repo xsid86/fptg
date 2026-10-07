@@ -12,14 +12,11 @@ import { fillAvatar } from '../util/avatar.js';
 // put anything on screen when its window is behind another one or in
 // the tray, and WebView2 will not help: it denies the Notification
 // permission by default and, even granted, shows nothing itself - the
-// host has to. So the other half lives in Pascal, where the tray icon
-// raises a real Windows notification, and webapi.pas picks between the
-// two by asking whether this window is the one on screen.
+// host has to. So in our own window the card is the shell's: the page
+// asks it for one on the desktop (ui/shell.js, desknotify.pas), and
+// these in-page cards are for the page in an ordinary browser.
 //
-// Both halves are fed by the same `arrival` event, so the page still
-// has to decide for itself: it is not always THIS window (the same
-// page opens in an ordinary browser too), and it must not talk to
-// nobody.
+// Both halves are fed by the same `arrival` event.
 
 const LIMIT = 4;            // more than this is a wall, not a notice
 const LIFE_MS = 6000;
@@ -81,13 +78,12 @@ function syncClearAll() {
 
 function arrived(data) {
   if (!stack || !data) return;
-  // В нашем окне WebView2 уведомления рисует сервер — карточками на
-  // рабочем столе, как Telegram Desktop (desknotify.pas). Свои карточки
-  // остаются странице, открытой в обычном браузере.
+  // В нашем окне WebView2 уведомления рисует оболочка — карточками на
+  // рабочем столе, как Telegram Desktop (ui/shell.js -> desknotify.pas).
+  // Свои карточки остаются странице, открытой в обычном браузере.
   if (window.chrome?.webview) return;
   // Nobody is looking at this page: the window is minimised, or it is
-  // another tab. Pascal has already raised a system notification for
-  // the window it belongs to - a card queued up here would only be
+  // another tab - a card queued up here would only be
   // read minutes later, out of its moment.
   if (document.visibilityState !== 'visible') return;
   // The chat is already open and on screen. Telling someone about a

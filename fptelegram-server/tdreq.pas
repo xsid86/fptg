@@ -5,7 +5,7 @@ unit tdreq;
 interface
 
 uses
-  Classes, SysUtils, DateUtils, ExtCtrls, fpjson, jsonparser,
+  Classes, SysUtils, DateUtils, tdtimer, fpjson, jsonparser,
   constants, tdauth, tdsession;
 
 type
@@ -45,7 +45,7 @@ type
     FSession: ITdSession;
     FSeq: integer;
     FPending: TStringList;
-    FTimer: TTimer;
+    FTimer: TTdTimer;
     FDefaultTimeout: integer;
     procedure CheckTimeouts(Sender: TObject);
     procedure Resolve(const AExtra: string; const AResp: TTdResponse);
@@ -193,7 +193,7 @@ begin
   FPending.Duplicates := dupError;
   FPending.OwnsObjects := False;
 
-  FTimer := TTimer.Create(Self);
+  FTimer := TTdTimer.Create(Self);
   FTimer.Interval := 1000;
   FTimer.OnTimer := @CheckTimeouts;
   FTimer.Enabled := True;

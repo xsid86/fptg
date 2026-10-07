@@ -362,18 +362,14 @@ function WebView2Available: boolean;
 implementation
 
 uses
-  constants;
+  constants, guiconst;
 
 const
   WEBVIEW2_LOADER = 'WebView2Loader.dll';
-  { ВРЕМЕННО: пока окно и сервер в одном exe, а он лежит в
-    fptelegram-server рядом с данными сервера, загрузчик WebView2 —
-    часть морды — лежит в соседней fptelegram-gui. Поэтому он грузится
-    вручную (LoadLibrary): сперва рядом с exe, потом оттуда. Статически
-    (external) нельзя — Windows ищет такую DLL до старта программы, а
-    отложенной загрузки (delayed) в FPC 3.2.2 нет. Запасной путь уйдёт,
-    когда у GUI будет свой exe рядом со своей DLL. }
-  WEBVIEW2_LOADER_DIR = '..\fptelegram-gui';
+  { Загрузчик грузится вручную (LoadLibrary, рядом с exe), а не
+    статически (external): нет DLL — программа всё равно стартует и
+    говорит, чего не хватает (WebView2Available), а не падает до
+    первой строки с системной ошибкой загрузки. }
 
   { COREWEBVIEW2_KEY_EVENT_KIND and COREWEBVIEW2_MOVE_FOCUS_REASON,
     only the members this unit reads. Values from the header. }
@@ -404,10 +400,6 @@ begin
   end;
   Dir := ExtractFilePath(ParamStr(0));
   GLoader := LoadLibraryW(PWideChar(UnicodeString(Dir + WEBVIEW2_LOADER)));
-  if GLoader = 0 then begin
-    GLoader := LoadLibraryW(PWideChar(UnicodeString(
-      ExpandFileName(Dir + WEBVIEW2_LOADER_DIR) + PathDelim + WEBVIEW2_LOADER)));
-  end;
   if GLoader = 0 then begin
     raise Exception.Create(WEBVIEW2_LOADER + ' not found');
   end;

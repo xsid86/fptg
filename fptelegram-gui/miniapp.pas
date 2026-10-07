@@ -19,10 +19,12 @@ unit miniapp;
   ответы этого окна (PostJson) — в receiveEvent.
 
   Запросы к TDLib (свои методы приложения — CloudStorage и т.п., права
-  писать пользователю, данные кнопки клавиатуры) идут через
-  долгоживущего посредника (TMiniAppBroker): tdreq не умеет отменять
-  обратный вызов, а окно могут закрыть раньше ответа. Посредник отдаёт
-  ответ окну, только если это всё ещё оно (по серийному номеру).
+  писать пользователю, данные кнопки клавиатуры) идут на сервер через
+  главную страницу: окно — в другом процессе, чем TDLib, и, может быть,
+  на другой машине. Окно шлёт странице (t: miniappReq, id, cmd, args),
+  она — команду серверу (webapp.custom и т.д.), ответ возвращается
+  (t: miniappResp) в MiniAppResponse. В id — серийный номер окна:
+  ответ уже закрытому окну не достаётся новому.
 
   Окно одно: новое приложение заменяет открытое. }
 
@@ -34,9 +36,6 @@ uses
   Classes, SysUtils, Forms, Controls, ExtCtrls, StdCtrls, Graphics, Dialogs,
   LCLIntf, LCLType, fpjson, jsonparser, BCButton, BCTypes;
 
-type
-  TMiniAppLinkEvent = procedure(const AUrl: utf8string);
-
 { Открывает приложение (или заменяет открытое). ALaunchId — из
   openWebApp, 0 для приложения с кнопки клавиатуры (getWebAppUrl);
   AButtonText — текст этой кнопки, нужен sendWebAppData. AThemeParams —
@@ -44,17 +43,21 @@ type
 procedure OpenMiniApp(const AUrl, ATitle: utf8string; ABotUserId, ALaunchId: Int64;
   const AButtonText: utf8string; AThemeParams: TJSONObject);
 
-var
-  { Ссылка t.me из приложения (web_app_open_tg_link) — её открывает
-    страница, через тот же разбор, что и в сообщениях. Ставит webapi. }
-  MiniAppTgLink: TMiniAppLinkEvent = nil;
+{ Ответ сервера на запрос окна (страница передала t: miniappResp).
+  AResult — объект ответа команды или nil; не забирается. }
+procedure MiniAppResponse(AId: Int64; AOk: boolean; AResult: TJSONObject;
+  const AError: string);
 
 implementation
 
 uses
-  constants, tdcore, tdmessages, tdreq, webview2, webui;
+  constants, guiconst, webview2, webui;
 
 const
+  { Вид запроса в id (см. MiniAppResponse). }
+  REQ_CUSTOM = 1;
+  REQ_WRITE_ACCESS = 2;
+
   { Только в главном документе: во фреймах chrome.webview нет. }
   BRIDGE_JS =
     '(function () {' +
@@ -97,7 +100,7 @@ type
     FTextColor: TColor;
     FMainBtn: TPanel;
     FSecondBtn: TPanel;
-    FReqIds: TStringList;     { req_id приложения по индексу запроса к TDLib }
+    FReqIds: TStringList;     { req_id приложения по индексу запроса к серверу }
     procedure HostResize(Sender: TObject);
     procedure ApplyTheme;
     function MakeBarButton(const ACaption: string; AAlign: TAlign;
@@ -122,47 +125,58 @@ type
       const AButtonText: utf8string; AThemeParams: TJSONObject);
     destructor Destroy; override;
     function CloseQuery: boolean; override;
-    procedure CustomDone(AIndex: integer; const AResp: TTdResponse);
-    procedure WriteAccessDone(const AResp: TTdResponse);
+    procedure CustomDone(AIndex: integer; AOk: boolean; const AResult, AError: string);
+    procedure WriteAccessDone(AOk: boolean);
   end;
 
-  { См. заголовок модуля: ответы TDLib — окну, только если оно ещё то же.
-    Tag запроса: (серийный номер окна shl 16) or индекс. }
-  TMiniAppBroker = class
-  public
-    procedure CustomDone(Sender: TObject; const AResp: TTdResponse);
-    procedure WriteAccessDone(Sender: TObject; const AResp: TTdResponse);
-  end;
 
 var
   GForm: TFormMiniApp = nil;
   GSerial: integer = 0;
-  GBroker: TMiniAppBroker = nil;
 
-function Broker: TMiniAppBroker;
+{ Команда серверу через главную страницу. AArgs забирается. AId = 0 —
+  ответ не нужен. }
+procedure ServerCall(const ACmd: string; AArgs: TJSONObject; AId: Int64);
+var
+  O: TJSONObject;
 begin
-  if GBroker = nil then begin
-    GBroker := TMiniAppBroker.Create;
-  end;
-  Result := GBroker;
-end;
-
-function SameForm(ATag: PtrInt): boolean;
-begin
-  Result := (GForm <> nil) and ((ATag shr 16) = GForm.FSerial);
-end;
-
-procedure TMiniAppBroker.CustomDone(Sender: TObject; const AResp: TTdResponse);
-begin
-  if SameForm(AResp.Tag) then begin
-    GForm.CustomDone(integer(AResp.Tag and $FFFF), AResp);
+  O := TJSONObject.Create;
+  try
+    O.Add('t', 'miniappReq');
+    O.Add('id', AId);
+    O.Add('cmd', ACmd);
+    O.Add('args', AArgs);
+    WebUiPostJson(utf8string(O.AsJSON));
+  finally
+    O.Free;
   end;
 end;
 
-procedure TMiniAppBroker.WriteAccessDone(Sender: TObject; const AResp: TTdResponse);
+{ id запроса: (серийный номер окна shl 20) or (вид shl 16) or индекс. }
+function RequestId(AKind, AIndex: integer): Int64;
 begin
-  if SameForm(AResp.Tag) then begin
-    GForm.WriteAccessDone(AResp);
+  Result := (Int64(GForm.FSerial) shl 20) or (Int64(AKind) shl 16) or (AIndex and $FFFF);
+end;
+
+procedure MiniAppResponse(AId: Int64; AOk: boolean; AResult: TJSONObject;
+  const AError: string);
+var
+  Res: string;
+begin
+  if (GForm = nil) or ((AId shr 20) <> GForm.FSerial) then begin
+    Exit;
+  end;
+  case integer((AId shr 16) and $F) of
+    REQ_CUSTOM: begin
+      Res := '';
+      if (AResult <> nil) and (AResult.Find('result') <> nil) then begin
+        Res := AResult.Get('result', '');
+      end;
+      GForm.CustomDone(integer(AId and $FFFF), AOk, Res, AError);
+    end;
+    REQ_WRITE_ACCESS: begin
+      GForm.WriteAccessDone(AOk);
+    end;
   end;
 end;
 
@@ -189,18 +203,6 @@ function JBool(AObj: TJSONObject; const AName: string): boolean;
 begin
   Result := (AObj <> nil) and (AObj.Find(AName) <> nil)
     and (AObj.Find(AName).JSONType = jtBoolean) and AObj.Booleans[AName];
-end;
-
-function JsonText(const AValue: string): utf8string;
-var
-  V: TJSONString;
-begin
-  V := TJSONString.Create(AValue);
-  try
-    Result := utf8string(V.AsJSON);
-  finally
-    V.Free;
-  end;
 end;
 
 { ------------------------------------------------------------------ }
@@ -291,14 +293,14 @@ end;
 
 destructor TFormMiniApp.Destroy;
 var
-  Msgs: TTdMessages;
+  A: TJSONObject;
 begin
   { Telegram должен знать, что приложение закрыто (td_api.tl:
     closeWebApp по launch_id из openWebApp). }
-  Msgs := TdMsgList;
-  if (FLaunchId <> 0) and (Msgs <> nil) then begin
-    Msgs.Request('closeWebApp',
-      '"web_app_launch_id":"' + utf8string(IntToStr(FLaunchId)) + '"', nil, 0);
+  if FLaunchId <> 0 then begin
+    A := TJSONObject.Create;
+    A.Add('launch', IntToStr(FLaunchId));
+    ServerCall('webapp.close', A, 0);
   end;
   FreeAndNil(FView);
   FreeAndNil(FTheme);
@@ -590,29 +592,23 @@ end;
   ответ — custom_method_invoked с result (разобранный JSON) или error. }
 procedure TFormMiniApp.CustomMethod(AData: TJSONObject);
 var
-  Msgs: TTdMessages;
-  B: TMiniAppBroker;
+  A: TJSONObject;
   Params: string;
   Idx: integer;
 begin
-  Msgs := TdMsgList;
-  if Msgs = nil then begin
-    Exit;
-  end;
   Params := '{}';
   if (AData <> nil) and (AData.Find('params') <> nil) then begin
     Params := AData.Find('params').AsJSON;
   end;
   Idx := FReqIds.Add(JStr(AData, 'req_id'));
-  B := Broker;
-  Msgs.Request('sendWebAppCustomRequest',
-    '"bot_user_id":' + utf8string(IntToStr(FBotUserId)) +
-    ',"method":' + JsonText(JStr(AData, 'method')) +
-    ',"parameters":' + JsonText(Params),
-    @B.CustomDone, (PtrInt(FSerial) shl 16) or Idx);
+  A := TJSONObject.Create;
+  A.Add('bot', IntToStr(FBotUserId));
+  A.Add('method', JStr(AData, 'method'));
+  A.Add('params', Params);
+  ServerCall('webapp.custom', A, RequestId(REQ_CUSTOM, Idx));
 end;
 
-procedure TFormMiniApp.CustomDone(AIndex: integer; const AResp: TTdResponse);
+procedure TFormMiniApp.CustomDone(AIndex: integer; AOk: boolean; const AResult, AError: string);
 var
   D: TJSONObject;
   Parsed: TJSONData;
@@ -622,10 +618,10 @@ begin
   end;
   D := TJSONObject.Create;
   D.Add('req_id', FReqIds[AIndex]);
-  if AResp.Success then begin
+  if AOk then begin
     Parsed := nil;
     try
-      Parsed := GetJSON(string(JGetStr(AResp.Obj, 'result')));
+      Parsed := GetJSON(AResult);
     except
       Parsed := nil;
     end;
@@ -635,7 +631,7 @@ begin
       D.Add('result', TJSONNull.Create);
     end;
   end else begin
-    D.Add('error', string(AResp.ErrorMessage));
+    D.Add('error', AError);
   end;
   Send('custom_method_invoked', D);
 end;
@@ -644,17 +640,13 @@ end;
   (allowBotToSendMessages), ответ — write_access_requested. }
 procedure TFormMiniApp.WriteAccess;
 var
-  Msgs: TTdMessages;
-  B: TMiniAppBroker;
-  D: TJSONObject;
+  A, D: TJSONObject;
 begin
-  Msgs := TdMsgList;
-  if (Msgs <> nil) and (MessageDlg(Caption, 'Allow this bot to send you messages?',
-      mtConfirmation, [mbYes, mbNo], 0) = mrYes) then begin
-    B := Broker;
-    Msgs.Request('allowBotToSendMessages',
-      '"bot_user_id":' + utf8string(IntToStr(FBotUserId)),
-      @B.WriteAccessDone, PtrInt(FSerial) shl 16);
+  if MessageDlg(Caption, 'Allow this bot to send you messages?',
+      mtConfirmation, [mbYes, mbNo], 0) = mrYes then begin
+    A := TJSONObject.Create;
+    A.Add('bot', IntToStr(FBotUserId));
+    ServerCall('webapp.allowWrite', A, RequestId(REQ_WRITE_ACCESS, 0));
     Exit;
   end;
   D := TJSONObject.Create;
@@ -662,12 +654,12 @@ begin
   Send('write_access_requested', D);
 end;
 
-procedure TFormMiniApp.WriteAccessDone(const AResp: TTdResponse);
+procedure TFormMiniApp.WriteAccessDone(AOk: boolean);
 var
   D: TJSONObject;
 begin
   D := TJSONObject.Create;
-  if AResp.Success then begin
+  if AOk then begin
     D.Add('status', 'allowed');
   end else begin
     D.Add('status', 'cancelled');
@@ -680,9 +672,8 @@ end;
   тем, чего не умеют. }
 procedure TFormMiniApp.HandleEvent(const AType: utf8string; AData: TJSONObject);
 var
-  D: TJSONObject;
+  D, A: TJSONObject;
   Url: string;
-  Msgs: TTdMessages;
 begin
   if AType = 'web_app_close' then begin
     FNeedConfirm := False;
@@ -722,20 +713,26 @@ begin
       OpenURL(Url);
     end;
   end else if AType = 'web_app_open_tg_link' then begin
-    if Assigned(MiniAppTgLink) then begin
-      MiniAppTgLink(utf8string('https://t.me' + JStr(AData, 'path_full')));
+    { Открывает страница — тем же разбором, что ссылку в сообщении. }
+    D := TJSONObject.Create;
+    try
+      D.Add('t', 'openLink');
+      D.Add('url', 'https://t.me' + JStr(AData, 'path_full'));
+      WebUiPostJson(utf8string(D.AsJSON));
+    finally
+      D.Free;
     end;
   end else if AType = 'web_app_open_popup' then begin
     Popup(AData);
   end else if AType = 'web_app_data_send' then begin
     { Только у приложения с кнопки клавиатуры: данные уходят боту, окно
       закрывается (td_api.tl: sendWebAppData). }
-    Msgs := TdMsgList;
-    if (FLaunchId = 0) and (FButtonText <> '') and (Msgs <> nil) then begin
-      Msgs.Request('sendWebAppData',
-        '"bot_user_id":' + utf8string(IntToStr(FBotUserId)) +
-        ',"button_text":' + JsonText(string(FButtonText)) +
-        ',"data":' + JsonText(JStr(AData, 'data')), nil, 0);
+    if (FLaunchId = 0) and (FButtonText <> '') then begin
+      A := TJSONObject.Create;
+      A.Add('bot', IntToStr(FBotUserId));
+      A.Add('buttonText', string(FButtonText));
+      A.Add('data', JStr(AData, 'data'));
+      ServerCall('webapp.sendData', A, 0);
       FNeedConfirm := False;
       Close;
     end;
@@ -814,8 +811,5 @@ begin
   GForm := TFormMiniApp.CreateApp(AUrl, ATitle, ABotUserId, ALaunchId, AButtonText, AThemeParams);
   GForm.Show;
 end;
-
-finalization
-  FreeAndNil(GBroker);
 
 end.
