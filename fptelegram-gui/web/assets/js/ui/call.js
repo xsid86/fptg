@@ -238,6 +238,7 @@ async function acceptCall(video) {
   owned.add(c.id);
   wantVideo.set(c.id, video);
   ringStop();
+  syncPopup();
   render();
   try {
     await hooks.call('call.accept', { id: c.id });
@@ -338,6 +339,51 @@ function endSession() {
   }
 }
 
+// ------------------------------------------------ окошко поверх всех
+// Входящий звонит, а окно не на виду (свёрнуто, в трее, позади других) —
+// просим оболочку показать карточку поверх всех окон (callpopup.pas;
+// на другой платформе — её окно). Решает страница, оболочка только
+// показывает. Карточке — всё в адресе (callcard.html), сервер она не
+// спрашивает; нажатия возвращаются сюда сообщением оболочки.
+const host = () => window.chrome?.webview ?? null;
+let popupFor = 0;     // id звонка, чья карточка показана
+
+const ringingHere = (c) => !!c && c.state === 'pending' && !c.outgoing && !owned.has(c.id);
+const pageOutOfSight = () => document.hidden || !document.hasFocus();
+
+function popupUrl(c) {
+  const q = new URLSearchParams({
+    id: String(c.id),
+    name: c.name || '',
+    video: c.video ? '1' : '0',
+    uid: String(c.userId ?? ''),
+    avatar: c.senderAvatar || '',
+    thumb: c.senderThumb || '',
+  });
+  return `${location.origin}/callcard.html?${q}`;
+}
+
+function syncPopup() {
+  const h = host();
+  if (!h) return;
+  const want = ringingHere(current) && pageOutOfSight() ? current.id : 0;
+  if (want === popupFor) return;
+  popupFor = want;
+  h.postMessage(JSON.stringify(want
+    ? { t: 'callpopup', show: true, url: popupUrl(current) }
+    : { t: 'callpopup', show: false }));
+}
+
+// Нажатие на карточке (оболочка передала его сюда).
+function onHostMessage(m) {
+  if (m?.t !== 'call') return;
+  popupFor = 0;
+  if (!current || current.id !== m.id) return;
+  if (m.action === 'accept') acceptCall(!!current.video);
+  else if (m.action === 'decline') hangUp();
+  // open — оболочка уже подняла окно, звонок звонит в окне
+}
+
 function onCall(c) {
   // Чужой звонок поверх идущего своего — не перехватывать окно (второй
   // входящий TDLib сам отклонит как «занято», если мы в разговоре).
@@ -359,6 +405,7 @@ function onCall(c) {
       }, ENDED_SHOW_MS);
     }
   }
+  syncPopup();
   render();
 }
 
@@ -367,6 +414,12 @@ export function mountCalls(options) {
   root = el('div', { class: 'call', hidden: true, role: 'dialog', 'aria-label': 'Call' });
   document.body.append(root);
   document.addEventListener('fullscreenchange', () => render());
+  // Окно вернулось на экран — карточка поверх всех больше не нужна, и
+  // наоборот: ушло, пока звонит, — показать.
+  window.addEventListener('focus', syncPopup);
+  window.addEventListener('blur', syncPopup);
+  document.addEventListener('visibilitychange', syncPopup);
+  host()?.addEventListener('message', (event) => onHostMessage(event.data));
 
   on('srv:call', (c) => { if (c) onCall(c); });
   on('srv:call.signal', ({ id, data } = {}) => {

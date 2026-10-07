@@ -55,6 +55,7 @@ type
     procedure ViewAcceleratorKey(Sender: TObject; AVirtualKey: word;
       var AHandled: boolean);
     procedure ViewFullScreenElement(Sender: TObject; AActive: boolean);
+    procedure ViewMessage(Sender: TObject; const AText: UnicodeString);
   protected
     procedure DoClose(var CloseAction: TCloseAction); override;
     function CloseQuery: boolean; override;
@@ -95,6 +96,10 @@ procedure WebUiReveal;
   miniapp.pas), чтобы те держались над ним и не выходили на панель задач. }
 function WebUiForm: TForm;
 
+{ Сообщение главной странице (chrome.webview, событие message). От
+  окошка звонка (callpopup.pas): что нажали на карточке. }
+procedure WebUiPostJson(const AJson: utf8string);
+
 { Says that this window IS the application rather than a second view
   of it.
 
@@ -111,7 +116,8 @@ uses
   { Only for the shutdown and for the one setting the tray honours.
     In the implementation section so the interface stays free of the
     account layer - this unit is a window, not a model. }
-  tdcore;
+  tdcore,
+  fpjson, jsonparser, callpopup;
 
 var
   GForm: TFormWebUi = nil;
@@ -131,6 +137,13 @@ procedure WebUiReveal;
 begin
   if GForm <> nil then begin
     GForm.Reveal;
+  end;
+end;
+
+procedure WebUiPostJson(const AJson: utf8string);
+begin
+  if (GForm <> nil) and (GForm.FView <> nil) then begin
+    GForm.FView.PostJson(AJson);
   end;
 end;
 
@@ -167,6 +180,38 @@ begin
   FView.OnUnavailable := @ViewUnavailable;
   FView.OnAcceleratorKey := @ViewAcceleratorKey;
   FView.OnFullScreenElement := @ViewFullScreenElement;
+  FView.OnWebMessage := @ViewMessage;
+end;
+
+{ Просьбы страницы к оболочке (chrome.webview.postMessage, JSON-строка).
+  Пока одна: callpopup (show, url) — показать или спрятать окошко
+  входящего звонка (callpopup.pas). Решает страница; оболочка только
+  исполняет — на другой платформе это делает своя оболочка. }
+procedure TFormWebUi.ViewMessage(Sender: TObject; const AText: UnicodeString);
+var
+  Data: TJSONData;
+  O: TJSONObject;
+begin
+  try
+    Data := GetJSON(UTF8Encode(AText));
+  except
+    Exit;
+  end;
+  try
+    if not (Data is TJSONObject) then begin
+      Exit;
+    end;
+    O := TJSONObject(Data);
+    if O.Get('t', '') = 'callpopup' then begin
+      if O.Get('show', False) then begin
+        CallPopupShow(utf8string(O.Get('url', '')));
+      end else begin
+        CallPopupHide;
+      end;
+    end;
+  finally
+    Data.Free;
+  end;
 end;
 
 destructor TFormWebUi.Destroy;

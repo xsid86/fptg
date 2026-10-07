@@ -10263,6 +10263,121 @@ span.picker__gif {
   font-size: 12px;
 }
 
+.callcard-page {
+  background: var(--c-surface);
+  margin: 0;
+  overflow: hidden;
+}
+
+.callcard {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  border: 1px solid color-mix(in srgb, var(--c-border) 60%, transparent);
+  box-sizing: border-box;
+  color: var(--c-text);
+  cursor: pointer;
+  height: 100vh;
+  padding: 11px 16px 8px;
+}
+
+.callcard__head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 11px;
+  min-width: 0;
+}
+
+.callcard__avatar {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  flex: 0 0 auto;
+}
+
+.callcard__who {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.callcard__name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.callcard__what {
+  color: var(--c-text-dim);
+  font-size: 12px;
+}
+
+.callcard__actions {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 64px;
+}
+
+.callcard__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+}
+.callcard__btn:focus {
+  outline: none !important;
+}
+.callcard__btn:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.callcard__btn {
+  background: none;
+  border: 0;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.callcard__circle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  color: var(--c-light);
+  transition: all 0.25s ease-in-out;
+}
+.callcard__circle .icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+.callcard__btn--accept .callcard__circle {
+  background: var(--c-ok);
+}
+.callcard__btn--decline .callcard__circle {
+  background: var(--c-danger);
+}
+.callcard__btn:hover .callcard__circle {
+  filter: brightness(1.12);
+}
+
 .page-check {
   display: flex;
   flex-direction: column;

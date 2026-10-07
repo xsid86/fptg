@@ -1516,7 +1516,11 @@ const
   { Static files are served out of this directory next to the exe
     (never out of the project or the TDLib cache — see MapPath, which
     additionally refuses anything that escapes it). }
-  LOCAL_SERVER_WEB_DIR = 'web';
+  { Страница — часть морды (fptelegram-gui/web). ВРЕМЕННО, пока сервер
+    и окно в одном exe (он лежит в fptelegram-server рядом с данными
+    сервера): страницу раздаёт сервер из соседней папки морды. При
+    разделении её покажет оболочка GUI из своих файлов. }
+  LOCAL_SERVER_WEB_DIR = {$IFDEF WINDOWS}'..\fptelegram-gui\web'{$ELSE}'../fptelegram-gui/web'{$ENDIF};
   { Where the URL with the run's token is left for the user. This is a
     GUI process with no console, so there is no other way to hand it
     over; deleted again on shutdown. }
@@ -1628,6 +1632,11 @@ const
   DESKNOTIFY_CORNERS: array[0..3] of string = ('tl', 'tr', 'bl', 'br');
   DESKNOTIFY_CORNER_DEFAULT = 3;   { правый нижний, как у Telegram Desktop }
   DESKNOTIFY_SAMPLE_TEXT = 'This is how notifications will look';
+  { Окошко входящего звонка (callpopup.pas): высота при 96 dpi. Ширина,
+    угол и отступ от края — как у обычных уведомлений (DESKNOTIFY_WIDTH,
+    настройка угла, DESKNOTIFY_MARGIN). Вёрстка callcard.html
+    рассчитана на этот размер. }
+  CALLPOPUP_HEIGHT = 164;
   DESKNOTIFY_THEME_KEY = 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize';
   DESKNOTIFY_THEME_VALUE = 'AppsUseLightTheme';
   { Цвета — как у Telegram Desktop: дневная и ночная (синяя) темы. }

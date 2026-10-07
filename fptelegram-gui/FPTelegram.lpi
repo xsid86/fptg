@@ -19,7 +19,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="603"/>
+      <BuildNr Value="608"/>
       <StringTable CompanyName="xsid86" InternalName="FPTelegram" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -29,10 +29,11 @@
           <Version Value="11"/>
           <PathDelim Value="\"/>
           <Target>
-            <Filename Value="FPTelegram"/>
+            <Filename Value="..\fptelegram-server\FPTelegram"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
+            <OtherUnitFiles Value="..\fptelegram-server"/>
             <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <Linking>
@@ -81,27 +82,27 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdauth.pas"/>
+        <Filename Value="..\fptelegram-server\tdauth.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdclient.pas"/>
+        <Filename Value="..\fptelegram-server\tdclient.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdcore.pas"/>
+        <Filename Value="..\fptelegram-server\tdcore.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="constants.pas"/>
+        <Filename Value="..\fptelegram-server\constants.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="secureconfig.pas"/>
+        <Filename Value="..\fptelegram-server\secureconfig.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdjson.pas"/>
+        <Filename Value="..\fptelegram-server\tdjson.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -117,87 +118,91 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="qrrender.pas"/>
+        <Filename Value="..\fptelegram-server\qrrender.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdreq.pas"/>
+        <Filename Value="..\fptelegram-server\tdreq.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdchats.pas"/>
+        <Filename Value="..\fptelegram-server\tdchats.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="avatarcache.pas"/>
+        <Filename Value="..\fptelegram-server\avatarcache.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdrecv.pas"/>
+        <Filename Value="..\fptelegram-server\tdrecv.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdmessages.pas"/>
+        <Filename Value="..\fptelegram-server\tdmessages.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdusers.pas"/>
+        <Filename Value="..\fptelegram-server\tdusers.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdaccentcolors.pas"/>
+        <Filename Value="..\fptelegram-server\tdaccentcolors.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdstorage.pas"/>
+        <Filename Value="..\fptelegram-server\tdstorage.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="wsframe.pas"/>
+        <Filename Value="..\fptelegram-server\wsframe.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="webfiles.pas"/>
+        <Filename Value="..\fptelegram-server\webfiles.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="localserver.pas"/>
+        <Filename Value="..\fptelegram-server\localserver.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="webapi.pas"/>
+        <Filename Value="..\fptelegram-server\webapi.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="autodownload.pas"/>
+        <Filename Value="..\fptelegram-server\autodownload.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdsession.pas"/>
+        <Filename Value="..\fptelegram-server\tdsession.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdaccount.pas"/>
+        <Filename Value="..\fptelegram-server\tdaccount.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="customemoji.pas"/>
+        <Filename Value="..\fptelegram-server\customemoji.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdsupergroups.pas"/>
+        <Filename Value="..\fptelegram-server\tdsupergroups.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdcalls.pas"/>
+        <Filename Value="..\fptelegram-server\tdcalls.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="tdstickers.pas"/>
+        <Filename Value="callpopup.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="webauth.pas"/>
+        <Filename Value="..\fptelegram-server\tdstickers.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\fptelegram-server\webauth.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -214,10 +219,11 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="FPTelegram"/>
+      <Filename Value="..\fptelegram-server\FPTelegram"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
+      <OtherUnitFiles Value="..\fptelegram-server"/>
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Linking>

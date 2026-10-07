@@ -1878,4 +1878,71 @@
        d="M13 19l4-13 4 13M14.4 15h5.2"
        id="path-transcribe-letter" />
   </g>
+  <g
+     id="i-phone"
+     transform="translate(56,304)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect-phone" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text-phone">phone</text>
+    <path
+       d="M5 3.5h3.2l1.6 4.4-2.3 1.6a11.5 11.5 0 0 0 7 7l1.6-2.3 4.4 1.6v3.2a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3 5.6a2 2 0 0 1 2-2.1z"
+       id="path-phone-0" />
+  </g>
+  <g
+     id="i-phone-down"
+     transform="translate(96,304)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect-phone-down" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text-phone-down">phone-down</text>
+    <path
+       d="M5 3.5h3.2l1.6 4.4-2.3 1.6a11.5 11.5 0 0 0 7 7l1.6-2.3 4.4 1.6v3.2a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3 5.6a2 2 0 0 1 2-2.1z"
+       transform="translate(12 12) rotate(135) scale(0.85) translate(-12 -12)"
+       id="path-phone-down-0" />
+  </g>
 </svg>

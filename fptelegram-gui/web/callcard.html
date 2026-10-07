@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incoming call</title>
+<link rel="stylesheet" href="assets/scss/style.css">
+<script>
+  // Тема — до первой отрисовки, как в index.html: тот же выбор из
+  // localStorage (общий профиль WebView2), иначе тема системы.
+  try {
+    var t = localStorage.getItem('theme');
+    if (t === 'dark' || t === 'light') { document.documentElement.dataset.theme = t; }
+  } catch (e) { /* storage blocked: the OS preference still applies */ }
+</script>
+</head>
+<body class="callcard-page">
+<!-- Карточка входящего звонка в отдельном окошке поверх всех окон
+     (оболочка: callpopup.pas). Всё нужное — в адресе: id, name, video,
+     avatar, thumb. Сервера не спрашивает: нажатия уходят оболочке,
+     та передаёт их главной странице (ui/call.js). -->
+<script type="module" src="assets/js/callcard.js"></script>
+</body>
+</html>

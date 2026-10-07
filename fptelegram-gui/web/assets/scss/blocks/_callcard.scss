@@ -1,0 +1,90 @@
+@use "../abstracts" as *;
+
+// Карточка входящего звонка (callcard.html, js/callcard.js) — целая
+// страница в окошке поверх всех окон (callpopup.pas: ширина
+// DESKNOTIFY_WIDTH x CALLPOPUP_HEIGHT = 320 x 164). Сверху аватарка, имя и «Incoming
+// call», снизу две круглые кнопки — зелёная «принять», красная
+// «отклонить» — со значками из спрайта и подписями под ними.
+$callcard-avatar: 48px;
+$callcard-btn: 44px;
+
+.callcard-page {
+  background: var(--c-surface);
+  margin: 0;
+  overflow: hidden;
+}
+
+.callcard {
+  @include flex(column, stretch, space-between);
+  border: 1px solid color-mix(in srgb, var(--c-border) 60%, transparent);
+  box-sizing: border-box;
+  color: var(--c-text);
+  cursor: pointer;
+  height: 100vh;
+  padding: $space-5 $space-6 $space-4;
+}
+
+.callcard__head {
+  @include flex(row, center, flex-start, $space-5);
+  min-width: 0;
+}
+
+.callcard__avatar {
+  @include size($callcard-avatar);
+  flex: 0 0 auto;
+}
+
+.callcard__who {
+  @include flex(column, stretch, flex-start, $space-1);
+  min-width: 0;
+}
+
+.callcard__name {
+  @include ellipsis;
+  font-size: $fs-md;
+  font-weight: $fw-bold;
+}
+
+.callcard__what {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.callcard__actions {
+  @include flex(row, flex-start, center, $space-8 * 2);
+}
+
+.callcard__btn {
+  @include flex(column, center, flex-start, $space-2);
+  @include focus-ring;
+  background: none;
+  border: 0;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: $fs-xs;
+}
+
+.callcard__circle {
+  @include flex(row, center, center);
+  @include size($callcard-btn);
+  border-radius: 50%;
+  color: var(--c-light);
+  @include transition;
+
+  .icon {
+    @include size(22px);
+  }
+
+  .callcard__btn--accept & {
+    background: var(--c-ok);
+  }
+
+  .callcard__btn--decline & {
+    background: var(--c-danger);
+  }
+
+  .callcard__btn:hover & {
+    filter: brightness(1.12);
+  }
+}

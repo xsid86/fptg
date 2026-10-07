@@ -366,6 +366,14 @@ uses
 
 const
   WEBVIEW2_LOADER = 'WebView2Loader.dll';
+  { ВРЕМЕННО: пока окно и сервер в одном exe, а он лежит в
+    fptelegram-server рядом с данными сервера, загрузчик WebView2 —
+    часть морды — лежит в соседней fptelegram-gui. Поэтому он грузится
+    вручную (LoadLibrary): сперва рядом с exe, потом оттуда. Статически
+    (external) нельзя — Windows ищет такую DLL до старта программы, а
+    отложенной загрузки (delayed) в FPC 3.2.2 нет. Запасной путь уйдёт,
+    когда у GUI будет свой exe рядом со своей DLL. }
+  WEBVIEW2_LOADER_DIR = '..\fptelegram-gui';
 
   { COREWEBVIEW2_KEY_EVENT_KIND and COREWEBVIEW2_MOVE_FOCUS_REASON,
     only the members this unit reads. Values from the header. }
@@ -373,17 +381,61 @@ const
   KEY_EVENT_KIND_SYSTEM_KEY_DOWN = 2;
   MOVE_FOCUS_REASON_PROGRAMMATIC = 0;
 
+type
+  TCreateEnvFn = function(browserExecutableFolder, userDataFolder: PWideChar;
+    environmentOptions: Pointer;
+    environmentCreatedHandler: ICoreWebView2EnvironmentCompletedHandler): HRESULT; stdcall;
+  TVersionFn = function(browserExecutableFolder: PWideChar;
+    out versionInfo: PWideChar): HRESULT; stdcall;
+
+var
+  GLoader: HMODULE = 0;
+  GCreateEnv: TCreateEnvFn = nil;
+  GVersion: TVersionFn = nil;
+
+{ Загрузчик один раз на процесс. Нет его нигде — исключение: так и
+  раньше отвечали «WebView2 недоступен» (WebView2Available, Create). }
+procedure EnsureLoader;
+var
+  Dir: string;
+begin
+  if GLoader <> 0 then begin
+    Exit;
+  end;
+  Dir := ExtractFilePath(ParamStr(0));
+  GLoader := LoadLibraryW(PWideChar(UnicodeString(Dir + WEBVIEW2_LOADER)));
+  if GLoader = 0 then begin
+    GLoader := LoadLibraryW(PWideChar(UnicodeString(
+      ExpandFileName(Dir + WEBVIEW2_LOADER_DIR) + PathDelim + WEBVIEW2_LOADER)));
+  end;
+  if GLoader = 0 then begin
+    raise Exception.Create(WEBVIEW2_LOADER + ' not found');
+  end;
+  Pointer(GCreateEnv) := GetProcAddress(GLoader, 'CreateCoreWebView2EnvironmentWithOptions');
+  Pointer(GVersion) := GetProcAddress(GLoader, 'GetAvailableCoreWebView2BrowserVersionString');
+  if (not Assigned(GCreateEnv)) or (not Assigned(GVersion)) then begin
+    raise Exception.Create(WEBVIEW2_LOADER + ' has no expected exports');
+  end;
+end;
+
 function CreateCoreWebView2EnvironmentWithOptions(
   browserExecutableFolder, userDataFolder: PWideChar;
   environmentOptions: Pointer;
   environmentCreatedHandler: ICoreWebView2EnvironmentCompletedHandler): HRESULT;
-  stdcall; external WEBVIEW2_LOADER;
+begin
+  EnsureLoader;
+  Result := GCreateEnv(browserExecutableFolder, userDataFolder,
+    environmentOptions, environmentCreatedHandler);
+end;
 
 { The loader also exports a version probe, which is how availability is
   answered without starting anything. }
 function GetAvailableCoreWebView2BrowserVersionString(
   browserExecutableFolder: PWideChar; out versionInfo: PWideChar): HRESULT;
-  stdcall; external WEBVIEW2_LOADER;
+begin
+  EnsureLoader;
+  Result := GVersion(browserExecutableFolder, versionInfo);
+end;
 
 function WebView2Available: boolean;
 var

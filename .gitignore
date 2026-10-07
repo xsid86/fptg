@@ -10,8 +10,8 @@ tdlib_raw.log
 server_url.txt
 # Files the page uploads for sending (localserver /upload); cleared at start.
 uploads/
-web/.idea/
-web/assets/scss/*.css.map
+fptelegram-gui/web/.idea/
+fptelegram-gui/web/assets/scss/*.css.map
 
 # Build output: rebuilt by lazbuild, 50 MB per copy in history.
 FPTelegram.exe
