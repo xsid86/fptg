@@ -27,24 +27,25 @@ unit localserver;
   user happens to have open, because browsers allow cross-origin
   requests to localhost and WebSocket has no same-origin policy of its
   own. Without a check, any tab could drive the user's Telegram
-  account. Hence: a random token required on every request (query
-  parameter, or the cookie the root page gets), plus an Origin check
-  on the upgrade. Both, not either — the token stops non-browser
-  callers, the Origin check stops a page that somehow learned the
-  token from using it.
+  account. Hence: a signed token (JWT, srvauth.pas) required on every
+  request that reaches the account — the socket, uploads, media — plus
+  an Origin check on the upgrade. Both, not either — the token stops
+  non-browser callers, the Origin check stops a page that somehow
+  learned the token from using it. The page itself (static files) is
+  public: there is nothing secret in it.
 
-  Токен постоянный (ServerToken, в conf.dat): окно хранит
-  подключение у себя, и токен, меняющийся с каждым запуском, рвал бы
-  его. Сервер печатает адрес, порт и токен при старте и пишет ссылку в
-  server_url.txt рядом с exe; --new-token выдаёт новый. Слушает по
-  умолчанию только 127.0.0.1; --bind открывает сеть — тогда токен идёт
-  открытым HTTP (TLS — в TODO). }
+  Всегда TLS (tlscert.pas): свой самоподписанный сертификат или
+  --cert/--key. Вход — логин и пароль (POST /api/login), дальше JWT
+  (srvauth.pas). Страница в окне FPTelegram приходит с другого адреса
+  (WEB_APP_ORIGIN, файлы окна), поэтому сервер отвечает ей CORS и
+  пускает её веб-сокет. Слушает по умолчанию только 127.0.0.1; --bind
+  открывает сеть. }
 
 interface
 
 uses
   Classes, SysUtils, SyncObjs, blcksock, synsock, constants, wsframe,
-  webfiles, secureconfig;
+  webfiles, tlscert;
 
 type
   TLocalServer = class;
@@ -75,8 +76,11 @@ type
     function  ReadRequest: boolean;
     function  HeaderValue(const AName: string): string;
     function  QueryParam(const AName: string): string;
-    function  CookieValue(const AName: string): string;
-    function  Authorized: boolean;
+    function  TokenOk(AMedia: boolean): boolean;
+    function  CorsHeaders: string;
+    procedure ServeOptions;
+    procedure ServeApi;
+    procedure SendJson(ACode: integer; const AReason, AJson: string);
     function  OriginAllowed: boolean;
     function  MapPath(out AFileName: string): boolean;
     procedure SendSimple(ACode: integer; const AReason, ABody: string;
@@ -108,18 +112,19 @@ type
   private
     FPort:     word;
     FBindAddr: string;
-    FToken:    string;
+    FTls:      TServerTls;
     FWebRoot:  string;
     FBound:    boolean;
     FListener: TTCPBlockSocket;
   protected
     procedure Execute; override;
   public
-    constructor Create(APort: word; const ABindAddr, AToken, AWebRoot: string);
+    constructor Create(APort: word; const ABindAddr: string; const ATls: TServerTls;
+      const AWebRoot: string);
     destructor Destroy; override;
     property Port: word read FPort;
     property BindAddr: string read FBindAddr;
-    property Token: string read FToken;
+    property Tls: TServerTls read FTls;
     property WebRoot: string read FWebRoot;
     property Bound: boolean read FBound;
   end;
@@ -138,18 +143,13 @@ function ConfiguredBindAddress: string;
 { Папка страницы: --web-dir=ПУТЬ или LOCAL_SERVER_WEB_DIR рядом с exe. }
 function ConfiguredWebDir: string;
 
-{ Токен подключения. Постоянный — лежит в зашифрованных настройках
-  сервера (secureconfig), чтобы сохранённое у GUI подключение не
-  протухало с каждым перезапуском. ARenew (--new-token) выдаёт новый,
-  и все сохранённые подключения перестают работать. }
-function ServerToken(ARenew: boolean): string;
-
 { Binds and starts. False means the port was taken or the socket could
   not be created — the caller decides whether that is fatal. }
-function StartLocalServer(APort: word; const ABindAddr, AToken, AWebDir: string): boolean;
+function StartLocalServer(APort: word; const ABindAddr: string; const ATls: TServerTls;
+  const AWebDir: string): boolean;
 procedure StopLocalServer;
 
-{ The full URL including the token, empty when not running. }
+{ Адрес страницы сервера (https), пусто, когда не запущен. }
 function LocalServerUrl: string;
 
 { Адрес, по которому к серверу обращаться с этой машины: адрес
@@ -176,6 +176,11 @@ function WebSendTo(AConnId: Int64; const AText: utf8string): boolean;
 procedure WebBroadcast(const AText: utf8string);
 
 implementation
+
+uses
+  { ssl_openssl3 подключает OpenSSL 3 к Synapse (SSLImplementation) при
+    загрузке модуля. }
+  ssl_openssl3, fpjson, jsonparser, srvauth;
 
 {$IFDEF WINDOWS}
 { RtlGenRandom, the small CSPRNG every Windows process already has.
@@ -616,44 +621,130 @@ begin
   end;
 end;
 
-function TServerConn.CookieValue(const AName: string): string;
-var
-  Raw, Item: string;
-  Parts: TStringList;
-  I, P: integer;
-begin
-  Result := '';
-  Raw := HeaderValue('cookie');
-  if Raw = '' then begin
-    Exit;
-  end;
-  Parts := TStringList.Create;
-  try
-    Parts.Delimiter := ';';
-    Parts.StrictDelimiter := True;
-    Parts.DelimitedText := Raw;
-    for I := 0 to Parts.Count - 1 do begin
-      Item := Trim(Parts[I]);
-      P := Pos('=', Item);
-      if (P > 0) and SameText(Copy(Item, 1, P - 1), AName) then begin
-        Result := Trim(Copy(Item, P + 1, MaxInt));
-        Exit;
-      end;
-    end;
-  finally
-    Parts.Free;
-  end;
-end;
 
-function TServerConn.Authorized: boolean;
+{ JWT запроса: ?t= (веб-сокет и <img> заголовков не умеют) или
+  Authorization: Bearer. AMedia — адрес /media/ (принимает и
+  медиа-токен, srvauth). }
+function TServerConn.TokenOk(AMedia: boolean): boolean;
 var
   T: string;
 begin
   T := QueryParam('t');
-  if T = '' then begin
-    T := CookieValue(LOCAL_SERVER_COOKIE);
+  if (T = '') and SameText(Copy(HeaderValue('authorization'), 1, 7), 'Bearer ') then begin
+    T := Trim(Copy(HeaderValue('authorization'), 8, MaxInt));
   end;
-  Result := (T <> '') and (T = FOwner.Token);
+  if AMedia then begin
+    Result := (T <> '') and AuthCheck(T, ascMedia);
+  end else begin
+    Result := (T <> '') and AuthCheck(T, ascApi);
+  end;
+end;
+
+{ CORS — только своим: странице окна (WEB_APP_ORIGIN) и странице с
+  самого сервера. Чужая страница ответа не прочтёт. }
+function TServerConn.CorsHeaders: string;
+var
+  O: string;
+begin
+  Result := '';
+  O := HeaderValue('origin');
+  if (O <> '') and OriginAllowed then begin
+    Result := 'Access-Control-Allow-Origin: ' + O + CRLF + 'Vary: Origin' + CRLF;
+  end;
+end;
+
+{ Предварительный запрос браузера (POST с JSON, загрузка, Authorization).
+  Private-Network — для Chromium: страница окна «снаружи» обращается к
+  127.0.0.1. }
+procedure TServerConn.ServeOptions;
+var
+  H: string;
+begin
+  H := 'HTTP/1.1 204 No Content' + CRLF + CorsHeaders
+     + 'Access-Control-Allow-Methods: GET, POST, OPTIONS' + CRLF
+     + 'Access-Control-Allow-Headers: Content-Type, Authorization' + CRLF
+     + 'Access-Control-Max-Age: 600' + CRLF;
+  if HeaderValue('access-control-request-private-network') <> '' then begin
+    H := H + 'Access-Control-Allow-Private-Network: true' + CRLF;
+  end;
+  FSock.SendString(H + 'Content-Length: 0' + CRLF + 'Connection: close' + CRLF + CRLF);
+end;
+
+procedure TServerConn.SendJson(ACode: integer; const AReason, AJson: string);
+begin
+  FSock.SendString('HTTP/1.1 ' + IntToStr(ACode) + ' ' + AReason + CRLF
+    + 'Content-Type: application/json; charset=utf-8' + CRLF
+    + 'Content-Length: ' + IntToStr(Length(AJson)) + CRLF
+    + 'Cache-Control: no-store' + CRLF
+    + CorsHeaders
+    + 'Connection: close' + CRLF + CRLF + AJson);
+end;
+
+{ POST /api/login | /api/refresh | /api/logout — JSON туда и обратно
+  (srvauth.pas). Без токена: это и есть способ его получить. }
+procedure TServerConn.ServeApi;
+var
+  Len: Int64;
+  Body: RawByteString;
+  D: TJSONData;
+  O, R: TJSONObject;
+  Refresh, Access, Media, User, Err: string;
+  Expires: Int64;
+begin
+  Len := StrToInt64Def(HeaderValue('content-length'), -1);
+  if (Len < 0) or (Len > AUTH_MAX_BODY) then begin
+    SendSimple(413, 'Payload Too Large', 'bad request body');
+    Exit;
+  end;
+  SetLength(Body, Len);
+  if (Len > 0) and not ReadExact(@Body[1], Len) then begin
+    Exit;
+  end;
+  D := nil;
+  try
+    D := GetJSON(Body);
+  except
+    D := nil;
+  end;
+  R := TJSONObject.Create;
+  try
+    if not (D is TJSONObject) then begin
+      R.Add('error', 'Bad request');
+      SendJson(400, 'Bad Request', R.AsJSON);
+      Exit;
+    end;
+    O := TJSONObject(D);
+    if FPath = API_LOGIN_PATH then begin
+      if AuthLogin(O.Get('user', ''), O.Get('password', ''), O.Get('device', ''),
+          FSock.GetRemoteSinIP, Refresh, Err) then begin
+        R.Add('refresh', Refresh);
+        SendJson(200, 'OK', R.AsJSON);
+      end else begin
+        R.Add('error', Err);
+        SendJson(401, 'Unauthorized', R.AsJSON);
+      end;
+    end else if FPath = API_REFRESH_PATH then begin
+      if AuthRefresh(O.Get('refresh', ''), Access, Media, User, Expires, Err) then begin
+        R.Add('access', Access);
+        R.Add('media', Media);
+        R.Add('user', User);
+        R.Add('expires', Expires);
+        { Срок — и длительностью: часы у страницы могут идти иначе. }
+        R.Add('ttl', AUTH_ACCESS_TTL_SEC);
+        SendJson(200, 'OK', R.AsJSON);
+      end else begin
+        R.Add('error', Err);
+        SendJson(401, 'Unauthorized', R.AsJSON);
+      end;
+    end else begin
+      AuthLogout(O.Get('refresh', ''));
+      R.Add('ok', True);
+      SendJson(200, 'OK', R.AsJSON);
+    end;
+  finally
+    R.Free;
+    D.Free;
+  end;
 end;
 
 function TServerConn.OriginAllowed: boolean;
@@ -668,14 +759,15 @@ begin
     Result := True;
     Exit;
   end;
-  Result := (O = 'http://127.0.0.1:' + IntToStr(FOwner.Port))
-         or (O = 'http://localhost:' + IntToStr(FOwner.Port));
+  Result := (O = WEB_APP_ORIGIN)
+         or (O = 'https://127.0.0.1:' + IntToStr(FOwner.Port))
+         or (O = 'https://localhost:' + IntToStr(FOwner.Port));
   { Сервер слушает не только петлю (--bind): страницу открыли по адресу
     машины, и её Origin — этот адрес, то есть Host запроса. Чужую
     страницу, подменившую себе DNS на наш адрес, это пропустит — её
     остановит токен: cookie у неё нет, а самого токена она не знает. }
   if (not Result) and (FOwner.BindAddr <> LOCAL_SERVER_BIND) then begin
-    Result := O = 'http://' + LowerCase(HeaderValue('host'));
+    Result := O = 'https://' + LowerCase(HeaderValue('host'));
   end;
 end;
 
@@ -792,6 +884,7 @@ begin
   H := 'HTTP/1.1 ' + IntToStr(ACode) + ' ' + AReason + CRLF
      + 'Content-Type: text/plain; charset=utf-8' + CRLF
      + 'Content-Length: ' + IntToStr(Length(ABody)) + CRLF
+     + CorsHeaders
      + 'Connection: close' + CRLF;
   if AExtraHeaders <> '' then begin
     H := H + AExtraHeaders + CRLF;
@@ -909,14 +1002,8 @@ begin
            and replacing a placeholder) must not be cached while this
            is being developed. }
          + 'Cache-Control: no-store' + CRLF
+         + CorsHeaders
          + 'Connection: close' + CRLF;
-    { The root page hands the browser the token as a cookie, so that
-      <img>/<video> URLs the page builds later need no query string of
-      their own. SameSite=Strict keeps other origins from riding it. }
-    if (FPath = '/') or (FPath = '/index.html') then begin
-      Hdr := Hdr + 'Set-Cookie: ' + LOCAL_SERVER_COOKIE + '=' + FOwner.Token
-           + '; Path=/; SameSite=Strict' + CRLF;
-    end;
     FSock.SendString(Hdr + CRLF);
     if (FSock.LastError <> 0) or (FMethod = 'HEAD') then begin
       Exit;
@@ -1140,31 +1227,61 @@ var
 begin
   try
     try
+      { TLS — до первого байта запроса. Не TLS-клиент (http:// на этот
+        порт) сюда не пройдёт. }
+      if FOwner.Tls.CertFile <> '' then begin
+        FSock.SSL.CertificateFile := FOwner.Tls.CertFile;
+        FSock.SSL.PrivateKeyFile := FOwner.Tls.KeyFile;
+      end else begin
+        FSock.SSL.Certificate := FOwner.Tls.CertDer;
+        FSock.SSL.PrivateKey := FOwner.Tls.KeyDer;
+      end;
+      if (not FSock.SSLAcceptConnection) or (FSock.LastError <> 0) then begin
+        Exit;
+      end;
       if not ReadRequest then begin
         Exit;
       end;
-      { POST — только приём файлов; всё остальное читается. }
-      if not ((FMethod = 'GET') or (FMethod = 'HEAD')
-              or ((FMethod = 'POST') and (FPath = LOCAL_SERVER_UPLOAD_PATH))) then begin
-        SendSimple(405, 'Method Not Allowed', 'only GET/HEAD, POST ' + LOCAL_SERVER_UPLOAD_PATH);
-        Exit;
-      end;
-      if not Authorized then begin
-        { Deliberately bland and identical for "no token" and "wrong
-          token" — there is nothing to be gained by telling a caller
-          which. }
-        SendSimple(403, 'Forbidden', 'forbidden');
+      if FMethod = 'OPTIONS' then begin
+        ServeOptions;
         Exit;
       end;
       if FMethod = 'POST' then begin
-        ServeUpload;
+        if (FPath = API_LOGIN_PATH) or (FPath = API_REFRESH_PATH)
+           or (FPath = API_LOGOUT_PATH) then begin
+          ServeApi;
+        end else if FPath = LOCAL_SERVER_UPLOAD_PATH then begin
+          if TokenOk(False) then begin
+            ServeUpload;
+          end else begin
+            SendSimple(403, 'Forbidden', 'forbidden');
+          end;
+        end else begin
+          SendSimple(405, 'Method Not Allowed', 'not here');
+        end;
         Exit;
       end;
+      if not ((FMethod = 'GET') or (FMethod = 'HEAD')) then begin
+        SendSimple(405, 'Method Not Allowed', 'only GET/HEAD/POST/OPTIONS');
+        Exit;
+      end;
+      { Deliberately bland and identical for "no token" and "wrong token"
+        — there is nothing to be gained by telling a caller which. Сама
+        страница (статические файлы) — без токена: в ней нет секретов, и
+        без неё не войти. }
       IsWebSocketRequest(IsWs);
       if IsWs then begin
-        ServeWebSocket;
+        if TokenOk(False) then begin
+          ServeWebSocket;
+        end else begin
+          SendSimple(403, 'Forbidden', 'forbidden');
+        end;
       end else if Copy(FPath, 1, Length('/media/')) = '/media/' then begin
-        ServeMedia;
+        if TokenOk(True) then begin
+          ServeMedia;
+        end else begin
+          SendSimple(403, 'Forbidden', 'forbidden');
+        end;
       end else begin
         ServeFile;
       end;
@@ -1185,13 +1302,14 @@ end;
 { TLocalServer                                                       }
 { ------------------------------------------------------------------ }
 
-constructor TLocalServer.Create(APort: word; const ABindAddr, AToken, AWebRoot: string);
+constructor TLocalServer.Create(APort: word; const ABindAddr: string; const ATls: TServerTls;
+  const AWebRoot: string);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
   FPort := APort;
   FBindAddr := ABindAddr;
-  FToken := AToken;
+  FTls := ATls;
   FWebRoot := IncludeTrailingPathDelimiter(AWebRoot);
 
   FListener := TTCPBlockSocket.Create;
@@ -1281,22 +1399,6 @@ begin
   Result := ExpandFileName(Result);
 end;
 
-function ServerToken(ARenew: boolean): string;
-var
-  Ini: TSecureIni;
-begin
-  Ini := OpenConfig;
-  try
-    Result := Ini.ReadString(SERVER_CONFIG_SECTION, SERVER_CONFIG_TOKEN, '');
-    if ARenew or (Length(Result) <> LOCAL_SERVER_TOKEN_BYTES * 2) then begin
-      Result := NewToken;
-      Ini.WriteString(SERVER_CONFIG_SECTION, SERVER_CONFIG_TOKEN, Result);
-    end;
-  finally
-    Ini.Free;
-  end;
-end;
-
 procedure SetWebMessageHandler(AHandler: TWebMessageEvent);
 begin
   GOnMessage := AHandler;
@@ -1359,7 +1461,7 @@ begin
   if GServer = nil then begin
     Result := '';
   end else begin
-    Result := 'http://' + LocalServerHost + ':' + IntToStr(GServer.Port) + '/?t=' + GServer.Token;
+    Result := 'https://' + LocalServerHost + ':' + IntToStr(GServer.Port) + '/';
   end;
 end;
 
@@ -1383,14 +1485,15 @@ begin
   end;
 end;
 
-function StartLocalServer(APort: word; const ABindAddr, AToken, AWebDir: string): boolean;
+function StartLocalServer(APort: word; const ABindAddr: string; const ATls: TServerTls;
+  const AWebDir: string): boolean;
 begin
   if GServer <> nil then begin
     Result := True;
     Exit;
   end;
   GStopping := False;
-  GServer := TLocalServer.Create(APort, ABindAddr, AToken, AWebDir);
+  GServer := TLocalServer.Create(APort, ABindAddr, ATls, AWebDir);
   if not GServer.Bound then begin
     FreeAndNil(GServer);
     Result := False;

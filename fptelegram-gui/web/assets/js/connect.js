@@ -1,78 +1,147 @@
-// Окно ввода подключения (connect.html). Обычный скрипт, не модуль:
-// страницу оболочка открывает по file://, а там модули не грузятся.
+// Вход на сервер (connect.html): логин и пароль -> refresh-токен сеанса
+// (POST /api/login, srvauth.pas).
 //
-// Что было сохранено и почему не подключилось — в адресе страницы
-// (?host=&port=&token=&error=). Нажатие — оболочке
-// {t:'connect', host, port, token}; она проверяет сервер и либо уходит
-// на его страницу, либо отвечает {t:'connectState', busy, error}.
+// В окне FPTelegram страница — из файлов окна, адрес и порт сервера
+// вводятся; удачный вход уходит оболочке {t:'session', host, port, user,
+// refresh} — она запомнит его в conf.dat и откроет приложение.
+// Самоподписанный сертификат сервера окно пускает, только если человек
+// ему доверился: незнакомый оно отклоняет и присылает сюда
+// {t:'certificate', origin, fingerprint, changed}; «доверять» — обратно
+// {t:'trustCert', origin, fingerprint}, и вход повторяется.
+//
+// В обычном браузере страница — с самого сервера: адрес не спрашивается,
+// refresh-токен ложится в localStorage (core/session.js читает его там).
+//
+// Обычный скрипт, а не модуль — как и было: страница ни от чего не
+// зависит.
 (function () {
   'use strict';
 
-  var host = window.chrome && window.chrome.webview ? window.chrome.webview : null;
+  var shell = window.chrome && window.chrome.webview ? window.chrome.webview : null;
   var q = new URLSearchParams(location.search);
   var $ = function (id) { return document.getElementById(id); };
+  var REFRESH_KEY = 'fptelegram.refresh';
+  // Сколько ждать, не придёт ли от окна весть о сертификате, прежде чем
+  // считать сервер недоступным: отказ fetch и сообщение окна приходят
+  // в любом порядке.
+  var CERT_WAIT_MS = 500;
+
+  var lastCert = null;      // {origin, fingerprint, changed}
 
   function showError(text) {
-    var line = $('error');
-    line.textContent = text || '';
-    line.hidden = !text;
+    $('error').textContent = text || '';
+    $('error').hidden = !text;
   }
 
   function setBusy(busy) {
     $('submit').disabled = busy;
-    $('submit').textContent = busy ? 'Connecting…' : 'Connect';
+    $('submit').textContent = busy ? 'Signing in…' : 'Sign in';
   }
 
-  // Вставили ссылку веб-интерфейса целиком: http://адрес:порт/?t=токен.
-  function takeLink(value) {
-    var url;
-    try {
-      url = new URL(value.trim());
-    } catch (e) {
-      return false;
+  function serverOrigin() {
+    if (!shell) return location.origin;
+    var h = $('host').value.trim();
+    if (h.indexOf(':') >= 0 && h.charAt(0) !== '[') h = '[' + h + ']';
+    return 'https://' + h + ':' + parseInt($('port').value.trim(), 10);
+  }
+
+  function sleep(ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
+  }
+
+  function showCert(cert) {
+    $('certWarn').textContent = cert.changed
+      ? 'WARNING: this server’s certificate has CHANGED since you last trusted it. '
+        + 'Someone may be impersonating the server.'
+      : 'This server uses its own (self-signed) certificate.';
+    // Пробел после каждых восьми байт: 95 знаков без пробелов не
+    // переносятся и вылезли бы из карточки.
+    $('certPrint').textContent = cert.fingerprint.replace(/((?:[0-9A-F]{2}:){8})/g, '$1 ');
+    $('cert').hidden = false;
+    $('form').hidden = true;
+  }
+
+  function hideCert() {
+    $('cert').hidden = true;
+    $('form').hidden = false;
+  }
+
+  async function signIn() {
+    var user = $('user').value.trim();
+    var password = $('password').value;
+    if (shell) {
+      if (!$('host').value.trim()) { showError('Enter the server address.'); return; }
+      var port = parseInt($('port').value.trim(), 10);
+      if (!(port > 0 && port <= 65535)) { showError('The port is a number from 1 to 65535.'); return; }
     }
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-    $('host').value = url.hostname.replace(/^\[|\]$/g, '');
-    $('port').value = url.port || (url.protocol === 'https:' ? '443' : '80');
-    var t = url.searchParams.get('t');
-    if (t) $('token').value = t;
-    return true;
-  }
-
-  function submit(event) {
-    event.preventDefault();
-    var hostName = $('host').value.trim();
-    var port = parseInt($('port').value.trim(), 10);
-    var token = $('token').value.trim();
-    if (!hostName) { showError('Enter the server address.'); return; }
-    if (!(port > 0 && port <= 65535)) { showError('The port is a number from 1 to 65535.'); return; }
-    if (!token) { showError('Enter the token.'); return; }
+    if (!user || !password) { showError('Enter the user name and password.'); return; }
     showError('');
-    if (!host) { showError('This page only works inside the program window.'); return; }
     setBusy(true);
-    host.postMessage(JSON.stringify({ t: 'connect', host: hostName, port: port, token: token }));
+    lastCert = null;
+    var origin = serverOrigin();
+    var res;
+    try {
+      res = await fetch(origin + '/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: user, password: password,
+          device: shell ? 'FPTelegram window' : 'Browser' }),
+      });
+    } catch (e) {
+      await sleep(CERT_WAIT_MS);
+      setBusy(false);
+      if (lastCert && lastCert.origin === origin.toLowerCase()) {
+        showCert(lastCert);
+      } else {
+        showError('Could not reach the server at ' + origin + '.');
+      }
+      return;
+    }
+    var body = {};
+    try { body = await res.json(); } catch (e) { body = {}; }
+    if (!res.ok || !body.refresh) {
+      setBusy(false);
+      showError(body.error || ('The server answered ' + res.status + '.'));
+      return;
+    }
+    if (shell) {
+      shell.postMessage(JSON.stringify({ t: 'session', host: $('host').value.trim(),
+        port: parseInt($('port').value.trim(), 10), user: user, refresh: body.refresh }));
+    } else {
+      try { localStorage.setItem(REFRESH_KEY, body.refresh); } catch (e) { /* без него — вход каждый раз */ }
+      location.href = 'index.html';
+    }
   }
 
   function onHostMessage(event) {
     var m = event.data;
-    if (!m || m.t !== 'connectState') return;
-    setBusy(!!m.busy);
-    showError(m.error || '');
+    if (m && m.t === 'certificate') lastCert = m;
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    if (!shell) {
+      $('hostField').hidden = true;
+      $('portField').hidden = true;
+      $('note').textContent = 'The user is created on the server with --add-user.';
+    }
     $('host').value = q.get('host') || '';
     $('port').value = q.get('port') || '';
-    $('token').value = q.get('token') || '';
+    $('user').value = q.get('user') || '';
     showError(q.get('error') || '');
-    // Оболочка уже проверяет сохранённое подключение.
-    if (q.get('busy') === '1') setBusy(true);
-    $('host').addEventListener('paste', function (event) {
-      var text = event.clipboardData ? event.clipboardData.getData('text') : '';
-      if (/^https?:\/\//i.test(text.trim()) && takeLink(text)) event.preventDefault();
+    $('form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      signIn();
     });
-    $('form').addEventListener('submit', submit);
-    if (host) host.addEventListener('message', onHostMessage);
-    if ($('host').value) $('token').focus();
+    $('certForm').addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (!lastCert) return;
+      shell.postMessage(JSON.stringify({ t: 'trustCert', origin: lastCert.origin,
+        fingerprint: lastCert.fingerprint }));
+      hideCert();
+      signIn();
+    });
+    if (shell) shell.addEventListener('message', onHostMessage);
+    var first = !$('host').value && shell ? 'host' : (!$('user').value ? 'user' : 'password');
+    $(first).focus();
   });
 })();

@@ -35,12 +35,12 @@ const
   { Секция подключения в conf.dat окна (SECURE_CONFIG_FILE рядом с
     FPTelegram.exe — тот же файл и формат, что у сервера). }
   GUI_CONFIG_SECTION = 'connection';
-  { Окно ввода подключения — страница из файлов окна (не с сервера: до
-    подключения сервера нет). Обычный скрипт, не модуль: модули по
-    file:// Chromium не грузит. }
-  CONNECT_PAGE = 'web' + DirectorySeparator + 'connect.html';
-  { Сколько ждать ответа сервера при проверке подключения. }
-  CONNECT_PROBE_TIMEOUT_MS = 5000;
+  { Папка страницы рядом с FPTelegram.exe — сайт https://WEB_APP_HOST/
+    (WebView2, виртуальный хост). }
+  GUI_WEB_DIR = 'web';
+  { Окно входа — страница из файлов окна (до входа сервер ничего не
+    отдаёт). }
+  CONNECT_PAGE = 'connect.html';
 
   { ================= WebView2 ================= }
 

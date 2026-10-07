@@ -55,11 +55,21 @@ procedure SecureConfigSetDir(const ADir: string);
 function OpenConfig: TSecureIni;
 { Почему прежний файл не прочитался ('' — всё в порядке). }
 function SecureConfigProblem: string;
+{ Криптостойкие случайные байты (ключи, соли, токены). }
+function SecureRandomBytes(ALen: integer): RawByteString;
 
 implementation
 
 uses
-  Windows, sha1, blowfish, constants;
+  Windows, SyncObjs, sha1, blowfish, constants;
+
+var
+  { Настройки читают и пишут и главный поток, и потоки сокетов (вход,
+    srvauth). Замок держится всё время жизни TSecureIni — от чтения до
+    записи, — чтобы два окна в настройки не затёрли друг друга.
+    Повторный вход тем же потоком допустим (критическая секция FPC
+    рекурсивна). }
+  GLock: TCriticalSection = nil;
 
 { ------------------------------------------------------------------ }
 { Windows: случайные байты и DPAPI                                    }
@@ -90,6 +100,14 @@ procedure RandomFill(out ABuf; ALen: integer);
 begin
   if not RtlGenRandom(@ABuf, ALen) then begin
     raise Exception.Create('No secure random source');
+  end;
+end;
+
+function SecureRandomBytes(ALen: integer): RawByteString;
+begin
+  SetLength(Result, ALen);
+  if ALen > 0 then begin
+    RandomFill(Result[1], ALen);
   end;
 end;
 
@@ -541,8 +559,14 @@ end;
 
 function OpenConfig: TSecureIni;
 begin
-  EnsureLoaded;
-  Result := TSecureIni.CreateFromStore;
+  GLock.Enter;
+  try
+    EnsureLoaded;
+    Result := TSecureIni.CreateFromStore;
+  except
+    GLock.Leave;
+    raise;
+  end;
 end;
 
 function SecureConfigProblem: string;
@@ -583,14 +607,25 @@ end;
 
 destructor TSecureIni.Destroy;
 begin
-  if Dirty then begin
-    try
-      UpdateFile;
-    except
-      { Как у TIniFile: деструктор исключений не бросает. }
+  try
+    if Dirty then begin
+      try
+        UpdateFile;
+      except
+        { Как у TIniFile: деструктор исключений не бросает. }
+      end;
     end;
+    inherited Destroy;
+  finally
+    { Взят в OpenConfig. }
+    GLock.Leave;
   end;
-  inherited Destroy;
 end;
+
+initialization
+  GLock := TCriticalSection.Create;
+
+finalization
+  FreeAndNil(GLock);
 
 end.

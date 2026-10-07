@@ -1,5 +1,6 @@
 import { on } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
+import { signOut, signedOut } from '../core/session.js';
 
 // Связь страницы с оболочкой — окном FPTelegram (fptelegram-gui).
 //
@@ -19,6 +20,9 @@ import { store, setActiveChat } from '../core/store.js';
 //   miniappResp {id, ok, result, error}  ответ сервера на miniappReq;
 //   callpopup — окошко звонка (ui/call.js).
 // Окно -> страница:
+//   signOut             трей → Sign out;
+//   certificate {origin, fingerprint, changed}  сертификат сервера не
+//     тот, которому доверились (в приложении — назад к окну входа);
 //   openChat {chatId}   клик по карточке на рабочем столе;
 //   openLink {url}      ссылка t.me из мини-приложения;
 //   miniappReq {id, cmd, args}  запрос мини-приложения к серверу;
@@ -100,7 +104,12 @@ async function miniappRequest(m) {
 
 function onHostMessage(m) {
   if (!m?.t) return;
-  if (m.t === 'openChat' && m.chatId) setActiveChat(m.chatId);
+  if (m.t === 'signOut') signOut();
+  else if (m.t === 'certificate') {
+    signedOut(m.changed
+      ? 'The server certificate has changed. Check its fingerprint before signing in again.'
+      : 'The server certificate is not trusted. Sign in to check its fingerprint.');
+  } else if (m.t === 'openChat' && m.chatId) setActiveChat(m.chatId);
   else if (m.t === 'openLink') hooks.openLink?.(m.url);
   else if (m.t === 'miniappReq') miniappRequest(m).catch(() => {});
 }

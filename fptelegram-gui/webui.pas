@@ -8,11 +8,14 @@ unit webui;
   by the WebView2 runtime, and no LCL control ever sits on it.
 
   Окно — отдельная программа от сервера (FPTelegramServer) и о TDLib не
-  знает ничего. Подключается по адресу, порту и токену из conf.dat
-  (guiconn.pas); нет их или сервер не отвечает — показывает окно ввода
-  (web/connect.html из своих файлов). Подключившись, показывает
-  страницу сервера, и дальше всё, что окну нужно от сервера, идёт через
-  неё (ui/shell.js): настройки, карточки на рабочем столе,
+  знает ничего. Страница — из своих файлов окна (папка web как сайт
+  https://WEB_APP_HOST/, WebView2 SetVirtualHostNameToFolderMapping), к
+  серверу она ходит сама: вход логином и паролем (connect.html), дальше
+  JWT (core/session.js). Окно хранит адрес, refresh-токен сеанса и
+  отпечаток сертификата сервера (conf.dat, guiconn.pas) и решает о
+  самоподписанном сертификате: пускает, только если отпечаток тот, которому
+  человек доверился. Всё прочее, что окну нужно от сервера, — через
+  страницу (ui/shell.js): настройки, карточки на рабочем столе,
   мини-приложения, окошко звонка. }
 
 {$mode objfpc}{$H+}
@@ -46,21 +49,24 @@ type
     FQuitting: boolean;
     { Настройка сервера (Settings → General), её присылает страница. }
     FCloseToTray: boolean;
-    { Подключение: последнее проверяемое и номер проверки — ответ на
-      устаревшую проверку отбрасывается. }
+    { Сохранённое подключение (conf.dat). }
     FAddr: TServerAddress;
-    FProbeSerial: integer;
-    { Проверка начата из окна ввода (ответ — ему), а не при запуске. }
-    FProbeFromPage: boolean;
+    { Сертификат, о котором последний раз спросили человека, и тот, которому
+      он доверился в окне ввода, — до входа он ещё не сохранён. }
+    FAskedOrigin, FAskedPrint: string;
+    FTrustOrigin, FTrustPrint: string;
 
     procedure TrayShowClick(Sender: TObject);
     procedure TrayQuitClick(Sender: TObject);
     procedure TrayDblClick(Sender: TObject);
     procedure TrayConnectionClick(Sender: TObject);
+    procedure TraySignOutClick(Sender: TObject);
     procedure CardClick(AChatId: Int64);
-    procedure ProbeDone(ASerial: integer; AResult: TProbeResult;
-      const AMessage: string);
-    procedure ShowConnectPage(const AError: string; ABusy: boolean);
+    procedure ShowConnectPage(const AError: string);
+    procedure ShowApp;
+    procedure PostToPage(O: TJSONObject);
+    procedure ViewCertificateError(Sender: TObject; const AUri, APem: utf8string;
+      var AAllow: boolean);
     procedure HandlePageMessage(O: TJSONObject);
     procedure ViewExternalUri(Sender: TObject; const AUri: utf8string);
     procedure ViewUnavailable(Sender: TObject; const AMessage: string);
@@ -76,8 +82,10 @@ type
     destructor Destroy; override;
     procedure Resize; override;
     procedure Open(const AUrl: utf8string);
-    { Подключиться по сохранённому, а без него — окно ввода. }
+    { По сохранённому сеансу — сразу приложение, без него — окно входа. }
     procedure ConnectSaved;
+    { Пустить ли самоподписанный сертификат сервера (и в окошке звонка). }
+    function CertificateTrusted(const AUri, APem: utf8string): boolean;
     { Builds the tray icon. Called once, by SetWebUiPrimary. }
     procedure SetupTray;
     { Показать окно и вывести вперёд — как двойной клик по трею. }
@@ -112,6 +120,11 @@ function WebUiForm: TForm;
 { Сообщение главной странице (chrome.webview, событие message): нажатие
   на окошке звонка, запрос мини-приложения, клик по карточке. }
 procedure WebUiPostJson(const AJson: utf8string);
+{ Решение о сертификате сервера — для других окон WebView2 (окошко
+  звонка грузит аватарку с сервера). }
+function WebUiCertificateTrusted(const AUri, APem: utf8string): boolean;
+{ Папка страницы окна (web рядом с exe). }
+function WebUiFolder: string;
 
 { Says that this window IS the application rather than a second view
   of it.
@@ -126,7 +139,7 @@ procedure SetWebUiPrimary(AOn: boolean);
 implementation
 
 uses
-  jsonparser, base64, synacode, callpopup, desknotify, miniapp;
+  jsonparser, base64, sha256u, callpopup, desknotify, miniapp;
 
 var
   GForm: TFormWebUi = nil;
@@ -147,6 +160,16 @@ begin
   if GForm <> nil then begin
     GForm.Reveal;
   end;
+end;
+
+function WebUiCertificateTrusted(const AUri, APem: utf8string): boolean;
+begin
+  Result := (GForm <> nil) and GForm.CertificateTrusted(AUri, APem);
+end;
+
+function WebUiFolder: string;
+begin
+  Result := ExtractFilePath(ParamStr(0)) + GUI_WEB_DIR;
 end;
 
 procedure WebUiPostJson(const AJson: utf8string);
@@ -185,6 +208,10 @@ begin
     one - reading it here rather than letting it happen later keeps the
     order explicit. }
   FView := TWebView2.Create(Handle);
+  { Страница — из своих файлов: https://WEB_APP_HOST/ (до первой
+    навигации). }
+  FView.MapVirtualHost(WEB_APP_HOST, utf8string(WebUiFolder));
+  FView.OnCertificateError := @ViewCertificateError;
   FView.OnExternalUri := @ViewExternalUri;
   FView.OnUnavailable := @ViewUnavailable;
   FView.OnAcceleratorKey := @ViewAcceleratorKey;
@@ -218,7 +245,7 @@ begin
 end;
 
 { Просьбы страницы к оболочке (chrome.webview.postMessage, JSON-строка).
-  Протокол — ui/shell.js; окно ввода подключения шлёт connect. Решает
+  Протокол — ui/shell.js; окно входа — connect.js. Решает
   страница, оболочка только исполняет — на другой платформе это делает
   своя оболочка. }
 procedure TFormWebUi.ViewMessage(Sender: TObject; const AText: UnicodeString);
@@ -241,9 +268,8 @@ end;
 
 procedure TFormWebUi.HandlePageMessage(O: TJSONObject);
 var
-  T: string;
+  T, Origin: string;
   N, Res: TJSONObject;
-  Addr: TServerAddress;
 begin
   T := O.Get('t', '');
   if T = 'callpopup' then begin
@@ -252,14 +278,35 @@ begin
     end else begin
       CallPopupHide;
     end;
-  end else if T = 'connect' then begin
-    Addr.Host := Trim(O.Get('host', ''));
-    Addr.Port := O.Get('port', 0);
-    Addr.Token := Trim(O.Get('token', ''));
-    FAddr := Addr;
-    Inc(FProbeSerial);
-    FProbeFromPage := True;
-    ProbeServer(Addr, FProbeSerial, @ProbeDone);
+  end else if T = 'trustCert' then begin
+    { Только тот сертификат, о котором окно само спросило. }
+    if (O.Get('origin', '') = FAskedOrigin) and (O.Get('fingerprint', '') = FAskedPrint)
+       and (FAskedPrint <> '') then begin
+      FTrustOrigin := FAskedOrigin;
+      FTrustPrint := FAskedPrint;
+    end;
+  end else if T = 'session' then begin
+    { Вход удался (connect.js): запомнить и открыть приложение. }
+    Origin := LowerCase(ServerOrigin(FAddr));
+    FAddr.Host := O.Get('host', '');
+    FAddr.Port := O.Get('port', 0);
+    FAddr.User := O.Get('user', '');
+    FAddr.Refresh := O.Get('refresh', '');
+    { Отпечаток: которому доверились сейчас; сервер тот же — прежний;
+      другой сервер без вопроса о сертификате (подписан центром) — нет. }
+    if LowerCase(ServerOrigin(FAddr)) = FTrustOrigin then begin
+      FAddr.Fingerprint := FTrustPrint;
+    end else if LowerCase(ServerOrigin(FAddr)) <> Origin then begin
+      FAddr.Fingerprint := '';
+    end;
+    SaveServerAddress(FAddr);
+    ShowApp;
+  end else if T = 'signedOut' then begin
+    { Сеанс кончился (выход, или сервер его не знает): refresh забыть,
+      адрес и отпечаток — оставить. }
+    FAddr.Refresh := '';
+    SaveServerAddress(FAddr);
+    ShowConnectPage(O.Get('error', ''));
   end else if T = 'config' then begin
     FCloseToTray := O.Get('closeToTray', False);
     if O.Find('notify') is TJSONObject then begin
@@ -314,45 +361,33 @@ begin
   end;
 end;
 
-{ Адрес своего файла для Navigate: file:///C:/…, пробелы и прочее,
-  что в адресе значит своё, — экранированы. }
-function FileUrl(const APath: string): string;
-var
-  I: integer;
-  C: char;
+procedure TFormWebUi.PostToPage(O: TJSONObject);
 begin
-  Result := 'file:///';
-  for I := 1 to Length(APath) do begin
-    C := APath[I];
-    case C of
-      '\': Result := Result + '/';
-      ' ': Result := Result + '%20';
-      '#': Result := Result + '%23';
-      '%': Result := Result + '%25';
-      '?': Result := Result + '%3F';
-    else
-      Result := Result + C;
-    end;
-  end;
+  FView.PostJson(utf8string(O.AsJSON));
 end;
 
-{ Окно ввода подключения — с тем, что было введено, и с причиной, почему
-  не подключилось. ABusy — проверка уже идёт («Connecting…»). }
-procedure TFormWebUi.ShowConnectPage(const AError: string; ABusy: boolean);
+{ Окно входа — с тем, куда входили, и с причиной, почему не вышло. }
+procedure TFormWebUi.ShowConnectPage(const AError: string);
 var
   Url: string;
 begin
-  Url := FileUrl(ExtractFilePath(ParamStr(0)) + CONNECT_PAGE)
-    + '?host=' + EncodeURLElement(FAddr.Host)
-    + '&token=' + EncodeURLElement(FAddr.Token)
-    + '&error=' + EncodeURLElement(AError);
+  Url := WEB_APP_ORIGIN + '/' + CONNECT_PAGE
+    + '?host=' + UrlEncode(FAddr.Host)
+    + '&user=' + UrlEncode(FAddr.User)
+    + '&error=' + UrlEncode(AError);
   if FAddr.Port > 0 then begin
     Url := Url + '&port=' + IntToStr(FAddr.Port);
   end;
-  if ABusy then begin
-    Url := Url + '&busy=1';
-  end;
   FView.Navigate(utf8string(Url));
+end;
+
+{ Приложение: адрес сервера — параметром, refresh-токен — во фрагменте
+  (#): фрагмент не уходит ни в один запрос, страница забирает его и
+  стирает из адреса (core/session.js). }
+procedure TFormWebUi.ShowApp;
+begin
+  FView.Navigate(utf8string(WEB_APP_ORIGIN + '/index.html?server='
+    + UrlEncode(ServerOrigin(FAddr)) + '#r=' + UrlEncode(FAddr.Refresh)));
 end;
 
 procedure TFormWebUi.ConnectSaved;
@@ -360,56 +395,110 @@ begin
   if not LoadServerAddress(FAddr) then begin
     FAddr.Host := LOCAL_SERVER_BIND;
     FAddr.Port := LOCAL_SERVER_PORT;
-    FAddr.Token := '';
-    ShowConnectPage('', False);
-    Exit;
   end;
-  ShowConnectPage('', True);
-  Inc(FProbeSerial);
-  FProbeFromPage := False;
-  ProbeServer(FAddr, FProbeSerial, @ProbeDone);
+  if FAddr.Refresh <> '' then begin
+    ShowApp;
+  end else begin
+    ShowConnectPage('');
+  end;
 end;
 
-procedure TFormWebUi.ProbeDone(ASerial: integer; AResult: TProbeResult;
-  const AMessage: string);
+{ PEM -> DER (первый блок). }
+function PemDer(const APem: string): RawByteString;
 var
-  Err: string;
+  A, B: integer;
+begin
+  Result := '';
+  A := Pos('-----BEGIN ', APem);
+  if A = 0 then begin
+    Exit;
+  end;
+  A := Pos(#10, APem, A);
+  B := Pos('-----END ', APem, A);
+  if (A = 0) or (B = 0) then begin
+    Exit;
+  end;
+  Result := DecodeStringBase64(StringReplace(StringReplace(Copy(APem, A + 1, B - A - 1),
+    #13, '', [rfReplaceAll]), #10, '', [rfReplaceAll]));
+end;
+
+{ https://адрес:порт из полного адреса запроса. }
+function UriOrigin(const AUri: string): string;
+var
+  P, Q: integer;
+begin
+  Result := LowerCase(AUri);
+  P := Pos('://', Result);
+  if P = 0 then begin
+    Exit;
+  end;
+  Q := Pos('/', Result, P + 3);
+  if Q > 0 then begin
+    Result := Copy(Result, 1, Q - 1);
+  end;
+end;
+
+function TFormWebUi.CertificateTrusted(const AUri, APem: utf8string): boolean;
+var
+  Origin, Print: string;
+begin
+  Origin := UriOrigin(string(AUri));
+  Print := DigestColonHex(Sha256(PemDer(string(APem))));
+  Result := ((Origin = LowerCase(ServerOrigin(FAddr))) and (FAddr.Fingerprint <> '')
+      and (Print = FAddr.Fingerprint))
+    or ((Origin = FTrustOrigin) and (Print = FTrustPrint));
+  if not Result then begin
+    FAskedOrigin := Origin;
+    FAskedPrint := Print;
+  end;
+end;
+
+{ Самоподписанный сертификат сервера. Знакомый — пустить; незнакомый
+  (или сменившийся!) — отказать и спросить человека в окне входа: он
+  сверит отпечаток с тем, что напечатал сервер. }
+procedure TFormWebUi.ViewCertificateError(Sender: TObject; const AUri, APem: utf8string;
+  var AAllow: boolean);
+var
   O: TJSONObject;
 begin
-  if ASerial <> FProbeSerial then begin
+  AAllow := CertificateTrusted(AUri, APem);
+  if AAllow then begin
     Exit;
   end;
-  if AResult = prOk then begin
-    SaveServerAddress(FAddr);
-    FView.Navigate(utf8string(ServerPageUrl(FAddr)));
-    Exit;
-  end;
-  if AResult = prBadToken then begin
-    Err := 'The server did not accept this token.';
-  end else if AMessage <> '' then begin
-    Err := 'Could not reach the server: ' + AMessage;
-  end else begin
-    Err := 'Could not reach the server.';
-  end;
-  if FProbeFromPage then begin
-    O := TJSONObject.Create;
-    try
-      O.Add('t', 'connectState');
-      O.Add('busy', False);
-      O.Add('error', Err);
-      FView.PostJson(utf8string(O.AsJSON));
-    finally
-      O.Free;
-    end;
-  end else begin
-    ShowConnectPage(Err, False);
+  O := TJSONObject.Create;
+  try
+    O.Add('t', 'certificate');
+    O.Add('origin', FAskedOrigin);
+    O.Add('fingerprint', FAskedPrint);
+    { Этому серверу уже доверяли с другим отпечатком — сертификат
+      сменился: страница предупредит громче. }
+    O.Add('changed', (FAskedOrigin = LowerCase(ServerOrigin(FAddr)))
+      and (FAddr.Fingerprint <> ''));
+    PostToPage(O);
+  finally
+    O.Free;
   end;
 end;
 
 procedure TFormWebUi.TrayConnectionClick(Sender: TObject);
 begin
   Reveal;
-  ShowConnectPage('', False);
+  ShowConnectPage('');
+end;
+
+{ Выход: страница сообщит серверу и вернёт signedOut. }
+procedure TFormWebUi.TraySignOutClick(Sender: TObject);
+var
+  O: TJSONObject;
+begin
+  Reveal;
+  O := TJSONObject.Create;
+  try
+    O.Add('t', 'signOut');
+    PostToPage(O);
+  finally
+    O.Free;
+  end;
 end;
 
 destructor TFormWebUi.Destroy;
@@ -612,6 +701,11 @@ begin
   Item := TMenuItem.Create(Pop);
   Item.Caption := 'Connection...';
   Item.OnClick := @TrayConnectionClick;
+  Pop.Items.Add(Item);
+
+  Item := TMenuItem.Create(Pop);
+  Item.Caption := 'Sign out';
+  Item.OnClick := @TraySignOutClick;
   Pop.Items.Add(Item);
 
   Item := TMenuItem.Create(Pop);

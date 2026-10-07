@@ -157,7 +157,11 @@ type
     function Invoke(sender: ICoreWebView2; args: IUnknown): HRESULT; stdcall;
   end;
 
-  { --- ICoreWebView2: slots 0..51, need 0, 2, 41, 49 and 51 --- }
+  { --- ICoreWebView2: slots 0..57, need 0, 2, 41, 49 and 51. Все 58 —
+    обязательно: на этом интерфейсе стоят ICoreWebView2_3/_14, и
+    недостающий хвост сдвигал их методы (живой случай 2026-10-07:
+    SetVirtualHostNameToFolderMapping попадал в remove_DOMContentLoaded
+    и честно отвечал S_OK). --- }
   ICoreWebView2 = interface(IUnknown)
     ['{76ECEACB-0462-4D94-AC83-423A6793775E}']
     function get_Settings(out settings: ICoreWebView2Settings): HRESULT; stdcall; { 0 }
@@ -221,6 +225,12 @@ type
       out token: TEventToken): HRESULT; stdcall;                              { 49 }
     function remove_ContainsFullScreenElementChanged(a: Pointer): HRESULT; stdcall; { 50 slot only }
     function get_ContainsFullScreenElement(out value: BOOL): HRESULT; stdcall;      { 51 }
+    function add_WebResourceRequested(a, b: Pointer): HRESULT; stdcall;       { 52 slot only }
+    function remove_WebResourceRequested(a: Pointer): HRESULT; stdcall;       { 53 slot only }
+    function AddWebResourceRequestedFilter(a: Pointer; b: integer): HRESULT; stdcall; { 54 slot only }
+    function RemoveWebResourceRequestedFilter(a: Pointer; b: integer): HRESULT; stdcall; { 55 slot only }
+    function add_WindowCloseRequested(a, b: Pointer): HRESULT; stdcall;       { 56 slot only }
+    function remove_WindowCloseRequested(a: Pointer): HRESULT; stdcall;       { 57 slot only }
   end;
 
   { --- ICoreWebView2Controller: slots 0..22, need 1, 3, 9, 16, 21 and 22 --- }
@@ -280,6 +290,111 @@ type
       createdController: ICoreWebView2Controller): HRESULT; stdcall;
   end;
 
+  { --- ICoreWebView2_3: папка как виртуальный сайт. Слоты 58..64 —
+    ICoreWebView2_2 (7 методов), дальше _3. Порядок и GUID — WebView2.h
+    SDK 1.0.4191.47. --- }
+  ICoreWebView2_3 = interface(ICoreWebView2)
+    ['{A0D6DF20-3B92-416D-AA0C-437A9C727857}']
+    function add_WebResourceResponseReceived(a, b: Pointer): HRESULT; stdcall;  { 58 slot only }
+    function remove_WebResourceResponseReceived(a: Pointer): HRESULT; stdcall;  { 59 slot only }
+    function NavigateWithWebResourceRequest(a: Pointer): HRESULT; stdcall;      { 60 slot only }
+    function add_DOMContentLoaded(a, b: Pointer): HRESULT; stdcall;             { 61 slot only }
+    function remove_DOMContentLoaded(a: Pointer): HRESULT; stdcall;             { 62 slot only }
+    function get_CookieManager(a: Pointer): HRESULT; stdcall;                   { 63 slot only }
+    function get_Environment(a: Pointer): HRESULT; stdcall;                     { 64 slot only }
+    function TrySuspend(a: Pointer): HRESULT; stdcall;                          { 65 slot only }
+    function Resume: HRESULT; stdcall;                                          { 66 slot only }
+    function get_IsSuspended(a: Pointer): HRESULT; stdcall;                     { 67 slot only }
+    function SetVirtualHostNameToFolderMapping(hostName, folderPath: PWideChar;
+      accessKind: integer): HRESULT; stdcall;                                   { 68 }
+    function ClearVirtualHostNameToFolderMapping(hostName: PWideChar): HRESULT; stdcall; { 69 slot only }
+  end;
+
+  { --- Ошибка сертификата сервера (ICoreWebView2_14). --- }
+  ICoreWebView2Certificate = interface(IUnknown)
+    ['{C5FB2FCE-1CAC-4AEE-9C79-5ED0362EAAE0}']
+    function get_Subject(a: Pointer): HRESULT; stdcall;                         { 0 slot only }
+    function get_Issuer(a: Pointer): HRESULT; stdcall;                          { 1 slot only }
+    function get_ValidFrom(a: Pointer): HRESULT; stdcall;                       { 2 slot only }
+    function get_ValidTo(a: Pointer): HRESULT; stdcall;                         { 3 slot only }
+    function get_DerEncodedSerialNumber(a: Pointer): HRESULT; stdcall;          { 4 slot only }
+    function get_DisplayName(a: Pointer): HRESULT; stdcall;                     { 5 slot only }
+    function ToPemEncoding(out pem: PWideChar): HRESULT; stdcall;               { 6 }
+    function get_PemEncodedIssuerCertificateChain(a: Pointer): HRESULT; stdcall; { 7 slot only }
+  end;
+
+  ICoreWebView2ServerCertificateErrorDetectedEventArgs = interface(IUnknown)
+    ['{012193ED-7C13-48FF-969D-A84C1F432A14}']
+    function get_ErrorStatus(out value: integer): HRESULT; stdcall;            { 0 }
+    function get_RequestUri(out value: PWideChar): HRESULT; stdcall;           { 1 }
+    function get_ServerCertificate(out value: ICoreWebView2Certificate): HRESULT; stdcall; { 2 }
+    function get_Action(out value: integer): HRESULT; stdcall;                 { 3 }
+    function put_Action(value: integer): HRESULT; stdcall;                     { 4 }
+    function GetDeferral(a: Pointer): HRESULT; stdcall;                        { 5 slot only }
+  end;
+
+  ICoreWebView2ServerCertificateErrorDetectedEventHandler = interface(IUnknown)
+    ['{969B3A26-D85E-4795-8199-FEF57344DA22}']
+    function Invoke(sender: ICoreWebView2;
+      args: ICoreWebView2ServerCertificateErrorDetectedEventArgs): HRESULT; stdcall;
+  end;
+
+  { Слоты 58..102 — ICoreWebView2_2.._13 (по WebView2.h: 7, 5, 4, 2, 1, 1,
+    7, 9, 2, 3, 3, 1 методов), дальше _14. Нужен только 103. }
+  ICoreWebView2_14 = interface(ICoreWebView2)
+    ['{6DAA4F10-4A90-4753-8898-77C5DF534165}']
+    function Slot58: HRESULT; stdcall;  { 58  _2, slot only }
+    function Slot59: HRESULT; stdcall;  { 59  _2, slot only }
+    function Slot60: HRESULT; stdcall;  { 60  _2, slot only }
+    function Slot61: HRESULT; stdcall;  { 61  _2, slot only }
+    function Slot62: HRESULT; stdcall;  { 62  _2, slot only }
+    function Slot63: HRESULT; stdcall;  { 63  _2, slot only }
+    function Slot64: HRESULT; stdcall;  { 64  _2, slot only }
+    function Slot65: HRESULT; stdcall;  { 65  _3, slot only }
+    function Slot66: HRESULT; stdcall;  { 66  _3, slot only }
+    function Slot67: HRESULT; stdcall;  { 67  _3, slot only }
+    function Slot68: HRESULT; stdcall;  { 68  _3, slot only }
+    function Slot69: HRESULT; stdcall;  { 69  _3, slot only }
+    function Slot70: HRESULT; stdcall;  { 70  _4, slot only }
+    function Slot71: HRESULT; stdcall;  { 71  _4, slot only }
+    function Slot72: HRESULT; stdcall;  { 72  _4, slot only }
+    function Slot73: HRESULT; stdcall;  { 73  _4, slot only }
+    function Slot74: HRESULT; stdcall;  { 74  _5, slot only }
+    function Slot75: HRESULT; stdcall;  { 75  _5, slot only }
+    function Slot76: HRESULT; stdcall;  { 76  _6, slot only }
+    function Slot77: HRESULT; stdcall;  { 77  _7, slot only }
+    function Slot78: HRESULT; stdcall;  { 78  _8, slot only }
+    function Slot79: HRESULT; stdcall;  { 79  _8, slot only }
+    function Slot80: HRESULT; stdcall;  { 80  _8, slot only }
+    function Slot81: HRESULT; stdcall;  { 81  _8, slot only }
+    function Slot82: HRESULT; stdcall;  { 82  _8, slot only }
+    function Slot83: HRESULT; stdcall;  { 83  _8, slot only }
+    function Slot84: HRESULT; stdcall;  { 84  _8, slot only }
+    function Slot85: HRESULT; stdcall;  { 85  _9, slot only }
+    function Slot86: HRESULT; stdcall;  { 86  _9, slot only }
+    function Slot87: HRESULT; stdcall;  { 87  _9, slot only }
+    function Slot88: HRESULT; stdcall;  { 88  _9, slot only }
+    function Slot89: HRESULT; stdcall;  { 89  _9, slot only }
+    function Slot90: HRESULT; stdcall;  { 90  _9, slot only }
+    function Slot91: HRESULT; stdcall;  { 91  _9, slot only }
+    function Slot92: HRESULT; stdcall;  { 92  _9, slot only }
+    function Slot93: HRESULT; stdcall;  { 93  _9, slot only }
+    function Slot94: HRESULT; stdcall;  { 94  _10, slot only }
+    function Slot95: HRESULT; stdcall;  { 95  _10, slot only }
+    function Slot96: HRESULT; stdcall;  { 96  _11, slot only }
+    function Slot97: HRESULT; stdcall;  { 97  _11, slot only }
+    function Slot98: HRESULT; stdcall;  { 98  _11, slot only }
+    function Slot99: HRESULT; stdcall;  { 99  _12, slot only }
+    function Slot100: HRESULT; stdcall;  { 100  _12, slot only }
+    function Slot101: HRESULT; stdcall;  { 101  _12, slot only }
+    function Slot102: HRESULT; stdcall;  { 102  _13, slot only }
+    function add_ServerCertificateErrorDetected(
+      handler: ICoreWebView2ServerCertificateErrorDetectedEventHandler;
+      out token: TEventToken): HRESULT; stdcall;                                { 103 }
+    function remove_ServerCertificateErrorDetected(a: Pointer): HRESULT; stdcall; { 104 slot only }
+    function ClearServerCertificateErrorActions(a: Pointer): HRESULT; stdcall;   { 105 slot only }
+  end;
+
 type
   TWebView2NavigateEvent = procedure(Sender: TObject; const AUri: utf8string) of object;
   TWebView2ErrorEvent = procedure(Sender: TObject; const AMessage: string) of object;
@@ -288,6 +403,10 @@ type
   TWebView2KeyEvent = procedure(Sender: TObject; AVirtualKey: word;
     var AHandled: boolean) of object;
   TWebView2StateEvent = procedure(Sender: TObject; AActive: boolean) of object;
+  { Сертификат сервера не прошёл проверку: AAllow — пустить (и до конца
+    сеанса браузера больше не спрашивать об этом сервере). }
+  TWebView2CertEvent = procedure(Sender: TObject; const AUri, APem: utf8string;
+    var AAllow: boolean) of object;
 
   { Hosts one WebView2 inside an existing window handle.
 
@@ -309,6 +428,9 @@ type
     FOnFullScreenElement: TWebView2StateEvent;
     FStartupScript: UnicodeString;
     FOnWebMessage: TWebView2TextEvent;
+    FVirtualHost: UnicodeString;
+    FVirtualFolder: UnicodeString;
+    FOnCertificateError: TWebView2CertEvent;
     procedure EnvironmentReady(AResult: HRESULT; AEnv: ICoreWebView2Environment);
     procedure ControllerReady(AResult: HRESULT; ACtrl: ICoreWebView2Controller);
     function ExternalUriRequested(const AUri: UnicodeString): boolean;
@@ -317,6 +439,7 @@ type
     procedure ReportUnavailable(const AMessage: string);
     procedure StartupScriptAdded;
     procedure WebMessage(const AText: UnicodeString);
+    function CertificateError(const AUri, APem: UnicodeString): boolean;
   public
     constructor Create(AHost: HWND);
     destructor Destroy; override;
@@ -349,6 +472,13 @@ type
     property StartupScript: UnicodeString read FStartupScript write FStartupScript;
     { Строка из chrome.webview.postMessage страницы. }
     property OnWebMessage: TWebView2TextEvent read FOnWebMessage write FOnWebMessage;
+    { Папка как сайт https://ИМЯ/ (SetVirtualHostNameToFolderMapping):
+      страница окна грузится из своих файлов. Задавать сразу после
+      Create, как StartupScript. }
+    procedure MapVirtualHost(const AHost, AFolder: utf8string);
+    { Ошибка сертификата сервера (самоподписанный): решает хозяин. Без
+      обработчика — как в браузере, запрос отменяется. }
+    property OnCertificateError: TWebView2CertEvent read FOnCertificateError write FOnCertificateError;
     { Сообщение странице (chrome.webview, событие message, e.data — уже
       разобранный JSON). }
     procedure PostJson(const AJson: utf8string);
@@ -468,6 +598,16 @@ type
       createdController: ICoreWebView2Controller): HRESULT; stdcall;
   end;
 
+  TCertErrorHandler = class(TInterfacedObject,
+    ICoreWebView2ServerCertificateErrorDetectedEventHandler)
+  private
+    FOwner: TWebView2;
+  public
+    constructor Create(AOwner: TWebView2);
+    function Invoke(sender: ICoreWebView2;
+      args: ICoreWebView2ServerCertificateErrorDetectedEventArgs): HRESULT; stdcall;
+  end;
+
   TNewWindowHandler = class(TInterfacedObject,
     ICoreWebView2NewWindowRequestedEventHandler)
   private
@@ -561,8 +701,9 @@ var
 begin
   Result := S_OK;
   { Геопозиция — для «отправить место»; микрофон и камера — для звонков
-    (WebRTC на странице) и голосовых. Только своей странице (адрес
-    локального сервера), чужим — решение рантайма по умолчанию. }
+    (WebRTC на странице) и голосовых. Только своей странице — из файлов
+    окна, WEB_APP_ORIGIN; чужим (мини-приложения) — решение рантайма по
+    умолчанию. }
   if (args = nil) or Failed(args.get_PermissionKind(Kind))
      or ((Kind <> WEBVIEW2_PERMISSION_KIND_GEOLOCATION)
          and (Kind <> WEBVIEW2_PERMISSION_KIND_MICROPHONE)
@@ -575,8 +716,7 @@ begin
     Uri := UnicodeString(P);
     CoTaskMemFree(P);
   end;
-  if (Pos(UnicodeString('http://127.0.0.1'), Uri) = 1)
-     or (Pos(UnicodeString('http://localhost'), Uri) = 1) then begin
+  if Pos(UnicodeString(WEB_APP_ORIGIN + '/'), Uri) = 1 then begin
     args.put_State(WEBVIEW2_PERMISSION_STATE_ALLOW);
   end;
 end;
@@ -623,6 +763,51 @@ begin
     FOwner.ControllerReady(errorCode, createdController);
   end;
   Result := S_OK;
+end;
+
+const
+  { COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND. }
+  CERT_ACTION_ALWAYS_ALLOW = 0;
+  CERT_ACTION_CANCEL = 1;
+  HOST_RESOURCE_ACCESS_ALLOW = 1;
+
+constructor TCertErrorHandler.Create(AOwner: TWebView2);
+begin
+  inherited Create;
+  FOwner := AOwner;
+end;
+
+function TCertErrorHandler.Invoke(sender: ICoreWebView2;
+  args: ICoreWebView2ServerCertificateErrorDetectedEventArgs): HRESULT; stdcall;
+var
+  P: PWideChar;
+  Uri, Pem: UnicodeString;
+  Cert: ICoreWebView2Certificate;
+begin
+  Result := S_OK;
+  if (FOwner = nil) or (args = nil) then begin
+    Exit;
+  end;
+  Uri := '';
+  Pem := '';
+  P := nil;
+  if Succeeded(args.get_RequestUri(P)) and (P <> nil) then begin
+    Uri := UnicodeString(P);
+    CoTaskMemFree(P);
+  end;
+  Cert := nil;
+  if Succeeded(args.get_ServerCertificate(Cert)) and (Cert <> nil) then begin
+    P := nil;
+    if Succeeded(Cert.ToPemEncoding(P)) and (P <> nil) then begin
+      Pem := UnicodeString(P);
+      CoTaskMemFree(P);
+    end;
+  end;
+  if FOwner.CertificateError(Uri, Pem) then begin
+    args.put_Action(CERT_ACTION_ALWAYS_ALLOW);
+  end else begin
+    args.put_Action(CERT_ACTION_CANCEL);
+  end;
 end;
 
 constructor TNewWindowHandler.Create(AOwner: TWebView2);
@@ -791,6 +976,8 @@ var
   Settings: ICoreWebView2Settings;
   Token: TEventToken;
   R: TRect;
+  V3: ICoreWebView2_3;
+  V14: ICoreWebView2_14;
 begin
   if Failed(AResult) or (ACtrl = nil) then begin
     ReportUnavailable(Format('WebView2 controller could not be created (0x%.8x)', [AResult]));
@@ -810,6 +997,15 @@ begin
     Settings.put_AreDefaultContextMenusEnabled(True);
   end;
 
+  if FVirtualHost <> '' then begin
+    if Supports(FWebView, ICoreWebView2_3, V3) then begin
+      V3.SetVirtualHostNameToFolderMapping(PWideChar(FVirtualHost),
+        PWideChar(FVirtualFolder), HOST_RESOURCE_ACCESS_ALLOW);
+    end;
+  end;
+  if Assigned(FOnCertificateError) and Supports(FWebView, ICoreWebView2_14, V14) then begin
+    V14.add_ServerCertificateErrorDetected(TCertErrorHandler.Create(Self), Token);
+  end;
   FWebView.add_NewWindowRequested(TNewWindowHandler.Create(Self), Token);
   FWebView.add_ContainsFullScreenElementChanged(TFullScreenHandler.Create(Self), Token);
   FWebView.add_PermissionRequested(TPermissionHandler.Create, Token);
@@ -865,6 +1061,20 @@ begin
   Active := False;
   if Succeeded(FWebView.get_ContainsFullScreenElement(Active)) then begin
     FOnFullScreenElement(Self, Active);
+  end;
+end;
+
+procedure TWebView2.MapVirtualHost(const AHost, AFolder: utf8string);
+begin
+  FVirtualHost := UnicodeString(AHost);
+  FVirtualFolder := UnicodeString(AFolder);
+end;
+
+function TWebView2.CertificateError(const AUri, APem: UnicodeString): boolean;
+begin
+  Result := False;
+  if Assigned(FOnCertificateError) then begin
+    FOnCertificateError(Self, utf8string(AUri), utf8string(APem), Result);
   end;
 end;
 

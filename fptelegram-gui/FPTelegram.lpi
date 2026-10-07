@@ -19,7 +19,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="614"/>
+      <BuildNr Value="619"/>
       <StringTable CompanyName="xsid86" InternalName="FPTelegram" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -66,9 +66,6 @@
         <PackageName Value="LCL"/>
       </Item>
       <Item>
-        <PackageName Value="laz_synapse"/>
-      </Item>
-      <Item>
         <PackageName Value="bgracontrols"/>
       </Item>
     </RequiredPackages>
@@ -95,6 +92,10 @@
       </Unit>
       <Unit>
         <Filename Value="..\fptelegram-server\secureconfig.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\fptelegram-server\sha256u.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

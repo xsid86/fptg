@@ -45,9 +45,11 @@ uses
   { Общие с сервером модули — по пути, а не через OtherUnitFiles: так
     окну видны ровно эти два, и случайная зависимость от ядра TDLib не
     соберётся. constants — общие значения (APP_TITLE, пределы настроек
-    карточек), secureconfig — шифрование conf.dat. }
+    карточек), secureconfig — шифрование conf.dat, sha256u — отпечаток
+    сертификата сервера. }
   constants in '..\fptelegram-server\constants.pas',
   secureconfig in '..\fptelegram-server\secureconfig.pas',
+  sha256u in '..\fptelegram-server\sha256u.pas',
   guiconst, guiconn, webview2, webui, callpopup, desknotify, miniapp, appid
   { you can add units after this };
 
@@ -79,8 +81,8 @@ begin
   Application.ShowMainForm := False;
 
   { Окно — только окно: сервер (FPTelegramServer) — отдельная программа.
-    Окно подключается к нему по сохранённым адресу, порту и токену или
-    спрашивает их (webui.pas, guiconn.pas). }
+    Окно показывает страницу из своих файлов; она входит на сервер
+    (webui.pas, guiconn.pas, connect.html). }
   if not StartWebUi then begin
     MessageDlg(APP_TITLE,
       'The Microsoft Edge WebView2 Runtime is needed to show the interface.'

@@ -49,6 +49,11 @@
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
+        <Filename Value="..\fptelegram-server\sha256u.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="guiconst.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>

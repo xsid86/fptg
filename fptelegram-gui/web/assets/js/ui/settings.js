@@ -8,6 +8,7 @@ import { NAME_COLORS, PROFILE_COLORS } from '../util/palette.js';
 import { MAP_PROVIDERS, setMapProvider } from '../util/maps.js';
 import { devicePanel } from '../calls/devices.js';
 import { shellSettings, postShell } from './shell.js';
+import { uploadUrl, serverBase, currentUser, signOut } from '../core/session.js';
 
 // Настройки приложения.
 //
@@ -357,10 +358,9 @@ function renderColors(a) {
   ];
 }
 
-/** Один файл на POST /upload (cookie авторизует); ответ — id загрузки. */
+/** Один файл на POST /upload (токен — core/session.js); ответ — id загрузки. */
 async function uploadFile(file) {
-  const res = await fetch(`/upload?name=${encodeURIComponent(file.name)}`,
-    { method: 'POST', body: file });
+  const res = await fetch(await uploadUrl(file.name), { method: 'POST', body: file });
   const answer = (await res.text()).trim();
   if (!res.ok || !answer) throw new Error(answer || `Upload failed (${res.status})`);
   return answer;
@@ -600,8 +600,15 @@ function renderCalls() {
 function renderGeneral() {
   const tray = uid();
   const device = uid();
+  const server = uid();
   return [
     group(null,
+      // Вход на сервер (core/session.js): кто и куда; выход гасит сеанс на
+      // сервере — в окне это ещё и трей → Sign out.
+      row(server, 'Server',
+        `Signed in as ${currentUser() || '?'} on ${serverBase.replace(/^https?:\/\//, '')}.`,
+        el('button', { id: server, class: 'btn settings__link', type: 'button',
+          onclick: () => { signOut(); } }, 'Sign out')),
       row(tray, 'Close to tray',
         'The close button hides the window and keeps the app running. '
         + 'Quit from the tray icon.',

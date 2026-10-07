@@ -393,10 +393,53 @@ const
   LOCAL_SERVER_PORT = 7654;
   { Адрес привязки по умолчанию — только эта машина (--bind меняет). }
   LOCAL_SERVER_BIND = '127.0.0.1';
-  { Где в настройках сервера (conf.dat) лежит его постоянный
-    токен подключения. }
-  SERVER_CONFIG_SECTION = 'server';
-  SERVER_CONFIG_TOKEN = 'token';
+  { ================= TLS (tlscert.pas) ================= }
+
+  { Свой самоподписанный сертификат: RSA 2048, 10 лет (окно запоминает
+    отпечаток — сертификат не должен меняться сам), хранится в conf.dat. }
+  TLS_RSA_BITS = 2048;
+  TLS_SELF_SIGNED_DAYS = 3650;
+  TLS_SELF_SIGNED_NAME = 'FPTelegram';
+  TLS_CONFIG_SECTION = 'tls';
+  TLS_CONFIG_CERT = 'cert';
+  TLS_CONFIG_KEY = 'key';
+
+  { ================= вход (srvauth.pas) ================= }
+
+  { Пароли — PBKDF2-HMAC-SHA256 (sha256u.pas): итерации, соль, хеш. }
+  AUTH_PBKDF2_ITERATIONS = 100000;
+  AUTH_SALT_BYTES = 16;
+  AUTH_HASH_BYTES = 32;
+  { Секрет подписи JWT (HS256) и refresh-токены — случайные байты. }
+  AUTH_JWT_KEY_BYTES = 32;
+  AUTH_REFRESH_BYTES = 32;
+  { Короткий JWT для запросов (веб-сокет, загрузки) — час; страница
+    продлевает его сама. Медиа-JWT — без срока, живёт, пока жив сеанс:
+    адреса картинок висят в странице часами. }
+  AUTH_ACCESS_TTL_SEC = 3600;
+  { Сеанс (refresh-токен), которым не пользовались столько дней, гаснет. }
+  AUTH_SESSION_IDLE_DAYS = 90;
+  { Перебор паролей: столько неудач с одного адреса за окно — и адрес
+    ждёт. Плюс сам PBKDF2 (~0.1 с на попытку). }
+  AUTH_FAIL_LIMIT = 5;
+  AUTH_FAIL_WINDOW_SEC = 600;
+  AUTH_LOCK_SEC = 60;
+  { Тело запроса /api/… — маленький JSON. }
+  AUTH_MAX_BODY = 8192;
+  AUTH_CONFIG_SECTION = 'auth';
+  AUTH_CONFIG_JWT_KEY = 'jwtkey';
+  AUTH_USERS_SECTION = 'users';
+  AUTH_SESSIONS_SECTION = 'sessions';
+  { Пути API входа (localserver.pas). }
+  API_LOGIN_PATH = '/api/login';
+  API_REFRESH_PATH = '/api/refresh';
+  API_LOGOUT_PATH = '/api/logout';
+  { Origin страницы в окне FPTelegram: окно показывает её из своих
+    файлов под этим именем (WebView2, виртуальный хост). Сервер пускает
+    её запросы (CORS, веб-сокет), как свои. .example — зарезервированный
+    домен (RFC 2606): настоящего сайта с таким именем быть не может. }
+  WEB_APP_HOST = 'fptelegram.example';
+  WEB_APP_ORIGIN = 'https://' + WEB_APP_HOST;
   { Static files are served out of this directory next to the exe
     (never out of the project or the TDLib cache — see MapPath, which
     additionally refuses anything that escapes it). }
@@ -407,10 +450,6 @@ const
   { Ссылка с токеном — ещё и в файл рядом с exe: для службы, у которой
     консоли нет. Удаляется при остановке. }
   LOCAL_SERVER_URL_FILE = 'server_url.txt';
-  { The cookie the root page is given, so that <img>/<video> URLs the
-    page builds afterwards carry the token without having to append it
-    to every one of them. }
-  LOCAL_SERVER_COOKIE = 'tgsid';
   { 128 bits, from the OS CSPRNG. This is effectively a session key:
     anything on this machine that can reach the port can drive the
     account once it has the token. }

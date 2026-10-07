@@ -3,6 +3,7 @@ import { on } from '../core/bus.js';
 import { icon } from '../util/icons.js';
 import { fileSize } from '../util/format.js';
 import { openEmojiPicker } from './picker.js';
+import { uploadUrl } from '../core/session.js';
 
 // Отправка файлов — как в нативном клиенте Telegram.
 //
@@ -16,11 +17,10 @@ import { openEmojiPicker } from './picker.js';
 // режим диалога, а в самом диалоге его можно переключить, пока все
 // файлы — картинки.
 //
-// Байты уходят на локальный сервер POST /upload (по одному файлу, с
-// ходом загрузки), обратно приходит id; команда message.sendFiles
-// отдаёт эти id модели. Путь на диске странице не нужен и не виден.
-
-const UPLOAD_URL = '/upload';
+// Байты уходят на сервер POST /upload (по одному файлу, с ходом
+// загрузки, адрес и токен — core/session.js), обратно приходит id;
+// команда message.sendFiles отдаёт эти id модели. Путь на диске
+// странице не нужен и не виден.
 
 // Что Telegram примет как фото. GIF сюда не входит намеренно: сжатым
 // фото он стал бы неподвижной картинкой.
@@ -242,10 +242,11 @@ function setBusy(on) {
 }
 
 /** Один файл на сервер; resolve — id загрузки. */
-function upload(file, onProgress) {
+async function upload(file, onProgress) {
+  const url = await uploadUrl(file.name);
   return new Promise((resolve, reject) => {
     xhr = new XMLHttpRequest();
-    xhr.open('POST', `${UPLOAD_URL}?name=${encodeURIComponent(file.name)}`);
+    xhr.open('POST', url);
     xhr.upload.addEventListener('progress', (event) => onProgress(event.loaded));
     xhr.addEventListener('load', () => {
       const answer = xhr.responseText.trim();

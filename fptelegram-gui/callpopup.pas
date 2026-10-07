@@ -39,6 +39,8 @@ type
     FView: TWebView2;
     FUrl: utf8string;
     procedure ViewMessage(Sender: TObject; const AText: UnicodeString);
+    procedure ViewCertificateError(Sender: TObject; const AUri, APem: utf8string;
+      var AAllow: boolean);
   protected
     procedure CreateParams(var Params: TCreateParams); override;
     procedure Resize; override;
@@ -68,6 +70,10 @@ begin
   Width := Sc(DESKNOTIFY_WIDTH);
   Height := Sc(CALLPOPUP_HEIGHT);
   FView := TWebView2.Create(Handle);
+  { Карточка — тоже из файлов окна, аватарка — с сервера: тот же сайт и
+    то же решение о сертификате, что у главного окна. }
+  FView.MapVirtualHost(WEB_APP_HOST, utf8string(WebUiFolder));
+  FView.OnCertificateError := @ViewCertificateError;
   FView.OnWebMessage := @ViewMessage;
 end;
 
@@ -145,6 +151,12 @@ end;
 { От карточки: (t: 'call', action: accept | decline | open, id).
   accept и open поднимают главное окно; любое действие уходит главной
   странице как есть и прячет карточку. close — звонок перестал звонить. }
+procedure TFormCallPopup.ViewCertificateError(Sender: TObject; const AUri, APem: utf8string;
+  var AAllow: boolean);
+begin
+  AAllow := WebUiCertificateTrusted(AUri, APem);
+end;
+
 procedure TFormCallPopup.ViewMessage(Sender: TObject; const AText: UnicodeString);
 var
   Data: TJSONData;

@@ -1,4 +1,5 @@
 import { emit } from './bus.js';
+import { socketUrl, absoluteMedia, dropAccess } from './session.js';
 
 // The socket, and the request/response discipline on top of it.
 //
@@ -7,9 +8,9 @@ import { emit } from './bus.js';
 // an id is an unsolicited event. Matching on the id is what allows
 // several commands to be in flight at once without their answers
 // getting crossed.
-
-const token = new URLSearchParams(location.search).get('t') ?? '';
-const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?t=${encodeURIComponent(token)}`;
+//
+// Адрес и токен сокета — от сеанса (core/session.js): сервер может быть
+// не там, откуда страница, и пускает только с действующим JWT.
 
 const RETRY_STEP_MS = 500;
 const RETRY_MAX_STEPS = 6;
@@ -27,11 +28,27 @@ function setStatus(status) {
   emit('net:status', status);
 }
 
+function retryLater() {
+  retries = Math.min(retries + 1, RETRY_MAX_STEPS);
+  setTimeout(connect, RETRY_STEP_MS * retries);
+}
+
 export function connect() {
   setStatus('connecting');
+  socketUrl().then(open, (error) => {
+    // Сеанс кончился — дальше окно входа, переподключаться некуда.
+    if (error?.signedOut) return;
+    setStatus('closed');
+    retryLater();
+  });
+}
+
+function open(url) {
+  let opened = false;
   socket = new WebSocket(url);
 
   socket.addEventListener('open', () => {
+    opened = true;
     retries = 0;
     setStatus('open');
   });
@@ -39,7 +56,7 @@ export function connect() {
   socket.addEventListener('message', (event) => {
     let message;
     try {
-      message = JSON.parse(event.data);
+      message = JSON.parse(absoluteMedia(event.data));
     } catch {
       return;                       // not ours; ignore rather than throw
     }
@@ -64,9 +81,10 @@ export function connect() {
       entry.reject(new Error('connection lost'));
     }
     pending.clear();
-
-    retries = Math.min(retries + 1, RETRY_MAX_STEPS);
-    setTimeout(connect, RETRY_STEP_MS * retries);
+    // Не открылся вовсе — возможно, сервер не принял токен (сеанс
+    // погашен, ключ сменён): в следующий раз — новый.
+    if (!opened) dropAccess();
+    retryLater();
   });
 
   socket.addEventListener('error', () => setStatus('closed'));
