@@ -72,6 +72,11 @@ type
     FPath:     string;
     FQuery:    string;
     FHeaders:  TStringList;
+    { Сеанс (sid JWT), которым открыт веб-сокет; FEnded — сеанс погашен,
+      сокет закрывается кодом LOCAL_SERVER_WS_CLOSE_SESSION_ENDED. Ставит
+      другой поток, читает цикл сокета. }
+    FSid:      string;
+    FEnded:    boolean;
     function  ReadExact(ABuf: PByte; ALen: integer): boolean;
     function  ReadRequest: boolean;
     function  HeaderValue(const AName: string): string;
@@ -1100,7 +1105,7 @@ begin
   Frag := '';
   LastPing := GetTickCount64;
 
-  while (not Terminated) and (not GStopping) do begin
+  while (not Terminated) and (not GStopping) and (not FEnded) do begin
     { CanReadEx, NOT CanRead — and this is not interchangeable.
       Synapse's RecvBufferEx pulls a whole TCP packet and keeps
       whatever the frame did not need in the socket object's own
@@ -1188,6 +1193,11 @@ begin
       Break;
     end;
   end;
+  if FEnded then begin
+    { Сеанс погашен (выход, удаление пользователя, «выйти всем»):
+      странице — сразу на вход, а не переподключаться. }
+    WsSend(wsoClose, WsCloseCode(LOCAL_SERVER_WS_CLOSE_SESSION_ENDED));
+  end;
 
   finally
     { Unregister BEFORE this object can be freed, under the same lock
@@ -1272,6 +1282,7 @@ begin
       IsWebSocketRequest(IsWs);
       if IsWs then begin
         if TokenOk(False) then begin
+          FSid := AuthSessionId(QueryParam('t'));
           ServeWebSocket;
         end else begin
           SendSimple(403, 'Forbidden', 'forbidden');
@@ -1402,6 +1413,29 @@ end;
 procedure SetWebMessageHandler(AHandler: TWebMessageEvent);
 begin
   GOnMessage := AHandler;
+end;
+
+{ Сеансы погашены (srvauth): их веб-сокеты закрыть. ASids = nil — все.
+  Цикл сокета замечает флаг за LOCAL_SERVER_WS_POLL_MS. }
+procedure EndSessionSockets(ASids: TStrings);
+var
+  I: integer;
+  C: TServerConn;
+begin
+  if GConnsLock = nil then begin
+    Exit;
+  end;
+  GConnsLock.Enter;
+  try
+    for I := 0 to GConns.Count - 1 do begin
+      C := TServerConn(GConns[I]);
+      if (ASids = nil) or (ASids.IndexOf(C.FSid) >= 0) then begin
+        C.FEnded := True;
+      end;
+    end;
+  finally
+    GConnsLock.Leave;
+  end;
 end;
 
 function WebSendTo(AConnId: Int64; const AText: utf8string): boolean;
@@ -1536,6 +1570,7 @@ end;
 initialization
   GConns := TFPList.Create;
   GConnsLock := SyncObjs.TCriticalSection.Create;
+  AuthSessionsEnded := @EndSessionSockets;
 
 finalization
   StopLocalServer;

@@ -1,11 +1,11 @@
 import { el, qs, clear } from './core/dom.js';
+import { socketUrl } from './core/session.js';
 
 // Standalone on purpose: this page has to stay usable when the app
 // modules are the thing that is broken. It therefore talks to the
-// socket directly instead of going through core/net.js.
-
-const token = new URLSearchParams(location.search).get('t') ?? '';
-const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?t=${encodeURIComponent(token)}`;
+// socket directly instead of going through core/net.js. Адрес сервера и
+// токен — от сеанса (core/session.js): страница может быть не с сервера,
+// и сокет пускает только с действующим JWT.
 
 const log = qs('#log');
 const conn = qs('#conn');
@@ -38,8 +38,19 @@ function setStatus(status, label) {
   for (const id of ['send', 'big', 'burst']) qs(`#${id}`).disabled = status !== 'open';
 }
 
-function connect() {
+async function connect() {
   setStatus('connecting', 'connecting...');
+  let url;
+  try {
+    url = await socketUrl();
+  } catch (error) {
+    // Сеанса нет — session.js уже отправил на вход; иначе — повтор.
+    if (error?.signedOut) return;
+    line('ts', `no token: ${error?.message || error}`);
+    retries = Math.min(retries + 1, 6);
+    setTimeout(connect, 500 * retries);
+    return;
+  }
   line('ts', `connecting to ${url.replace(/t=[^&]*/, 't=***')}`);
   socket = new WebSocket(url);
 

@@ -41,15 +41,15 @@ uses
   athreads,
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
-  Forms, Controls, Dialogs, SysUtils,
-  { Общие с сервером модули — по пути, а не через OtherUnitFiles: так
-    окну видны ровно эти два, и случайная зависимость от ядра TDLib не
-    соберётся. constants — общие значения (APP_TITLE, пределы настроек
-    карточек), secureconfig — шифрование conf.dat, sha256u — отпечаток
-    сертификата сервера. }
-  constants in '..\fptelegram-server\constants.pas',
-  secureconfig in '..\fptelegram-server\secureconfig.pas',
-  sha256u in '..\fptelegram-server\sha256u.pas',
+  Forms, Controls, Dialogs, SysUtils, fpjson,
+  { Общие с сервером модули — из fptelegram-server/shared (OtherUnitFiles
+    проекта): окну видна только эта папка, и случайная зависимость от
+    ядра TDLib не соберётся. Не через uses … in: тогда при компиляции
+    модуля, который их использует, компилятор находил лишь старый .ppu
+    и молча брал его. constants — общие значения (APP_TITLE, пределы
+    настроек карточек), secureconfig — шифрование conf.dat, sha256u —
+    отпечаток сертификата сервера, instance — единственный экземпляр. }
+  constants, secureconfig, sha256u, instance,
   guiconst, guiconn, webview2, webui, callpopup, desknotify, miniapp, appid
   { you can add units after this };
 
@@ -58,12 +58,26 @@ uses
   .lpi, сборка сама кладёт её в FPTelegram.res как MAINICON
   (ide/packages/ideproject/projecticon.pas, UpdateResources). }
 
+var
+  InstanceReply: TJSONObject;
+  InstanceError: string;
+
 begin
   { Defensive, app-wide: this machine's DefaultSystemCodePage defaults to
     1251 (Windows-1251), not UTF-8 - any implicit UnicodeString/AnsiString
     conversion would otherwise silently lose non-Latin1 characters through
     the system ANSI codepage. First line of the program. }
   DefaultSystemCodePage := CP_UTF8;
+
+  { Одно окно на папку программы: второй запуск показывает первое и
+    выходит (instance.pas). }
+  if not AcquireInstance(ExtractFilePath(ParamStr(0)), INSTANCE_CLIENT) then begin
+    if CallInstance(ExtractFilePath(ParamStr(0)), INSTANCE_CLIENT, 'show', nil,
+        InstanceReply, InstanceError) then begin
+      InstanceReply.Free;
+    end;
+    Exit;
+  end;
 
   { Before any window or tray icon exists: this is what Windows files
     our notifications under, and it has to be declared while there is
@@ -93,6 +107,7 @@ begin
     Exit;
   end;
   SetWebUiPrimary(True);
+  PublishInstance('client', @TFormWebUi(WebUiForm).InstanceCommand);
 
   Application.Run;
 end.

@@ -16,8 +16,21 @@
 // (она покажет окно входа), в браузере — на connect.html.
 
 const params = new URLSearchParams(location.search);
-export const serverBase = (params.get('server') || location.origin).replace(/\/+$/, '');
 const shell = window.chrome?.webview ?? null;
+const SERVER_KEY = 'fptelegram.server';
+
+// Адрес сервера — из ?server= (так окно открывает приложение), и он же
+// запоминается во вкладке: страницы того же происхождения без параметра
+// (проверка транспорта, «назад в приложение») ходят туда же.
+function pickServer() {
+  let base = params.get('server') || '';
+  try {
+    if (base) sessionStorage.setItem(SERVER_KEY, base);
+    else base = sessionStorage.getItem(SERVER_KEY) || '';
+  } catch { /* хранилище недоступно — только параметр */ }
+  return (base || location.origin).replace(/\/+$/, '');
+}
+export const serverBase = pickServer();
 
 const REFRESH_KEY = 'fptelegram.refresh';
 // Запас до конца срока access: продлевать заранее.

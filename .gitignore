@@ -18,11 +18,17 @@ uploads/
 fptelegram-gui/web/.idea/
 fptelegram-gui/web/assets/scss/*.css.map
 
+# Единственный экземпляр (instance.pas): блокировка и порт/ключ канала.
+*.lock
+*.instance
+
 # Build output: rebuilt by lazbuild, 50 MB per copy in history.
 FPTelegram.exe
 FPTelegram.dbg
 FPTelegramServer.exe
 FPTelegramServer.dbg
+FPTelegramServerGui.exe
+FPTelegramServerGui.dbg
 lib/
 
 # Lazarus/lazbuild backups of edited project files.

@@ -393,6 +393,33 @@ const
   LOCAL_SERVER_PORT = 7654;
   { Адрес привязки по умолчанию — только эта машина (--bind меняет). }
   LOCAL_SERVER_BIND = '127.0.0.1';
+  { ================= окно сервера (panel/srvpanel.pas) ================= }
+
+  { Раскладка окна — в panel/srvpanel.lfm (дизайнер Lazarus). Выход: сколько ждать, пока TDLib закроет клиентов (TTdCore сам
+    ограничивает ожидание SHUTDOWN_TIMEOUT; это — запас сверху). }
+  PANEL_QUIT_GIVEUP_MS = SHUTDOWN_TIMEOUT + 2000;
+  { Порт, заданный в окне, — в conf.dat сервера. }
+  SERVER_CONFIG_SECTION = 'server';
+  SERVER_CONFIG_PORT = 'port';
+
+  { ================= единственный экземпляр (instance.pas) ================= }
+
+  { ИМЯ.lock — блокировка экземпляра, ИМЯ.instance — порт и ключ канала
+    управления. Оба сервера (консольный и с окном) — один экземпляр:
+    данные общие. }
+  INSTANCE_SERVER = 'server';
+  INSTANCE_CLIENT = 'client';
+  INSTANCE_LOCK_EXT = '.lock';
+  INSTANCE_INFO_EXT = '.instance';
+  INSTANCE_KEY_BYTES = 32;
+  INSTANCE_IO_TIMEOUT_MS = 5000;
+  INSTANCE_MAX_LINE = 65536;
+  { Только что запущенный экземпляр мог ещё не записать .instance. }
+  INSTANCE_INFO_WAIT_TRIES = 30;
+  INSTANCE_INFO_WAIT_MS = 100;
+  { Пульт к чужому серверу: как часто спрашивать его состояние. }
+  PANEL_REMOTE_POLL_MS = 2000;
+
   { ================= TLS (tlscert.pas) ================= }
 
   { Свой самоподписанный сертификат: RSA 2048, 10 лет (окно запоминает
@@ -469,6 +496,9 @@ const
     application exit. }
   LOCAL_SERVER_STOP_WAIT_MS = 2000;
 
+  { Код закрытия веб-сокета «сеанс погашен» (диапазон 4000-4999 — для
+    приложений, RFC 6455): страница уходит на вход, а не переподключается. }
+  LOCAL_SERVER_WS_CLOSE_SESSION_ENDED = 4001;
   { Same idea as the accept poll, for the WebSocket read loop. }
   LOCAL_SERVER_WS_POLL_MS = 200;
   LOCAL_SERVER_WS_READ_TIMEOUT_MS = 15000;

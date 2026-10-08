@@ -8,9 +8,8 @@
       <Unit>
         <Filename Value="FPTelegram.lpr"/>
         <IsPartOfProject Value="True"/>
-        <IsVisibleTab Value="True"/>
         <TopLine Value="63"/>
-        <CursorPos Y="96"/>
+        <CursorPos X="28" Y="71"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
       </Unit>
@@ -39,63 +38,91 @@
         <UsageCount Value="164"/>
       </Unit>
       <Unit>
-        <Filename Value="..\fptelegram-server\constants.pas"/>
+        <Filename Value="..\fptelegram-server\shared\constants.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
-        <Filename Value="..\fptelegram-server\secureconfig.pas"/>
+        <Filename Value="..\fptelegram-server\shared\secureconfig.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
-        <Filename Value="..\fptelegram-server\sha256u.pas"/>
+        <Filename Value="..\fptelegram-server\shared\sha256u.pas"/>
         <IsPartOfProject Value="True"/>
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
         <Filename Value="guiconst.pas"/>
         <IsPartOfProject Value="True"/>
+        <EditorIndex Value="1"/>
         <UsageCount Value="20"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="guiconn.pas"/>
         <IsPartOfProject Value="True"/>
+        <EditorIndex Value="2"/>
         <UsageCount Value="20"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="webview2.pas"/>
         <IsPartOfProject Value="True"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="19"/>
         <UsageCount Value="22"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="webui.pas"/>
         <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
         <UsageCount Value="22"/>
       </Unit>
       <Unit>
         <Filename Value="callpopup.pas"/>
         <IsPartOfProject Value="True"/>
+        <EditorIndex Value="4"/>
         <UsageCount Value="20"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="desknotify.pas"/>
         <IsPartOfProject Value="True"/>
+        <EditorIndex Value="5"/>
         <UsageCount Value="20"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="avatarcache.pas"/>
         <IsPartOfProject Value="True"/>
+        <EditorIndex Value="6"/>
         <UsageCount Value="20"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="miniapp.pas"/>
         <IsPartOfProject Value="True"/>
+        <EditorIndex Value="7"/>
         <UsageCount Value="20"/>
+        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="appid.pas"/>
         <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="8"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\fptelegram-server\instance.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <WindowIndex Value="-1"/>
+        <TopLine Value="-1"/>
+        <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="20"/>
       </Unit>
     </Units>

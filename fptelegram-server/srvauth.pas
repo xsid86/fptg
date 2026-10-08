@@ -38,6 +38,8 @@ procedure AuthLoad;
 
 function AuthUserCount: integer;
 function AuthHasUser(const AName: string): boolean;
+{ Имена пользователей (для окна сервера). }
+procedure AuthUserNames(AList: TStrings);
 { Новый пользователь или новый пароль существующему. }
 procedure AuthSetPassword(const AName, APassword: string);
 { Удаляет пользователя и все его сеансы. False — такого нет. }
@@ -57,6 +59,20 @@ procedure AuthLogout(const ARefresh: string);
 
 { Проверка JWT запроса. Media-адрес принимает и access-токен. }
 function AuthCheck(const AJwt: string; AScope: TAuthScope): boolean;
+{ Сеанс проверенного JWT (sid) — чтобы закрыть его соединения, когда
+  сеанс погасят. }
+function AuthSessionId(const AJwt: string): string;
+
+type
+  { Сеансы погашены: ASids — их id, nil — все. Зовётся вне замка srvauth,
+    в потоке того, кто гасил. }
+  TAuthSessionsEnded = procedure(ASids: TStrings);
+
+var
+  { Ставит localserver: закрыть веб-сокеты этих сеансов. Без этого уже
+    открытый сокет живёт дальше — токен проверяется только при
+    подключении. }
+  AuthSessionsEnded: TAuthSessionsEnded = nil;
 
 implementation
 
@@ -251,6 +267,21 @@ begin
   end;
 end;
 
+procedure AuthUserNames(AList: TStrings);
+var
+  I: integer;
+begin
+  AList.Clear;
+  GLock.Enter;
+  try
+    for I := 0 to GUsers.Count - 1 do begin
+      AList.Add(GUsers.Names[I]);
+    end;
+  finally
+    GLock.Leave;
+  end;
+end;
+
 function AuthHasUser(const AName: string): boolean;
 begin
   GLock.Enter;
@@ -280,27 +311,43 @@ begin
   end;
 end;
 
+{ Сообщить, что сеансы погашены (вне замка). ASids = nil — все. }
+procedure NotifyEnded(ASids: TStrings);
+begin
+  if Assigned(AuthSessionsEnded) then begin
+    AuthSessionsEnded(ASids);
+  end;
+end;
+
 function AuthRemoveUser(const AName: string): boolean;
 var
   I: integer;
+  Ended: TStringList;
 begin
-  GLock.Enter;
+  Ended := TStringList.Create;
   try
-    I := GUsers.IndexOfName(AName);
-    Result := I >= 0;
-    if not Result then begin
-      Exit;
-    end;
-    GUsers.Delete(I);
-    for I := GSessions.Count - 1 downto 0 do begin
-      if TSession(GSessions[I]).User = AName then begin
-        TSession(GSessions[I]).Free;
-        GSessions.Delete(I);
+    GLock.Enter;
+    try
+      I := GUsers.IndexOfName(AName);
+      Result := I >= 0;
+      if not Result then begin
+        Exit;
       end;
+      GUsers.Delete(I);
+      for I := GSessions.Count - 1 downto 0 do begin
+        if TSession(GSessions[I]).User = AName then begin
+          Ended.Add(TSession(GSessions[I]).Sid);
+          TSession(GSessions[I]).Free;
+          GSessions.Delete(I);
+        end;
+      end;
+      Persist;
+    finally
+      GLock.Leave;
     end;
-    Persist;
+    NotifyEnded(Ended);
   finally
-    GLock.Leave;
+    Ended.Free;
   end;
 end;
 
@@ -314,6 +361,7 @@ begin
   finally
     GLock.Leave;
   end;
+  NotifyEnded(nil);
 end;
 
 { ---------------- перебор ---------------- }
@@ -516,17 +564,53 @@ end;
 procedure AuthLogout(const ARefresh: string);
 var
   S: TSession;
+  Ended: TStringList;
 begin
-  GLock.Enter;
+  Ended := TStringList.Create;
   try
-    S := FindByRefresh(ARefresh);
-    if S <> nil then begin
-      GSessions.Remove(S);
-      S.Free;
-      Persist;
+    GLock.Enter;
+    try
+      S := FindByRefresh(ARefresh);
+      if S <> nil then begin
+        Ended.Add(S.Sid);
+        GSessions.Remove(S);
+        S.Free;
+        Persist;
+      end;
+    finally
+      GLock.Leave;
+    end;
+    if Ended.Count > 0 then begin
+      NotifyEnded(Ended);
     end;
   finally
-    GLock.Leave;
+    Ended.Free;
+  end;
+end;
+
+function AuthSessionId(const AJwt: string): string;
+var
+  P1, P2: integer;
+  D: TJSONData;
+begin
+  Result := '';
+  P1 := Pos('.', AJwt);
+  P2 := Pos('.', AJwt, P1 + 1);
+  if (P1 = 0) or (P2 = 0) then begin
+    Exit;
+  end;
+  D := nil;
+  try
+    try
+      D := GetJSON(UnB64Url(Copy(AJwt, P1 + 1, P2 - P1 - 1)));
+    except
+      D := nil;
+    end;
+    if D is TJSONObject then begin
+      Result := TJSONObject(D).Get('sid', '');
+    end;
+  finally
+    D.Free;
   end;
 end;
 

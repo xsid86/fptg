@@ -90,6 +90,8 @@ type
     procedure SetupTray;
     { Показать окно и вывести вперёд — как двойной клик по трею. }
     procedure Reveal;
+    { Команда второго запуска (instance.pas): show — показать окно. }
+    function InstanceCommand(const ACmd: string; AArgs: TJSONObject): TJSONObject;
     { Is the user actually looking at this window? Visible is not
       enough - a window behind three others is as unseen as a hidden
       one, and that is exactly when a notification has to leave the
@@ -743,6 +745,16 @@ end;
 procedure TFormWebUi.TrayDblClick(Sender: TObject);
 begin
   Reveal;
+end;
+
+function TFormWebUi.InstanceCommand(const ACmd: string; AArgs: TJSONObject): TJSONObject;
+begin
+  Result := nil;
+  if ACmd = 'show' then begin
+    Reveal;
+  end else begin
+    raise Exception.Create('Unknown command: ' + ACmd);
+  end;
 end;
 
 procedure TFormWebUi.Reveal;

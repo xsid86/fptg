@@ -18,6 +18,8 @@ interface
 
 { До запроса остановки. }
 procedure RunUntilStopped;
+{ Остановку уже попросили (Ctrl+C, закрытие консоли, SIGTERM). }
+function StopRequested: boolean;
 { Закрывает клиентов TDLib и ждёт подтверждения (сам TTdCore
   ограничивает ожидание SHUTDOWN_TIMEOUT). }
 procedure ShutdownCore;
@@ -102,6 +104,11 @@ begin
   FpSigAction(SIGINT, @Act, nil);
   FpSigAction(SIGTERM, @Act, nil);
   {$ENDIF}
+end;
+
+function StopRequested: boolean;
+begin
+  Result := GStop <> 0;
 end;
 
 procedure RunUntilStopped;

@@ -1,0 +1,219 @@
+object FormServerPanel: TFormServerPanel
+  Left = 400
+  Height = 500
+  Top = 200
+  Width = 320
+  BorderIcons = [biSystemMenu, biMinimize]
+  BorderStyle = bsSingle
+  Caption = 'FPTelegram server'
+  ClientHeight = 500
+  ClientWidth = 320
+  Position = poScreenCenter
+  ShowInTaskBar = stAlways
+  OnCloseQuery = FormCloseQuery
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  LCLVersion = '4.8.0.0'
+  object lblStatus: TLabel
+    Left = 12
+    Height = 15
+    Top = 12
+    Width = 296
+    Anchors = [akTop, akLeft, akRight]
+    AutoSize = False
+    Caption = 'Stopped'
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object btnStartStop: TButton
+    Left = 12
+    Height = 30
+    Top = 34
+    Width = 296
+    Anchors = [akTop, akLeft, akRight]
+    Caption = 'Start'
+    TabOrder = 0
+    OnClick = btnStartStopClick
+  end
+  object lblAddress: TLabel
+    Left = 12
+    Height = 15
+    Top = 76
+    Width = 42
+    Caption = 'Address'
+  end
+  object edtAddress: TEdit
+    Left = 12
+    Height = 23
+    Top = 94
+    Width = 222
+    Anchors = [akTop, akLeft, akRight]
+    ReadOnly = True
+    TabStop = False
+    TabOrder = 1
+  end
+  object btnCopyAddress: TButton
+    Left = 240
+    Height = 23
+    Top = 94
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Copy'
+    TabOrder = 7
+    OnClick = btnCopyAddressClick
+  end
+  object lblPort: TLabel
+    Left = 12
+    Height = 15
+    Top = 125
+    Width = 22
+    Caption = 'Port'
+  end
+  object edtPort: TEdit
+    Left = 12
+    Height = 23
+    Top = 143
+    Width = 222
+    Anchors = [akTop, akLeft, akRight]
+    MaxLength = 5
+    NumbersOnly = True
+    TabOrder = 2
+  end
+  object btnCopyPort: TButton
+    Left = 240
+    Height = 23
+    Top = 143
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Copy'
+    TabOrder = 8
+    OnClick = btnCopyPortClick
+  end
+  object lblPrint: TLabel
+    Left = 12
+    Height = 15
+    Top = 174
+    Width = 186
+    Caption = 'Certificate fingerprint (SHA-256)'
+  end
+  object edtPrint: TEdit
+    Left = 12
+    Height = 23
+    Top = 192
+    Width = 296
+    Anchors = [akTop, akLeft, akRight]
+    ReadOnly = True
+    TabStop = False
+    TabOrder = 3
+  end
+  object lblUsers: TLabel
+    Left = 12
+    Height = 15
+    Top = 228
+    Width = 28
+    Caption = 'Users'
+  end
+  object lstUsers: TListBox
+    Left = 12
+    Height = 166
+    Top = 246
+    Width = 296
+    Anchors = [akTop, akLeft, akRight, akBottom]
+    ItemHeight = 0
+    TabOrder = 4
+  end
+  object pnlUserButtons: TPanel
+    Left = 12
+    Height = 30
+    Top = 420
+    Width = 296
+    Anchors = [akLeft, akRight, akBottom]
+    BevelOuter = bvNone
+    ChildSizing.HorizontalSpacing = 6
+    ChildSizing.EnlargeHorizontal = crsHomogenousChildResize
+    ChildSizing.EnlargeVertical = crsHomogenousChildResize
+    ChildSizing.ShrinkHorizontal = crsHomogenousChildResize
+    ChildSizing.Layout = cclLeftToRightThenTopToBottom
+    ChildSizing.ControlsPerLine = 3
+    ClientHeight = 30
+    ClientWidth = 296
+    TabOrder = 5
+    object btnAddUser: TButton
+      Left = 0
+      Height = 30
+      Top = 0
+      Width = 94
+      Caption = 'Add...'
+      TabOrder = 0
+      OnClick = btnAddUserClick
+    end
+    object btnPassword: TButton
+      Left = 100
+      Height = 30
+      Top = 0
+      Width = 96
+      Caption = 'Password...'
+      TabOrder = 1
+      OnClick = btnPasswordClick
+    end
+    object btnRemoveUser: TButton
+      Left = 202
+      Height = 30
+      Top = 0
+      Width = 94
+      Caption = 'Remove'
+      TabOrder = 2
+      OnClick = btnRemoveUserClick
+    end
+  end
+  object btnLogoutAll: TButton
+    Left = 12
+    Height = 30
+    Top = 458
+    Width = 296
+    Anchors = [akLeft, akRight, akBottom]
+    Caption = 'Sign out everyone'
+    TabOrder = 6
+    OnClick = btnLogoutAllClick
+  end
+  object trayIcon: TTrayIcon
+    PopUpMenu = popTray
+    Hint = 'FPTelegram server'
+    OnDblClick = miShowClick
+    Left = 248
+    Top = 64
+  end
+  object popTray: TPopupMenu
+    Left = 248
+    Top = 112
+    object miShow: TMenuItem
+      Caption = 'Show window'
+      Default = True
+      OnClick = miShowClick
+    end
+    object miStartStop: TMenuItem
+      Caption = 'Start server'
+      OnClick = btnStartStopClick
+    end
+    object miSeparator: TMenuItem
+      Caption = '-'
+    end
+    object miQuit: TMenuItem
+      Caption = 'Quit'
+      OnClick = miQuitClick
+    end
+  end
+  object tmrGiveUp: TTimer
+    Enabled = False
+    OnTimer = tmrGiveUpTimer
+    Left = 248
+    Top = 160
+  end
+  object tmrPoll: TTimer
+    Enabled = False
+    Interval = 2000
+    OnTimer = tmrPollTimer
+    Left = 248
+    Top = 208
+  end
+end

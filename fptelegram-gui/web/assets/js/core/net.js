@@ -1,5 +1,9 @@
 import { emit } from './bus.js';
-import { socketUrl, absoluteMedia, dropAccess } from './session.js';
+import { socketUrl, absoluteMedia, dropAccess, signedOut } from './session.js';
+
+// Сервер закрыл сокет: сеанс погашен (выход, удаление пользователя,
+// «выйти всем» в окне сервера) — localserver, LOCAL_SERVER_WS_CLOSE_SESSION_ENDED.
+const CLOSE_SESSION_ENDED = 4001;
 
 // The socket, and the request/response discipline on top of it.
 //
@@ -72,8 +76,18 @@ function open(url) {
     else if (message.type) emit(`srv:${message.type}`, message);
   });
 
-  socket.addEventListener('close', () => {
+  socket.addEventListener('close', (event) => {
     setStatus('closed');
+    if (event.code === CLOSE_SESSION_ENDED) {
+      for (const entry of pending.values()) {
+        clearTimeout(entry.timer);
+        entry.reject(new Error('signed out'));
+      }
+      pending.clear();
+      // Загруженное на странице — уже не наше: на вход, без переподключения.
+      signedOut('You were signed out on the server.');
+      return;
+    }
     // Every waiting caller has to be told, or a promise created before
     // the drop never settles and whatever awaited it hangs for good.
     for (const entry of pending.values()) {
