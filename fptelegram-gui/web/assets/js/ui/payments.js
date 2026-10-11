@@ -28,6 +28,9 @@ const notify = (text) => hooks.notice?.(text);
 // .smart-glocal.com, ровно этот путь, без query и фрагмента. Иначе —
 // стандартный адрес. Номер карты по чужому адресу не уходит.
 const SMART_GLOCAL_PATH = '/cds/v1/tokenize/card';
+// Временный пароль, которому осталось меньше — как будто его нет: пока
+// человек подтверждает сумму, он успел бы истечь.
+const TMP_PASSWORD_MIN_SEC = 120;
 const SMART_GLOCAL_HOST = { live: 'tgb.smart-glocal.com', test: 'tgb-playground.smart-glocal.com' };
 const STRIPE_TOKENS_URL = 'https://api.stripe.com/v1/tokens';
 
@@ -321,7 +324,12 @@ async function payCard(invoice, form) {
     creds = await askNewCard(form);
     if (!creds) return;
   } else {
-    if (form.needPassword && !(await askPassword())) return;
+    // Сохранённой картой — ВСЕГДА с действующим временным паролем
+    // (inputCredentialsSaved, td_api.tl). form.needPassword тут ни при
+    // чём: оно про то, сможет ли человек СОХРАНИТЬ карту. Пароль — если
+    // временного нет или он вот-вот истечёт.
+    const tmp = await hooks.call('bot.tmpPasswordState').catch(() => null);
+    if (!(tmp?.hasPassword && tmp.validFor >= TMP_PASSWORD_MIN_SEC) && !(await askPassword())) return;
     creds = { savedId: method.savedId, title: method.title };
   }
 

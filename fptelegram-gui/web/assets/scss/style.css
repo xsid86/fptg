@@ -9948,6 +9948,11 @@ span.picker__gif {
   width: max-content;
 }
 
+.notice.is-error {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--c-danger) 80%, white), color-mix(in srgb, var(--c-danger) 80%, black));
+  color: var(--c-light);
+}
+
 .notice__text {
   font-size: 13px;
   line-height: 1.45;

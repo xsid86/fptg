@@ -179,6 +179,8 @@ type
     function  CmdBotValidateOrder(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure BotValidateOrderDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdBotTmpPassword(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdBotTmpPasswordState(AConnId: Int64; AReqId: integer): boolean;
+    procedure TmpPasswordStateDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdMentionSearch(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure MentionMembersDone(Sender: TObject; const AResp: TTdResponse);
     procedure MentionContactsDone(Sender: TObject; const AResp: TTdResponse);
@@ -6504,6 +6506,41 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
+{ bot.tmpPasswordState — есть ли действующий временный пароль
+  (getTemporaryPasswordState -> temporaryPasswordState: has_password,
+  valid_for). Нужен ВСЕГДА перед оплатой сохранённой картой
+  (inputCredentialsSaved, td_api.tl). Не путать с need_password формы:
+  оно значит «смог бы сохранить карту, если заведёт облачный пароль»
+  (живой tdlib_raw.log: need_password false у всех форм, а оплата
+  отвечала «Temporary password required to use saved credentials»). }
+function TWebApi.CmdBotTmpPasswordState(AConnId: Int64; AReqId: integer): boolean;
+begin
+  Result := True;
+  RequireMsgs.Request('getTemporaryPasswordState', '', @TmpPasswordStateDone,
+    TakeDeferred(AConnId, AReqId, 0));
+end;
+
+procedure TWebApi.TmpPasswordStateDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy) then begin
+    Exit;
+  end;
+  if not AResp.Success then begin
+    Fail(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, AResp.ErrorMessage);
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('hasPassword', JGetBool(AResp.Obj, 'has_password'));
+  Res.Add('validFor', JGetInt(AResp.Obj, 'valid_for'));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
 { Оплата звёздами — только после явного подтверждения на странице:
   sendPaymentForm, credentials null (так велит td_api.tl для Stars). }
 function TWebApi.CmdBotPay(AConnId: Int64; AReqId: integer;
@@ -9661,6 +9698,8 @@ begin
         CmdBotValidateOrder(AConnId, ReqId, Args);
       end else if Cmd = 'bot.tmpPassword' then begin
         CmdBotTmpPassword(AConnId, ReqId, Args);
+      end else if Cmd = 'bot.tmpPasswordState' then begin
+        CmdBotTmpPasswordState(AConnId, ReqId);
       end else if Cmd = 'bot.pay' then begin
         CmdBotPay(AConnId, ReqId, Args);
       end else if Cmd = 'bot.sendLocation' then begin

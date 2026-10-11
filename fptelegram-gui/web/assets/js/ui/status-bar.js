@@ -228,24 +228,6 @@ function renderTraffic(data) {
     + `↑ ${fileSize(up)} · ${fileSize(upSpeed)}/s`;
 }
 
-let errorTimer = null;
-
-function showError(message) {
-  // После переключателя видимости (с трафиком под ним), а не после
-  // индикатора соединения: тот живёт в узкой колонке под «transport check».
-  const anchor = presence.closest('.status-bar__presence-box') ?? presence;
-  let slot = qs('.status-bar__error', anchor.parentElement);
-  if (!slot) {
-    slot = el('span', { class: 'status-bar__error' });
-    anchor.after(slot);
-  }
-  slot.textContent = message;
-  // Cleared after a while rather than left standing: a stale failure
-  // next to a working connection reads as a current one.
-  clearTimeout(errorTimer);
-  errorTimer = setTimeout(() => { slot.textContent = ''; }, 6000);
-}
-
 export function mountStatusBar(node) {
   conn = qs('.conn', node);
   counts = qs('.status-bar__counts', node);
@@ -278,7 +260,6 @@ export function mountStatusBar(node) {
     renderPresence();
   });
   on('store:chats', renderCounts);
-  on('ui:error', showError);
   renderStatus('connecting');
   renderPresence();
   renderCounts();

@@ -29,6 +29,13 @@
   width: max-content;
 }
 
+// Ошибка запроса (ui:error, ui/notices.js): тот же вид, цвет опасности;
+// исчезает сама.
+.notice.is-error {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--c-danger) 80%, white), color-mix(in srgb, var(--c-danger) 80%, black));
+  color: var(--c-light);
+}
+
 .notice__text {
   font-size: $fs-base;
   line-height: $lh-base;
