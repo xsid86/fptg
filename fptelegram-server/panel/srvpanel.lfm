@@ -1,12 +1,12 @@
 object FormServerPanel: TFormServerPanel
   Left = 400
-  Height = 500
+  Height = 323
   Top = 200
   Width = 320
   BorderIcons = [biSystemMenu, biMinimize]
   BorderStyle = bsSingle
   Caption = 'FPTelegram server'
-  ClientHeight = 500
+  ClientHeight = 323
   ClientWidth = 320
   Position = poScreenCenter
   ShowInTaskBar = stAlways
@@ -18,12 +18,29 @@ object FormServerPanel: TFormServerPanel
     Left = 12
     Height = 15
     Top = 12
-    Width = 296
-    Anchors = [akTop, akLeft, akRight]
-    AutoSize = False
+    Width = 48
     Caption = 'Stopped'
     Font.Style = [fsBold]
     ParentFont = False
+  end
+  object lblUrl: TLabel
+    AnchorSideLeft.Control = lblStatus
+    AnchorSideLeft.Side = asrBottom
+    AnchorSideTop.Control = lblStatus
+    Cursor = crHandPoint
+    Left = 64
+    Height = 15
+    Top = 12
+    Width = 1
+    BorderSpacing.Left = 4
+    Font.Color = clHotLight
+    Font.Style = [fsBold, fsUnderline]
+    Hint = 'Open in the browser'
+    ParentFont = False
+    ParentShowHint = False
+    ShowHint = True
+    Visible = False
+    OnClick = lblUrlClick
   end
   object btnStartStop: TButton
     Left = 12
@@ -106,75 +123,42 @@ object FormServerPanel: TFormServerPanel
     TabStop = False
     TabOrder = 3
   end
-  object lblUsers: TLabel
+  object lblUser: TLabel
     Left = 12
     Height = 15
     Top = 228
-    Width = 28
-    Caption = 'Users'
+    Width = 26
+    Caption = 'User'
   end
-  object lstUsers: TListBox
+  object edtUser: TEdit
     Left = 12
-    Height = 166
+    Height = 23
     Top = 246
-    Width = 296
-    Anchors = [akTop, akLeft, akRight, akBottom]
-    ItemHeight = 0
+    Width = 222
+    Anchors = [akTop, akLeft, akRight]
+    ReadOnly = True
+    TabStop = False
     TabOrder = 4
   end
-  object pnlUserButtons: TPanel
-    Left = 12
-    Height = 30
-    Top = 420
-    Width = 296
-    Anchors = [akLeft, akRight, akBottom]
-    BevelOuter = bvNone
-    ChildSizing.HorizontalSpacing = 6
-    ChildSizing.EnlargeHorizontal = crsHomogenousChildResize
-    ChildSizing.EnlargeVertical = crsHomogenousChildResize
-    ChildSizing.ShrinkHorizontal = crsHomogenousChildResize
-    ChildSizing.Layout = cclLeftToRightThenTopToBottom
-    ChildSizing.ControlsPerLine = 3
-    ClientHeight = 30
-    ClientWidth = 296
+  object btnUser: TButton
+    Left = 240
+    Height = 23
+    Top = 246
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Change...'
     TabOrder = 5
-    object btnAddUser: TButton
-      Left = 0
-      Height = 30
-      Top = 0
-      Width = 94
-      Caption = 'Add...'
-      TabOrder = 0
-      OnClick = btnAddUserClick
-    end
-    object btnPassword: TButton
-      Left = 100
-      Height = 30
-      Top = 0
-      Width = 96
-      Caption = 'Password...'
-      TabOrder = 1
-      OnClick = btnPasswordClick
-    end
-    object btnRemoveUser: TButton
-      Left = 202
-      Height = 30
-      Top = 0
-      Width = 94
-      Caption = 'Remove'
-      TabOrder = 2
-      OnClick = btnRemoveUserClick
-    end
+    OnClick = btnUserClick
   end
-  object btnLogoutAll: TButton
+  object btnSignOut: TButton
     Left = 12
     Height = 30
-    Top = 458
+    Top = 281
     Width = 296
-    Anchors = [akLeft, akRight, akBottom]
-    Caption = 'Sign out everyone'
+    Anchors = [akTop, akLeft, akRight]
+    Caption = 'Sign out'
     TabOrder = 6
-    OnClick = btnLogoutAllClick
+    OnClick = btnSignOutClick
   end
   object trayIcon: TTrayIcon
     PopUpMenu = popTray

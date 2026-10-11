@@ -4,7 +4,7 @@ import { store, setActiveChat } from '../core/store.js';
 import { icon, kindIcon } from '../util/icons.js';
 import { listTime, countLabel } from '../util/format.js';
 import { closeMenuIfDetached } from '../util/menu.js';
-import { customEmojiNode } from '../util/emoji.js';
+import { customEmojiNode, customEmojiUrl } from '../util/emoji.js';
 import { fillAvatar } from '../util/avatar.js';
 import { renderRichText } from '../util/entities.js';
 
@@ -290,7 +290,12 @@ function rowNode(chat) {
   // Активность — не часть данных чата, но меняет строку (is-active): без
   // неё в ключе прежняя открытая строка оставалась подсвеченной, пока её
   // чат сам не менялся (после отправки файла — заметно).
-  const hash = JSON.stringify(chat) + (chat.id === store.activeChatId ? '|active' : '');
+  // Кастомные эмодзи строки (статус у имени, эмодзи в превью) — тоже в
+  // ключе: файл догружается позже, чат при этом не меняется, и без
+  // адресов в ключе строка держала запасной символ до клика по чату.
+  const emojiIds = [chat.emojiStatus, ...(chat.previewGlyphs ?? []).map((g) => g?.customEmojiId)];
+  const hash = JSON.stringify(chat) + (chat.id === store.activeChatId ? '|active' : '')
+    + emojiIds.filter(Boolean).map(customEmojiUrl).join('|');
   const known = rows.get(chat.id);
   if (known && known.hash === hash) return known.node;
   if (known) seen?.unobserve(known.node);

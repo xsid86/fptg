@@ -224,12 +224,10 @@ function render(chat) {
   parts.back.hidden = !thread;
   // Same palette class the list row carries, so the header and the row
   // for one chat can never disagree about its colour.
-  // In a thread everything on this bar describes the DISCUSSION
-  // GROUP: these are its messages, and wearing the channel's name and
-  // picture said the wrong thing about where the reader was.
-  const face = thread
-    ? { title: thread.title || 'Discussion', avatar: thread.avatar, color: thread.color }
-    : chat;
+  // В ветке шапка — по-прежнему канал (решение пользователя,
+  // 2026-10-10): читают комментарии к ЕГО посту, а аватар группы
+  // обсуждения сбивал. Группа — в подзаголовке, если её имя другое.
+  const face = chat;
   root.className = `chat-header accent-${face.color ?? chat.color}`;
   // The same picture the row in the list shows - see util/avatar.js.
   fillAvatar(parts.avatar, face);
@@ -237,9 +235,10 @@ function render(chat) {
   parts.titleIcon.replaceWith(kind);
   parts.titleIcon = kind;
   parts.titleText.textContent = face.title || '(no title)';
-  // What this thread is: how many comments, and under whose post.
+  // What this thread is: how many comments, and in which group.
   parts.subtitle.textContent = thread
-    ? [commentLabel(thread.post?.comments ?? 0), thread.postChatTitle]
+    ? [commentLabel(thread.post?.comments ?? 0),
+       thread.title !== face.title ? thread.title : '']
         .filter(Boolean).join(' \u00b7 ')
     : subtitle(chat);
 }

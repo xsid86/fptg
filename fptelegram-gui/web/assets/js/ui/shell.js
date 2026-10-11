@@ -18,7 +18,9 @@ import { signOut, signedOut } from '../core/session.js';
 //   miniapp {url, title, bot, launch, buttonText, theme}  открыть
 //     мини-приложение (ответ webapp.open);
 //   miniappResp {id, ok, result, error}  ответ сервера на miniappReq;
-//   callpopup — окошко звонка (ui/call.js).
+//   callpopup — окошко звонка (ui/call.js);
+//   frame {caption, text, border, dark}  цвета рамки окна по теме,
+//     '#rrggbb' (ui/theme.js; окно — winframe.pas).
 // Окно -> страница:
 //   signOut             трей → Sign out;
 //   certificate {origin, fingerprint, changed}  сертификат сервера не

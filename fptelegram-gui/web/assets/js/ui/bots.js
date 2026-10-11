@@ -1,4 +1,4 @@
-import { el, clear, qs } from '../core/dom.js';
+import { el, clear, qs, append } from '../core/dom.js';
 import { on, emit } from '../core/bus.js';
 import { icon } from '../util/icons.js';
 import { openMenu } from '../util/menu.js';
@@ -165,14 +165,14 @@ export function pickChats({ title, candidates, max }) {
       answer = candidates.filter((c) => chosen.has(c.id));
       dialog.close();
     });
-    dialog.append(
+    append(dialog, [
       el('p', { class: 'confirm__text' }, title),
       many ? el('p', { class: 'confirm__note' }, `Up to ${max}`) : null,
       el('label', { class: 'field share__search' }, search),
       list,
       el('div', { class: 'confirm__buttons' },
         el('button', { class: 'btn confirm__button', type: 'button', onclick: () => dialog.close() }, 'Cancel'),
-        send));
+        send)]);
     dialog.addEventListener('click', (event) => {
       if (event.target === dialog) dialog.close();
     });

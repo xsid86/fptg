@@ -29,6 +29,10 @@ type
 { Сохранённое; False — не к чему подключаться (нет адреса). }
 function LoadServerAddress(out AAddr: TServerAddress): boolean;
 procedure SaveServerAddress(const AAddr: TServerAddress);
+{ Последние цвета рамки окна от страницы (JSON как пришёл, winframe);
+  '' — ещё не было. }
+function LoadWindowFrame: string;
+procedure SaveWindowFrame(const AJson: string);
 { https://адрес:порт (IPv6 — в скобках). }
 function ServerOrigin(const AAddr: TServerAddress): string;
 { Экранирование для параметра адреса. }
@@ -89,6 +93,32 @@ begin
     Ini.WriteString(GUI_CONFIG_SECTION, KEY_USER, AAddr.User);
     Ini.WriteString(GUI_CONFIG_SECTION, KEY_REFRESH, AAddr.Refresh);
     Ini.WriteString(GUI_CONFIG_SECTION, KEY_FINGERPRINT, AAddr.Fingerprint);
+  finally
+    Ini.Free;
+  end;
+end;
+
+function LoadWindowFrame: string;
+var
+  Ini: TSecureIni;
+begin
+  EnsureConfigDir;
+  Ini := OpenConfig;
+  try
+    Result := Ini.ReadString(GUI_WINDOW_SECTION, GUI_FRAME_KEY, '');
+  finally
+    Ini.Free;
+  end;
+end;
+
+procedure SaveWindowFrame(const AJson: string);
+var
+  Ini: TSecureIni;
+begin
+  EnsureConfigDir;
+  Ini := OpenConfig;
+  try
+    Ini.WriteString(GUI_WINDOW_SECTION, GUI_FRAME_KEY, AJson);
   finally
     Ini.Free;
   end;

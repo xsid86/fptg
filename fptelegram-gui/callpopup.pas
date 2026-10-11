@@ -31,7 +31,7 @@ implementation
 
 uses
   Windows, Classes, SysUtils, Forms, Controls, LCLType, fpjson, jsonparser,
-  constants, guiconst, desknotify, webview2, webui;
+  constants, guiconst, desknotify, webview2, webui, winframe;
 
 type
   TFormCallPopup = class(TForm)
@@ -70,6 +70,9 @@ begin
   Width := Sc(DESKNOTIFY_WIDTH);
   Height := Sc(CALLPOPUP_HEIGHT);
   FView := TWebView2.Create(Handle);
+  { Заголовка нет (bsNone) — от темы ей достаются тёмный режим и кайма
+    Windows 11 (winframe). }
+  FrameAttach(Handle);
   { Карточка — тоже из файлов окна, аватарка — с сервера: тот же сайт и
     то же решение о сертификате, что у главного окна. }
   FView.MapVirtualHost(WEB_APP_HOST, utf8string(WebUiFolder));
@@ -79,6 +82,9 @@ end;
 
 destructor TFormCallPopup.Destroy;
 begin
+  if HandleAllocated then begin
+    FrameDetach(Handle);
+  end;
   FreeAndNil(FView);
   if GPopup = Self then begin
     GPopup := nil;

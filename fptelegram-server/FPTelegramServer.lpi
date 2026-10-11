@@ -13,11 +13,12 @@
       <Title Value="FPTelegramServer"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
+      <Icon Value="0"/>
     </General>
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="34"/>
+      <BuildNr Value="39"/>
       <StringTable CompanyName="xsid86" InternalName="FPTelegramServer" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>

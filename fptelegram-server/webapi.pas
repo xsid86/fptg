@@ -2189,6 +2189,13 @@ begin
     O.Add('title', A.Title);
     O.Add('phone', string(A.Phone));
     O.Add('username', string(A.Username));
+    { Строкой: id пользователя бывает за пределом точных целых JS.
+      До getMe — пусто. }
+    if A.UserId <> 0 then begin
+      O.Add('userId', IntToStr(A.UserId));
+    end else begin
+      O.Add('userId', '');
+    end;
     O.Add('color', string(AccentKeyFor(-1, A.UserId)));
     O.Add('avatar', string(AccountAvatarUri(A)));
     O.Add('ready', A.State = tasReady);
@@ -7420,6 +7427,11 @@ begin
     Invite := JGetStr(JGetObj(AResp.Obj, 'invite_link'), 'invite_link');
     if Invite <> '' then begin
       Res.Add('inviteLink', string(Invite));
+    end;
+    { Группа обсуждения канала (у группы — её канал): кнопка Chat в
+      сведениях о канале ведёт туда. 0 — нет. }
+    if JGetInt64(AResp.Obj, 'linked_chat_id') <> 0 then begin
+      Res.Add('linkedChatId', JGetInt64(AResp.Obj, 'linked_chat_id'));
     end;
   end;
   InfoStep(AResp.Tag);

@@ -3,7 +3,7 @@ unit srvhost;
 {$mode objfpc}{$H+}
 
 { Сервер как целое — то, чем управляют: TLS, порт, приём подключений
-  (старт/стоп), клиенты TDLib, пользователи. Общий у консольного сервера и
+  (старт/стоп), клиенты TDLib, пользователь. Общий у консольного сервера и
   у окна, без LCL.
 
   Control — команды управления; их же получает канал экземпляра
@@ -12,8 +12,8 @@ unit srvhost;
     status            -> состояние (StatusJson)
     start (port)      -> начать приём подключений
     stop              -> перестать принимать
-    users.add (user, password) / users.password (user, password)
-    users.remove (user) / users.logoutAll
+    user.set (user, password) -> логин и пароль единственного пользователя
+    signOut           -> завершить все сеансы
     show              -> показать окно (OnShow; у консольного — ничего)
   Ответ на каждую — состояние после неё.
 
@@ -182,10 +182,6 @@ begin
 end;
 
 function TServerHost.StatusJson: TJSONObject;
-var
-  Users: TStringList;
-  A: TJSONArray;
-  I: integer;
 begin
   Result := TJSONObject.Create;
   Result.Add('kind', FKind);
@@ -199,17 +195,7 @@ begin
     Result.Add('fingerprint', 'TLS: ' + FTlsError);
   end;
   Result.Add('tlsOk', FTlsOk);
-  Users := TStringList.Create;
-  try
-    AuthUserNames(Users);
-    A := TJSONArray.Create;
-    for I := 0 to Users.Count - 1 do begin
-      A.Add(Users[I]);
-    end;
-    Result.Add('users', A);
-  finally
-    Users.Free;
-  end;
+  Result.Add('user', AuthUserName);
 end;
 
 function TServerHost.Control(const ACmd: string; AArgs: TJSONObject): TJSONObject;
@@ -240,27 +226,13 @@ begin
     end;
   end else if ACmd = 'stop' then begin
     Stop;
-  end else if (ACmd = 'users.add') or (ACmd = 'users.password') then begin
+  end else if ACmd = 'user.set' then begin
     if UserName = '' then begin
       raise Exception.Create('No user name');
     end;
-    if (ACmd = 'users.add') and AuthHasUser(UserName) then begin
-      raise Exception.Create('User ' + UserName + ' already exists.');
-    end;
-    if (ACmd = 'users.password') and not AuthHasUser(UserName) then begin
-      raise Exception.Create('No user ' + UserName + '.');
-    end;
-    if AArgs.Get('password', '') = '' then begin
-      raise Exception.Create('Empty password');
-    end;
-    AuthSetPassword(UserName, AArgs.Get('password', ''));
+    AuthSetUser(UserName, AArgs.Get('password', ''));
     Changed;
-  end else if ACmd = 'users.remove' then begin
-    if not AuthRemoveUser(UserName) then begin
-      raise Exception.Create('No user ' + UserName + '.');
-    end;
-    Changed;
-  end else if ACmd = 'users.logoutAll' then begin
+  end else if ACmd = 'signOut' then begin
     AuthLogoutAll;
   end else if ACmd = 'show' then begin
     if Assigned(FOnShow) then begin

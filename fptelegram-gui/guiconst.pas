@@ -42,6 +42,23 @@ const
     отдаёт). }
   CONNECT_PAGE = 'connect.html';
 
+  { ================= рамка окна (DWM) ================= }
+
+  { Последние цвета рамки от страницы — в conf.dat окна: рамку красить
+    ещё до загрузки страницы, иначе первый кадр не того цвета. }
+  GUI_WINDOW_SECTION = 'window';
+  GUI_FRAME_KEY = 'frame';
+  { DWMWINDOWATTRIBUTE (dwmapi.h; в dwmapi.pp FPC 3.2.2 их ещё нет).
+    Сверено по docs Microsoft, 2026-10-11. Тёмный режим — Windows 11
+    22000 и Windows 10 20H1+; цвета — только Windows 11 22000+, на
+    старых DwmSetWindowAttribute просто откажет. }
+  FRAME_ATTR_DARK_MODE = 20;     { DWMWA_USE_IMMERSIVE_DARK_MODE, BOOL }
+  FRAME_ATTR_BORDER = 34;        { DWMWA_BORDER_COLOR, COLORREF }
+  FRAME_ATTR_CAPTION = 35;       { DWMWA_CAPTION_COLOR }
+  FRAME_ATTR_TEXT = 36;          { DWMWA_TEXT_COLOR }
+  { DWMWA_COLOR_DEFAULT: вернуть системный цвет. }
+  FRAME_COLOR_DEFAULT = $FFFFFFFF;
+
   { ================= WebView2 ================= }
 
   { WebView2.h: COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION (UNKNOWN 0,

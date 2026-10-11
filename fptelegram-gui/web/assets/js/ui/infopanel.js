@@ -91,12 +91,20 @@ async function load() {
     // список чатов (ChatKindStr); панели это один вид — человек. Без этого
     // у контактов не было ни действий, ни меню More.
     if (next.kind === 'private' || next.kind === 'secret') next.kind = 'user';
+    // Фоновое перечитывание (srv:chats — сообщение в ЛЮБОМ чате) чаще
+    // всего ничего не меняет: тогда и не перерисовывать — перерисовка
+    // сбрасывала прокрутку и перезагружала участников.
+    const same = info && info.chatId === next.chatId;
+    if (same && view === 'info' && JSON.stringify(next) === JSON.stringify(info)) return;
     info = next;
     // На подарках и медиа фоновое обновление сведений сетку не
     // перестраивает: она от них не зависит, а перестройка заново
     // запускала стикеры и не давала разглядеть элементы в инспекторе.
     if (view !== 'info') return;
+    // Тот же чат — читатель остаётся там, куда долистал.
+    const top = same ? body.scrollTop : 0;
     render();
+    body.scrollTop = top;
   } catch (error) {
     if (my === asked) {
       clear(body).append(el('p', { class: 'info-panel__hint' }, 'No information available.'));
@@ -267,6 +275,9 @@ async function openPhotos(i, host = null) {
   }
 }
 
+// Последний нарисованный список участников (см. render).
+let membersShown = { chatId: null, nodes: [] };
+
 async function loadMembers(box, i) {
   try {
     const r = await hooks.call('chat.members', { chatId: i.chatId });
@@ -275,7 +286,7 @@ async function loadMembers(box, i) {
       const rank = (m) => (m.role === 'owner' ? 0 : m.role === 'admin' ? 1 : 2);
       return rank(a) - rank(b) || (a.title || '').localeCompare(b.title || '');
     });
-    clear(box).append(...members.map((m) => {
+    const nodes = members.map((m) => {
       const avatar = el('span', { class: `avatar avatar--sm accent-${m.color}` });
       fillAvatar(avatar, { id: m.userId, title: m.title, avatar: m.avatar, avatarThumb: m.avatarThumb });
       return el('button', {
@@ -287,7 +298,9 @@ async function loadMembers(box, i) {
         el('span', { class: 'info-panel__member-name' }, m.title || m.username || '(no name)'),
         el('span', { class: 'info-panel__label' }, statusText(m))),
       m.role ? el('span', { class: 'info-panel__role' }, m.role) : null);
-    }));
+    });
+    clear(box).append(...nodes);
+    membersShown = { chatId: i.chatId, nodes };
   } catch (error) {
     clear(box);
     hooks.report(error);
@@ -869,6 +882,12 @@ function render() {
         setActiveChat(id);
         return;
       }
+      // У канала — его группа обсуждения: писать в сам канал нельзя.
+      if (i.kind === 'channel' && i.linkedChatId) {
+        setOpen(false);
+        setActiveChat(i.linkedChatId);
+        return;
+      }
       setOpen(false);
       document.querySelector('.composer__input')?.focus();
     }),
@@ -926,8 +945,12 @@ function render() {
   if (counts.length) parts.push(el('section', { class: 'info-panel__section' }, ...counts));
 
   if ((i.kind === 'group') && i.canGetMembers) {
+    // Прежний список этого чата — до прихода свежего: иначе на время
+    // запроса высота панели схлопывается и прокрутка теряется.
     const box = el('div', { class: 'info-panel__members' },
-      el('p', { class: 'info-panel__hint' }, 'Loading members…'));
+      ...(membersShown.chatId === i.chatId
+        ? membersShown.nodes
+        : [el('p', { class: 'info-panel__hint' }, 'Loading members…')]));
     parts.push(el('section', { class: 'info-panel__section' },
       el('div', { class: 'info-panel__section-title' },
         i.memberCount ? `${i.memberCount} members` : 'Members'),

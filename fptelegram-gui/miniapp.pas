@@ -51,7 +51,7 @@ procedure MiniAppResponse(AId: Int64; AOk: boolean; AResult: TJSONObject;
 implementation
 
 uses
-  constants, guiconst, webview2, webui;
+  constants, guiconst, webview2, webui, winframe;
 
 const
   { Вид запроса в id (см. MiniAppResponse). }
@@ -285,6 +285,8 @@ begin
   FHost.OnResize := @HostResize;
 
   FView := TWebView2.Create(FHost.Handle);
+  { Рамка в цвет темы приложения (winframe), до показа окна. }
+  FrameAttach(Handle);
   FView.StartupScript := UnicodeString(BRIDGE_JS);
   FView.OnWebMessage := @ViewMessage;
   FView.OnExternalUri := @ViewExternal;
@@ -301,6 +303,9 @@ begin
     A := TJSONObject.Create;
     A.Add('launch', IntToStr(FLaunchId));
     ServerCall('webapp.close', A, 0);
+  end;
+  if HandleAllocated then begin
+    FrameDetach(Handle);
   end;
   FreeAndNil(FView);
   FreeAndNil(FTheme);
@@ -575,7 +580,13 @@ begin
         Btn.BorderSpacing.Left := 6;
       end;
     end;
-    R := Dlg.ShowModal;
+    { Рамка в цвет темы, как у самого приложения (winframe). }
+    FrameAttach(Dlg.Handle);
+    try
+      R := Dlg.ShowModal;
+    finally
+      FrameDetach(Dlg.Handle);
+    end;
     D := TJSONObject.Create;
     if (Btns <> nil) and (R >= 1000) and (R - 1000 < Btns.Count)
        and (Btns.Items[R - 1000] is TJSONObject) then begin

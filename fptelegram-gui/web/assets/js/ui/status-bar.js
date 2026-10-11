@@ -1,4 +1,4 @@
-import { qs, clear, el } from '../core/dom.js';
+import { qs, clear, el, append } from '../core/dom.js';
 import { on } from '../core/bus.js';
 import { call } from '../core/net.js';
 import { store } from '../core/store.js';
@@ -106,14 +106,17 @@ function renderAccountButton() {
   }
   accountBtn.hidden = false;
   accountBtn.title = accounts.accounts.length > 1 ? 'Switch account' : 'Account';
-  clear(accountBtn).append(
+  // append из dom.js, не родной: тот превращает null в текст «null».
+  append(clear(accountBtn), [
     accountAvatar(a, 'status-bar__account-avatar'),
-    el('span', { class: 'status-bar__account-name' }, a.title || 'Account'),
+    el('span', { class: 'status-bar__account-text' },
+      el('span', { class: 'status-bar__account-name' }, a.title || 'Account'),
+      a.userId ? el('span', { class: 'status-bar__account-id' }, a.userId) : null),
     // Непрочитанное в ДРУГИХ аккаунтах — точкой: по своему счётчик рядом.
     accounts.accounts.some((x) => x.index !== accounts.active && x.unread > 0)
       ? el('span', { class: 'status-bar__account-dot', title: 'Unread messages in other accounts' })
       : null,
-  );
+  ]);
 }
 
 async function loadAccounts() {

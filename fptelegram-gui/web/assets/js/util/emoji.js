@@ -53,6 +53,15 @@ export function setCustomEmoji(dict) {
 }
 
 /**
+ * The url this id resolves to, or '' while its file is not here yet.
+ * For caches keyed on a payload: the url is the part of what a node
+ * draws that the payload itself does not carry.
+ */
+export function customEmojiUrl(id) {
+    return known.get(String(id))?.url || '';
+}
+
+/**
  * An element that draws one custom emoji, or null when its file is not
  * here yet - then the caller keeps whatever text it was going to show.
  *

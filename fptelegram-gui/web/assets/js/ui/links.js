@@ -1,4 +1,4 @@
-import { el } from '../core/dom.js';
+import { el, append } from '../core/dom.js';
 import { emit } from '../core/bus.js';
 import { fillAvatar } from '../util/avatar.js';
 
@@ -62,7 +62,7 @@ function askJoin(invite) {
     fillAvatar(avatar, { title: invite.title || '?', avatar: invite.avatar, avatarThumb: invite.avatarThumb });
 
     const admins = invite.channel ? 'channel' : 'group';
-    dialog.append(
+    append(dialog, [
       avatar,
       el('h2', { class: 'confirm__title' }, invite.title || 'Chat'),
       invite.members
@@ -78,7 +78,7 @@ function askJoin(invite) {
         : null,
       el('div', { class: 'confirm__buttons' },
         el('button', { class: 'btn confirm__button', type: 'button', onclick: close }, 'Cancel'),
-        join));
+        join)]);
 
     dialog.addEventListener('click', (event) => {
       // Клик мимо окна — отмена. (Ссылки в описании закрывают окно сами,

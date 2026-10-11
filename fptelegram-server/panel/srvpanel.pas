@@ -2,8 +2,9 @@ unit srvpanel;
 
 {$mode objfpc}{$H+}
 
-{ Окно сервера (FPTelegramServerGui): старт/стоп, адрес (только чтение),
-  порт, отпечаток сертификата, пользователи. Значок в трее; крестик
+{ Окно сервера (FPTelegramServerGui): старт/стоп, адрес (только чтение;
+  адрес работающего сервера — ссылкой в браузер), порт, отпечаток
+  сертификата, пользователь (он у сервера один). Значок в трее; крестик
   прячет окно в трей, выход — только из меню трея.
 
   Два режима — смотря, кто держит экземпляр сервера (instance.pas):
@@ -21,7 +22,7 @@ unit srvpanel;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls, Menus, Dialogs, Clipbrd,
+  Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls, Menus, Dialogs, Clipbrd, LCLIntf,
   fpjson, constants, localserver, srvhost, srvauth, instance;
 
 type
@@ -29,41 +30,38 @@ type
   { TFormServerPanel }
 
   TFormServerPanel = class(TForm)
-    btnAddUser: TButton;
     btnCopyAddress: TButton;
     btnCopyPort: TButton;
-    btnLogoutAll: TButton;
-    btnPassword: TButton;
-    btnRemoveUser: TButton;
+    btnSignOut: TButton;
     btnStartStop: TButton;
+    btnUser: TButton;
     edtAddress: TEdit;
     edtPort: TEdit;
     edtPrint: TEdit;
+    edtUser: TEdit;
     lblAddress: TLabel;
     lblPort: TLabel;
     lblPrint: TLabel;
     lblStatus: TLabel;
-    lblUsers: TLabel;
-    lstUsers: TListBox;
+    lblUrl: TLabel;
+    lblUser: TLabel;
     miQuit: TMenuItem;
     miSeparator: TMenuItem;
     miShow: TMenuItem;
     miStartStop: TMenuItem;
-    pnlUserButtons: TPanel;
     popTray: TPopupMenu;
     tmrGiveUp: TTimer;
     tmrPoll: TTimer;
     trayIcon: TTrayIcon;
-    procedure btnAddUserClick(Sender: TObject);
     procedure btnCopyAddressClick(Sender: TObject);
     procedure btnCopyPortClick(Sender: TObject);
-    procedure btnLogoutAllClick(Sender: TObject);
-    procedure btnPasswordClick(Sender: TObject);
-    procedure btnRemoveUserClick(Sender: TObject);
+    procedure btnSignOutClick(Sender: TObject);
     procedure btnStartStopClick(Sender: TObject);
+    procedure btnUserClick(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure lblUrlClick(Sender: TObject);
     procedure miQuitClick(Sender: TObject);
     procedure miShowClick(Sender: TObject);
     procedure tmrGiveUpTimer(Sender: TObject);
@@ -149,9 +147,9 @@ begin
   if Err <> '' then begin
     MessageDlg(Caption, Err, mtError, [mbOK], 0);
   end;
-  if AuthUserCount = 0 then begin
-    MessageDlg(Caption, 'No users yet: nobody can sign in. Add the one you will '
-      + 'sign in with (Users - Add...).', mtInformation, [mbOK], 0);
+  { Без пользователя войти некому — сразу спросить логин и пароль. }
+  if AuthUserName = '' then begin
+    btnUserClick(nil);
   end;
 end;
 
@@ -212,9 +210,6 @@ end;
 procedure TFormServerPanel.ApplyStatus(S: TJSONObject);
 var
   Own: boolean;
-  Users: TJSONArray;
-  I: integer;
-  Sel: string;
 begin
   Own := S = nil;
   if Own then begin
@@ -223,11 +218,13 @@ begin
   try
     FRunning := S.Get('running', False);
     if FRunning then begin
-      lblStatus.Caption := 'Running: ' + S.Get('url', '');
+      lblStatus.Caption := 'Running:';
+      lblUrl.Caption := S.Get('url', '');
       btnStartStop.Caption := 'Stop';
       miStartStop.Caption := 'Stop server';
     end else begin
       lblStatus.Caption := 'Stopped';
+      lblUrl.Caption := '';
       btnStartStop.Caption := 'Start';
       miStartStop.Caption := 'Start server';
     end;
@@ -244,29 +241,11 @@ begin
     btnStartStop.Enabled := S.Get('tlsOk', False);
     miStartStop.Enabled := btnStartStop.Enabled;
 
-    if lstUsers.ItemIndex >= 0 then begin
-      Sel := lstUsers.Items[lstUsers.ItemIndex];
-    end else begin
-      Sel := '';
-    end;
-    lstUsers.Items.BeginUpdate;
-    try
-      lstUsers.Items.Clear;
-      if S.Find('users') is TJSONArray then begin
-        Users := TJSONArray(S.Find('users'));
-        for I := 0 to Users.Count - 1 do begin
-          lstUsers.Items.Add(Users.Strings[I]);
-        end;
-      end;
-    finally
-      lstUsers.Items.EndUpdate;
-    end;
-    lstUsers.ItemIndex := lstUsers.Items.IndexOf(Sel);
-    btnAddUser.Enabled := True;
-    btnPassword.Enabled := True;
-    btnRemoveUser.Enabled := True;
-    btnLogoutAll.Enabled := True;
-    trayIcon.Hint := Caption + ' - ' + lblStatus.Caption;
+    lblUrl.Visible := lblUrl.Caption <> '';
+    edtUser.Text := S.Get('user', '');
+    btnUser.Enabled := True;
+    btnSignOut.Enabled := True;
+    trayIcon.Hint := Caption + ' - ' + lblStatus.Caption + ' ' + lblUrl.Caption;
   finally
     if Own then begin
       S.Free;
@@ -278,12 +257,12 @@ procedure TFormServerPanel.ShowDisconnected;
 begin
   FConnected := False;
   lblStatus.Caption := 'Console server: not answering';
+  lblUrl.Caption := '';
+  lblUrl.Visible := False;
   btnStartStop.Enabled := False;
   miStartStop.Enabled := False;
-  btnAddUser.Enabled := False;
-  btnPassword.Enabled := False;
-  btnRemoveUser.Enabled := False;
-  btnLogoutAll.Enabled := False;
+  btnUser.Enabled := False;
+  btnSignOut.Enabled := False;
   trayIcon.Hint := Caption + ' - ' + lblStatus.Caption;
 end;
 
@@ -363,7 +342,15 @@ begin
   Clipboard.AsText := Trim(edtPort.Text);
 end;
 
-{ ---------------- пользователи ---------------- }
+{ Адрес работающего сервера — в браузере по умолчанию. }
+procedure TFormServerPanel.lblUrlClick(Sender: TObject);
+begin
+  if lblUrl.Caption <> '' then begin
+    OpenURL(lblUrl.Caption);
+  end;
+end;
+
+{ ---------------- пользователь ---------------- }
 
 function AskPassword(const ACaption, AUser: string; out APassword: string): boolean;
 var
@@ -403,64 +390,38 @@ begin
   end;
 end;
 
-{ Локальные — не Name: у формы (TComponent) это свойство, и одноимённая
+{ Логин и пароль единственного пользователя. Тот же логин — смена
+  пароля; другой — замена пользователя (его сеансы гаснут).
+  Локальные — не Name: у формы (TComponent) это свойство, и одноимённая
   переменная — Duplicate identifier. }
-procedure TFormServerPanel.btnAddUserClick(Sender: TObject);
+procedure TFormServerPanel.btnUserClick(Sender: TObject);
 var
-  UserName, Pwd: string;
+  Current, UserName, Pwd: string;
 begin
-  UserName := '';
-  if not InputQuery('Add user', 'User name:', UserName) then begin
+  Current := Trim(edtUser.Text);
+  UserName := Current;
+  if not InputQuery('User', 'Login:', UserName) then begin
     Exit;
   end;
   UserName := Trim(UserName);
   if UserName = '' then begin
     Exit;
   end;
-  if lstUsers.Items.IndexOf(UserName) >= 0 then begin
-    MessageDlg('Add user', 'User ' + UserName + ' already exists. Use Password... to change it.',
-      mtInformation, [mbOK], 0);
+  if (Current <> '') and (UserName <> Current) and (MessageDlg('User', 'Replace ' + Current
+      + ' with ' + UserName + '? Windows and browsers signed in as ' + Current
+      + ' are signed out.', mtConfirmation, [mbYes, mbNo], 0) <> mrYes) then begin
     Exit;
   end;
-  if AskPassword('Add user', UserName, Pwd) then begin
-    UserCommand(Self, 'users.add', UserName, Pwd);
+  if AskPassword('User', UserName, Pwd) then begin
+    UserCommand(Self, 'user.set', UserName, Pwd);
   end;
 end;
 
-procedure TFormServerPanel.btnPasswordClick(Sender: TObject);
-var
-  UserName, Pwd: string;
+procedure TFormServerPanel.btnSignOutClick(Sender: TObject);
 begin
-  if lstUsers.ItemIndex < 0 then begin
-    MessageDlg('Change password', 'Select a user first.', mtInformation, [mbOK], 0);
-    Exit;
-  end;
-  UserName := lstUsers.Items[lstUsers.ItemIndex];
-  if AskPassword('Change password', UserName, Pwd) then begin
-    UserCommand(Self, 'users.password', UserName, Pwd);
-  end;
-end;
-
-procedure TFormServerPanel.btnRemoveUserClick(Sender: TObject);
-var
-  UserName: string;
-begin
-  if lstUsers.ItemIndex < 0 then begin
-    MessageDlg('Remove user', 'Select a user first.', mtInformation, [mbOK], 0);
-    Exit;
-  end;
-  UserName := lstUsers.Items[lstUsers.ItemIndex];
-  if MessageDlg('Remove user', 'Remove ' + UserName + '? Their windows and browsers are signed out.',
-      mtConfirmation, [mbYes, mbNo], 0) = mrYes then begin
-    UserCommand(Self, 'users.remove', UserName, '');
-  end;
-end;
-
-procedure TFormServerPanel.btnLogoutAllClick(Sender: TObject);
-begin
-  if MessageDlg('Sign out everyone', 'End every session? All windows and browsers will have '
+  if MessageDlg('Sign out', 'End every session? All windows and browsers will have '
       + 'to sign in again.', mtConfirmation, [mbYes, mbNo], 0) = mrYes then begin
-    Command('users.logoutAll', nil);
+    Command('signOut', nil);
   end;
 end;
 

@@ -44,13 +44,25 @@
 
 .status-bar__account-avatar {
   --avatar-color: var(--accent-color);
-  @include size(18px);
+  @include size(32px);
   flex: 0 0 auto;
   font-size: 9px;
 }
 
-.status-bar__account-name {
+// Имя и под ним Telegram ID — как «transport check» с состоянием.
+.status-bar__account-text {
+  @include flex(column, flex-start, center, $space-1);
+  min-width: 0;
+}
+
+.status-bar__account-name,
+.status-bar__account-id {
   @include ellipsis;
+  max-width: 100%;
+}
+
+.status-bar__account-id {
+  font-variant-numeric: tabular-nums;
 }
 
 // Тот же размер, что у точек соединения и «Online» (.conn__dot).

@@ -9,7 +9,7 @@
         <Filename Value="FPTelegram.lpr"/>
         <IsPartOfProject Value="True"/>
         <TopLine Value="63"/>
-        <CursorPos X="28" Y="71"/>
+        <CursorPos Y="71"/>
         <UsageCount Value="164"/>
         <Loaded Value="True"/>
       </Unit>
@@ -115,6 +115,11 @@
         <EditorIndex Value="8"/>
         <UsageCount Value="20"/>
         <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="winframe.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
       </Unit>
       <Unit>
         <Filename Value="..\fptelegram-server\instance.pas"/>

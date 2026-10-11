@@ -141,7 +141,7 @@ procedure SetWebUiPrimary(AOn: boolean);
 implementation
 
 uses
-  jsonparser, base64, sha256u, callpopup, desknotify, miniapp;
+  jsonparser, base64, sha256u, callpopup, desknotify, miniapp, winframe;
 
 var
   GForm: TFormWebUi = nil;
@@ -210,6 +210,9 @@ begin
     one - reading it here rather than letting it happen later keeps the
     order explicit. }
   FView := TWebView2.Create(Handle);
+  { Рамка в цвет темы — сразу, по запомненному: страница пришлёт свои
+    цвета только после загрузки. }
+  FrameAttach(Handle);
   { Страница — из своих файлов: https://WEB_APP_HOST/ (до первой
     навигации). }
   FView.MapVirtualHost(WEB_APP_HOST, utf8string(WebUiFolder));
@@ -318,6 +321,8 @@ begin
       SetDeskNotifyFonts(N.Get('titleFont', DESKNOTIFY_TITLE_FONT_DEFAULT),
         N.Get('textFont', DESKNOTIFY_TEXT_FONT_DEFAULT));
     end;
+  end else if T = 'frame' then begin
+    FrameFromPage(O);
   end else if T = 'notify' then begin
     ShowDeskNotify(O.Get('chatId', Int64(0)), utf8string(O.Get('title', '')),
       utf8string(O.Get('text', '')), DataUriBytes(O.Get('photo', '')),
@@ -506,6 +511,9 @@ end;
 destructor TFormWebUi.Destroy;
 begin
   DeskNotifyOnClick := nil;
+  if HandleAllocated then begin
+    FrameDetach(Handle);
+  end;
   FreeAndNil(FView);
   if GForm = Self then begin
     GForm := nil;

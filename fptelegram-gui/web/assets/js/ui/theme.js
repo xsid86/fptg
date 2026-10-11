@@ -1,5 +1,6 @@
 import { clear } from '../core/dom.js';
 import { icon } from '../util/icons.js';
+import { postShell } from './shell.js';
 
 // Light / dark switching.
 //
@@ -33,6 +34,29 @@ function effective() {
   return stored() ?? (media.matches ? 'dark' : 'light');
 }
 
+// Цвет токена темы как '#rrggbb': канва приводит любую запись цвета к
+// этому виду (style трогать нельзя, а getComputedStyle отдаёт токен
+// так, как он записан).
+let probe = null;
+function tokenColor(name) {
+  probe ??= document.createElement('canvas').getContext('2d');
+  probe.fillStyle = '#000000';
+  probe.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return probe.fillStyle;
+}
+
+// Рамка окна в цвет темы (winframe.pas): заголовок — фон страницы,
+// текст и кайма — свои токены. В обычном браузере postShell молчит.
+function paintFrame(now) {
+  postShell({
+    t: 'frame',
+    caption: tokenColor('--c-bg'),
+    text: tokenColor('--c-text'),
+    border: tokenColor('--c-border'),
+    dark: now === 'dark',
+  });
+}
+
 function render() {
   const now = effective();
   // The RESOLVED theme, mirrored onto <body> so stylesheets have
@@ -40,6 +64,7 @@ function render() {
   // is the choice, and is absent while the OS is deciding. index.html
   // sets this before the first paint; this keeps it true afterwards.
   document.body.dataset.scheme = now;
+  paintFrame(now);
   if (!button) return;
   const next = now === 'dark' ? 'light' : 'dark';
   // The icon shows what the click WILL DO, not what is on - the same

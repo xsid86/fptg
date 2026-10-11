@@ -10,7 +10,7 @@ program FPTelegramServer;
 
   Один экземпляр на папку данных (instance.pas, общий с
   FPTelegramServerGui): второй запуск не стартует, а команды
-  пользователей передаёт работающему серверу.
+  пользователя передаёт работающему серверу.
 
   Параметры:
     --server-port=N     порт (по умолчанию — выбранный в окне сервера
@@ -20,10 +20,10 @@ program FPTelegramServer;
     --web-dir=ПУТЬ      папка страницы (по умолчанию ../fptelegram-gui/web);
     --cert=ФАЙЛ --key=ФАЙЛ  свой сертификат TLS (PEM), иначе свой
                         самоподписанный;
-    --add-user=ИМЯ      добавить пользователя или сменить ему пароль
-                        (спросит пароль) и выйти;
-    --remove-user=ИМЯ   удалить пользователя и его сеансы и выйти;
-    --logout-all        завершить все сеансы (все окна и браузеры
+    --set-user=ЛОГИН    логин и пароль пользователя (спросит пароль) и
+                        выйти. Пользователь у сервера один: другой
+                        логин заменяет прежний, и его сеансы гаснут;
+    --sign-out          завершить все сеансы (все окна и браузеры
                         войдут заново) и выйти. }
 
 uses
@@ -88,15 +88,15 @@ begin
   Result := A;
 end;
 
-{ Команда пользователей из параметров, как команда управления (srvhost):
-  ACmd и аргументы. False — команды нет. }
+{ Команда пользователя из параметров, как команда управления (srvhost):
+  ACmd и аргументы. False — команды нет; ACmd = '' — человек передумал. }
 function UserCommand(out ACmd: string; out AArgs: TJSONObject): boolean;
 var
   UserName, Pwd: string;
 begin
   Result := True;
   AArgs := TJSONObject.Create;
-  UserName := Trim(ParamValue('--add-user='));
+  UserName := Trim(ParamValue('--set-user='));
   if UserName <> '' then begin
     Pwd := AskNewPassword(UserName);
     if Pwd = '' then begin
@@ -105,22 +105,11 @@ begin
     end;
     AArgs.Add('user', UserName);
     AArgs.Add('password', Pwd);
-    { Есть такой — сменить пароль. }
-    if AuthHasUser(UserName) then begin
-      ACmd := 'users.password';
-    end else begin
-      ACmd := 'users.add';
-    end;
+    ACmd := 'user.set';
     Exit;
   end;
-  UserName := Trim(ParamValue('--remove-user='));
-  if UserName <> '' then begin
-    AArgs.Add('user', UserName);
-    ACmd := 'users.remove';
-    Exit;
-  end;
-  if HasParam('--logout-all') then begin
-    ACmd := 'users.logoutAll';
+  if HasParam('--sign-out') then begin
+    ACmd := 'signOut';
     Exit;
   end;
   FreeAndNil(AArgs);
@@ -130,22 +119,19 @@ end;
 
 function IsUserCommand: boolean;
 begin
-  Result := (ParamValue('--add-user=') <> '') or (ParamValue('--remove-user=') <> '')
-    or HasParam('--logout-all');
+  Result := (ParamValue('--set-user=') <> '') or HasParam('--sign-out');
 end;
 
 procedure ReportDone(const ACmd: string);
 begin
-  if ACmd = 'users.logoutAll' then begin
+  if ACmd = 'signOut' then begin
     WriteLn('All sessions ended: every window and browser has to sign in again.');
-  end else if ACmd = 'users.remove' then begin
-    WriteLn('User ', ParamValue('--remove-user='), ' removed, their sessions ended.');
   end else begin
-    WriteLn('User ', ParamValue('--add-user='), ' saved.');
+    WriteLn('User ', ParamValue('--set-user='), ' saved.');
   end;
 end;
 
-{ Сервер уже запущен (здесь или с окном): команду пользователей — ему,
+{ Сервер уже запущен (здесь или с окном): команду пользователя — ему,
   иначе — сказать и выйти. }
 procedure ServeSecondCopy;
 var
@@ -158,8 +144,6 @@ begin
     ExitCode := 1;
     Exit;
   end;
-  { Имя для users.add/users.password решает работающий сервер — здесь
-    пользователей не загрузить (conf.dat держит он). }
   if not UserCommand(Cmd, Args) then begin
     Exit;
   end;
@@ -167,23 +151,10 @@ begin
     if Cmd = '' then begin
       Exit;
     end;
-    if Cmd = 'users.password' then begin
-      Cmd := 'users.add';
-    end;
     if not CallInstance(DataDir, INSTANCE_SERVER, Cmd, Args, Res, Err) then begin
-      { Пользователь уже есть — это смена пароля. }
-      if (Cmd = 'users.add') and (Pos('already exists', Err) > 0) then begin
-        Cmd := 'users.password';
-        if not CallInstance(DataDir, INSTANCE_SERVER, Cmd, Args, Res, Err) then begin
-          WriteLn(ErrOutput, Err);
-          ExitCode := 1;
-          Exit;
-        end;
-      end else begin
-        WriteLn(ErrOutput, Err);
-        ExitCode := 1;
-        Exit;
-      end;
+      WriteLn(ErrOutput, Err);
+      ExitCode := 1;
+      Exit;
     end;
     Res.Free;
     ReportDone(Cmd);
@@ -216,27 +187,27 @@ begin
   end;
 end;
 
-{ Без пользователей войти некому. За консолью — завести первого сразу. }
-procedure EnsureFirstUser;
+{ Без пользователя войти некому. За консолью — завести его сразу. }
+procedure EnsureUser;
 var
   UserName, Pwd: string;
 begin
-  if AuthUserCount > 0 then begin
+  if AuthUserName <> '' then begin
     Exit;
   end;
   if not ConsoleInteractive then begin
-    WriteLn('No users yet: nobody can sign in. Run FPTelegramServer --add-user=NAME.');
+    WriteLn('No user yet: nobody can sign in. Run FPTelegramServer --set-user=NAME.');
     Exit;
   end;
-  WriteLn('No users yet. Create the one you will sign in with.');
+  WriteLn('No user yet. Choose the login and password you will sign in with.');
   UserName := ReadLineVisible('User name: ');
   if UserName = '' then begin
-    WriteLn('No user created: nobody can sign in. Run FPTelegramServer --add-user=NAME.');
+    WriteLn('No user created: nobody can sign in. Run FPTelegramServer --set-user=NAME.');
     Exit;
   end;
   Pwd := AskNewPassword(UserName);
   if Pwd <> '' then begin
-    AuthSetPassword(UserName, Pwd);
+    AuthSetUser(UserName, Pwd);
     WriteLn('User ', UserName, ' created.');
   end;
 end;
@@ -261,16 +232,8 @@ begin
   if UserCommand(Cmd, Args) then begin
     try
       if Cmd <> '' then begin
-        if Cmd = 'users.add' then begin
-          AuthSetPassword(Args.Get('user', ''), Args.Get('password', ''));
-        end else if Cmd = 'users.password' then begin
-          AuthSetPassword(Args.Get('user', ''), Args.Get('password', ''));
-        end else if Cmd = 'users.remove' then begin
-          if not AuthRemoveUser(Args.Get('user', '')) then begin
-            WriteLn(ErrOutput, 'No user ', Args.Get('user', ''), '.');
-            ExitCode := 1;
-            Exit;
-          end;
+        if Cmd = 'user.set' then begin
+          AuthSetUser(Args.Get('user', ''), Args.Get('password', ''));
         end else begin
           AuthLogoutAll;
         end;
@@ -294,7 +257,7 @@ begin
     Exit;
   end;
   { Канал управления: окно сервера при запуске станет пультом к этому
-    серверу, второй запуск передаст сюда команды пользователей. }
+    серверу, второй запуск передаст сюда команды пользователя. }
   Notes := TConsoleNotes.Create;
   Notes.Host := Host;
   Notes.WasRunning := True;
@@ -303,7 +266,7 @@ begin
 
   WriteLn(APP_TITLE, ' server');
   WriteLn;
-  EnsureFirstUser;
+  EnsureUser;
   { Адрес и порт сюда не выводятся: их видно и копируют в окне сервера
     (FPTelegramServerGui), а консоль бывает на виду у кого угодно. Отпечаток
     — не секрет: им сверяют сертификат при первом входе окна клиента. }
@@ -313,7 +276,7 @@ begin
     WriteLn('Certificate ', Host.CertFile, ', SHA-256 fingerprint:');
   end;
   WriteLn('  ', Host.Fingerprint);
-  WriteLn('Users: ', AuthUserCount);
+  WriteLn('User: ', AuthUserName);
   if ConfiguredBindAddress <> LOCAL_SERVER_BIND then begin
     WriteLn;
     WriteLn('Reachable from the network (--bind).');

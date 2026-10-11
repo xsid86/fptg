@@ -14,7 +14,7 @@ unit srvauth;
   - media (scp media) — без срока, пока жив сеанс: адреса картинок
     висят в странице часами, и протухать каждый час им нельзя.
   Любой JWT действует, только пока жив его сеанс: выход (/api/logout)
-  или --logout-all гасят их сразу, а не по истечении срока.
+  или --sign-out гасят их сразу, а не по истечении срока.
 
   Сеанс в conf.dat — sid = JSON (user, hash — SHA-256 refresh-токена,
   самого токена на диске нет, created, used, device); сеанс, которым
@@ -36,14 +36,13 @@ type
   первом запуске). Зовётся до старта сервера. }
 procedure AuthLoad;
 
-function AuthUserCount: integer;
-function AuthHasUser(const AName: string): boolean;
-{ Имена пользователей (для окна сервера). }
-procedure AuthUserNames(AList: TStrings);
-{ Новый пользователь или новый пароль существующему. }
-procedure AuthSetPassword(const AName, APassword: string);
-{ Удаляет пользователя и все его сеансы. False — такого нет. }
-function AuthRemoveUser(const AName: string): boolean;
+{ Пользователь у сервера один (данные TDLib — одного человека). '' —
+  ещё не заведён, войти некому. }
+function AuthUserName: string;
+{ Логин и пароль единственного пользователя. Тот же логин — только
+  новый пароль, сеансы остаются; другой — прежний пользователь
+  заменяется, и его сеансы гаснут. }
+procedure AuthSetUser(const AName, APassword: string);
 { Гасит все сеансы и меняет ключ подписи: все выданные JWT — тоже. }
 procedure AuthLogoutAll;
 
@@ -211,6 +210,12 @@ begin
     try
       GKey := DecodeStringBase64(Ini.ReadString(AUTH_CONFIG_SECTION, AUTH_CONFIG_JWT_KEY, ''));
       Ini.ReadSectionValues(AUTH_USERS_SECTION, GUsers);
+      { Из времён, когда пользователей бывало несколько: остаётся
+        первый, сеансы остальных гаснут проверкой ниже. }
+      while GUsers.Count > 1 do begin
+        GUsers.Delete(GUsers.Count - 1);
+        Changed := True;
+      end;
       Ini.ReadSection(AUTH_SESSIONS_SECTION, Names);
       for I := 0 to Names.Count - 1 do begin
         D := nil;
@@ -257,55 +262,15 @@ begin
   end;
 end;
 
-function AuthUserCount: integer;
+function AuthUserName: string;
 begin
   GLock.Enter;
   try
-    Result := GUsers.Count;
-  finally
-    GLock.Leave;
-  end;
-end;
-
-procedure AuthUserNames(AList: TStrings);
-var
-  I: integer;
-begin
-  AList.Clear;
-  GLock.Enter;
-  try
-    for I := 0 to GUsers.Count - 1 do begin
-      AList.Add(GUsers.Names[I]);
+    if GUsers.Count > 0 then begin
+      Result := GUsers.Names[0];
+    end else begin
+      Result := '';
     end;
-  finally
-    GLock.Leave;
-  end;
-end;
-
-function AuthHasUser(const AName: string): boolean;
-begin
-  GLock.Enter;
-  try
-    Result := GUsers.IndexOfName(AName) >= 0;
-  finally
-    GLock.Leave;
-  end;
-end;
-
-procedure AuthSetPassword(const AName, APassword: string);
-var
-  Salt: RawByteString;
-begin
-  if (AName = '') or (Pos('=', AName) > 0) or (Trim(AName) <> AName) then begin
-    raise Exception.Create('A user name cannot be empty, contain "=" or spaces at the ends');
-  end;
-  Salt := SecureRandomBytes(AUTH_SALT_BYTES);
-  GLock.Enter;
-  try
-    GUsers.Values[AName] := EncodeStringBase64(Salt) + ':' + IntToStr(AUTH_PBKDF2_ITERATIONS)
-      + ':' + EncodeStringBase64(Pbkdf2Sha256(APassword, Salt, AUTH_PBKDF2_ITERATIONS,
-        AUTH_HASH_BYTES));
-    Persist;
   finally
     GLock.Leave;
   end;
@@ -319,33 +284,41 @@ begin
   end;
 end;
 
-function AuthRemoveUser(const AName: string): boolean;
+procedure AuthSetUser(const AName, APassword: string);
 var
+  Salt: RawByteString;
   I: integer;
   Ended: TStringList;
 begin
+  if (AName = '') or (Pos('=', AName) > 0) or (Trim(AName) <> AName) then begin
+    raise Exception.Create('A user name cannot be empty, contain "=" or spaces at the ends');
+  end;
+  if APassword = '' then begin
+    raise Exception.Create('Empty password');
+  end;
+  Salt := SecureRandomBytes(AUTH_SALT_BYTES);
   Ended := TStringList.Create;
   try
     GLock.Enter;
     try
-      I := GUsers.IndexOfName(AName);
-      Result := I >= 0;
-      if not Result then begin
-        Exit;
-      end;
-      GUsers.Delete(I);
       for I := GSessions.Count - 1 downto 0 do begin
-        if TSession(GSessions[I]).User = AName then begin
+        if TSession(GSessions[I]).User <> AName then begin
           Ended.Add(TSession(GSessions[I]).Sid);
           TSession(GSessions[I]).Free;
           GSessions.Delete(I);
         end;
       end;
+      GUsers.Clear;
+      GUsers.Values[AName] := EncodeStringBase64(Salt) + ':' + IntToStr(AUTH_PBKDF2_ITERATIONS)
+        + ':' + EncodeStringBase64(Pbkdf2Sha256(APassword, Salt, AUTH_PBKDF2_ITERATIONS,
+          AUTH_HASH_BYTES));
       Persist;
     finally
       GLock.Leave;
     end;
-    NotifyEnded(Ended);
+    if Ended.Count > 0 then begin
+      NotifyEnded(Ended);
+    end;
   finally
     Ended.Free;
   end;

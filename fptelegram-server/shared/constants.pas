@@ -474,9 +474,6 @@ const
     оттуда (и окну, и обычному браузеру). На другой машине — --web-dir.
     Показ страницы окном из своих файлов — TODO, шаг 3б. }
   LOCAL_SERVER_WEB_DIR = {$IFDEF WINDOWS}'..\fptelegram-gui\web'{$ELSE}'../fptelegram-gui/web'{$ENDIF};
-  { Ссылка с токеном — ещё и в файл рядом с exe: для службы, у которой
-    консоли нет. Удаляется при остановке. }
-  LOCAL_SERVER_URL_FILE = 'server_url.txt';
   { 128 bits, from the OS CSPRNG. This is effectively a session key:
     anything on this machine that can reach the port can drive the
     account once it has the token. }

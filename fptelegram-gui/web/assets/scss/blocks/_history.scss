@@ -339,7 +339,7 @@
 .info-panel__avatar {
   --avatar-color: var(--accent-color);
   @include size(96px);
-  font-size: $fs-lg;
+  font-size: $fs-xl;
 }
 
 .info-panel__title {

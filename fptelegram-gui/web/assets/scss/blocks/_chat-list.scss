@@ -66,7 +66,7 @@
   text-align: left;
   width: 100%;
   background: color-mix(in srgb, var(--c-bg) 50%, transparent);
-  @include transition;
+  //@include transition;
 
   &:hover {
     background: var(--c-accent);
@@ -80,23 +80,23 @@
 .contact-row__text {
   @include flex(column, stretch, flex-start, $space-1);
   min-width: 0;
-  @include transition;
+  //@include transition;
 }
 
 .contact-row__name {
   @include ellipsis;
   font-weight: $fw-medium;
-  @include transition;
+  //@include transition;
 }
 
 .contact-row__status {
   color: var(--c-text-faint);
   font-size: $fs-sm;
-  @include transition;
+  //@include transition;
 
   &.is-online {
     color: var(--c-accent);
-    @include transition;
+    //@include transition;
   }
 }
 

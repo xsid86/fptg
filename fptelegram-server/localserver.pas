@@ -1499,26 +1499,6 @@ begin
   end;
 end;
 
-procedure WriteUrlFile;
-var
-  F: TextFile;
-begin
-  try
-    AssignFile(F, ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_URL_FILE);
-    Rewrite(F);
-    try
-      WriteLn(F, LocalServerUrl);
-    finally
-      CloseFile(F);
-    end;
-  except
-    { Not being able to leave the URL on disk is not a reason to
-      refuse to serve. }
-    on E: Exception do begin
-    end;
-  end;
-end;
-
 function StartLocalServer(APort: word; const ABindAddr: string; const ATls: TServerTls;
   const AWebDir: string): boolean;
 begin
@@ -1534,7 +1514,6 @@ begin
     Exit;
   end;
   GServer.Start;
-  WriteUrlFile;
   { До первой загрузки этого запуска: всё, что там лежит, — брошенное. }
   ClearUploads;
   Result := True;
@@ -1564,7 +1543,6 @@ begin
   end;
 
   FreeAndNil(GServer);
-  DeleteFile(ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_URL_FILE);
 end;
 
 initialization

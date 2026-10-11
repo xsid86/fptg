@@ -19,7 +19,8 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="623"/>
+      <MinorVersionNr Value="1"/>
+      <BuildNr Value="630"/>
       <StringTable CompanyName="xsid86" InternalName="FPTelegram" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -133,6 +134,10 @@
       </Unit>
       <Unit>
         <Filename Value="appid.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="winframe.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>

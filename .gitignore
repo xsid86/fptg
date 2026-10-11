@@ -12,7 +12,6 @@ config.ini
 accounts.ini
 tdlib/
 tdlib_raw.log
-server_url.txt
 # Files the page uploads for sending (localserver /upload); cleared at start.
 uploads/
 fptelegram-gui/web/.idea/

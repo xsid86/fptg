@@ -122,7 +122,7 @@
     if (!shell) {
       $('hostField').hidden = true;
       $('portField').hidden = true;
-      $('note').textContent = 'The user is created on the server with --add-user.';
+      $('note').textContent = 'The login and password are set on the server: User in its window, or --set-user.';
     }
     $('host').value = q.get('host') || '';
     $('port').value = q.get('port') || '';
