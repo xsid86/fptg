@@ -7,6 +7,7 @@ import { openEmojiPicker } from './picker.js';
 import { store } from '../core/store.js';
 import { emit } from '../core/bus.js';
 import { pickChats, formDialog } from './bots.js';
+import { downloadUrl } from '../util/download.js';
 
 // The right-click menu on a message, and the row of reactions above it.
 //
@@ -217,13 +218,13 @@ export async function openMessageMenu(anchor, msg, at) {
 
   const file = info.canSave ? fileOf(msg) : null;
   if (file) {
-    // A plain download link, clicked for the user. The file is already
-    // served from the TDLib cache over the same loopback origin, so
-    // nothing has to be fetched or re-encoded to save it.
+    // A plain download link, clicked for the user. The server is another
+    // origin than the page, so the download attribute alone is ignored;
+    // ?save= makes the server send it as an attachment (util/download.js).
     items.push({
       label: 'Save as…',
       onSelect: () => {
-        const a = el('a', { href: file.url, download: file.name || '' });
+        const a = el('a', { href: downloadUrl(file.url, file.name), download: file.name || '' });
         document.body.append(a);
         a.click();
         a.remove();

@@ -1,0 +1,35 @@
+@use "../abstracts" as *;
+
+// Акцент приложения, выбранный в Settings → General (ui/theme.js):
+// <html data-accent="ключ">. Ключи и цвета — $app-accents
+// (abstracts/_variables.scss). Без атрибута — "accent" темы, как было.
+//
+// Стоит в base ПОСЛЕ root: специфичность та же, что у правил тем
+// (:root[атрибут]), и побеждает порядок.
+
+@each $key, $color in $app-accents {
+  :root[data-accent="#{$key}"] {
+    --c-accent: #{$color};
+    --c-unread: #{$color};
+  }
+
+  // Кружок выбора (.color-swatch, blocks/_settings.scss).
+  .swatch-app-#{$key} {
+    --swatch-1: #{$color};
+    --swatch-2: #{$color};
+  }
+}
+
+:root[data-accent] {
+  --c-accent-hover: color-mix(in srgb, var(--c-accent), black #{$app-accent-hover-light});
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-accent]:not([data-theme="light"]) {
+    --c-accent-hover: color-mix(in srgb, var(--c-accent), white #{$app-accent-hover-dark});
+  }
+}
+
+:root[data-accent][data-theme="dark"] {
+  --c-accent-hover: color-mix(in srgb, var(--c-accent), white #{$app-accent-hover-dark});
+}

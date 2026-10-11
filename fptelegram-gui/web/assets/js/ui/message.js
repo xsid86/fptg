@@ -13,6 +13,7 @@ import {mapUrl, openMapPoint} from '../util/maps.js';
 import {fillAvatar} from '../util/avatar.js';
 import {copyText} from '../util/clipboard.js';
 import {translationFor, watchTranslation} from './translate.js';
+import {downloadUrl} from '../util/download.js';
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -909,11 +910,13 @@ function renderFile(msg, m) {
             onclick: () => cancelTransfer(msg),
         })
         : m.url
+        // Открыть внешним приложением (util/download.js): сам файл в
+        // окне не показывается никогда.
         ? el('a', {
             class: 'media media--file is-clickable',
-            href: m.url,
+            href: downloadUrl(m.url, name, true),
             download: name,
-            title: 'Save this file',
+            title: 'Open this file',
         })
         : el('div', {
             class: 'media media--file is-clickable',

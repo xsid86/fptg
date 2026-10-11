@@ -111,6 +111,7 @@ $z-dropdown: 20;
 $z-overlay:  30;
 $z-modal:    40;
 $z-toast:    50;
+$z-notice:   60;   // уведомления сверху (ui/notices.js): над окнами и карточками
 
 // -------------------------------------------------------- transitions
 $ease:        cubic-bezier(.4, 0, .2, 1);
@@ -230,4 +231,88 @@ $theme-dark: (
   "shadow":        rgba(0, 0, 0, .45),
   "dark":          #131313,
   "light":         #f1f2f3
+);
+
+// ------------------------------------------------------ акцент приложения
+// Settings → General → Accent color (ui/theme.js, ACCENTS — те же ключи).
+// Выбор — атрибут <html data-accent="ключ">, base/_app-accent.scss
+// подменяет им --c-accent (и --c-unread); --c-accent-hover выводится из
+// него же. Синий — по умолчанию: его выбор снимает атрибут, и действует
+// "accent" из $theme-light / $theme-dark. Новый цвет — строка здесь и
+// ключ в ACCENTS.
+$app-accents: (
+  "blue":   #2196f3,
+  "cyan":   #00acc1,
+  "teal":   #009688,
+  "green":  #43a047,
+  "lime":   #7cb342,
+  "amber":  #ffb300,
+  "orange": #fb8c00,
+  "red":    #e53935,
+  "pink":   #d81b60,
+  "purple": #8e24aa,
+  "indigo": #3949ab,
+  "grey":   #757575
+);
+
+// Наведение на акцентное: светлее в тёмной схеме, темнее в светлой.
+$app-accent-hover-dark:  15%;   // доля белого
+$app-accent-hover-light: 12%;   // доля чёрного
+
+// ------------------------------------------------------- простые темы
+// «Dark» и «Light» из меню тем (кисточка): themes/_plain.scss. Поверх
+// $theme-dark / $theme-light выше — здесь только то, что у простых тем
+// своё. Три независимые сущности, у каждой свои цвета и свой флаг:
+//
+//   panel — панели: боковая (список чатов), рабочая область, статусная
+//           строка, инфопанель, окно настроек, меню и всплывающие окна;
+//   card  — карточки: строки списка чатов и контактов, сообщения,
+//           приветствие пустого чата, плашка подгрузки;
+//   chip  — чипы: папки, реакции, «комментарии», служебные сообщения.
+//
+// Флаг true — заливка градиентом сверху вниз (*-top -> *-bottom),
+// false — сплошным *-solid. Свои сообщения — заливка и граница карточки,
+// смешанные с акцентом в доле own-mix.
+$plain-panel-gradients: false;
+$plain-card-gradients: false;
+$plain-chip-gradients: false;
+
+$plain-dark: (
+  "bg":            #000000,   // фон приложения
+
+  "panel-top":     #313131,   // панели: градиент
+  "panel-bottom":  #131313,
+  "panel-solid":   #030303,   // панели: без градиента
+  "panel-border":  #030303,   // панели: граница
+
+  "card-top":      #313131,   // карточки: градиент
+  "card-bottom":   #131313,
+  "card-solid":    #131313,   // карточки: без градиента
+  "card-border":   #131313,   // карточки: граница
+  "own-mix":       15%,       // доля акцента в своих сообщениях
+
+  "chip-top":      #f1f2f3,   // чипы: градиент
+  "chip-bottom":   #c1c2c3,
+  "chip-solid":    #414141,   // чипы: без градиента
+  "chip-text":     #f1f2f3
+);
+
+$plain-light: (
+  "bg":            #ffffff,
+
+  "panel-top":     #f1f2f3,
+  "panel-bottom":  #c1c2c3,
+  "panel-solid":   #f0f0f0,
+  "panel-border":  #f0f0f0,
+
+  "card-top":      #f1f2f3,
+  "card-bottom":   #c1c2c3,
+  "card-solid":    #ffffff,
+  "card-border":   #ffffff,
+  "own-mix":       25%,
+
+  "chip-top":      #313131,
+  "chip-bottom":   #131313,
+  "chip-solid":    #777777,
+  "chip-text":     #f1f2f3
 );

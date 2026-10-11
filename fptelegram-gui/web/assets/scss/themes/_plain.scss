@@ -1,0 +1,262 @@
+@use "sass:map";
+@use "sass:string";
+@use "../abstracts" as *;
+
+// Простые темы — «Dark» и «Light» в меню тем (кисточка в статусной
+// строке, ui/theme.js), рядом с цветными «Dark colored» / «Light colored».
+//
+// КАК УСТРОЕНО. Выбор темы раскладывается на два атрибута <html>:
+//   data-theme — dark | light, как и у цветных тем: все токены, палитры
+//                и акценты (base/_root, _palette, _accent) работают как
+//                прежде, ничего из них не продублировано;
+//   data-style — "plain" только у простых тем.
+// Всё ниже — поверх, с селекторами :root[data-style="plain"] …: их
+// специфичность выше, чем у правил блоков, поэтому цветные темы не
+// трогаются вовсе, а простые не правят ни одного файла блоков.
+//
+// Правила простых тем:
+//   * заголовки и подвалы карточек — прозрачные;
+//   * панели, карточки и чипы — каждые своей заливкой (градиент сверху
+//     вниз или сплошной цвет, свой флаг у каждых) и границей; ни
+//     прозрачности, ни backdrop-filter нигде;
+//   * свои сообщения — та же заливка и граница, смешанные с акцентом
+//     (доля — own-mix);
+//   * карточки чатов и контактов не красятся в цвет контакта: этим цветом
+//     остаются только имена в истории и их цитаты (и буквенные аватарки);
+//   * чипы — свой градиент (на тёмной — светлый, на светлой — тёмный);
+//   * кнопки поиска и на карточках при наведении и включённые — акцент.
+
+// --------------------------------------------------------------- токены
+// Значения — abstracts/_variables.scss ($plain-dark, $plain-light и три
+// флага градиентов); здесь только сборка из них custom properties:
+//   --plain-panel / --plain-panel-border           панели;
+//   --plain-card / --plain-card-border             карточки;
+//   --plain-card-own / --plain-card-border-own     свои сообщения;
+//   --plain-chip / --plain-chip-text               чипы.
+
+// Заливка сущности: градиент *-top -> *-bottom или сплошной *-solid.
+// CSS-функции — готовой строкой: в @function Sass вычисляет выражения, а
+// разбирать linear-gradient и color-mix ему незачем.
+@function plain-fill($t, $what, $gradient) {
+  @if $gradient {
+    @return string.unquote("linear-gradient(to bottom, #{map.get($t, '#{$what}-top')}, #{map.get($t, '#{$what}-bottom')})");
+  }
+  @return map.get($t, "#{$what}-solid");
+}
+
+// Цвет, смешанный с акцентом: $rest — доля самого цвета.
+@function with-accent($color, $rest) {
+  @return string.unquote("color-mix(in srgb, #{$color} #{$rest}, var(--c-accent))");
+}
+
+@mixin plain-tokens($t) {
+  $rest: 100% - map.get($t, "own-mix");
+
+  --c-bg: #{map.get($t, "bg")};
+
+  --plain-panel: #{plain-fill($t, "panel", $plain-panel-gradients)};
+  --plain-panel-border: #{map.get($t, "panel-border")};
+
+  --plain-card: #{plain-fill($t, "card", $plain-card-gradients)};
+  --plain-card-border: #{map.get($t, "card-border")};
+  --plain-card-border-own: #{with-accent(map.get($t, "card-border"), $rest)};
+  @if $plain-card-gradients {
+    --plain-card-own: linear-gradient(to bottom,
+      #{with-accent(map.get($t, "card-top"), $rest)},
+      #{with-accent(map.get($t, "card-bottom"), $rest)});
+  } @else {
+    --plain-card-own: #{with-accent(map.get($t, "card-solid"), $rest)};
+  }
+
+  --plain-chip: #{plain-fill($t, "chip", $plain-chip-gradients)};
+  --plain-chip-text: #{map.get($t, "chip-text")};
+}
+
+:root[data-style="plain"][data-theme="dark"] {
+  @include plain-tokens($plain-dark);
+}
+
+:root[data-style="plain"][data-theme="light"] {
+  @include plain-tokens($plain-light);
+}
+
+:root[data-style="plain"] {
+  // Панели из миксина card (abstracts/_mixins.scss) читают эти три.
+  --card-bg: var(--plain-panel);
+  --card-border: 1px solid var(--plain-panel-border);
+  --card-blur: none;
+
+  // ------------------------------------------------------- глобально
+  *,
+  *::before,
+  *::after,
+  ::backdrop {
+    backdrop-filter: none !important;
+  }
+
+  body {
+    background: var(--c-bg);
+    background-image: none;
+  }
+
+  // Слои поверх приложения — непрозрачные.
+  .dropzone,
+  .attach-layer,
+  .pswp .pswp__bg {
+    background: var(--c-bg);
+  }
+
+  .confirm::backdrop,
+  .settings::backdrop {
+    background: var(--c-bg);
+  }
+
+  // Панели, которые были полупрозрачными или своего цвета.
+  .info-panel,
+  .settings__window,
+  .dropzone__zone {
+    background: var(--plain-panel);
+  }
+
+  .info-panel {
+    border-left-color: var(--plain-panel-border);
+  }
+
+  // Карточки вне истории и списка чатов.
+  .greeting,
+  .history__loader-pill,
+  .contact-row {
+    background: var(--plain-card);
+  }
+
+  // ------------------------------------- заголовки и подвалы карточек
+  .chat-header,
+  .sidebar__head,
+  .composer,
+  .chat-item__head,
+  .message__head,
+  .message__reactions {
+    background: transparent;
+  }
+
+  // ------------------------------------------------------ список чатов
+  .chat-item {
+    background: var(--plain-card);
+    border: 1px solid var(--plain-card-border);
+    box-shadow: none;
+
+    &:hover,
+    &.is-active {
+      border-color: var(--c-accent);
+    }
+  }
+
+  .chat-item__kind {
+    fill: var(--c-text-dim);
+  }
+
+  .chat-item__receipt,
+  .chat-item__me {
+    color: var(--c-accent);
+  }
+
+  .chat-item__action {
+    &:hover,
+    &:active,
+    &:focus {
+      color: var(--c-accent);
+    }
+  }
+
+  .contact-row:hover {
+    background: var(--c-accent);
+  }
+
+  // -------------------------------------------------------------- чипы
+  .chat-item__folder,
+  .chat-item__folder--none,
+  .comments,
+  .reaction,
+  .message-service__text {
+    background: var(--plain-chip);
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--plain-chip-text);
+  }
+
+  .chip {
+    background: var(--plain-chip);
+    border-color: transparent;
+    color: var(--plain-chip-text);
+  }
+
+  // Кнопки на карточках сообщений: наведение и включённое — акцент.
+  .reaction,
+  .comments {
+    border: 1px solid transparent;
+
+    &:hover {
+      border-color: var(--c-accent);
+    }
+  }
+
+  .reaction.is-chosen {
+    border-color: var(--c-accent);
+  }
+
+  // На наведённой строке контакта чип остаётся своего цвета.
+  .contact-row:hover .chat-item__folder--none,
+  .contact-row:hover .chat-item__folder--none * {
+    color: var(--plain-chip-text);
+  }
+
+  // ------------------------------------------------------- шапка чата
+  .chat-header__title {
+    color: var(--c-text);
+  }
+
+  .chat-header__search {
+    border-color: var(--c-accent);
+  }
+
+  .chat-filter {
+    &:hover:not(:disabled),
+    &.is-active {
+      color: var(--c-accent);
+    }
+  }
+
+  // --------------------------------------------------------- сообщения
+  .message {
+    background: var(--plain-card);
+    border: 1px solid var(--plain-card-border);
+    box-shadow: none;
+  }
+
+  .message--outgoing {
+    background: var(--plain-card-own);
+    border-color: var(--plain-card-border-own);
+  }
+
+  // Стикер и гифка без подписи — без карточки, как и в цветных темах;
+  // своя карточка — у одной шапки над ними.
+  .message:has(.media--sticker),
+  .message:has(.media--gif):not(:has(b)) {
+    background: none;
+    border: none;
+
+    .message__head {
+      background: var(--plain-card);
+      border-color: var(--plain-card-border);
+      box-shadow: none;
+    }
+  }
+
+  .message--outgoing:has(.media--sticker),
+  .message--outgoing:has(.media--gif):not(:has(b)) {
+    .message__head {
+      background: var(--plain-card-own);
+      border-color: var(--plain-card-border-own);
+    }
+  }
+}

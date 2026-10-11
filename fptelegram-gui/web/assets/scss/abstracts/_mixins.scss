@@ -70,11 +70,13 @@
   }
 }
 
+// --card-bg / --card-border / --card-blur задают простые темы
+// (themes/_plain.scss); без них — как всегда у цветных тем.
 @mixin card($radius: v.$radius-md, $bg: var(--c-surface)) {
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: $radius;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
 }
 
 // Thin overlay scrollbar. Chromium only (this UI runs in a WebView),

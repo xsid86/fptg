@@ -4,7 +4,8 @@ unit srvpanel;
 
 { Окно сервера (FPTelegramServerGui): старт/стоп, адрес (только чтение;
   адрес работающего сервера — ссылкой в браузер), порт, отпечаток
-  сертификата, пользователь (он у сервера один). Значок в трее; крестик
+  сертификата, пользователь (он у сервера один); внизу — трафик
+  (Telegram и клиенты: итог и скорость, раз в секунду). Значок в трее; крестик
   прячет окно в трей, выход — только из меню трея.
 
   Два режима — смотря, кто держит экземпляр сервера (instance.pas):
@@ -45,6 +46,10 @@ type
     lblStatus: TLabel;
     lblUrl: TLabel;
     lblUser: TLabel;
+    lblTgTraffic: TLabel;
+    lblClTraffic: TLabel;
+    pnlTraffic: TPanel;
+    bvlTraffic: TBevel;
     miQuit: TMenuItem;
     miSeparator: TMenuItem;
     miShow: TMenuItem;
@@ -52,6 +57,7 @@ type
     popTray: TPopupMenu;
     tmrGiveUp: TTimer;
     tmrPoll: TTimer;
+    tmrTraffic: TTimer;
     trayIcon: TTrayIcon;
     procedure btnCopyAddressClick(Sender: TObject);
     procedure btnCopyPortClick(Sender: TObject);
@@ -66,6 +72,7 @@ type
     procedure miShowClick(Sender: TObject);
     procedure tmrGiveUpTimer(Sender: TObject);
     procedure tmrPollTimer(Sender: TObject);
+    procedure tmrTrafficTimer(Sender: TObject);
   private
     { nil — окно-пульт к чужому серверу. }
     FHost: TServerHost;
@@ -73,6 +80,9 @@ type
     FConnected: boolean;
     FQuitting: boolean;
     FClosed: boolean;
+    { Прошлый ответ traffic — скорость по разнице. }
+    FPrevTraffic: array[0..3] of Int64;
+    FPrevTick: QWord;
     function Exec(const ACmd: string; AArgs: TJSONObject; out AError: string): boolean;
     procedure Command(const ACmd: string; AArgs: TJSONObject);
     procedure ApplyStatus(S: TJSONObject);
@@ -109,6 +119,8 @@ begin
   Caption := APP_TITLE + ' server';
   tmrGiveUp.Interval := PANEL_QUIT_GIVEUP_MS;
   tmrPoll.Interval := PANEL_REMOTE_POLL_MS;
+  tmrTraffic.Interval := TRAFFIC_TICK_MS;
+  tmrTraffic.Enabled := True;
   if not Application.Icon.Empty then begin
     trayIcon.Icon.Assign(Application.Icon);
   end;
@@ -340,6 +352,85 @@ end;
 procedure TFormServerPanel.btnCopyPortClick(Sender: TObject);
 begin
   Clipboard.AsText := Trim(edtPort.Text);
+end;
+
+{ ---------------- трафик ---------------- }
+
+function FormatBytes(N: Int64): string;
+begin
+  if N < 1024 then begin
+    Result := IntToStr(N) + ' B';
+  end else if N < 1024 * 1024 then begin
+    Result := FormatFloat('0.0', N / 1024) + ' KB';
+  end else if N < Int64(1024) * 1024 * 1024 then begin
+    Result := FormatFloat('0.0', N / (1024 * 1024)) + ' MB';
+  end else begin
+    Result := FormatFloat('0.00', N / (Int64(1024) * 1024 * 1024)) + ' GB';
+  end;
+end;
+
+{ ↓ получено программой, ↑ отправлено — итог и скорость. }
+function TrafficLine(const AName: string; ARecv, ASent, ARecvSpeed, ASentSpeed: Int64): string;
+begin
+  { Стрелки и точка — байтами UTF-8: литерал не-ASCII без
+    $codepage зависел бы от кодировки исходника. }
+  Result := AName + '  ' + #$E2#$86#$93 + ' ' + FormatBytes(ARecv) + ' ' + #$C2#$B7 + ' '
+    + FormatBytes(ARecvSpeed) + '/s   ' + #$E2#$86#$91 + ' ' + FormatBytes(ASent)
+    + ' ' + #$C2#$B7 + ' ' + FormatBytes(ASentSpeed) + '/s';
+end;
+
+{ Раз в секунду: traffic у своего сервера или по каналу у консольного.
+  Ошибки молча — это не действие человека (старый консольный сервер
+  команды не знает). }
+procedure TFormServerPanel.tmrTrafficTimer(Sender: TObject);
+var
+  S: TJSONObject;
+  Err: string;
+  Cur: array[0..3] of Int64;
+  Speed: array[0..3] of Int64;
+  Now64, Dt: QWord;
+  I: integer;
+begin
+  S := nil;
+  if FHost <> nil then begin
+    try
+      S := FHost.Control('traffic', nil);
+    except
+      S := nil;
+    end;
+  end else if FConnected then begin
+    if not CallInstance(DataDir, INSTANCE_SERVER, 'traffic', nil, S, Err) then begin
+      S := nil;
+    end;
+  end;
+  if S = nil then begin
+    lblTgTraffic.Caption := 'Telegram  -';
+    lblClTraffic.Caption := 'Clients  -';
+    FPrevTick := 0;
+    Exit;
+  end;
+  try
+    Cur[0] := S.Get('tgRecv', Int64(0));
+    Cur[1] := S.Get('tgSent', Int64(0));
+    Cur[2] := S.Get('clRecv', Int64(0));
+    Cur[3] := S.Get('clSent', Int64(0));
+  finally
+    S.Free;
+  end;
+  Now64 := GetTickCount64;
+  Dt := Now64 - FPrevTick;
+  for I := 0 to 3 do begin
+    { Первый замер и откат счётчика (новый клиент TDLib) — без скорости. }
+    if (FPrevTick = 0) or (Dt = 0) or (Cur[I] < FPrevTraffic[I]) then begin
+      Speed[I] := 0;
+    end else begin
+      Speed[I] := (Cur[I] - FPrevTraffic[I]) * 1000 div Int64(Dt);
+    end;
+    FPrevTraffic[I] := Cur[I];
+  end;
+  FPrevTick := Now64;
+  lblTgTraffic.Caption := TrafficLine('Telegram', Cur[0], Cur[1], Speed[0], Speed[1]);
+  lblClTraffic.Caption := TrafficLine('Clients', Cur[2], Cur[3], Speed[2], Speed[3]);
 end;
 
 { Адрес работающего сервера — в браузере по умолчанию. }

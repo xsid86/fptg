@@ -1,4 +1,4 @@
-import { on } from '../core/bus.js';
+import { on, emit } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
 import { signOut, signedOut } from '../core/session.js';
 
@@ -28,7 +28,9 @@ import { signOut, signedOut } from '../core/session.js';
 //   openChat {chatId}   клик по карточке на рабочем столе;
 //   openLink {url}      ссылка t.me из мини-приложения;
 //   miniappReq {id, cmd, args}  запрос мини-приложения к серверу;
-//   call — нажатие на окошке звонка (ui/call.js).
+//   call — нажатие на окошке звонка (ui/call.js);
+//   downloadFailed      файл из сообщения не скачался (webui.ViewDownloadDone;
+//     удачный окно само открывает внешним приложением).
 //
 // В обычном браузере оболочки нет: всё здесь молчит, а мини-приложение
 // открывается вкладкой.
@@ -113,6 +115,7 @@ function onHostMessage(m) {
       : 'The server certificate is not trusted. Sign in to check its fingerprint.');
   } else if (m.t === 'openChat' && m.chatId) setActiveChat(m.chatId);
   else if (m.t === 'openLink') hooks.openLink?.(m.url);
+  else if (m.t === 'downloadFailed') emit('ui:error', 'Could not download the file');
   else if (m.t === 'miniappReq') miniappRequest(m).catch(() => {});
 }
 

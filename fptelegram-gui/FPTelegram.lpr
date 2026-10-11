@@ -50,7 +50,7 @@ uses
     настроек карточек), secureconfig — шифрование conf.dat, sha256u —
     отпечаток сертификата сервера, instance — единственный экземпляр. }
   constants, secureconfig, sha256u, instance,
-  guiconst, guiconn, webview2, webui, callpopup, desknotify, miniapp, appid, winframe
+  guiconst, guiconn, webview2, webui, callpopup, desknotify, miniapp, appid, winframe, lsrepair
   { you can add units after this };
 
 {$R *.res}

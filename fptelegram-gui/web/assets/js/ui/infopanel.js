@@ -11,6 +11,7 @@ import { statusText } from './chat-list.js';
 import { stickerNode } from './message.js';
 import { duration, listTime, initial, fileSize, dateLabel } from '../util/format.js';
 import { updateFloatDate } from '../util/floatdate.js';
+import { userIdNode } from './userid.js';
 
 // Панель информации о чате — человек, бот, группа или канал. Открывается
 // кнопкой «i» в правом верхнем углу истории и выезжает справа поверх неё
@@ -296,8 +297,16 @@ async function loadMembers(box, i) {
       avatar,
       el('span', { class: 'info-panel__member-text' },
         el('span', { class: 'info-panel__member-name' }, m.title || m.username || '(no name)'),
+        userIdNode(m.userId),
         el('span', { class: 'info-panel__label' }, statusText(m))),
-      m.role ? el('span', { class: 'info-panel__role' }, m.role) : null);
+      // Справа столбиком: сверху подпись, которую участник выбрал сам
+      // (титул админа или тег, chatMember.tag) — чипом его цвета; снизу
+      // фактическая роль.
+      (m.tag || m.role)
+        ? el('span', { class: 'info-panel__roles' },
+          m.tag ? el('span', { class: `info-panel__tag accent-${m.color}` }, m.tag) : null,
+          m.role ? el('span', { class: 'info-panel__role' }, m.role) : null)
+        : null);
     });
     clear(box).append(...nodes);
     membersShown = { chatId: i.chatId, nodes };

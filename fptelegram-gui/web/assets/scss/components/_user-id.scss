@@ -1,0 +1,17 @@
+@use "../abstracts" as *;
+
+// Telegram ID под именем в строках участников и контактов (ui/userid.js):
+// мелко и тихо, по клику копируется.
+.user-id {
+  @include focus-ring;
+  align-self: flex-start;
+  color: var(--c-text-faint);
+  cursor: copy;
+  font-size: $fs-xs;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+
+  &:hover {
+    color: var(--c-accent);
+  }
+}

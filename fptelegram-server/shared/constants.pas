@@ -419,6 +419,10 @@ const
   INSTANCE_INFO_WAIT_MS = 100;
   { Пульт к чужому серверу: как часто спрашивать его состояние. }
   PANEL_REMOTE_POLL_MS = 2000;
+  { Статистика трафика (srvhost): тик сервера — события traffic
+    страницам и опрос getNetworkStatistics; окно сервера спрашивает с
+    тем же шагом. }
+  TRAFFIC_TICK_MS = 1000;
 
   { ================= TLS (tlscert.pas) ================= }
 

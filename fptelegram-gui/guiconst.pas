@@ -61,6 +61,12 @@ const
 
   { ================= WebView2 ================= }
 
+  { Журнал leveldb localStorage профиля (lsrepair.pas): блок и заголовок
+    записи — leveldb doc/log_format.md; папка — внутри папки данных. }
+  LS_LOG_BLOCK = 32768;
+  LS_LOG_HEADER = 7;
+  LS_LEVELDB_SUBDIR = 'EBWebView\Default\Local Storage\leveldb\';
+
   { WebView2.h: COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION (UNKNOWN 0,
     MICROPHONE 1, CAMERA 2, GEOLOCATION 3) и
     COREWEBVIEW2_PERMISSION_STATE_ALLOW (DEFAULT 0, ALLOW 1, DENY 2). }

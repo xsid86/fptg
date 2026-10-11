@@ -14,6 +14,9 @@ unit srvhost;
     stop              -> перестать принимать
     user.set (user, password) -> логин и пароль единственного пользователя
     signOut           -> завершить все сеансы
+    traffic           -> трафик: telegram (TDLib <-> Telegram, все
+                         аккаунты) и clients (сервер <-> окна и браузеры),
+                         байты с запуска; скорость считает спросивший
     show              -> показать окно (OnShow; у консольного — ничего)
   Ответ на каждую — состояние после неё.
 
@@ -24,7 +27,7 @@ unit srvhost;
 interface
 
 uses
-  Classes, SysUtils, fpjson, tlscert;
+  Classes, SysUtils, fpjson, tlscert, tdtimer, tdreq;
 
 type
   TServerHost = class
@@ -36,11 +39,19 @@ type
     FTdStarted: boolean;
     FOnShow: TNotifyEvent;
     FOnChanged: TNotifyEvent;
+    { Раз в секунду: трафик сеансов — их страницам, статистика TDLib —
+      в FTg* (по аккаунтам, ответы асинхронные). }
+    FTrafficTimer: TTdTimer;
+    FTgSent, FTgRecv: array of Int64;
     procedure Changed;
+    procedure TrafficTick(Sender: TObject);
+    procedure NetStatsDone(Sender: TObject; const AResp: TTdResponse);
+    function TrafficJson: TJSONObject;
   public
     { AKind — 'console' или 'gui'. Готовит TLS (свой сертификат или
       --cert/--key). }
     constructor Create(const AKind: string);
+    destructor Destroy; override;
     function Running: boolean;
     { Начать приём на APort (и, в первый раз, поднять TDLib). }
     function Start(APort: word; out AError: string): boolean;
@@ -68,7 +79,7 @@ function ParamValue(const APrefix: string): string;
 implementation
 
 uses
-  constants, tdcore, localserver, webapi, srvauth, secureconfig;
+  constants, tdcore, tdaccount, tdauth, localserver, webapi, srvauth, secureconfig;
 
 function ParamValue(const APrefix: string): string;
 var
@@ -120,6 +131,83 @@ begin
   inherited Create;
   FKind := AKind;
   FTlsOk := PrepareServerTls(ParamValue('--cert='), ParamValue('--key='), FTls, FTlsError);
+  FTrafficTimer := TTdTimer.Create(nil);
+  FTrafficTimer.Interval := TRAFFIC_TICK_MS;
+  FTrafficTimer.OnTimer := @TrafficTick;
+end;
+
+destructor TServerHost.Destroy;
+begin
+  FreeAndNil(FTrafficTimer);
+  inherited Destroy;
+end;
+
+procedure TServerHost.TrafficTick(Sender: TObject);
+var
+  I: integer;
+  A: TTdAccount;
+begin
+  PushSessionTraffic;
+  if not FTdStarted then begin
+    Exit;
+  end;
+  if Length(FTgSent) <> TdApp.Count then begin
+    SetLength(FTgSent, TdApp.Count);
+    SetLength(FTgRecv, TdApp.Count);
+  end;
+  for I := 0 to TdApp.Count - 1 do begin
+    A := TdApp.Accounts[I];
+    if (A.Requests <> nil) and not (A.State in [tasClosing, tasClosed]) then begin
+      A.Requests.SendRequest('getNetworkStatistics', '"only_current":true', @NetStatsDone, I);
+    end;
+  end;
+end;
+
+{ networkStatistics (td_api.tl): entries — networkStatisticsEntryFile и
+  networkStatisticsEntryCall, у обоих sent_bytes/received_bytes (int53).
+  only_current — с запуска клиента TDLib. }
+procedure TServerHost.NetStatsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Arr: TJSONArray;
+  I: integer;
+  S, R: Int64;
+begin
+  if (not AResp.Success) or (AResp.Tag < 0) or (AResp.Tag > High(FTgSent)) then begin
+    Exit;
+  end;
+  Arr := JGetArr(AResp.Obj, 'entries');
+  if Arr = nil then begin
+    Exit;
+  end;
+  S := 0;
+  R := 0;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Items[I] is TJSONObject then begin
+      Inc(S, JGetInt64(TJSONObject(Arr.Items[I]), 'sent_bytes'));
+      Inc(R, JGetInt64(TJSONObject(Arr.Items[I]), 'received_bytes'));
+    end;
+  end;
+  FTgSent[AResp.Tag] := S;
+  FTgRecv[AResp.Tag] := R;
+end;
+
+function TServerHost.TrafficJson: TJSONObject;
+var
+  I: integer;
+  S, R: Int64;
+begin
+  Result := TJSONObject.Create;
+  S := 0;
+  R := 0;
+  for I := 0 to High(FTgSent) do begin
+    Inc(S, FTgSent[I]);
+    Inc(R, FTgRecv[I]);
+  end;
+  Result.Add('tgSent', S);
+  Result.Add('tgRecv', R);
+  LocalTraffic(S, R);
+  Result.Add('clSent', S);
+  Result.Add('clRecv', R);
 end;
 
 procedure TServerHost.Changed;
@@ -234,6 +322,10 @@ begin
     Changed;
   end else if ACmd = 'signOut' then begin
     AuthLogoutAll;
+  end else if ACmd = 'traffic' then begin
+    { Раз в секунду от окна — без всего состояния. }
+    Result := TrafficJson;
+    Exit;
   end else if ACmd = 'show' then begin
     if Assigned(FOnShow) then begin
       FOnShow(Self);

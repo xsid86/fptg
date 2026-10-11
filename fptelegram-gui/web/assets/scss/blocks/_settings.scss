@@ -362,6 +362,23 @@
   margin: $space-6 0;
 }
 
+// В строке настройки (акцент, General): справа, рядом с подписью, одним
+// рядом — колонка управления сжимается по содержимому, и auto-fill
+// сетки выше выстроил бы кружки столбиком. Тесно — перенос.
+.color-grid--inline {
+  @include flex(row, center, flex-end, $space-4);
+  flex-wrap: wrap;
+  margin: 0;
+
+  .color-swatch {
+    @include size(28px);
+
+    &::after {
+      @include size(9px);
+    }
+  }
+}
+
 .color-tabs {
   @include flex(row, center, center, $space-2);
   align-self: center;

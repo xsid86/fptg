@@ -77,6 +77,13 @@ type
       другой поток, читает цикл сокета. }
     FSid:      string;
     FEnded:    boolean;
+    { Сколько байт сокета уже учтено (HarvestTraffic). }
+    FCountedSent, FCountedRecv: Int64;
+    { Заголовок Content-Disposition (с CRLF) для ServeFileFrom: /media/
+      с ?save=имя отдаётся вложением — браузер и окно его сохраняют, а не
+      показывают сами. '' — как обычно. }
+    FDisposition: string;
+    procedure HarvestTraffic;
     function  ReadExact(ABuf: PByte; ALen: integer): boolean;
     function  ReadRequest: boolean;
     function  HeaderValue(const AName: string): string;
@@ -180,6 +187,15 @@ procedure SetWebMessageHandler(AHandler: TWebMessageEvent);
 function WebSendTo(AConnId: Int64; const AText: utf8string): boolean;
 procedure WebBroadcast(const AText: utf8string);
 
+{ Трафик сервера с клиентами (окна и браузеры) с запуска процесса:
+  полезная нагрузка TLS (Synapse считает расшифрованные байты;
+  рукопожатие не в счёт). ASent — отдано клиентам, ARecv — получено. }
+procedure LocalTraffic(out ASent, ARecv: Int64);
+{ Каждому веб-сокету — трафик его сеанса входа (событие traffic: sent,
+  recv — со стороны сервера). Раз в секунду, из главного потока
+  (srvhost). }
+procedure PushSessionTraffic;
+
 implementation
 
 uses
@@ -207,6 +223,16 @@ var
   GConnsLock:   SyncObjs.TCriticalSection = nil;
   GNextConnId:  Int64 = 0;
   GOnMessage:   TWebMessageEvent = nil;
+  { Трафик с клиентами: весь и по сеансам входа (sid -> TTrafficCell). }
+  GTrafficLock: SyncObjs.TCriticalSection = nil;
+  GTrafficSent: Int64 = 0;
+  GTrafficRecv: Int64 = 0;
+  GSidTraffic:  TStringList = nil;
+
+type
+  TTrafficCell = class
+    Sent, Recv: Int64;
+  end;
 
 const
   CRLF = #13#10;
@@ -525,6 +551,42 @@ begin
   inherited Destroy;
 end;
 
+{ Неучтённые байты сокета — в общий счёт и в счёт сеанса. Только из
+  потока соединения: счётчики Synapse растут и от отправок главного
+  потока (SendText), но читать Int64 на x64 безопасно, а учтённое
+  хранится здесь же. Байты до того, как стал известен сеанс (TLS,
+  заголовки запроса), уходят в его счёт при первом сборе после. }
+procedure TServerConn.HarvestTraffic;
+var
+  S, R: Int64;
+  I: integer;
+  Cell: TTrafficCell;
+begin
+  S := FSock.SendCounter - FCountedSent;
+  R := FSock.RecvCounter - FCountedRecv;
+  if (S <= 0) and (R <= 0) then begin
+    Exit;
+  end;
+  Inc(FCountedSent, S);
+  Inc(FCountedRecv, R);
+  GTrafficLock.Enter;
+  try
+    Inc(GTrafficSent, S);
+    Inc(GTrafficRecv, R);
+    if FSid <> '' then begin
+      I := GSidTraffic.IndexOf(FSid);
+      if I < 0 then begin
+        I := GSidTraffic.AddObject(FSid, TTrafficCell.Create);
+      end;
+      Cell := TTrafficCell(GSidTraffic.Objects[I]);
+      Inc(Cell.Sent, S);
+      Inc(Cell.Recv, R);
+    end;
+  finally
+    GTrafficLock.Leave;
+  end;
+end;
+
 function TServerConn.ReadExact(ABuf: PByte; ALen: integer): boolean;
 begin
   Result := (FSock.RecvBufferEx(ABuf, ALen, LOCAL_SERVER_WS_READ_TIMEOUT_MS) = ALen)
@@ -642,6 +704,10 @@ begin
     Result := (T <> '') and AuthCheck(T, ascMedia);
   end else begin
     Result := (T <> '') and AuthCheck(T, ascApi);
+  end;
+  { Чей это запрос — для счёта трафика по сеансам. }
+  if Result and (FSid = '') then begin
+    FSid := AuthSessionId(T);
   end;
 end;
 
@@ -864,6 +930,7 @@ begin
       if Got > 0 then begin
         F.WriteBuffer(Buf[0], Got);
         Dec(Left, Got);
+        HarvestTraffic;
       end;
       if (FSock.LastError <> 0) or (Got <= 0) then begin
         Break;
@@ -920,6 +987,37 @@ end;
   Note what this does NOT do: ask the model anything. This runs on a
   socket thread, and the model is the main thread's. The lookup is a
   lock-protected integer-to-path map and nothing more. }
+{ Content-Disposition: attachment с именем файла: filename* — UTF-8 в
+  процентах (RFC 6266/5987), filename — ASCII на запас. Имя — через
+  SafeUploadName: ни пути, ни зарезервированных имён Windows. }
+function AttachmentHeader(const AName: string): string;
+const
+  HEX = '0123456789ABCDEF';
+var
+  Safe, Ascii, Pct: string;
+  I: integer;
+  B: byte;
+begin
+  Safe := SafeUploadName(AName);
+  Ascii := '';
+  Pct := '';
+  for I := 1 to Length(Safe) do begin
+    B := Ord(Safe[I]);
+    if (B >= 32) and (B < 127) and (Safe[I] <> '"') and (Safe[I] <> '\') then begin
+      Ascii := Ascii + Safe[I];
+    end else begin
+      Ascii := Ascii + '_';
+    end;
+    if Safe[I] in ['A'..'Z', 'a'..'z', '0'..'9', '-', '.', '_', '~'] then begin
+      Pct := Pct + Safe[I];
+    end else begin
+      Pct := Pct + '%' + HEX[(B shr 4) + 1] + HEX[(B and $F) + 1];
+    end;
+  end;
+  Result := 'Content-Disposition: attachment; filename="' + Ascii
+    + '"; filename*=UTF-8''''' + Pct + CRLF;
+end;
+
 procedure TServerConn.ServeMedia;
 var
   Ids, Fn: string;
@@ -937,6 +1035,12 @@ begin
       send, and the page retries when the model says the file landed. }
     SendSimple(404, 'Not Found', 'not downloaded');
     Exit;
+  end;
+  { save=* — имя файла на диске (у фото и видео своего имени нет). }
+  if QueryParam('save') = '*' then begin
+    FDisposition := AttachmentHeader(ExtractFileName(Fn));
+  end else if QueryParam('save') <> '' then begin
+    FDisposition := AttachmentHeader(QueryParam('save'));
   end;
   ServeFileFrom(Fn, MediaContentType(Fn));
 end;
@@ -1003,6 +1107,7 @@ begin
          + 'Content-Type: ' + Ct + CRLF
          + 'Content-Length: ' + IntToStr(Left) + CRLF
          + 'Accept-Ranges: bytes' + CRLF
+         + FDisposition
          { Local files that change under the page (a download finishing
            and replacing a placeholder) must not be cached while this
            is being developed. }
@@ -1031,6 +1136,7 @@ begin
         Break;
       end;
       Dec(Left, Got);
+      HarvestTraffic;
     end;
   finally
     FS.Free;
@@ -1106,6 +1212,7 @@ begin
   LastPing := GetTickCount64;
 
   while (not Terminated) and (not GStopping) and (not FEnded) do begin
+    HarvestTraffic;
     { CanReadEx, NOT CanRead — and this is not interchangeable.
       Synapse's RecvBufferEx pulls a whole TCP packet and keeps
       whatever the frame did not need in the socket object's own
@@ -1305,6 +1412,11 @@ begin
       end;
     end;
   finally
+    try
+      HarvestTraffic;
+    except
+      { счёт трафика не повод уронить поток }
+    end;
     FSock.CloseSocket;
   end;
 end;
@@ -1479,6 +1591,55 @@ begin
   end;
 end;
 
+procedure LocalTraffic(out ASent, ARecv: Int64);
+begin
+  GTrafficLock.Enter;
+  try
+    ASent := GTrafficSent;
+    ARecv := GTrafficRecv;
+  finally
+    GTrafficLock.Leave;
+  end;
+end;
+
+procedure PushSessionTraffic;
+var
+  I, J: integer;
+  C: TServerConn;
+  S, R: Int64;
+begin
+  if GConnsLock = nil then begin
+    Exit;
+  end;
+  { Порядок замков: реестр, потом трафик — HarvestTraffic берёт только
+    второй. }
+  GConnsLock.Enter;
+  try
+    for I := 0 to GConns.Count - 1 do begin
+      C := TServerConn(GConns[I]);
+      if C.FSid = '' then begin
+        Continue;
+      end;
+      S := 0;
+      R := 0;
+      GTrafficLock.Enter;
+      try
+        J := GSidTraffic.IndexOf(C.FSid);
+        if J >= 0 then begin
+          S := TTrafficCell(GSidTraffic.Objects[J]).Sent;
+          R := TTrafficCell(GSidTraffic.Objects[J]).Recv;
+        end;
+      finally
+        GTrafficLock.Leave;
+      end;
+      C.SendText(utf8string('{"event":"traffic","data":{"sent":' + IntToStr(S)
+        + ',"recv":' + IntToStr(R) + '}}'));
+    end;
+  finally
+    GConnsLock.Leave;
+  end;
+end;
+
 function LocalServerHost: string;
 begin
   Result := '';
@@ -1548,11 +1709,17 @@ end;
 initialization
   GConns := TFPList.Create;
   GConnsLock := SyncObjs.TCriticalSection.Create;
+  GTrafficLock := SyncObjs.TCriticalSection.Create;
+  GSidTraffic := TStringList.Create;
+  GSidTraffic.OwnsObjects := True;
+  GSidTraffic.Sorted := True;
   AuthSessionsEnded := @EndSessionSockets;
 
 finalization
   StopLocalServer;
   FreeAndNil(GConns);
   FreeAndNil(GConnsLock);
+  FreeAndNil(GSidTraffic);
+  FreeAndNil(GTrafficLock);
 
 end.

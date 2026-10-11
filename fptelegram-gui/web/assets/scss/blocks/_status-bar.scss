@@ -92,6 +92,21 @@
   &.is-invisible .conn__dot { background: var(--c-text-faint); }
 }
 
+// Online/Invisible и под ним трафик окна — как «transport check» с
+// состоянием соединения.
+.status-bar__presence-box {
+  @include flex(column, flex-start, center, $space-1);
+}
+
+.status-bar__traffic {
+  color: var(--c-text-faint);
+  font-variant-numeric: tabular-nums;
+  padding: 0 $space-2;
+  white-space: nowrap;
+
+  &[hidden] { display: none; }
+}
+
 // The theme switch. It sits at the right-hand end of the status bar,
 // which is where it belongs: a setting that is always reachable but
 // never in the way of the chat.

@@ -122,6 +122,11 @@
         <UsageCount Value="20"/>
       </Unit>
       <Unit>
+        <Filename Value="lsrepair.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
         <Filename Value="..\fptelegram-server\instance.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>

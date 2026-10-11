@@ -20,7 +20,7 @@
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
       <MinorVersionNr Value="1"/>
-      <BuildNr Value="630"/>
+      <BuildNr Value="633"/>
       <StringTable CompanyName="xsid86" InternalName="FPTelegram" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -141,6 +141,10 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
+        <Filename Value="lsrepair.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="..\fptelegram-server\instance.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
@@ -157,6 +161,11 @@
       <OtherUnitFiles Value="..\fptelegram-server\shared"/>
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
+    <CodeGeneration>
+      <Optimizations>
+        <OptimizationLevel Value="0"/>
+      </Optimizations>
+    </CodeGeneration>
     <Linking>
       <Debugging>
         <DebugInfoType Value="dsDwarf3"/>

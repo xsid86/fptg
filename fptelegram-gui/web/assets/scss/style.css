@@ -568,6 +568,139 @@
   --accent-color: #808000;
 }
 
+:root[data-accent=blue] {
+  --c-accent: #2196f3;
+  --c-unread: #2196f3;
+}
+
+.swatch-app-blue {
+  --swatch-1: #2196f3;
+  --swatch-2: #2196f3;
+}
+
+:root[data-accent=cyan] {
+  --c-accent: #00acc1;
+  --c-unread: #00acc1;
+}
+
+.swatch-app-cyan {
+  --swatch-1: #00acc1;
+  --swatch-2: #00acc1;
+}
+
+:root[data-accent=teal] {
+  --c-accent: #009688;
+  --c-unread: #009688;
+}
+
+.swatch-app-teal {
+  --swatch-1: #009688;
+  --swatch-2: #009688;
+}
+
+:root[data-accent=green] {
+  --c-accent: #43a047;
+  --c-unread: #43a047;
+}
+
+.swatch-app-green {
+  --swatch-1: #43a047;
+  --swatch-2: #43a047;
+}
+
+:root[data-accent=lime] {
+  --c-accent: #7cb342;
+  --c-unread: #7cb342;
+}
+
+.swatch-app-lime {
+  --swatch-1: #7cb342;
+  --swatch-2: #7cb342;
+}
+
+:root[data-accent=amber] {
+  --c-accent: #ffb300;
+  --c-unread: #ffb300;
+}
+
+.swatch-app-amber {
+  --swatch-1: #ffb300;
+  --swatch-2: #ffb300;
+}
+
+:root[data-accent=orange] {
+  --c-accent: #fb8c00;
+  --c-unread: #fb8c00;
+}
+
+.swatch-app-orange {
+  --swatch-1: #fb8c00;
+  --swatch-2: #fb8c00;
+}
+
+:root[data-accent=red] {
+  --c-accent: #e53935;
+  --c-unread: #e53935;
+}
+
+.swatch-app-red {
+  --swatch-1: #e53935;
+  --swatch-2: #e53935;
+}
+
+:root[data-accent=pink] {
+  --c-accent: #d81b60;
+  --c-unread: #d81b60;
+}
+
+.swatch-app-pink {
+  --swatch-1: #d81b60;
+  --swatch-2: #d81b60;
+}
+
+:root[data-accent=purple] {
+  --c-accent: #8e24aa;
+  --c-unread: #8e24aa;
+}
+
+.swatch-app-purple {
+  --swatch-1: #8e24aa;
+  --swatch-2: #8e24aa;
+}
+
+:root[data-accent=indigo] {
+  --c-accent: #3949ab;
+  --c-unread: #3949ab;
+}
+
+.swatch-app-indigo {
+  --swatch-1: #3949ab;
+  --swatch-2: #3949ab;
+}
+
+:root[data-accent=grey] {
+  --c-accent: #757575;
+  --c-unread: #757575;
+}
+
+.swatch-app-grey {
+  --swatch-1: #757575;
+  --swatch-2: #757575;
+}
+
+:root[data-accent] {
+  --c-accent-hover: color-mix(in srgb, var(--c-accent), black 12%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-accent]:not([data-theme=light]) {
+    --c-accent-hover: color-mix(in srgb, var(--c-accent), white 15%);
+  }
+}
+:root[data-accent][data-theme=dark] {
+  --c-accent-hover: color-mix(in srgb, var(--c-accent), white 15%);
+}
+
 .swatch-a0 {
   --swatch-1: #e63c3c;
   --swatch-2: #e63c3c;
@@ -1734,10 +1867,10 @@ body {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -1777,14 +1910,15 @@ body {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   height: 100%;
   min-height: 0;
   overflow: hidden;
   position: relative;
+  isolation: isolate;
 }
 
 .workspace__history {
@@ -2069,10 +2203,10 @@ body {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   background: var(--c-bg);
   border: 1px solid color-mix(in srgb, var(--c-text) 25%, transparent);
@@ -2452,6 +2586,24 @@ body {
   padding: 0 4px;
   pointer-events: none;
   position: absolute;
+}
+
+.user-id {
+  align-self: flex-start;
+  color: var(--c-text-faint);
+  cursor: copy;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+.user-id:focus {
+  outline: none !important;
+}
+.user-id:focus-visible {
+  outline: 1px solid var(--c-accent) !important;
+}
+.user-id:hover {
+  color: var(--c-accent);
 }
 
 [type=range] {
@@ -2960,10 +3112,10 @@ body {
 }
 
 .chat-header {
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   backdrop-filter: none;
   display: flex;
   flex-direction: row;
@@ -3188,6 +3340,12 @@ body {
   font-size: 12px;
   padding: 2px 8px;
 }
+.history__date[data-date] > span {
+  cursor: pointer;
+}
+.history__date[data-date] > span:hover {
+  color: var(--c-text);
+}
 
 .history__float-date {
   display: flex;
@@ -3207,6 +3365,10 @@ body {
   color: var(--c-light);
   font-size: 12px;
   padding: 2px 8px;
+}
+.history__float-date[data-date] > span {
+  cursor: pointer;
+  pointer-events: auto;
 }
 .history__float-date[hidden] {
   display: none;
@@ -3923,6 +4085,31 @@ body {
   font-size: 12px;
 }
 
+.info-panel__roles {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.info-panel__tag {
+  --chat-color: var(--accent-color, var(--c-accent));
+  background: color-mix(in srgb, var(--chat-color) 25%, transparent);
+  border-radius: 999px;
+  color: var(--chat-color);
+  font-size: 11px;
+  line-height: 18px;
+  max-width: 120px;
+  padding: 0 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .info-panel__back {
   display: flex;
   flex-direction: row;
@@ -4481,7 +4668,7 @@ body {
   background: color-mix(in srgb, var(--sender-color) 20%, transparent);
   border-left: 3px solid var(--sender-color);
   border-radius: 4px;
-  margin: 0;
+  margin: 0 0 0.25rem 0;
   padding: 6px 11px;
 }
 
@@ -6860,10 +7047,10 @@ a.media--file:hover {
 }
 
 .mention-pop {
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   background: var(--c-bg);
   border: 1px solid color-mix(in srgb, var(--c-text) 25%, transparent);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
@@ -6940,10 +7127,10 @@ a.media--file:hover {
 }
 
 .composer {
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -7180,10 +7367,10 @@ a.media--file:hover {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   background: color-mix(in srgb, var(--c-bg) 75%, transparent);
   border: 1px solid color-mix(in srgb, var(--c-border) 60%, transparent);
   color: var(--c-text);
@@ -7595,10 +7782,10 @@ span.picker__gif {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   padding: 8px;
   font-size: 11px;
   color: var(--c-text-dim);
@@ -7731,6 +7918,24 @@ span.picker__gif {
   background: var(--c-text-faint);
 }
 
+.status-bar__presence-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+
+.status-bar__traffic {
+  color: var(--c-text-faint);
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.status-bar__traffic[hidden] {
+  display: none;
+}
+
 .status-bar__theme,
 .status-bar__settings {
   display: flex;
@@ -7772,10 +7977,10 @@ span.picker__gif {
 }
 
 .toast-stack__clear {
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   background: var(--c-surface);
   box-shadow: 0 8px 24px var(--c-shadow);
   color: var(--c-text-dim);
@@ -7805,10 +8010,10 @@ span.picker__gif {
   align-items: flex-start;
   justify-content: flex-start;
   gap: 6px;
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   background: var(--c-surface);
   border-left: 3px solid var(--avatar-color, var(--c-accent));
   box-shadow: 0 8px 24px var(--c-shadow);
@@ -7932,10 +8137,10 @@ span.picker__gif {
   align-items: stretch;
   justify-content: flex-start;
   gap: 8px;
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   max-width: 420px;
   padding: 24px;
   width: 100%;
@@ -8580,6 +8785,26 @@ span.picker__gif {
   margin: 16px 0;
 }
 
+.color-grid--inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+}
+.color-grid--inline .color-swatch {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+.color-grid--inline .color-swatch::after {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+}
+
 .color-tabs {
   display: flex;
   flex-direction: row;
@@ -9110,10 +9335,10 @@ span.picker__gif {
 }
 
 .people {
-  background: color-mix(in srgb, var(--c-bg) 25%, transparent);
-  backdrop-filter: blur(15px);
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   background: var(--c-surface);
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   box-shadow: 0 8px 24px var(--c-shadow);
@@ -9707,7 +9932,7 @@ span.picker__gif {
   inset-inline: 16px;
   pointer-events: none;
   position: fixed;
-  z-index: 45;
+  z-index: 60;
 }
 
 .notice {
@@ -10334,7 +10559,16 @@ span.picker__gif {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
+  background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
+  backdrop-filter: var(--card-blur, blur(15px));
+  border-radius: 10px;
+  border: var(--card-border, 1px solid color-mix(in srgb, var(--c-border) 40%, transparent));
   flex-wrap: wrap;
+  padding: 6px 8px;
+}
+
+.check__spacer {
+  flex: 1 1 auto;
 }
 
 .check__log {
@@ -10405,6 +10639,163 @@ span.picker__gif {
   border-radius: 8px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
+  color: var(--c-text);
+  font: inherit;
+}
+
+:root[data-style=plain][data-theme=dark] {
+  --c-bg: #000000;
+  --plain-panel: #030303;
+  --plain-panel-border: #030303;
+  --plain-card: #131313;
+  --plain-card-border: #131313;
+  --plain-card-border-own: color-mix(in srgb, #131313 85%, var(--c-accent));
+  --plain-card-own: color-mix(in srgb, #131313 85%, var(--c-accent));
+  --plain-chip: #414141;
+  --plain-chip-text: #f1f2f3;
+}
+
+:root[data-style=plain][data-theme=light] {
+  --c-bg: #ffffff;
+  --plain-panel: #f0f0f0;
+  --plain-panel-border: #f0f0f0;
+  --plain-card: #ffffff;
+  --plain-card-border: #ffffff;
+  --plain-card-border-own: color-mix(in srgb, #ffffff 75%, var(--c-accent));
+  --plain-card-own: color-mix(in srgb, #ffffff 75%, var(--c-accent));
+  --plain-chip: #777777;
+  --plain-chip-text: #f1f2f3;
+}
+
+:root[data-style=plain] {
+  --card-bg: var(--plain-panel);
+  --card-border: 1px solid var(--plain-panel-border);
+  --card-blur: none;
+}
+:root[data-style=plain] *,
+:root[data-style=plain] *::before,
+:root[data-style=plain] *::after,
+:root[data-style=plain] ::backdrop {
+  backdrop-filter: none !important;
+}
+:root[data-style=plain] body {
+  background: var(--c-bg);
+  background-image: none;
+}
+:root[data-style=plain] .dropzone,
+:root[data-style=plain] .attach-layer,
+:root[data-style=plain] .pswp .pswp__bg {
+  background: var(--c-bg);
+}
+:root[data-style=plain] .confirm::backdrop,
+:root[data-style=plain] .settings::backdrop {
+  background: var(--c-bg);
+}
+:root[data-style=plain] .info-panel,
+:root[data-style=plain] .settings__window,
+:root[data-style=plain] .dropzone__zone {
+  background: var(--plain-panel);
+}
+:root[data-style=plain] .info-panel {
+  border-left-color: var(--plain-panel-border);
+}
+:root[data-style=plain] .greeting,
+:root[data-style=plain] .history__loader-pill,
+:root[data-style=plain] .contact-row {
+  background: var(--plain-card);
+}
+:root[data-style=plain] .chat-header,
+:root[data-style=plain] .sidebar__head,
+:root[data-style=plain] .composer,
+:root[data-style=plain] .chat-item__head,
+:root[data-style=plain] .message__head,
+:root[data-style=plain] .message__reactions {
+  background: transparent;
+}
+:root[data-style=plain] .chat-item {
+  background: var(--plain-card);
+  border: 1px solid var(--plain-card-border);
+  box-shadow: none;
+}
+:root[data-style=plain] .chat-item:hover, :root[data-style=plain] .chat-item.is-active {
+  border-color: var(--c-accent);
+}
+:root[data-style=plain] .chat-item__kind {
+  fill: var(--c-text-dim);
+}
+:root[data-style=plain] .chat-item__receipt,
+:root[data-style=plain] .chat-item__me {
+  color: var(--c-accent);
+}
+:root[data-style=plain] .chat-item__action:hover, :root[data-style=plain] .chat-item__action:active, :root[data-style=plain] .chat-item__action:focus {
+  color: var(--c-accent);
+}
+:root[data-style=plain] .contact-row:hover {
+  background: var(--c-accent);
+}
+:root[data-style=plain] .chat-item__folder,
+:root[data-style=plain] .chat-item__folder--none,
+:root[data-style=plain] .comments,
+:root[data-style=plain] .reaction,
+:root[data-style=plain] .message-service__text {
+  background: var(--plain-chip);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--plain-chip-text);
+}
+:root[data-style=plain] .chip {
+  background: var(--plain-chip);
+  border-color: transparent;
+  color: var(--plain-chip-text);
+}
+:root[data-style=plain] .reaction,
+:root[data-style=plain] .comments {
+  border: 1px solid transparent;
+}
+:root[data-style=plain] .reaction:hover,
+:root[data-style=plain] .comments:hover {
+  border-color: var(--c-accent);
+}
+:root[data-style=plain] .reaction.is-chosen {
+  border-color: var(--c-accent);
+}
+:root[data-style=plain] .contact-row:hover .chat-item__folder--none,
+:root[data-style=plain] .contact-row:hover .chat-item__folder--none * {
+  color: var(--plain-chip-text);
+}
+:root[data-style=plain] .chat-header__title {
+  color: var(--c-text);
+}
+:root[data-style=plain] .chat-header__search {
+  border-color: var(--c-accent);
+}
+:root[data-style=plain] .chat-filter:hover:not(:disabled), :root[data-style=plain] .chat-filter.is-active {
+  color: var(--c-accent);
+}
+:root[data-style=plain] .message {
+  background: var(--plain-card);
+  border: 1px solid var(--plain-card-border);
+  box-shadow: none;
+}
+:root[data-style=plain] .message--outgoing {
+  background: var(--plain-card-own);
+  border-color: var(--plain-card-border-own);
+}
+:root[data-style=plain] .message:has(.media--sticker),
+:root[data-style=plain] .message:has(.media--gif):not(:has(b)) {
+  background: none;
+  border: none;
+}
+:root[data-style=plain] .message:has(.media--sticker) .message__head,
+:root[data-style=plain] .message:has(.media--gif):not(:has(b)) .message__head {
+  background: var(--plain-card);
+  border-color: var(--plain-card-border);
+  box-shadow: none;
+}
+:root[data-style=plain] .message--outgoing:has(.media--sticker) .message__head,
+:root[data-style=plain] .message--outgoing:has(.media--gif):not(:has(b)) .message__head {
+  background: var(--plain-card-own);
+  border-color: var(--plain-card-border-own);
 }
 
 .pswp {

@@ -5,6 +5,7 @@ import { store } from '../core/store.js';
 import { fillAvatar } from '../util/avatar.js';
 import { openMenu } from '../util/menu.js';
 import { formDialog } from './bots.js';
+import { fileSize } from '../util/format.js';
 
 // Connection state and a couple of counters. Deliberately the only
 // place that reports the socket: a status that appears in two places
@@ -179,15 +180,64 @@ function openAccounts() {
   openMenu(accountBtn, items);
 }
 
+// ---------------------------------------------------------- traffic
+// Трафик ЭТОГО окна с сервером под Online/Invisible. Считает сервер — по
+// сеансу входа, с запуска сервера — и присылает итог раз в секунду
+// (событие traffic: sent/recv со стороны сервера); скорость — по
+// разнице двух соседних итогов. ↓ получено окном, ↑ отправлено.
+let traffic = null;
+let prevTraffic = null;
+
+// Показывать ли строку — Settings → General. Настройка вида этого окна,
+// а не сервера: локально, как выбор темы. Нет записи — показывать.
+const TRAFFIC_KEY = 'showTraffic';
+
+export function trafficShown() {
+  try {
+    return localStorage.getItem(TRAFFIC_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+export function setTrafficShown(on) {
+  try {
+    localStorage.setItem(TRAFFIC_KEY, on ? '1' : '0');
+  } catch {
+    // Не запомнится до следующего запуска, но сейчас подействует.
+  }
+  // Спрятать сразу; показать — как только придёт следующий итог.
+  if (traffic && !on) traffic.hidden = true;
+}
+
+function renderTraffic(data) {
+  const now = performance.now();
+  const down = Number(data?.sent) || 0;
+  const up = Number(data?.recv) || 0;
+  let downSpeed = 0;
+  let upSpeed = 0;
+  const p = prevTraffic;
+  if (p && now > p.t && down >= p.down && up >= p.up) {
+    const dt = (now - p.t) / 1000;
+    downSpeed = Math.round((down - p.down) / dt);
+    upSpeed = Math.round((up - p.up) / dt);
+  }
+  prevTraffic = { t: now, down, up };
+  traffic.hidden = !trafficShown();
+  traffic.textContent = `↓ ${fileSize(down)} · ${fileSize(downSpeed)}/s  `
+    + `↑ ${fileSize(up)} · ${fileSize(upSpeed)}/s`;
+}
+
 let errorTimer = null;
 
 function showError(message) {
-  // После переключателя видимости, а не после индикатора соединения:
-  // тот живёт в узкой колонке под «transport check».
-  let slot = qs('.status-bar__error', presence.parentElement);
+  // После переключателя видимости (с трафиком под ним), а не после
+  // индикатора соединения: тот живёт в узкой колонке под «transport check».
+  const anchor = presence.closest('.status-bar__presence-box') ?? presence;
+  let slot = qs('.status-bar__error', anchor.parentElement);
   if (!slot) {
     slot = el('span', { class: 'status-bar__error' });
-    presence.after(slot);
+    anchor.after(slot);
   }
   slot.textContent = message;
   // Cleared after a while rather than left standing: a stale failure
@@ -201,6 +251,10 @@ export function mountStatusBar(node) {
   counts = qs('.status-bar__counts', node);
   presence = qs('.status-bar__presence', node);
   presence.addEventListener('click', togglePresence);
+  traffic = qs('.status-bar__traffic', node);
+  traffic.title = 'Traffic of this window with the server (this sign-in, '
+    + 'since the server started): ↓ received, ↑ sent';
+  on('srv:traffic', renderTraffic);
   accountBtn = qs('.status-bar__account', node);
   accountBtn.hidden = true;
   accountBtn.addEventListener('click', () => openAccounts());
@@ -209,6 +263,8 @@ export function mountStatusBar(node) {
   on('srv:account', () => window.location.reload());
   on('net:status', (status) => {
     renderStatus(status);
+    // Без связи прежний итог не сравнивать — скорость начнётся заново.
+    if (status !== 'open') prevTraffic = null;
     // Asked again on every connect, not once at start-up: another page
     // - or the native window - may have flipped it while this one was
     // away, and the server is the one that knows.

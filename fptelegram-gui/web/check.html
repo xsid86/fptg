@@ -5,8 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FPTelegram - transport check</title>
 <link rel="stylesheet" href="assets/scss/style.css">
+<script>
+  // Тема — как в index.html: выбор (data-theme) до первой отрисовки, иначе
+  // страница всегда в теме Windows, а не в выбранной в приложении.
+  try {
+    var t = localStorage.getItem('theme');
+    // dark | light | dark-plain | light-plain (ui/theme.js): схема — в
+    // data-theme, простые темы — ещё data-style="plain".
+    if (/^(dark|light)(-plain)?$/.test(t || '')) {
+      document.documentElement.dataset.theme = t.indexOf('dark') === 0 ? 'dark' : 'light';
+      if (/-plain$/.test(t)) { document.documentElement.dataset.style = 'plain'; }
+    }
+    // Акцент (Settings → General, ui/theme.js): ключ из $app-accents.
+    var a = localStorage.getItem('accent');
+    if (/^[a-z]+$/.test(a || '')) { document.documentElement.dataset.accent = a; }
+  } catch (e) { /* storage blocked: the OS preference still applies */ }
+</script>
 </head>
 <body class="page-check">
+<script>
+  // Итоговая тема на <body> (data-scheme) — по ней фон страницы, как у
+  // приложения (см. index.html).
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('theme'); } catch (e) { /* blocked */ }
+    if (/^(dark|light)(-plain)?$/.test(t || '')) {
+      t = t.indexOf('dark') === 0 ? 'dark' : 'light';
+    } else {
+      t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    document.body.dataset.scheme = t;
+  })();
+</script>
 
 <!--
   The diagnostic page, kept because it is what proves the socket itself
@@ -17,7 +47,7 @@
 <div class="check__head">
   <strong>Transport check</strong>
   <div class="conn" id="conn"></div>
-  <span class="sidebar__spacer" style="flex:1"></span>
+  <span class="check__spacer"></span>
   <span class="u-dim u-tabular">rtt <b id="rtt">-</b> ms</span>
   <span class="u-dim u-tabular">in <b id="nin">0</b></span>
   <span class="u-dim u-tabular">bytes <b id="nbytes">0</b></span>

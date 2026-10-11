@@ -395,6 +395,61 @@ type
     function ClearServerCertificateErrorActions(a: Pointer): HRESULT; stdcall;   { 105 slot only }
   end;
 
+  { --- Загрузки (ICoreWebView2_4.add_DownloadStarting). Порядок методов
+    и GUID — WebView2.h SDK 1.0.4191.47 (снято скриптом, 2026-10-11).
+    Объявлен префикс vtable до последнего нужного слота. --- }
+  ICoreWebView2DownloadOperation = interface;
+
+  ICoreWebView2StateChangedEventHandler = interface(IUnknown)
+    ['{81336594-7EDE-4BA9-BF71-ACF0A95B58DD}']
+    function Invoke(sender: ICoreWebView2DownloadOperation; args: IUnknown): HRESULT; stdcall;
+  end;
+
+  ICoreWebView2DownloadOperation = interface(IUnknown)
+    ['{3D6B6CF2-AFE1-44C7-A995-C65117714336}']
+    function add_BytesReceivedChanged(a, b: Pointer): HRESULT; stdcall;         { 0 slot only }
+    function remove_BytesReceivedChanged(a: TEventToken): HRESULT; stdcall;     { 1 slot only }
+    function add_EstimatedEndTimeChanged(a, b: Pointer): HRESULT; stdcall;      { 2 slot only }
+    function remove_EstimatedEndTimeChanged(a: TEventToken): HRESULT; stdcall;  { 3 slot only }
+    function add_StateChanged(handler: ICoreWebView2StateChangedEventHandler;
+      out token: TEventToken): HRESULT; stdcall;                                { 4 }
+    function remove_StateChanged(a: TEventToken): HRESULT; stdcall;             { 5 slot only }
+    function get_Uri(out uri: PWideChar): HRESULT; stdcall;                     { 6 }
+    function get_ContentDisposition(a: Pointer): HRESULT; stdcall;              { 7 slot only }
+    function get_MimeType(a: Pointer): HRESULT; stdcall;                        { 8 slot only }
+    function get_TotalBytesToReceive(a: Pointer): HRESULT; stdcall;             { 9 slot only }
+    function get_BytesReceived(a: Pointer): HRESULT; stdcall;                   { 10 slot only }
+    function get_EstimatedEndTime(a: Pointer): HRESULT; stdcall;                { 11 slot only }
+    function get_ResultFilePath(out path: PWideChar): HRESULT; stdcall;         { 12 }
+    function get_State(out state: integer): HRESULT; stdcall;                   { 13 }
+  end;
+
+  ICoreWebView2DownloadStartingEventArgs = interface(IUnknown)
+    ['{E99BBE21-43E9-4544-A732-282764EAFA60}']
+    function get_DownloadOperation(out op: ICoreWebView2DownloadOperation): HRESULT; stdcall; { 0 }
+    function get_Cancel(a: Pointer): HRESULT; stdcall;                          { 1 slot only }
+    function put_Cancel(a: BOOL): HRESULT; stdcall;                             { 2 slot only }
+    function get_ResultFilePath(a: Pointer): HRESULT; stdcall;                  { 3 slot only }
+    function put_ResultFilePath(a: PWideChar): HRESULT; stdcall;                { 4 slot only }
+    function get_Handled(a: Pointer): HRESULT; stdcall;                         { 5 slot only }
+    function put_Handled(handled: BOOL): HRESULT; stdcall;                      { 6 }
+  end;
+
+  ICoreWebView2DownloadStartingEventHandler = interface(IUnknown)
+    ['{EFEDC989-C396-41CA-83F7-07F845A55724}']
+    function Invoke(sender: ICoreWebView2;
+      args: ICoreWebView2DownloadStartingEventArgs): HRESULT; stdcall;
+  end;
+
+  { Слоты 58..69 — _2 и _3 (объявлены в ICoreWebView2_3), дальше _4. }
+  ICoreWebView2_4 = interface(ICoreWebView2_3)
+    ['{20D02D59-6DF2-42DC-BD06-F98A694B1302}']
+    function add_FrameCreated(a, b: Pointer): HRESULT; stdcall;                 { 70 slot only }
+    function remove_FrameCreated(a: TEventToken): HRESULT; stdcall;             { 71 slot only }
+    function add_DownloadStarting(handler: ICoreWebView2DownloadStartingEventHandler;
+      out token: TEventToken): HRESULT; stdcall;                                { 72 }
+  end;
+
 type
   TWebView2NavigateEvent = procedure(Sender: TObject; const AUri: utf8string) of object;
   TWebView2ErrorEvent = procedure(Sender: TObject; const AMessage: string) of object;
@@ -407,6 +462,14 @@ type
     сеанса браузера больше не спрашивать об этом сервере). }
   TWebView2CertEvent = procedure(Sender: TObject; const AUri, APem: utf8string;
     var AAllow: boolean) of object;
+  { Началась загрузка: AOpen := True — забрать её себе (без окна загрузок
+    WebView2) и по окончании получить OnDownloadDone; False — обычная
+    загрузка WebView2. }
+  TWebView2DownloadStartEvent = procedure(Sender: TObject; const AUri: utf8string;
+    var AOpen: boolean) of object;
+  { Забранная загрузка кончилась: APath — куда легла; AOk — целиком. }
+  TWebView2DownloadDoneEvent = procedure(Sender: TObject; const APath: utf8string;
+    AOk: boolean) of object;
 
   { Hosts one WebView2 inside an existing window handle.
 
@@ -431,6 +494,8 @@ type
     FVirtualHost: UnicodeString;
     FVirtualFolder: UnicodeString;
     FOnCertificateError: TWebView2CertEvent;
+    FOnDownloadStart: TWebView2DownloadStartEvent;
+    FOnDownloadDone: TWebView2DownloadDoneEvent;
     procedure EnvironmentReady(AResult: HRESULT; AEnv: ICoreWebView2Environment);
     procedure ControllerReady(AResult: HRESULT; ACtrl: ICoreWebView2Controller);
     function ExternalUriRequested(const AUri: UnicodeString): boolean;
@@ -440,6 +505,8 @@ type
     procedure StartupScriptAdded;
     procedure WebMessage(const AText: UnicodeString);
     function CertificateError(const AUri, APem: UnicodeString): boolean;
+    function DownloadStarting(const AUri: UnicodeString): boolean;
+    procedure DownloadFinished(const APath: UnicodeString; AOk: boolean);
   public
     constructor Create(AHost: HWND);
     destructor Destroy; override;
@@ -456,6 +523,10 @@ type
       browser - a stranger's link must never open inside a shell with
       no address bar. }
     property OnExternalUri: TWebView2NavigateEvent read FOnExternalUri write FOnExternalUri;
+    { Загрузки. Задавать ДО готовности контроллера: подписка ставится в
+      ControllerReady. }
+    property OnDownloadStart: TWebView2DownloadStartEvent read FOnDownloadStart write FOnDownloadStart;
+    property OnDownloadDone: TWebView2DownloadDoneEvent read FOnDownloadDone write FOnDownloadDone;
     { The runtime is missing or refused to start. Reported rather than
       left as an empty window. }
     property OnUnavailable: TWebView2ErrorEvent read FOnUnavailable write FOnUnavailable;
@@ -492,7 +563,7 @@ function WebView2Available: boolean;
 implementation
 
 uses
-  constants, guiconst;
+  constants, guiconst, lsrepair;
 
 const
   WEBVIEW2_LOADER = 'WebView2Loader.dll';
@@ -518,6 +589,8 @@ var
   GLoader: HMODULE = 0;
   GCreateEnv: TCreateEnvFn = nil;
   GVersion: TVersionFn = nil;
+  { Проверка журнала localStorage (lsrepair) — уже была в этом запуске. }
+  GStorageChecked: boolean = False;
 
 { Загрузчик один раз на процесс. Нет его нигде — исключение: так и
   раньше отвечали «WebView2 недоступен» (WebView2Available, Create). }
@@ -657,6 +730,25 @@ type
     function Invoke(errorCode: HRESULT; AId: PWideChar): HRESULT; stdcall;
   end;
 
+  TDownloadStartingHandler = class(TInterfacedObject,
+    ICoreWebView2DownloadStartingEventHandler)
+  private
+    FOwner: TWebView2;
+  public
+    constructor Create(AOwner: TWebView2);
+    function Invoke(sender: ICoreWebView2;
+      args: ICoreWebView2DownloadStartingEventArgs): HRESULT; stdcall;
+  end;
+
+  TDownloadStateHandler = class(TInterfacedObject,
+    ICoreWebView2StateChangedEventHandler)
+  private
+    FOwner: TWebView2;
+  public
+    constructor Create(AOwner: TWebView2);
+    function Invoke(sender: ICoreWebView2DownloadOperation; args: IUnknown): HRESULT; stdcall;
+  end;
+
   TFullScreenHandler = class(TInterfacedObject,
     ICoreWebView2ContainsFullScreenElementChangedEventHandler)
   private
@@ -665,6 +757,78 @@ type
     constructor Create(AOwner: TWebView2);
     function Invoke(sender: ICoreWebView2; args: IUnknown): HRESULT; stdcall;
   end;
+
+{ COREWEBVIEW2_DOWNLOAD_STATE (WebView2.h): 0 идёт, 1 прервана, 2 готова. }
+const
+  DOWNLOAD_STATE_IN_PROGRESS = 0;
+  DOWNLOAD_STATE_COMPLETED = 2;
+
+{ Строку из рантайма — в UnicodeString, освободив её (CoTaskMemFree). }
+function TakeComString(P: PWideChar): UnicodeString;
+begin
+  Result := '';
+  if P <> nil then begin
+    Result := UnicodeString(P);
+    CoTaskMemFree(P);
+  end;
+end;
+
+constructor TDownloadStartingHandler.Create(AOwner: TWebView2);
+begin
+  inherited Create;
+  FOwner := AOwner;
+end;
+
+function TDownloadStartingHandler.Invoke(sender: ICoreWebView2;
+  args: ICoreWebView2DownloadStartingEventArgs): HRESULT; stdcall;
+var
+  Op: ICoreWebView2DownloadOperation;
+  P: PWideChar;
+  Token: TEventToken;
+begin
+  Result := S_OK;
+  if (FOwner = nil) or (args = nil) then begin
+    Exit;
+  end;
+  Op := nil;
+  if Failed(args.get_DownloadOperation(Op)) or (Op = nil) then begin
+    Exit;
+  end;
+  P := nil;
+  Op.get_Uri(P);
+  if not FOwner.DownloadStarting(TakeComString(P)) then begin
+    Exit;
+  end;
+  { Своя: окна загрузок WebView2 не показывать, ждать окончания. Путь —
+    по умолчанию (папка загрузок человека, имя без затирания). }
+  args.put_Handled(True);
+  Op.add_StateChanged(TDownloadStateHandler.Create(FOwner), Token);
+end;
+
+constructor TDownloadStateHandler.Create(AOwner: TWebView2);
+begin
+  inherited Create;
+  FOwner := AOwner;
+end;
+
+function TDownloadStateHandler.Invoke(sender: ICoreWebView2DownloadOperation;
+  args: IUnknown): HRESULT; stdcall;
+var
+  State: integer;
+  P: PWideChar;
+begin
+  Result := S_OK;
+  if (FOwner = nil) or (sender = nil) then begin
+    Exit;
+  end;
+  State := DOWNLOAD_STATE_IN_PROGRESS;
+  if Failed(sender.get_State(State)) or (State = DOWNLOAD_STATE_IN_PROGRESS) then begin
+    Exit;
+  end;
+  P := nil;
+  sender.get_ResultFilePath(P);
+  FOwner.DownloadFinished(TakeComString(P), State = DOWNLOAD_STATE_COMPLETED);
+end;
 
 constructor TWebMessageHandler.Create(AOwner: TWebView2);
 begin
@@ -923,6 +1087,14 @@ begin
   DataDir := UnicodeString(GetEnvironmentVariable('LOCALAPPDATA'))
     + '\' + UnicodeString(APP_DATA_DIR) + '\webview2';
 
+  { Журнал localStorage с дырой после оборванной сессии — до того, как
+    окружение займёт файлы (lsrepair.pas). Один раз за запуск: окна,
+    открытые позже, делят тот же уже работающий профиль. }
+  if not GStorageChecked then begin
+    GStorageChecked := True;
+    RepairLocalStorage(string(DataDir));
+  end;
+
   Handler := TEnvHandler.Create(Self);
   try
     Hr := CreateCoreWebView2EnvironmentWithOptions(nil, PWideChar(DataDir),
@@ -978,6 +1150,7 @@ var
   R: TRect;
   V3: ICoreWebView2_3;
   V14: ICoreWebView2_14;
+  V4: ICoreWebView2_4;
 begin
   if Failed(AResult) or (ACtrl = nil) then begin
     ReportUnavailable(Format('WebView2 controller could not be created (0x%.8x)', [AResult]));
@@ -1007,6 +1180,9 @@ begin
     V14.add_ServerCertificateErrorDetected(TCertErrorHandler.Create(Self), Token);
   end;
   FWebView.add_NewWindowRequested(TNewWindowHandler.Create(Self), Token);
+  if Assigned(FOnDownloadStart) and Supports(FWebView, ICoreWebView2_4, V4) then begin
+    V4.add_DownloadStarting(TDownloadStartingHandler.Create(Self), Token);
+  end;
   FWebView.add_ContainsFullScreenElementChanged(TFullScreenHandler.Create(Self), Token);
   FWebView.add_PermissionRequested(TPermissionHandler.Create, Token);
   FController.add_AcceleratorKeyPressed(TAccelHandler.Create(Self), Token);
@@ -1075,6 +1251,21 @@ begin
   Result := False;
   if Assigned(FOnCertificateError) then begin
     FOnCertificateError(Self, utf8string(AUri), utf8string(APem), Result);
+  end;
+end;
+
+function TWebView2.DownloadStarting(const AUri: UnicodeString): boolean;
+begin
+  Result := False;
+  if Assigned(FOnDownloadStart) then begin
+    FOnDownloadStart(Self, utf8string(AUri), Result);
+  end;
+end;
+
+procedure TWebView2.DownloadFinished(const APath: UnicodeString; AOk: boolean);
+begin
+  if Assigned(FOnDownloadDone) then begin
+    FOnDownloadDone(Self, utf8string(APath), AOk);
   end;
 end;
 

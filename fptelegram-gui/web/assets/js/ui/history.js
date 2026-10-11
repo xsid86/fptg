@@ -141,8 +141,21 @@ export function mountHistory(node) {
 
   // Дата дня, который сейчас наверху, — поверх истории, а не в ней. См.
   // updateFloatDate.
-  floatDate = el('div', { class: 'history__float-date', hidden: true }, el('span'));
+  floatDate = el('div', { class: 'history__float-date', hidden: true },
+    el('span', { title: 'Go to the first message of this day' }));
   root.parentElement.append(floatDate);
+  // Клик по дате — к первому сообщению этого дня (main.js, chat.dateJump).
+  // В ветке комментариев — нет: getChatMessageByDate о ветках не знает.
+  const jumpToDay = (date) => {
+    if (!date || store.messages?.thread) return;
+    takeOver();
+    emit('ui:jump-date', Number(date));
+  };
+  floatDate.addEventListener('click', () => jumpToDay(floatDate.dataset.date));
+  root.addEventListener('click', (event) => {
+    const chip = event.target.closest('.history__date[data-date] > span');
+    if (chip) jumpToDay(chip.parentElement.dataset.date);
+  });
 
   root.addEventListener('scroll', onScroll, { passive: true });
   // What ends the opening hold. All four are things only a person
@@ -346,8 +359,14 @@ function paint(state) {
     if (day !== lastDay) {
       // data-day — по нему плавающая дата (updateFloatDate) отличает
       // дневные разделители от «Discussion starts here».
-      desired.push(separator(`day:${day}`, () =>
-        el('div', { class: 'history__date', dataset: { day } }, el('span', { textContent: day }))));
+      // data-date — полночь этого дня (unix, по часам страницы): клик по
+      // разделителю или плавающему ярлыку ведёт к первому сообщению дня.
+      const midnight = new Date(msg.date * 1000);
+      midnight.setHours(0, 0, 0, 0);
+      const date = String(Math.floor(midnight.getTime() / 1000));
+      desired.push(separator(`day:${date}`, () =>
+        el('div', { class: 'history__date', dataset: { day, date } },
+          el('span', { textContent: day, title: 'Go to the first message of this day' }))));
       lastDay = day;
     }
 

@@ -54,5 +54,9 @@ export function updateFloatDate(scroller, scope, float, offset) {
   if (show && chip.textContent !== current.sep.dataset.day) {
     chip.textContent = current.sep.dataset.day;
   }
+  // Полночь дня (data-date, если разделитель её несёт) — ярлык с ней
+  // кликабелен (переход к первому сообщению дня, ui/history.js).
+  if (show && current.sep.dataset.date) float.dataset.date = current.sep.dataset.date;
+  else delete float.dataset.date;
   float.hidden = !show;
 }

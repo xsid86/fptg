@@ -7,6 +7,7 @@ import { closeMenuIfDetached } from '../util/menu.js';
 import { customEmojiNode, customEmojiUrl } from '../util/emoji.js';
 import { fillAvatar } from '../util/avatar.js';
 import { renderRichText } from '../util/entities.js';
+import { userIdNode } from './userid.js';
 
 // Renders the chat list and nothing else. It reports a click through
 // the store and never touches the header or the history directly.
@@ -432,6 +433,7 @@ function renderContacts() {
     avatar,
     el('span', { class: 'contact-row__text' },
       el('span', { class: 'contact-row__name' }, c.title || c.username || c.phone || '(no name)'),
+      userIdNode(c.userId),
       el('span', {
         class: `contact-row__status${c.status === 'userStatusOnline' ? ' is-online' : ''}`,
       }, statusText(c))),

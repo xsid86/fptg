@@ -69,6 +69,8 @@ type
       var AAllow: boolean);
     procedure HandlePageMessage(O: TJSONObject);
     procedure ViewExternalUri(Sender: TObject; const AUri: utf8string);
+    procedure ViewDownloadStart(Sender: TObject; const AUri: utf8string; var AOpen: boolean);
+    procedure ViewDownloadDone(Sender: TObject; const APath: utf8string; AOk: boolean);
     procedure ViewUnavailable(Sender: TObject; const AMessage: string);
     procedure ViewAcceleratorKey(Sender: TObject; AVirtualKey: word;
       var AHandled: boolean);
@@ -218,6 +220,8 @@ begin
   FView.MapVirtualHost(WEB_APP_HOST, utf8string(WebUiFolder));
   FView.OnCertificateError := @ViewCertificateError;
   FView.OnExternalUri := @ViewExternalUri;
+  FView.OnDownloadStart := @ViewDownloadStart;
+  FView.OnDownloadDone := @ViewDownloadDone;
   FView.OnUnavailable := @ViewUnavailable;
   FView.OnAcceleratorKey := @ViewAcceleratorKey;
   FView.OnFullScreenElement := @ViewFullScreenElement;
@@ -638,6 +642,41 @@ begin
     shell. The shell has no address bar, so a stranger's link opening
     here would be both confusing and a decent phishing surface. }
   OpenURL(AUri);
+end;
+
+{ Файл из сообщения: страница ведёт на /media/…?save=имя&open=1 (ui/message.js),
+  сервер отдаёт вложением, WebView2 начинает загрузку. Такую окно забирает
+  себе — без своего окна загрузок — и готовый файл открывает системным
+  приложением: иначе PDF и подобное открывались внутри окна, и из него
+  не было пути назад. Прочие загрузки («Save as…») — как обычно. }
+procedure TFormWebUi.ViewDownloadStart(Sender: TObject; const AUri: utf8string;
+  var AOpen: boolean);
+var
+  Q: string;
+begin
+  Q := string(AUri);
+  if Pos('?', Q) = 0 then begin
+    Exit;
+  end;
+  Q := '&' + Copy(Q, Pos('?', Q) + 1, MaxInt) + '&';
+  AOpen := Pos('&open=1&', Q) > 0;
+end;
+
+procedure TFormWebUi.ViewDownloadDone(Sender: TObject; const APath: utf8string; AOk: boolean);
+var
+  O: TJSONObject;
+begin
+  if AOk and (APath <> '') then begin
+    OpenDocument(string(APath));
+    Exit;
+  end;
+  O := TJSONObject.Create;
+  try
+    O.Add('t', 'downloadFailed');
+    PostToPage(O);
+  finally
+    O.Free;
+  end;
 end;
 
 procedure TFormWebUi.ViewUnavailable(Sender: TObject; const AMessage: string);

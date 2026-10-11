@@ -12,8 +12,12 @@
 
 .check__head {
   @include flex(row, center, flex-start, $space-4);
+  @include card($radius-lg);
   flex-wrap: wrap;
+  padding: $space-3 $space-4;
 }
+
+.check__spacer { flex: 1 1 auto; }
 
 .check__log {
   flex: 1 1 auto;
@@ -45,4 +49,6 @@
   border-radius: $radius-md;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
+  color: var(--c-text);
+  font: inherit;
 }

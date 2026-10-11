@@ -394,6 +394,20 @@ function wireActions() {
       .catch(report);
   });
 
+  // Чип даты в истории: сервер находит первое сообщение дня, дальше —
+  // обычный переход к сообщению.
+  on('ui:jump-date', (date) => {
+    const chatId = store.activeChatId;
+    if (!chatId || !date) return;
+    call('chat.dateJump', { id: chatId, date })
+      .then((r) => {
+        if (r?.messageId && store.activeChatId === chatId) {
+          emit('ui:open-source', { chatId, messageId: r.messageId });
+        }
+      })
+      .catch(report);
+  });
+
   on('ui:chat-action', ({ id, action }) => {
     call('chat.action', { id, action }).catch(report);
   });

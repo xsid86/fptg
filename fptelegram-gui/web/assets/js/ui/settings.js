@@ -8,6 +8,8 @@ import { NAME_COLORS, PROFILE_COLORS } from '../util/palette.js';
 import { MAP_PROVIDERS, setMapProvider } from '../util/maps.js';
 import { devicePanel } from '../calls/devices.js';
 import { shellSettings, postShell } from './shell.js';
+import { trafficShown, setTrafficShown } from './status-bar.js';
+import { ACCENTS, currentAccent, setAccent } from './theme.js';
 import { uploadUrl, serverBase, currentUser, signOut } from '../core/session.js';
 
 // Настройки приложения.
@@ -23,8 +25,8 @@ import { uploadUrl, serverBase, currentUser, signOut } from '../core/session.js'
 // приложения с отступом 32px (см. blocks/_settings.scss).
 
 const SECTIONS = [
-  { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
   { id: 'general', label: 'General', icon: 'settings', render: renderGeneral },
+  { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
   { id: 'notifications', label: 'Notifications', icon: 'bell', render: renderNotifications },
   { id: 'calls', label: 'Calls', icon: 'mic', render: renderCalls },
   { id: 'maps', label: 'Location service', icon: 'pin', render: renderMaps },
@@ -271,8 +273,8 @@ async function openGallery(a) {
 }
 
 /** Кружок цвета: половинки — --swatch-1/2, точка — --swatch-3 (base/_palette.scss). */
-function swatchGrid(ids, prefix, chosen, onPick) {
-  return el('div', { class: 'color-grid', role: 'radiogroup' },
+function swatchGrid(ids, prefix, chosen, onPick, extraClass = '') {
+  return el('div', { class: `color-grid${extraClass ? ` ${extraClass}` : ''}`, role: 'radiogroup' },
     ...ids.map((id) => el('button', {
       class: `color-swatch swatch-${prefix}${id}${id === chosen ? ' is-active' : ''}`,
       type: 'button',
@@ -598,6 +600,7 @@ function renderCalls() {
 }
 
 function renderGeneral() {
+  const traffic = uid();
   const tray = uid();
   const device = uid();
   const server = uid();
@@ -615,6 +618,18 @@ function renderGeneral() {
         switchControl(tray, data.closeToTray, (checked, input) => commit(
           { key: 'closeToTray', value: checked }, input,
           (node, d) => { node.checked = d.closeToTray; }))),
+      // Акцент — тоже вид этого окна (ui/theme.js), без commit.
+      row(null, 'Accent color',
+        'Buttons, links, selection and unread counters.',
+        swatchGrid(ACCENTS, 'app-', currentAccent(), (key) => {
+          setAccent(key);
+          renderPane();
+        }, 'color-grid--inline')),
+      // Не сервер, а вид этого окна — без commit (ui/status-bar.js).
+      row(traffic, 'Show connection traffic',
+        'Under Online/Invisible: what this window has received and sent, '
+        + 'with the current speed.',
+        switchControl(traffic, trafficShown(), (checked) => setTrafficShown(checked))),
       row(device, 'Device name',
         'How this app is listed in Telegram under Active sessions. '
         + 'Takes effect the next time an account signs in.',

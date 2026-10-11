@@ -24,6 +24,7 @@
 @use "components";
 @use "blocks";
 @use "pages";
+@use "themes";      // simple Dark/Light on top of everything above
 
 .pswp {
   backdrop-filter: blur(30px);

@@ -224,6 +224,12 @@ type
     procedure MenuPropsDone(Sender: TObject; const AResp: TTdResponse);
     procedure MenuReactionsDone(Sender: TObject; const AResp: TTdResponse);
     procedure MessageLinkDone(Sender: TObject; const AResp: TTdResponse);
+    function  DateJumpSlot(ASlot: PtrInt; out AChat, ADay: Int64): boolean;
+    procedure DateJumpLastOfDay(ASlot: PtrInt);
+    procedure DateJumpReply(ASlot: PtrInt; AMessageId: Int64);
+    procedure DateJumpBeforeDone(Sender: TObject; const AResp: TTdResponse);
+    procedure DateJumpAfterDone(Sender: TObject; const AResp: TTdResponse);
+    procedure DateJumpLastDone(Sender: TObject; const AResp: TTdResponse);
     procedure PeopleDone(Sender: TObject; const AResp: TTdResponse);
     procedure LinkExternal(ASlot: PtrInt);
     procedure LinkTypeDone(Sender: TObject; const AResp: TTdResponse);
@@ -361,6 +367,8 @@ type
     function  CmdMessageMenu(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
     function  CmdMessageLink(AConnId: Int64; AReqId: integer;
+      AArgs: TJSONObject): boolean;
+    function  CmdChatDateJump(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
     function  CmdMessagePeople(AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
@@ -4617,6 +4625,147 @@ begin
   ReleaseDeferred(Slot);
 end;
 
+{ ------------------------------------------------------------------ }
+{ к первому сообщению дня (чип даты в истории)                        }
+{ ------------------------------------------------------------------ }
+
+{ chat.dateJump (id, date) -> messageId: первое сообщение дня; date —
+  полночь этого дня по часам страницы (unix). У TDLib (td_api.tl) есть
+  только getChatMessageByDate — последнее сообщение НЕ ПОЗЖЕ даты. Поэтому
+  два шага: последнее ДО дня (date - 1), потом getChatHistory от него с
+  offset -2 — следующие за ним, и из них первое с датой >= date. Ничего до
+  дня нет (404: чат начался в этот день) или следующие не пришли —
+  последнее сообщение самого дня: не первое, но в нужном дне. }
+function TWebApi.CmdChatDateJump(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Msgs: TTdMessages;
+  ChatId, Day: Int64;
+  Slot: PtrInt;
+begin
+  Msgs := RequireMsgs;
+  ChatId := AArgs.Get('id', Int64(0));
+  Day := AArgs.Get('date', Int64(0));
+  if (ChatId = 0) or (Day <= 0) then begin
+    raise Exception.Create('chat.dateJump needs a chat id and a date');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, Day);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('chat', ChatId);
+  Msgs.Request('getChatMessageByDate', '"chat_id":' + utf8string(IntToStr(ChatId))
+    + ',"date":' + utf8string(IntToStr(Day - 1)), @DateJumpBeforeDone, Slot);
+  Result := True;
+end;
+
+{ Слот ещё ждёт: чат (Held) и полночь дня (MessageId). }
+function TWebApi.DateJumpSlot(ASlot: PtrInt; out AChat, ADay: Int64): boolean;
+begin
+  Result := (ASlot >= 0) and (ASlot <= High(FDeferred)) and FDeferred[ASlot].Busy
+    and (FDeferred[ASlot].Held <> nil);
+  if Result then begin
+    AChat := FDeferred[ASlot].Held.Get('chat', Int64(0));
+    ADay := FDeferred[ASlot].MessageId;
+  end;
+end;
+
+procedure TWebApi.DateJumpReply(ASlot: PtrInt; AMessageId: Int64);
+var
+  Res: TJSONObject;
+begin
+  if AMessageId = 0 then begin
+    Fail(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, 'No messages on this day');
+  end else begin
+    Res := TJSONObject.Create;
+    Res.Add('messageId', AMessageId);
+    Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+  end;
+  ReleaseDeferred(ASlot);
+end;
+
+{ Запасной шаг: последнее сообщение дня. }
+procedure TWebApi.DateJumpLastOfDay(ASlot: PtrInt);
+var
+  Msgs: TTdMessages;
+  Chat, Day: Int64;
+begin
+  Msgs := TdMsgList;
+  if (Msgs = nil) or not DateJumpSlot(ASlot, Chat, Day) then begin
+    DateJumpReply(ASlot, 0);
+    Exit;
+  end;
+  Msgs.Request('getChatMessageByDate', '"chat_id":' + utf8string(IntToStr(Chat))
+    + ',"date":' + utf8string(IntToStr(Day + 86399)), @DateJumpLastDone, ASlot);
+end;
+
+procedure TWebApi.DateJumpBeforeDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Msgs: TTdMessages;
+  Chat, Day, Before: Int64;
+begin
+  if not DateJumpSlot(AResp.Tag, Chat, Day) then begin
+    Exit;
+  end;
+  Before := 0;
+  if AResp.Success then begin
+    Before := JGetInt64(AResp.Obj, 'id');
+  end;
+  Msgs := TdMsgList;
+  if (Before = 0) or (Msgs = nil) then begin
+    DateJumpLastOfDay(AResp.Tag);
+    Exit;
+  end;
+  Msgs.Request('getChatHistory', '"chat_id":' + utf8string(IntToStr(Chat))
+    + ',"from_message_id":' + utf8string(IntToStr(Before))
+    + ',"offset":-2,"limit":3,"only_local":false', @DateJumpAfterDone, AResp.Tag);
+end;
+
+procedure TWebApi.DateJumpAfterDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Chat, Day, Best, Id: Int64;
+  Arr: TJSONArray;
+  I: integer;
+  M: TJSONObject;
+begin
+  if not DateJumpSlot(AResp.Tag, Chat, Day) then begin
+    Exit;
+  end;
+  Best := 0;
+  if AResp.Success then begin
+    Arr := JGetArr(AResp.Obj, 'messages');
+    if Arr <> nil then begin
+      for I := 0 to Arr.Count - 1 do begin
+        if not (Arr.Items[I] is TJSONObject) then begin
+          Continue;
+        end;
+        M := TJSONObject(Arr.Items[I]);
+        Id := JGetInt64(M, 'id');
+        if (JGetInt64(M, 'date') >= Day) and ((Best = 0) or (Id < Best)) then begin
+          Best := Id;
+        end;
+      end;
+    end;
+  end;
+  if Best = 0 then begin
+    DateJumpLastOfDay(AResp.Tag);
+  end else begin
+    DateJumpReply(AResp.Tag, Best);
+  end;
+end;
+
+procedure TWebApi.DateJumpLastDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Chat, Day, Id: Int64;
+begin
+  if not DateJumpSlot(AResp.Tag, Chat, Day) then begin
+    Exit;
+  end;
+  Id := 0;
+  if AResp.Success and (JGetInt64(AResp.Obj, 'date') >= Day) then begin
+    Id := JGetInt64(AResp.Obj, 'id');
+  end;
+  DateJumpReply(AResp.Tag, Id);
+end;
+
 { True means "answered later" - RunCommand must not reply again. }
 function TWebApi.CmdMessageMenu(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
@@ -7031,6 +7180,10 @@ begin
       Item.Add('role', TJSONObject(FDeferred[Slot].Held.Objects['roles']).Get(
         string(IntToStr(Id)), ''));
     end;
+    if FDeferred[Slot].Held.Find('tags') is TJSONObject then begin
+      Item.Add('tag', TJSONObject(FDeferred[Slot].Held.Objects['tags']).Get(
+        string(IntToStr(Id)), ''));
+    end;
     TJSONArray(FDeferred[Slot].Held.Arrays['items']).Add(Item);
   end;
   Left := FDeferred[Slot].Held.Integers['left'] - 1;
@@ -7501,12 +7654,18 @@ var
   I, N: integer;
   Id: Int64;
   Role, St: utf8string;
-  Roles, Res: TJSONObject;
+  Roles, Tags, Res: TJSONObject;
 begin
   if not AccountSlot(AResp, Slot) then begin
     Exit;
   end;
   Roles := TJSONObject(FDeferred[Slot].Held.Objects['roles']);
+  { Подпись участника (chatMember.tag, td_api.tl): кастомный титул
+    администратора или тег участника — официальный клиент показывает её
+    вместо «owner»/«admin». Живой tdlib_raw.log: у создателя группы
+    tag "Админ", у обычного участника тоже бывает. }
+  Tags := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('tags', Tags);
   Arr := JGetArr(AResp.Obj, 'members');
   N := 0;
   if Arr <> nil then begin
@@ -7529,6 +7688,7 @@ begin
         Role := '';
       end;
       Roles.Add(string(IntToStr(Id)), string(Role));
+      Tags.Add(string(IntToStr(Id)), string(JGetStr(M, 'tag')));
       Inc(N);
     end;
   end;
@@ -9478,6 +9638,8 @@ begin
         CmdMessageForward(AConnId, ReqId, Args);
       end else if Cmd = 'message.link' then begin
         CmdMessageLink(AConnId, ReqId, Args);
+      end else if Cmd = 'chat.dateJump' then begin
+        CmdChatDateJump(AConnId, ReqId, Args);
       end else if Cmd = 'message.people' then begin
         { Answers later, from the TDLib callback - see TDeferredReply. }
         CmdMessagePeople(AConnId, ReqId, Args);

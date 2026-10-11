@@ -77,6 +77,13 @@
     font-size: $fs-sm;
     padding: $space-1 $space-4;
   }
+
+  // Дневной разделитель (data-date) — клик ведёт к первому сообщению дня.
+  &[data-date] > span {
+    cursor: pointer;
+
+    &:hover { color: var(--c-text); }
+  }
 }
 
 // Плавающая дата (updateFloatDate в ui/history.js): тот же ярлык, что
@@ -98,6 +105,13 @@
     color: var(--c-light);
     font-size: $fs-sm;
     padding: $space-1 $space-4;
+  }
+
+  // Сам ряд мимо мыши (под ним история), ярлык — кликабелен, когда у
+  // него есть день (data-date): к первому сообщению дня.
+  &[data-date] > span {
+    cursor: pointer;
+    pointer-events: auto;
   }
 
   &[hidden] {
@@ -494,6 +508,28 @@
 .info-panel__role {
   color: var(--c-accent);
   font-size: $fs-sm;
+}
+
+// Подпись участника и под ней роль — столбиком у правого края строки.
+.info-panel__roles {
+  @include flex(column, flex-end, center, $space-1);
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+// Подпись, выбранная участником (chatMember.tag): чип его цвета — фон
+// цветом участника на четверть, текст его же цветом. Цвет личный,
+// поэтому и в простых темах остаётся своим.
+.info-panel__tag {
+  --chat-color: var(--accent-color, var(--c-accent));
+  background: color-mix(in srgb, var(--chat-color) 25%, transparent);
+  border-radius: $radius-pill;
+  color: var(--chat-color);
+  font-size: $fs-xs;
+  line-height: 18px;
+  max-width: 120px;
+  padding: 0 $space-3;
+  @include ellipsis;
 }
 
 // ------------------------------------------------------------- подарки

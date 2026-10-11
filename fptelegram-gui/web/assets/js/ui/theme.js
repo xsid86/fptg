@@ -1,27 +1,73 @@
 import { clear } from '../core/dom.js';
 import { icon } from '../util/icons.js';
+import { openMenu } from '../util/menu.js';
 import { postShell } from './shell.js';
 
-// Light / dark switching.
+// Theme switching: the brush in the status bar opens a list of four.
 //
-// The whole palette hangs off [data-theme] in scss/base/_root.scss, so
-// switching is one ATTRIBUTE on <html> - never an inline style, and
-// never a per-element repaint from here. No attribute at all is a
-// meaningful third state: it means "no choice made", which is what
-// leaves the OS preference in charge.
+// The whole palette hangs off ATTRIBUTES on <html> - never an inline
+// style, and never a per-element repaint from here:
+//   data-theme  dark | light - the scheme; every token, palette and
+//               accent in scss/base hangs off it, for all four themes;
+//   data-style  "plain" for the simple themes only (scss/themes/_plain).
+// No stored choice at all is a meaningful state: no attributes, which is
+// what leaves the OS preference in charge (a coloured theme then).
 //
-// index.html applies the stored choice before the first paint; this
-// module only owns the button and the changes made through it.
+// The stored value is one of THEMES' ids. index.html, check.html and
+// callcard.html apply it before the first paint with the same split;
+// this module owns the button, the menu and the changes made through it.
 
 const KEY = 'theme';
 const media = window.matchMedia('(prefers-color-scheme: dark)');
 
+// Порядок — как в меню. id — то, что лежит в localStorage; у прежних
+// версий там были только 'dark' и 'light', они и остались цветными.
+const THEMES = [
+  { id: 'dark', label: 'Dark colored' },
+  { id: 'light', label: 'Light colored' },
+  { id: 'dark-plain', label: 'Dark' },
+  { id: 'light-plain', label: 'Light' },
+];
+
 let button = null;
+
+// ------------------------------------------------------------- accent
+// Акцент приложения (Settings → General). Ключи — те же, что в
+// $app-accents (abstracts/_variables.scss): палитра конечна, цвет живёт
+// в CSS, а здесь только атрибут <html data-accent>. Синий — по
+// умолчанию: без атрибута действует акцент темы. Хранится локально, как
+// тема: вид этого окна, а не сервера.
+const ACCENT_KEY = 'accent';
+export const ACCENTS = ['blue', 'cyan', 'teal', 'green', 'lime', 'amber',
+  'orange', 'red', 'pink', 'purple', 'indigo', 'grey'];
+const DEFAULT_ACCENT = 'blue';
+
+export function currentAccent() {
+  try {
+    const v = localStorage.getItem(ACCENT_KEY);
+    return ACCENTS.includes(v) ? v : DEFAULT_ACCENT;
+  } catch {
+    return DEFAULT_ACCENT;
+  }
+}
+
+export function setAccent(key) {
+  if (!ACCENTS.includes(key)) return;
+  const root = document.documentElement;
+  if (key === DEFAULT_ACCENT) delete root.dataset.accent;
+  else root.dataset.accent = key;
+  try {
+    if (key === DEFAULT_ACCENT) localStorage.removeItem(ACCENT_KEY);
+    else localStorage.setItem(ACCENT_KEY, key);
+  } catch {
+    // Не запомнится до следующего запуска, но сейчас подействует.
+  }
+}
 
 function stored() {
   try {
     const v = localStorage.getItem(KEY);
-    return v === 'dark' || v === 'light' ? v : null;
+    return THEMES.some((t) => t.id === v) ? v : null;
   } catch {
     // Private windows and blocked site data both throw here. Not an
     // error: it only means the choice cannot outlive the session.
@@ -33,6 +79,9 @@ function stored() {
 function effective() {
   return stored() ?? (media.matches ? 'dark' : 'light');
 }
+
+const schemeOf = (id) => (id.startsWith('dark') ? 'dark' : 'light');
+const plainOf = (id) => id.endsWith('-plain');
 
 // Цвет токена темы как '#rrggbb': канва приводит любую запись цвета к
 // этому виду (style трогать нельзя, а getComputedStyle отдаёт токен
@@ -47,39 +96,37 @@ function tokenColor(name) {
 
 // Рамка окна в цвет темы (winframe.pas): заголовок — фон страницы,
 // текст и кайма — свои токены. В обычном браузере postShell молчит.
-function paintFrame(now) {
+function paintFrame(scheme) {
   postShell({
     t: 'frame',
     caption: tokenColor('--c-bg'),
     text: tokenColor('--c-text'),
     border: tokenColor('--c-border'),
-    dark: now === 'dark',
+    dark: scheme === 'dark',
   });
 }
 
 function render() {
   const now = effective();
-  // The RESOLVED theme, mirrored onto <body> so stylesheets have
+  // The RESOLVED scheme, mirrored onto <body> so stylesheets have
   // something that is always there to match on - data-theme on <html>
   // is the choice, and is absent while the OS is deciding. index.html
   // sets this before the first paint; this keeps it true afterwards.
-  document.body.dataset.scheme = now;
-  paintFrame(now);
+  document.body.dataset.scheme = schemeOf(now);
+  paintFrame(schemeOf(now));
   if (!button) return;
-  const next = now === 'dark' ? 'light' : 'dark';
-  // The icon shows what the click WILL DO, not what is on - the same
-  // rule the chat list follows for archive and pin, where the state is
-  // already visible and the action is not.
-  clear(button).append(icon(next === 'dark' ? 'moon' : 'sun', 'icon--sm'));
-  button.title = next === 'dark' ? 'Switch to the dark theme'
-                                 : 'Switch to the light theme';
+  clear(button).append(icon('brush', 'icon--sm'));
+  button.title = `Theme: ${THEMES.find((t) => t.id === now)?.label ?? now}`;
   button.setAttribute('aria-label', button.title);
 }
 
-function apply(theme) {
-  document.documentElement.dataset.theme = theme;
+function apply(id) {
+  const root = document.documentElement;
+  root.dataset.theme = schemeOf(id);
+  if (plainOf(id)) root.dataset.style = 'plain';
+  else delete root.dataset.style;
   try {
-    localStorage.setItem(KEY, theme);
+    localStorage.setItem(KEY, id);
   } catch {
     // Same as above: the theme still applies, it just will not be
     // remembered next time.
@@ -87,9 +134,18 @@ function apply(theme) {
   render();
 }
 
+function openThemes() {
+  const now = effective();
+  openMenu(button, THEMES.map((t) => ({
+    label: t.label,
+    checked: t.id === now,
+    onSelect: () => apply(t.id),
+  })));
+}
+
 export function mountThemeToggle(node) {
   button = node;
-  button.addEventListener('click', () => apply(effective() === 'dark' ? 'light' : 'dark'));
+  button.addEventListener('click', openThemes);
   // Follow the OS while no explicit choice has been made, so the window
   // changes with everything else on the desktop rather than sitting
   // stubbornly on whatever it started as.
