@@ -15,7 +15,7 @@
 
 .code__head {
   @include flex(row, center, space-between, $space-3);
-  background: color-mix(in srgb, var(--sender-color) 12%, transparent);
+  background: color-mix(in srgb, #000 100%, transparent);
   color: var(--sender-color);
   font-size: $fs-sm;
   padding: $space-2 $space-3;
@@ -60,8 +60,11 @@
 // A highlighted block also drops the sender tint on its text: the
 // colours have to carry meaning now, and one of them would otherwise
 // collide with whatever colour the sender happens to have.
-.code__body.is-highlighted {
-  color: var(--c-text);
+.code__body {
+  &.is-highlighted {
+    background: color-mix(in srgb, #000 90%, transparent);
+    color: var(--c-text);
+  }
 }
 
 .tok--comment,

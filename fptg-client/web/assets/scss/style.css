@@ -5144,7 +5144,7 @@ button.message__forward:hover {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  background: color-mix(in srgb, var(--sender-color) 12%, transparent);
+  background: color-mix(in srgb, #000 100%, transparent);
   color: var(--sender-color);
   font-size: 12px;
   padding: 4px 6px;
@@ -5191,6 +5191,7 @@ button.message__forward:hover {
 }
 
 .code__body.is-highlighted {
+  background: color-mix(in srgb, #000 90%, transparent);
   color: var(--c-text);
 }
 
