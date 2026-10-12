@@ -16,7 +16,7 @@ import { holdVideo, forget } from '../util/offscreen.js';
 //
 // WHICH EMOJI ARE OFFERED is decided offline, by the generator that
 // wrote assets/data/emoji.json from Unicode's emoji-test.txt
-// (assets/data/build_emoji.py).
+// (build_emoji.py, removed 2026-10-12 - it is in git history).
 //
 // Stickers and GIFs are the other half: those are not text at all. A
 // click SENDS one, the way it does in every Telegram client - there is

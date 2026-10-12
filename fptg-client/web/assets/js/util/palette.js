@@ -1,4 +1,5 @@
-// СГЕНЕРИРОВАНО tools/gen_palette.py из tdlib_raw.log — руками не править.
+// СГЕНЕРИРОВАНО gen_palette.py (удалён 2026-10-12, он в истории git) из
+// tdlib_raw.log — руками не править.
 // Порядок кружков в выборе цвета; сами цвета — классы .swatch-aN /
 // .swatch-pN в base/_palette.scss.
 
