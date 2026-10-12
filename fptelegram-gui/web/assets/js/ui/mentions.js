@@ -1,6 +1,7 @@
 import { el, clear } from '../core/dom.js';
 import { call } from '../core/net.js';
 import { fillAvatar } from '../util/avatar.js';
+import { markPopDirection } from '../util/pop.js';
 
 // Подсказка упоминаний в поле ввода: набрали «@» и начало имени — над
 // полем всплывает список людей (mention.search: участники группы,
@@ -102,7 +103,10 @@ function render() {
     el('span', { class: 'mention-pop__name' }, item.name || item.username || 'User'),
     item.username ? el('span', { class: 'mention-pop__username' }, `@${item.username}`) : null);
   }));
-  if (!pop.matches(':popover-open')) pop.showPopover();
+  if (!pop.matches(':popover-open')) {
+    pop.showPopover();
+    markPopDirection(pop, input);
+  }
   pop.children[index]?.scrollIntoView({ block: 'nearest' });
 }
 

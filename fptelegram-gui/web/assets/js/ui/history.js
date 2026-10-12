@@ -252,6 +252,13 @@ function render(state) {
 function paint(state) {
   lastState = state;
   if (threadBtn) threadBtn.hidden = !state.thread;
+  // Свои сообщения справа, чужие слева (blocks/_message.scss) — кроме
+  // ленты канала: там «свои» — все посты владельца, и разнос по сторонам
+  // ничего не различал бы. Ветка комментариев — уже группа.
+  // Строка открытого чата, а не поиск в списке: архивного канала или
+  // канала, до которого дошли по пересылке, в списке может не быть.
+  const chat = state.chat ?? store.activeChat;
+  column.classList.toggle('is-channel', chat?.kind === 'channel' && !state.thread);
 
   if (state.chatId !== chatId) {
     chatId = state.chatId;

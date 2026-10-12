@@ -104,7 +104,7 @@
   --c-warn: #d59600;
   --c-danger: #e53935;
   --c-unread: #2196f3;
-  --c-audio: #03a9f4;
+  --c-audio: var(--c-accent);
   --c-shadow: rgba(16, 24, 40, 0.1);
   --c-dark: #131313;
   --c-light: #f1f2f3;
@@ -133,7 +133,7 @@
     --c-warn: #d59600;
     --c-danger: #ef5350;
     --c-unread: #2196f3;
-    --c-audio: #03a9f4;
+    --c-audio: var(--c-accent);
     --c-shadow: rgba(0, 0, 0, 0.45);
     --c-dark: #131313;
     --c-light: #f1f2f3;
@@ -157,7 +157,7 @@
   --c-warn: #d59600;
   --c-danger: #ef5350;
   --c-unread: #2196f3;
-  --c-audio: #03a9f4;
+  --c-audio: var(--c-accent);
   --c-shadow: rgba(0, 0, 0, 0.45);
   --c-dark: #131313;
   --c-light: #f1f2f3;
@@ -181,7 +181,7 @@
   --c-warn: #d59600;
   --c-danger: #e53935;
   --c-unread: #2196f3;
-  --c-audio: #03a9f4;
+  --c-audio: var(--c-accent);
   --c-shadow: rgba(16, 24, 40, 0.1);
   --c-dark: #131313;
   --c-light: #f1f2f3;
@@ -1717,8 +1717,12 @@ body {
 .u-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .u-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .u-scroll::-webkit-scrollbar {
   width: 8px;
@@ -1734,6 +1738,29 @@ body {
   background-clip: content-box;
 }
 .u-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--c-text-faint);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--c-border-strong);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
   background-color: var(--c-text-faint);
 }
 
@@ -2331,7 +2358,8 @@ body {
 }
 
 .menu__sep {
-  botder-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent) 0 0 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--c-accent) 30%, transparent);
   height: 0;
   margin: 2px 0;
 }
@@ -2606,6 +2634,45 @@ body {
   color: var(--c-accent);
 }
 
+@keyframes pop-down {
+  from {
+    opacity: 0;
+    translate: 0 -1rem;
+  }
+}
+@keyframes pop-up {
+  from {
+    opacity: 0;
+    translate: 0 1rem;
+  }
+}
+.menu:popover-open,
+.mention-pop:popover-open,
+.people:popover-open,
+.picker:popover-open,
+dialog[open],
+.attach-layer:not([hidden]) .attach {
+  animation: pop-down 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.menu:popover-open.is-pop-up,
+.mention-pop:popover-open.is-pop-up,
+.people:popover-open.is-pop-up,
+.picker:popover-open.is-pop-up,
+dialog[open].is-pop-up,
+.attach-layer:not([hidden]) .attach.is-pop-up {
+  animation-name: pop-up;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu:popover-open,
+  .mention-pop:popover-open,
+  .people:popover-open,
+  .picker:popover-open,
+  dialog[open],
+  .attach-layer:not([hidden]) .attach {
+    animation: none;
+  }
+}
 [type=range] {
   -webkit-appearance: none;
   background: transparent;
@@ -2745,8 +2812,12 @@ body {
   padding: 0.5rem;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .chat-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .chat-list::-webkit-scrollbar {
   width: 8px;
@@ -3255,8 +3326,12 @@ body {
   padding: 16px 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .history {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .history::-webkit-scrollbar {
   width: 8px;
@@ -3817,8 +3892,6 @@ body {
 .info-panel__body {
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -3826,6 +3899,12 @@ body {
   gap: 16px;
   flex: 1 1 auto;
   padding: 24px 16px 16px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .info-panel__body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .info-panel__body::-webkit-scrollbar {
   width: 8px;
@@ -4634,8 +4713,12 @@ body {
   margin: 0;
   overflow-x: auto;
   padding: 8px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .message__body pre {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .message__body pre::-webkit-scrollbar {
   width: 6px;
@@ -4785,6 +4868,19 @@ body {
   flex: 0 0 auto;
   font-size: 14px;
   line-height: 1;
+}
+
+.history__column:not(.is-channel) .message {
+  margin-right: auto;
+  max-width: 78%;
+  width: fit-content;
+}
+.history__column:not(.is-channel) .message:has(.media, .album, .link-preview, .poll):not(:has(.media--sticker)):not(:has(.media--gif):not(:has(b))) {
+  width: 78%;
+}
+.history__column:not(.is-channel) .message--outgoing {
+  margin-left: auto;
+  margin-right: 0;
 }
 
 .message__forward {
@@ -5005,8 +5101,12 @@ button.message__forward:hover {
   padding: 6px;
   white-space: pre-wrap;
   word-break: break-word;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .code__body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .code__body::-webkit-scrollbar {
   width: 6px;
@@ -6115,7 +6215,7 @@ video:fullscreen {
   border: 1px solid color-mix(in srgb, var(--c-audio) 40%, white);
   border-radius: 8px;
   box-shadow: inset 0 0 48px rgba(255, 255, 255, 0.5), 0 2px 2px rgba(0, 0, 0, 0.1);
-  color: var(--c-audio);
+  color: color-mix(in srgb, var(--c-audio), black 30%);
   position: relative;
 }
 
@@ -6666,7 +6766,7 @@ a.media--file:hover {
   background: color-mix(in srgb, var(--c-audio) 15%, white);
   border: 0;
   border-radius: 6px;
-  color: var(--c-audio);
+  color: color-mix(in srgb, var(--c-audio), black 30%);
   cursor: pointer;
   transition: all 0.25s ease-in-out;
 }
@@ -6862,8 +6962,12 @@ a.media--file:hover {
   overflow-y: hidden;
   padding: 6px;
   position: absolute;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .pswp__thumbs {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .pswp__thumbs::-webkit-scrollbar {
   width: 6px;
@@ -7254,10 +7358,14 @@ a.media--file:hover {
   min-height: 44px;
   outline-offset: 0 !important;
   padding: 6px 8px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   resize: none;
   width: 100%;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .composer__input {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .composer__input::-webkit-scrollbar {
   width: 6px;
@@ -7526,8 +7634,12 @@ a.media--file:hover {
   flex: 1 1 auto;
   overflow-y: auto;
   padding: 0 6px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .picker__body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .picker__body::-webkit-scrollbar {
   width: 6px;
@@ -7750,6 +7862,9 @@ span.picker__gif {
 
 .picker__still {
   display: block;
+}
+.picker__still:not([src]) {
+  visibility: hidden;
 }
 
 .is-live > .picker__still {
@@ -8292,8 +8407,12 @@ span.picker__gif {
   overflow-y: auto;
   padding-top: 8px;
   white-space: pre-wrap;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .auth__tos {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .auth__tos::-webkit-scrollbar {
   width: 6px;
@@ -8374,11 +8493,15 @@ span.picker__gif {
   gap: 2px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   background: var(--c-surface-2);
   border-right: 1px solid color-mix(in srgb, var(--c-border) 25%, transparent);
   padding: 16px 8px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .settings__nav {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .settings__nav::-webkit-scrollbar {
   width: 8px;
@@ -8478,10 +8601,14 @@ span.picker__gif {
 .settings__body {
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   flex: 1 1 auto;
   padding: 0 24px 24px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .settings__body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .settings__body::-webkit-scrollbar {
   width: 8px;
@@ -9065,12 +9192,16 @@ span.picker__gif {
   gap: 6px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   list-style: none;
   margin: 0;
   max-height: 320px;
   padding: 0;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .attach__list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .attach__list::-webkit-scrollbar {
   width: 8px;
@@ -9172,8 +9303,6 @@ span.picker__gif {
 }
 
 .attach__caption-input {
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   field-sizing: content;
   flex: 1 1 auto;
   font-size: 13px;
@@ -9181,6 +9310,12 @@ span.picker__gif {
   max-height: 160px;
   min-height: 24px;
   resize: none;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .attach__caption-input {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .attach__caption-input::-webkit-scrollbar {
   width: 6px;
@@ -9716,9 +9851,13 @@ span.picker__gif {
   gap: 2px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   max-height: 220px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .composer__keyboard {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .composer__keyboard::-webkit-scrollbar {
   width: 8px;
@@ -9787,12 +9926,16 @@ span.picker__gif {
 .share__list {
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   list-style: none;
   margin: 0;
   max-height: 360px;
   padding: 0;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .share__list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .share__list::-webkit-scrollbar {
   width: 8px;
@@ -9856,9 +9999,13 @@ span.picker__gif {
   gap: 2px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
   max-height: 260px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .composer__inline {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .composer__inline::-webkit-scrollbar {
   width: 8px;
@@ -10588,8 +10735,12 @@ span.picker__gif {
   white-space: pre-wrap;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .check__log {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 }
 .check__log::-webkit-scrollbar {
   width: 8px;

@@ -244,7 +244,7 @@ video:fullscreen {
 
 // ------------------------------------------- audio, voice and file
 // Both cards follow TAudioWidget/TFileWidget rather than the sender's
-// accent: the tint is AUDIO_COLOR, the same for every track and every
+// accent: the tint is --c-audio (the app accent), the same for every track and every
 // document, because the colour says what the thing IS, not who sent
 // it. Backing at 10%, outline at 50%, 4px corners - SENDER_BG_OPACITY,
 // SENDER_BORDER_OPACITY and AUDIO_CORNER_RADIUS.
@@ -254,7 +254,9 @@ video:fullscreen {
   border: 1px solid color-mix(in srgb, var(--c-audio) 40%, white);
   border-radius: $radius-md;
   box-shadow: inset 0 0 48px rgba(255, 255, 255, 0.5), 0 2px 2px rgba(0, 0, 0, .1);
-  color: var(--c-audio);
+  // Тон акцента на бледной подложке из него же: у светлых акцентов
+  // (amber, lime) чистый цвет не читался бы — притемнён на $audio-text-dark.
+  color: color-mix(in srgb, var(--c-audio), black $audio-text-dark);
   position: relative; // a download bar belongs to the card, nothing else
 }
 
@@ -759,7 +761,7 @@ $voice-tx-orbit: 1.2s;
   background: color-mix(in srgb, var(--c-audio) 15%, white);
   border: 0;
   border-radius: $voice-tx-radius;
-  color: var(--c-audio);
+  color: color-mix(in srgb, var(--c-audio), black $audio-text-dark);
   cursor: pointer;
   @include transition;
 

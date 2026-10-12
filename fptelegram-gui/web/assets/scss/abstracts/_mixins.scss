@@ -82,9 +82,15 @@
 // Thin overlay scrollbar. Chromium only (this UI runs in a WebView),
 // with the standards-track properties first so other engines at least
 // get the colours.
+// Стандартные scrollbar-width / scrollbar-color — ТОЛЬКО там, где нет
+// ::-webkit-scrollbar (Firefox): Chromium с 121 при них игнорирует
+// ::-webkit-scrollbar и рисует системную тонкую полосу со стрелками.
+// Без кнопок-стрелок — как раз полоса из ::-webkit-scrollbar ниже.
 @mixin scrollbar($size: v.$scrollbar-width) {
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-strong) transparent;
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-border-strong) transparent;
+  }
 
   &::-webkit-scrollbar {
     width: $size;

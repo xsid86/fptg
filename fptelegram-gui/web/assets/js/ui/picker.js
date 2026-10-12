@@ -2,6 +2,7 @@ import { el, clear, qs, qsa } from '../core/dom.js';
 import { icon } from '../util/icons.js';
 import { playSticker, stillSticker, stillSvg, stopStickers } from './sticker.js';
 import { sideScroll } from '../util/sidescroll.js';
+import { markPopDirection } from '../util/pop.js';
 import { holdVideo, forget } from '../util/offscreen.js';
 
 // The emoji / sticker / GIF panel, the one thing in the composer that
@@ -580,6 +581,9 @@ function runEmojiSearch(text) {
 // примерно до полутора минимумов.
 const STILL_SIZE = { emoji: 40, tile: 100, gif: 160 };
 const STILL_PARALLEL = 4;
+// Кадр, не готовый за это время, бросается: иначе зависший файл держал
+// бы слот очереди вечно, а четыре таких — всю очередь.
+const STILL_TIMEOUT_MS = 8000;
 const STILL_CACHE_MAX = 300;
 const stillCache = new Map();   // kind:url -> data URL; порядок Map — давность
 const stillJobs = new Map();    // <img> -> { item, kind }, ещё не дошедшие до вида
@@ -623,11 +627,17 @@ function lazyObserver() {
  * холст. Холст сразу перегоняется в PNG и отпускается.
  */
 async function makeStill(item, kind) {
-  if (item.format === 'tgs' && kind === 'tile') return stillSvg(item.url);
+  const late = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`still timeout (${item.format})`)), STILL_TIMEOUT_MS);
+  });
+  if (item.format === 'tgs' && kind === 'tile') return Promise.race([stillSvg(item.url), late]);
   const canvas = document.createElement('canvas');
-  const ok = item.format === 'webm' || item.format === 'mp4'
-    ? await videoStill(canvas, item.url, STILL_SIZE[kind])
-    : await stillSticker(canvas, item.url, STILL_SIZE[kind]);
+  const ok = await Promise.race([
+    item.format === 'webm' || item.format === 'mp4'
+      ? videoStill(canvas, item.url, STILL_SIZE[kind])
+      : stillSticker(canvas, item.url, STILL_SIZE[kind]),
+    late,
+  ]);
   return ok ? canvas.toDataURL('image/png') : null;
 }
 
@@ -647,6 +657,9 @@ function pumpStill() {
       if (!src) return;
       rememberStill(key, src);
       if (img.isConnected) img.src = src;
+    }).catch((err) => {
+      // Не молча: так SecurityError холста и прятался.
+      console.error('picker still', item.url, err);
     }).finally(() => {
       stillRunning -= 1;
       pumpStill();
@@ -658,15 +671,25 @@ function pumpStill() {
 function videoStill(canvas, url, cssSize) {
   return new Promise((resolve) => {
     const video = document.createElement('video');
+    // Файл — с сервера, а страница — со своего адреса
+    // (https://fptelegram.example): без CORS кадр «пачкает» холст, и
+    // toDataURL бросает SecurityError — ячейки эмодзи наборов в webm
+    // оставались пустыми. Сервер отдаёт заголовки CORS.
+    video.crossOrigin = 'anonymous';
     video.muted = true;
     video.playsInline = true;
     video.preload = 'auto';
     let drawn = false;
+    let timer = 0;
     const done = () => {
+      clearTimeout(timer);
       video.removeAttribute('src');
       video.load();
       resolve(drawn);
     };
+    // Видео, которое так и не дало кадра, отпускается само, а не висит
+    // загрузкой (makeStill к этому времени уже бросил ожидание).
+    timer = setTimeout(done, STILL_TIMEOUT_MS);
     video.addEventListener('loadeddata', () => {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
@@ -1128,6 +1151,7 @@ async function toggle() {
 
   anchor.classList.add('is-picker-anchor');
   panel.showPopover();
+  markPopDirection(panel, anchor);
   await showTab(tab);
   if (tab === 'emoji') qs('.picker__query', panel)?.focus();
   // Наборы кастомных эмодзи — и для реакции, и для композера. Спрашиваются

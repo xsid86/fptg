@@ -8,30 +8,33 @@ import { postShell } from './shell.js';
 // The whole palette hangs off ATTRIBUTES on <html> - never an inline
 // style, and never a per-element repaint from here:
 //   data-theme  dark | light - the scheme; every token, palette and
-//               accent in scss/base hangs off it, for all four themes;
+//               accent in scss/base hangs off it, for all five themes;
 //   data-style  "plain" for the simple themes (scss/themes/_plain),
 //               "aurora" for Aurora (scss/themes/_aurora), else absent.
-// No stored choice at all is a meaningful state: no attributes, which is
-// what leaves the OS preference in charge (a coloured theme then).
+// No stored choice (first start, or blocked storage) means Aurora -
+// DEFAULT_THEME; the OS light/dark preference is not consulted.
 //
 // The stored value is one of THEMES' ids. index.html, check.html and
 // callcard.html apply it before the first paint with the same split;
 // this module owns the button, the menu and the changes made through it.
 
 const KEY = 'theme';
-const media = window.matchMedia('(prefers-color-scheme: dark)');
 
 // Порядок — как в меню. id — то, что лежит в localStorage; у прежних
 // версий там были только 'dark' и 'light', они и остались цветными.
 const THEMES = [
-  { id: 'dark', label: 'Dark colored' },
-  { id: 'light', label: 'Light colored' },
-  { id: 'dark-plain', label: 'Dark' },
-  { id: 'light-plain', label: 'Light' },
   // Как макет окна на сайте проекта (website/, sections/_mockup.scss):
-  // стекло на синей «авроре». Только тёмная — scss/themes/_aurora.
+  // стекло на «авроре» цвета акцента. Только тёмная — scss/themes/_aurora.
   { id: 'dark-aurora', label: 'Aurora' },
+  { id: 'dark-plain', label: 'Dark' },
+  { id: 'dark', label: 'Dark colored' },
+  { id: 'light-plain', label: 'Light' },
+  { id: 'light', label: 'Light colored' },
 ];
+
+// Без сохранённого выбора — Aurora. То же значение — в ранних скриптах
+// index.html, check.html, callcard.html.
+const DEFAULT_THEME = 'dark-aurora';
 
 let button = null;
 
@@ -81,9 +84,9 @@ function stored() {
   }
 }
 
-/** What is on screen right now, explicit choice or OS preference. */
+/** What is on screen right now: the stored choice or the default. */
 function effective() {
-  return stored() ?? (media.matches ? 'dark' : 'light');
+  return stored() ?? DEFAULT_THEME;
 }
 
 const schemeOf = (id) => (id.startsWith('dark') ? 'dark' : 'light');
@@ -126,9 +129,8 @@ function paintFrame(scheme) {
 function render() {
   const now = effective();
   // The RESOLVED scheme, mirrored onto <body> so stylesheets have
-  // something that is always there to match on - data-theme on <html>
-  // is the choice, and is absent while the OS is deciding. index.html
-  // sets this before the first paint; this keeps it true afterwards.
+  // something that is always there to match on. index.html sets this
+  // before the first paint; this keeps it true afterwards.
   document.body.dataset.scheme = schemeOf(now);
   paintFrame(schemeOf(now));
   if (!button) return;
@@ -164,9 +166,5 @@ function openThemes() {
 export function mountThemeToggle(node) {
   button = node;
   button.addEventListener('click', openThemes);
-  // Follow the OS while no explicit choice has been made, so the window
-  // changes with everything else on the desktop rather than sitting
-  // stubbornly on whatever it started as.
-  media.addEventListener('change', () => { if (!stored()) render(); });
   render();
 }

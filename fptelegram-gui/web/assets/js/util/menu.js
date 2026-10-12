@@ -1,4 +1,5 @@
 import { el } from '../core/dom.js';
+import { markPopDirection } from './pop.js';
 
 // A popup menu. One is open at a time, which is also what lets the CSS
 // pin it to its anchor without a single coordinate being written from
@@ -196,4 +197,5 @@ export function openMenu(anchor, items, options = {}) {
   anchorEl = options.at ? placePoint(options.at) : anchor;
   anchorEl.classList.add('is-menu-anchor');
   node.showPopover();
+  markPopDirection(node, anchorEl);
 }

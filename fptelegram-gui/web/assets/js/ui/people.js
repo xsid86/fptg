@@ -1,5 +1,6 @@
 import { el, clear } from '../core/dom.js';
 import { fillAvatar } from '../util/avatar.js';
+import { markPopDirection } from '../util/pop.js';
 import { clockTime, dateLabel } from '../util/format.js';
 
 // Кто поставил реакцию и кто прочитал — всплывающий список по наведению:
@@ -91,7 +92,10 @@ async function show(target, args, title) {
     body.push(el('p', { class: 'people__note' }, data?.note || 'Nobody yet'));
   }
   draw(body);
-  try { panel.showPopover(); } catch { /* уже открыт */ }
+  if (!panel.matches(':popover-open')) {
+    panel.showPopover();
+    markPopDirection(panel, anchor);
+  }
 }
 
 function hide() {

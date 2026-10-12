@@ -122,8 +122,13 @@
   border-color: var(--c-accent);
 }
 
+// Разделитель — акцент на прозрачном ($menu-sep-share): одинаково
+// неконтрастен на тёмных и светлых темах. border: 0 — сброс рамки <hr>
+// из стилей браузера (inset, яркая), которая и рисовалась, пока здесь
+// была опечатка «botder-top».
 .menu__sep {
-  botder-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent) 0 0 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--c-accent) $menu-sep-share, transparent);
   height: 0;
   margin: $space-1 0;
 }

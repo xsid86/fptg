@@ -1,0 +1,54 @@
+@use "../abstracts" as *;
+
+// Появление всплывающих меню и модальных окон: проявление и въезд на
+// $pop-delta. Анимация CSS запускается сама, когда элемент выходит из
+// display: none, — то есть при каждом showPopover / showModal / снятии
+// hidden, без единой строки JS.
+//
+// НАПРАВЛЕНИЕ. По умолчанию — вниз: окно въезжает сверху, из -$pop-delta.
+// Меню, открывшееся НАД якорем (position-try перевернул его или оно
+// сразу над полем), въезжает снизу вверх: класс is-pop-up ставит
+// util/pop.js, сравнив прямоугольники меню и якоря сразу после показа,
+// до первой отрисовки. Смена animation-name перезапускает анимацию, так
+// что кадра «не в ту сторону» не видно.
+//
+// translate, а не transform: у части окон transform уже занят своим
+// расположением, а translate складывается с ним отдельно.
+
+@keyframes pop-down {
+  from {
+    opacity: 0;
+    translate: 0 (-$pop-delta);
+  }
+}
+
+@keyframes pop-up {
+  from {
+    opacity: 0;
+    translate: 0 $pop-delta;
+  }
+}
+
+.menu:popover-open,
+.mention-pop:popover-open,
+.people:popover-open,
+.picker:popover-open,
+dialog[open],
+.attach-layer:not([hidden]) .attach {
+  animation: pop-down $pop-duration $pop-ease;
+
+  &.is-pop-up {
+    animation-name: pop-up;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu:popover-open,
+  .mention-pop:popover-open,
+  .people:popover-open,
+  .picker:popover-open,
+  dialog[open],
+  .attach-layer:not([hidden]) .attach {
+    animation: none;
+  }
+}

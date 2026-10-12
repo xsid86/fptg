@@ -119,6 +119,23 @@ $dur-fast:    .12s;
 $dur-base:    .18s;
 $dur-slow:    .3s;
 
+// Появление всплывающих меню и модальных окон (components/_pop.scss):
+// въезд на $pop-delta со стороны якоря и проявление.
+$pop-delta:    1rem;
+$pop-duration: .2s;
+$pop-ease:     cubic-bezier(.2, .7, .2, 1);
+
+// Разделители в меню (components/_menu.scss): доля акцента на прозрачном.
+$menu-sep-share: 30%;
+
+// Текст на карточках файлов, аудио и голосовых (blocks/_media.scss):
+// доля чёрного в акценте — подложка у них бледная из того же акцента.
+$audio-text-dark: 30%;
+
+// Свои справа, чужие слева (blocks/_message.scss): наибольшая ширина
+// сообщения — доля колонки истории.
+$message-side-max: 78%;
+
 // --------------------------------------------------------- breakpoints
 $breakpoints: (
   "sm": 640px,
@@ -197,10 +214,11 @@ $theme-light: (
   "warn":          #d59600,
   "danger":        #e53935,
   "unread":        #2196f3,
-  // native: AUDIO_COLOR. Audio, voice notes and files are tinted with
-  // this instead of the sender's accent - the native widgets do the
-  // same, and for the same reason: the colour says "media", not "who".
-  "audio":         #03a9f4,
+  // Audio, voice notes and files are tinted with this instead of the
+  // sender's accent: the colour says "media", not "who". Was the
+  // native AUDIO_COLOR (#03a9f4); now the app accent (Settings ->
+  // General), so the widgets follow it like everything else.
+  "audio":         var(--c-accent),
   "shadow":        rgba(16, 24, 40, .10),
   "dark":          #131313,
   "light":         #f1f2f3
@@ -224,10 +242,11 @@ $theme-dark: (
   "warn":          #d59600,
   "danger":        #ef5350,
   "unread":        #2196f3,
-  // native: AUDIO_COLOR. Audio, voice notes and files are tinted with
-  // this instead of the sender's accent - the native widgets do the
-  // same, and for the same reason: the colour says "media", not "who".
-  "audio":         #03a9f4,
+  // Audio, voice notes and files are tinted with this instead of the
+  // sender's accent: the colour says "media", not "who". Was the
+  // native AUDIO_COLOR (#03a9f4); now the app accent (Settings ->
+  // General), so the widgets follow it like everything else.
+  "audio":         var(--c-accent),
   "shadow":        rgba(0, 0, 0, .45),
   "dark":          #131313,
   "light":         #f1f2f3

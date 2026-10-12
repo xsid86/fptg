@@ -263,9 +263,32 @@
 }
 
 // --------------------------------------------------------- outgoing
-// Own messages are not mirrored to the right: this layout is the dense
-// single-column one the native window uses, where the sender colour
-// already tells them apart.
+// СВОИ СПРАВА, ЧУЖИЕ СЛЕВА (2026-10-12; раньше — одна колонка, как в
+// нативном окне). Ширина — по содержимому, не больше $message-side-max
+// колонки. Сообщения с медиа, превью ссылки или опросом — ровно
+// $message-side-max: их части тянутся на 100% карточки, и по содержимому
+// она бы схлопнулась. Стикер и гифка без подписи карточки не имеют —
+// им по содержимому.
+//
+// Кроме ленты канала (.is-channel ставит ui/history.js): там «свои» —
+// все посты владельца, разнос ничего не различал бы.
+.history__column:not(.is-channel) {
+  .message {
+    margin-right: auto;
+    max-width: $message-side-max;
+    width: fit-content;
+  }
+
+  .message:has(.media, .album, .link-preview, .poll):not(:has(.media--sticker)):not(:has(.media--gif):not(:has(b))) {
+    width: $message-side-max;
+  }
+
+  .message--outgoing {
+    margin-left: auto;
+    margin-right: 0;
+  }
+}
+
 //
 // AND THEY WEAR THEIR OWN COLOUR. This block used to pin
 // --sender-color to the app's accent, which threw away the one thing

@@ -388,6 +388,12 @@ span.picker__gif {
 // уничтожен.
 .picker__still {
   display: block;
+
+  // Пока кадр не готов (src ещё нет), <img> рисовал бы значок битой
+  // картинки и alt — место держит, но не видно.
+  &:not([src]) {
+    visibility: hidden;
+  }
 }
 
 // Под курсором поверх кадра играет живой плеер (goLive в picker.js) —
