@@ -11204,6 +11204,12 @@ span.picker__gif {
 :root[data-style=aurora] .chat-item__kind {
   fill: var(--c-text-dim);
 }
+:root[data-style=aurora] .chat-item__action:hover, :root[data-style=aurora] .chat-item__action:active, :root[data-style=aurora] .chat-item__action:focus {
+  color: var(--c-accent);
+}
+:root[data-style=aurora] .chat-filter:hover:not(:disabled), :root[data-style=aurora] .chat-filter.is-active {
+  color: var(--c-accent);
+}
 :root[data-style=aurora] .chat-item__folder,
 :root[data-style=aurora] .chat-item__folder--none {
   background: var(--aurora-soft);

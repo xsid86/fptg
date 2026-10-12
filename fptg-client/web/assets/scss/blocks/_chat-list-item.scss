@@ -234,6 +234,8 @@
   padding: 0;
   @include transition;
 
+  // Наведение — цвет контакта (цветные темы); простые темы и Aurora
+  // перекрывают акцентом (themes/).
   &:hover,
   &:active,
   &:focus {
