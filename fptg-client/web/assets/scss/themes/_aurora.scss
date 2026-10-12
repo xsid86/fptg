@@ -334,9 +334,9 @@
   .history__date > span,
   .history__float-date > span,
   .message-service__text {
-    background: var(--c-surface-2);
-    box-shadow: none;
-    color: var(--c-text-dim);
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--c-accent) 75%, white), color-mix(in srgb, var(--c-accent) 75%, black));
+    box-shadow: 0 .5rem .5rem rgba(0,0,0,.25);
+    color: var(--c-light);
     padding: a("pill-padding");
   }
 
