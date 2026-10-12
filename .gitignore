@@ -1,33 +1,29 @@
 # Настройки и аккаунты — зашифрованный файл (secureconfig.pas) и его
 # временная/отложенная копии; config.ini/accounts.ini — прежние открытые.
-# У обеих программ (сервер — аккаунты, окно — подключение);
-# fptelegram.dat — прежнее имя у сервера.
+# У обеих программ (сервер — аккаунты, окно — подключение).
 conf.dat
 conf.dat.tmp
 conf.dat.unreadable
-fptelegram.dat
-fptelegram.dat.tmp
-fptelegram.dat.unreadable
 config.ini
 accounts.ini
 tdlib/
 tdlib_raw.log
 # Files the page uploads for sending (localserver /upload); cleared at start.
 uploads/
-fptelegram-gui/web/.idea/
-fptelegram-gui/web/assets/scss/*.css.map
+fptg-client/web/.idea/
+fptg-client/web/assets/scss/*.css.map
 
 # Единственный экземпляр (instance.pas): блокировка и порт/ключ канала.
 *.lock
 *.instance
 
 # Build output: rebuilt by lazbuild, 50 MB per copy in history.
-FPTelegram.exe
-FPTelegram.dbg
-FPTelegramServer.exe
-FPTelegramServer.dbg
-FPTelegramServerGui.exe
-FPTelegramServerGui.dbg
+fptg-client.exe
+fptg.dbg
+fptg-server.exe
+fptg-server.dbg
+fptg-server-gui.exe
+fptg-server-gui.dbg
 lib/
 
 # Lazarus/lazbuild backups of edited project files.

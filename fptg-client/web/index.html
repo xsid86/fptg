@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fptg</title>
+<link rel="stylesheet" href="assets/scss/style.css">
+<link rel="stylesheet" href="assets/vendor/photoswipe/photoswipe.css">
+<script>
+  // Runs before the first paint on purpose. The modules below are
+  // deferred, so letting them do this would show the wrong theme for a
+  // frame and then swap it. It sets an ATTRIBUTE, not a style - the
+  // rule in core/dom.js is about the style attribute, and the whole
+  // palette hangs off [data-theme] in scss/base/_root.scss.
+  // No stored choice means Aurora (ui/theme.js, DEFAULT_THEME).
+  try {
+    var t = localStorage.getItem('theme');
+    // dark | light | dark-plain | light-plain | dark-aurora (ui/theme.js):
+    // схема — в data-theme, у простых и Aurora ещё data-style (plain | aurora).
+    // Нет выбора — Aurora (DEFAULT_THEME там же).
+    if (!/^(dark|light)(-plain|-aurora)?$/.test(t || '')) { t = 'dark-aurora'; }
+    document.documentElement.dataset.theme = t.indexOf('dark') === 0 ? 'dark' : 'light';
+    var s = /-(plain|aurora)$/.exec(t);
+    if (s) { document.documentElement.dataset.style = s[1]; }
+    // Акцент (Settings → General, ui/theme.js): ключ из $app-accents.
+    var a = localStorage.getItem('accent');
+    if (/^[a-z]+$/.test(a || '')) { document.documentElement.dataset.accent = a; }
+  } catch (e) {
+    // Хранилище закрыто — тема по умолчанию, Aurora.
+    document.documentElement.dataset.theme = 'dark';
+    document.documentElement.dataset.style = 'aurora';
+  }
+</script>
+</head>
+<body>
+<script>
+  // Sits here, not in <head>, because a script in the head cannot reach
+  // an element that has not been parsed yet - and not in a module,
+  // because those are deferred and would paint one background before
+  // swapping to the other.
+  //
+  // data-scheme on <body> is the RESOLVED theme and is always either
+  // "light" or "dark". That is the difference from data-theme on <html>,
+  // which is the CHOICE and is absent when there is none - which is
+  // exactly when a selector written against it would silently fail to
+  // match. Style the background off this one:
+  //     body[data-scheme="dark"] { background-image: url(...); }
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('theme'); } catch (e) { /* blocked */ }
+    if (/^(dark|light)(-plain|-aurora)?$/.test(t || '')) {
+      t = t.indexOf('dark') === 0 ? 'dark' : 'light';
+    } else {
+      t = 'dark';                 // по умолчанию — Aurora, она тёмная
+    }
+    document.body.dataset.scheme = t;
+  })();
+</script>
+
+<!--
+  The shell is static markup; JavaScript fills the parts that change and
+  never builds a whole page from scratch. Icons are placeholders here
+  (data-icon) and get swapped for real <use> nodes once the sprite is in
+  the document - see assets/js/util/icons.js for why the sprite is
+  injected rather than referenced across files.
+-->
+<div class="app" data-view="list">
+
+  <aside class="app__sidebar">
+    <div class="sidebar">
+      <!-- Три вкладки списка слева: чаты, архив, контакты. Активна та, на
+           которой мы сейчас (main.js, setSidebarView). -->
+      <div class="sidebar__head" role="tablist">
+        <button class="btn sidebar__tab is-active" type="button" role="tab"
+                data-view="chats">Chats</button>
+        <button class="btn sidebar__tab" type="button" role="tab"
+                data-view="archive">Archive</button>
+        <button class="btn sidebar__tab" type="button" role="tab"
+                data-view="contacts">Contacts</button>
+      </div>
+
+      <div class="sidebar__search">
+        <label class="field">
+          <span class="icon icon--sm" data-icon="search"></span>
+          <input class="field__input" id="chats-search" type="search"
+                 placeholder="Filter by name or preview" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="sidebar__body">
+        <div class="chat-list" id="chat-list"></div>
+      </div>
+    </div>
+  </aside>
+
+  <section class="app__workspace">
+    <div class="workspace">
+      <header class="chat-header" id="chat-header" hidden></header>
+
+      <!-- Where files are dropped. Covers the open chat only while a
+           drag with files is over it - see ui/attach.js. -->
+      <div class="dropzone" id="dropzone" hidden></div>
+
+      <!-- The scroller and the box it sits in are two elements on
+           purpose: the "jump to the newest" button is positioned
+           against the box, and a button placed in the scroller itself
+           would scroll away with the messages. -->
+      <div class="workspace__history">
+        <div class="history" id="history"></div>
+      </div>
+
+      <div class="composer" id="composer">
+        <!-- What this message will answer, or which message is being
+             rewritten. Hidden until one of the two is true. -->
+        <div class="composer__banner" id="composer-banner" hidden>
+          <span class="composer__banner-kind"></span>
+          <span class="composer__banner-text"></span>
+          <button class="btn btn--icon composer__banner-cancel" type="button"
+                  title="Cancel">
+            <span class="icon" data-icon="close"></span>
+            <span class="u-sr-only">Cancel</span>
+          </button>
+        </div>
+
+        <div class="composer__row">
+          <textarea class="composer__input" rows="1"
+                    placeholder="Pick a chat to start writing"></textarea>
+        </div>
+
+        <!-- Everything that is not the text itself, in one row under the
+             box: what acts on the SELECTION on the left, what acts on the
+             MESSAGE on the right. The two groups stack when the composer
+             gets too narrow for both - see blocks/_composer.scss. -->
+        <div class="composer__bar">
+          <div class="composer__group composer__group--format">
+            <button class="btn composer__format" type="button" title="Bold"
+                    data-fmt="bold" disabled>Bold</button>
+            <button class="btn composer__format" type="button" title="Italic"
+                    data-fmt="italic" disabled>Italic</button>
+            <button class="btn composer__format" type="button" title="Underline"
+                    data-fmt="underline" disabled>Underline</button>
+            <button class="btn composer__format" type="button" title="Strikethrough"
+                    data-fmt="strike" disabled>Strike</button>
+            <button class="btn composer__format" type="button" title="Monospace"
+                    data-fmt="mono" disabled>Mono</button>
+            <button class="btn composer__format" type="button" title="Code block"
+                    data-fmt="code" disabled>Code</button>
+            <button class="btn composer__format" type="button" title="Spoiler"
+                    data-fmt="spoiler" disabled>Spoiler</button>
+            <button class="btn composer__format" type="button" title="Quote"
+                    data-fmt="quote" disabled>Quote</button>
+            <button class="btn composer__format" type="button" title="Link"
+                    data-fmt="link" disabled>Link</button>
+            <button class="btn composer__format" type="button" title="Strip formatting"
+                    data-fmt="clear" disabled>Clear</button>
+          </div>
+
+          <div class="composer__group composer__group--actions">
+            <!-- Files to send. The input is the real picker and stays
+                 hidden; the paperclip only opens it. See ui/attach.js. -->
+            <button class="btn btn--icon composer__attach" id="composer-attach"
+                    type="button" title="Attach files" disabled>
+              <span class="icon" data-icon="clip"></span>
+              <span class="u-sr-only">Attach files</span>
+            </button>
+            <input type="file" id="composer-files" multiple hidden>
+
+            <!-- The one icon among the words, and the one that earns it: a
+                 smiley says "emoji" in every client there is, and the
+                 panel behind it also holds stickers and GIFs, which no
+                 single word covers. -->
+            <button class="btn btn--icon composer__emoji" id="composer-emoji"
+                    type="button" title="Emoji, stickers and GIFs" disabled>
+              <span class="icon" data-icon="smile"></span>
+              <span class="u-sr-only">Emoji, stickers and GIFs</span>
+            </button>
+
+            <label class="btn btn--toggle" title="Write in HTML instead of MarkdownV2">
+              <input type="checkbox" id="composer-html"> HTML
+            </label>
+            <label class="btn btn--toggle" title="Send without a notification">
+              <input type="checkbox" id="composer-silent"> Silent
+            </label>
+
+            <button class="composer__send" type="button" title="Send">
+              <span class="icon" data-icon="send"></span>
+              <span class="u-sr-only">Send</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Signing in. Covers everything until there is an account to
+       show, and is empty the rest of the time. -->
+  <div class="auth" id="auth" hidden></div>
+
+  <!-- Settings. A modal <dialog>: the top layer, Escape and the focus
+       trap come with showModal(). Covers the app with a 32px margin and
+       is empty until opened - see ui/settings.js. -->
+  <dialog class="settings" id="settings" aria-label="Settings"></dialog>
+
+  <!-- Sending files: the list, a caption, Add / Cancel / Send. Built
+       on every opening - see ui/attach.js. A layer rather than a modal
+       <dialog>: the emoji panel for the caption is a popover hung on
+       <body>, and a modal dialog would make it inert. -->
+  <div class="attach-layer" id="attach" hidden></div>
+
+  <footer class="app__status status-bar" id="status-bar">
+    <button class="status-bar__settings" type="button" id="settings-open"
+            title="Settings">
+      <span class="icon icon--sm" data-icon="settings"></span>
+      <span class="u-sr-only">Settings</span>
+    </button>
+    <button class="status-bar__account" type="button" id="account" title="Accounts"></button>
+    <div class="status-bar__presence-box">
+      <button class="status-bar__presence" type="button" id="presence"></button>
+      <span class="status-bar__traffic" id="traffic" hidden></span>
+    </div>
+    <span class="status-bar__spacer"></span>
+    <div class="status-bar__counts"></div>
+    <div class="status-bar__transport">
+      <a class="status-bar__item" href="check.html">transport check</a>
+      <div class="conn"></div>
+    </div>
+    <button class="status-bar__theme" type="button" id="theme-toggle"></button>
+  </footer>
+
+  <!-- Arrival cards. Outside .app so nothing in the layout can clip
+       them, and empty until something arrives - see ui/toasts.js. -->
+  <div class="toast-stack" id="toasts"></div>
+
+  <!-- Notices for the reader: a bot's answer, "copied", "not supported
+       yet". They stay until closed - see ui/notices.js. -->
+  <div class="notices" id="notices"></div>
+
+</div>
+
+<script type="module" src="assets/js/main.js"></script>
+</body>
+</html>

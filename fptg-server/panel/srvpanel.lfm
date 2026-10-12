@@ -1,0 +1,248 @@
+object FormServerPanel: TFormServerPanel
+  Left = 400
+  Height = 371
+  Top = 200
+  Width = 320
+  BorderIcons = [biSystemMenu, biMinimize]
+  BorderStyle = bsSingle
+  Caption = 'fptg server'
+  ClientHeight = 371
+  ClientWidth = 320
+  Position = poScreenCenter
+  ShowInTaskBar = stAlways
+  OnCloseQuery = FormCloseQuery
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  LCLVersion = '4.8.0.0'
+  object lblStatus: TLabel
+    Left = 12
+    Height = 15
+    Top = 12
+    Width = 48
+    Caption = 'Stopped'
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object lblUrl: TLabel
+    AnchorSideLeft.Control = lblStatus
+    AnchorSideLeft.Side = asrBottom
+    AnchorSideTop.Control = lblStatus
+    Cursor = crHandPoint
+    Left = 64
+    Height = 15
+    Top = 12
+    Width = 1
+    BorderSpacing.Left = 4
+    Font.Color = clHotLight
+    Font.Style = [fsBold, fsUnderline]
+    Hint = 'Open in the browser'
+    ParentFont = False
+    ParentShowHint = False
+    ShowHint = True
+    Visible = False
+    OnClick = lblUrlClick
+  end
+  object btnStartStop: TButton
+    Left = 12
+    Height = 30
+    Top = 34
+    Width = 296
+    Anchors = [akTop, akLeft, akRight]
+    Caption = 'Start'
+    TabOrder = 0
+    OnClick = btnStartStopClick
+  end
+  object lblAddress: TLabel
+    Left = 12
+    Height = 15
+    Top = 76
+    Width = 42
+    Caption = 'Address'
+  end
+  object edtAddress: TEdit
+    Left = 12
+    Height = 23
+    Top = 94
+    Width = 222
+    Anchors = [akTop, akLeft, akRight]
+    ReadOnly = True
+    TabStop = False
+    TabOrder = 1
+  end
+  object btnCopyAddress: TButton
+    Left = 240
+    Height = 23
+    Top = 94
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Copy'
+    TabOrder = 7
+    OnClick = btnCopyAddressClick
+  end
+  object lblPort: TLabel
+    Left = 12
+    Height = 15
+    Top = 125
+    Width = 22
+    Caption = 'Port'
+  end
+  object edtPort: TEdit
+    Left = 12
+    Height = 23
+    Top = 143
+    Width = 222
+    Anchors = [akTop, akLeft, akRight]
+    MaxLength = 5
+    NumbersOnly = True
+    TabOrder = 2
+  end
+  object btnCopyPort: TButton
+    Left = 240
+    Height = 23
+    Top = 143
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Copy'
+    TabOrder = 8
+    OnClick = btnCopyPortClick
+  end
+  object lblPrint: TLabel
+    Left = 12
+    Height = 15
+    Top = 174
+    Width = 186
+    Caption = 'Certificate fingerprint (SHA-256)'
+  end
+  object edtPrint: TEdit
+    Left = 12
+    Height = 23
+    Top = 192
+    Width = 296
+    Anchors = [akTop, akLeft, akRight]
+    ReadOnly = True
+    TabStop = False
+    TabOrder = 3
+  end
+  object lblUser: TLabel
+    Left = 12
+    Height = 15
+    Top = 228
+    Width = 26
+    Caption = 'User'
+  end
+  object edtUser: TEdit
+    Left = 12
+    Height = 23
+    Top = 246
+    Width = 222
+    Anchors = [akTop, akLeft, akRight]
+    ReadOnly = True
+    TabStop = False
+    TabOrder = 4
+  end
+  object btnUser: TButton
+    Left = 240
+    Height = 23
+    Top = 246
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Change...'
+    TabOrder = 5
+    OnClick = btnUserClick
+  end
+  object btnSignOut: TButton
+    Left = 12
+    Height = 30
+    Top = 281
+    Width = 296
+    Anchors = [akTop, akLeft, akRight]
+    Caption = 'Sign out'
+    TabOrder = 6
+    OnClick = btnSignOutClick
+  end
+  object pnlTraffic: TPanel
+    Left = 0
+    Height = 48
+    Top = 323
+    Width = 320
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 48
+    ClientWidth = 320
+    TabOrder = 9
+    TabStop = False
+    object bvlTraffic: TBevel
+      Left = 0
+      Height = 2
+      Top = 0
+      Width = 320
+      Align = alTop
+      Shape = bsTopLine
+    end
+    object lblTgTraffic: TLabel
+      Left = 12
+      Height = 15
+      Top = 8
+      Width = 296
+      Anchors = [akTop, akLeft, akRight]
+      AutoSize = False
+      Caption = 'Telegram  -'
+    end
+    object lblClTraffic: TLabel
+      Left = 12
+      Height = 15
+      Top = 26
+      Width = 296
+      Anchors = [akTop, akLeft, akRight]
+      AutoSize = False
+      Caption = 'Clients  -'
+    end
+  end
+  object trayIcon: TTrayIcon
+    PopUpMenu = popTray
+    Hint = 'fptg server'
+    OnDblClick = miShowClick
+    Left = 248
+    Top = 64
+  end
+  object popTray: TPopupMenu
+    Left = 248
+    Top = 112
+    object miShow: TMenuItem
+      Caption = 'Show window'
+      Default = True
+      OnClick = miShowClick
+    end
+    object miStartStop: TMenuItem
+      Caption = 'Start server'
+      OnClick = btnStartStopClick
+    end
+    object miSeparator: TMenuItem
+      Caption = '-'
+    end
+    object miQuit: TMenuItem
+      Caption = 'Quit'
+      OnClick = miQuitClick
+    end
+  end
+  object tmrGiveUp: TTimer
+    Enabled = False
+    OnTimer = tmrGiveUpTimer
+    Left = 248
+    Top = 160
+  end
+  object tmrPoll: TTimer
+    Enabled = False
+    Interval = 2000
+    OnTimer = tmrPollTimer
+    Left = 248
+    Top = 208
+  end
+  object tmrTraffic: TTimer
+    Enabled = False
+    Interval = 1000
+    OnTimer = tmrTrafficTimer
+    Left = 248
+    Top = 256
+  end
+end

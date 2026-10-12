@@ -1,0 +1,442 @@
+// Single source of truth for every number and colour in the UI.
+//
+// Two kinds of token live here and they are NOT interchangeable:
+//
+//   * SCSS variables ($space-2, $radius-md, ...) for geometry. They are
+//     resolved at build time, can take part in arithmetic, and never
+//     need to change while the app is running.
+//   * The colour MAPS below, which base/_root.scss emits as CSS custom
+//     properties. Colours have to be swappable at run time (light/dark,
+//     and later a user-chosen accent, which the native UI already has
+//     in Settings), and a compiled-away SCSS variable cannot do that.
+//
+// Sizes that must match the native window are marked; those two UIs
+// are meant to look like the same program, not like cousins.
+
+// ---------------------------------------------------------------- type
+// "Noto Color Emoji" is in both stacks, and its PLACE in them matters.
+// It is Google's emoji - the same ones emoji_atlas.dat gives the native
+// window, so the two windows draw a message identically instead of one
+// showing Microsoft's. Without it in the list at all, the system
+// fallback would supply Segoe UI Emoji and they would not.
+//
+// LAST rather than first, though: the font covers more than emoji. Its
+// slice 2 carries U+23, U+2A and U+30..39 - '#', '*' and the digits -
+// because those are what keycap sequences are built from. First in the
+// stack it would draw every plain digit in the UI as emoji art. Behind
+// the text fonts, those characters are already claimed and only the
+// emoji fall through to it. See assets/vendor/noto-emoji/README.txt.
+$font-ui:   "Segoe UI", system-ui, -apple-system, "Noto Color Emoji", sans-serif;
+$font-mono: "Cascadia Mono", Consolas, "SF Mono", "Noto Color Emoji", monospace;
+
+$fs-xs:   11px;
+$fs-sm:   12px;
+$fs-base: 13px;   // native: MSG_TEXT_FONT_H
+$fs-md:   14px;
+$fs-lg:   16px;
+$fs-xl:   32px;
+$fs-xxl:  64px;
+
+$lh-tight: 1.2;
+$lh-base:  1.45;
+
+$fw-regular: 400;
+$fw-medium:  500;
+$fw-bold:    600;
+
+// -------------------------------------------------------------- space
+// A 4px scale. Every margin/padding in the app comes from here, so a
+// change of density is one edit rather than a search.
+$space-0:  0;
+$space-1:  2px;
+$space-2:  4px;    // native: CHATROW_GAP
+$space-3:  6px;    // native: MSG_PAD_V
+$space-4:  8px;
+$space-5:  11px;   // native: MSG_PAD_H
+$space-6:  16px;
+$space-7:  24px;
+$space-8:  32px;
+
+// ------------------------------------------------------------- radius
+$radius-sm: 4px;
+$radius-md: 8px;    // native: MSG_CORNER_RADIUS
+$radius-lg: 10px;
+$radius-pill: 999px;
+
+// -------------------------------------------------------------- sizes
+$avatar-sm: 24px;
+// Аватарка отправителя в шапке сообщения (ui/message.js renderHead).
+$message-avatar-size: 18px;
+$avatar-md: 32px;   // native: AVATAR_SIZE
+$avatar-lg: 64px;   // native: CHAT_HEADER_AVATAR_SIZE / 64 there, 48 reads better here
+
+$badge-h: 18px;     // native: BADGE_H
+
+$icon-sm: 16px;     // native: icons12
+$icon-md: 18px;
+$icon-lg: 20px;
+
+$sidebar-width:     320px;
+$sidebar-min:       240px;
+$sidebar-max:       480px;
+$header-height:     56px;
+$statusbar-height:  24px;
+$composer-min:      44px;
+$composer-max:      220px;
+// Уже этого композер складывает ряд под полем в два: формат-кнопки
+// (~505px) и действия с Send (~250px) плюс зазор в одну строку не лезут.
+$composer-bar-stack: 600px;
+// Всплывающие уведомления и кнопка «Hide all» над ними — одной ширины.
+$toast-width: 320px;
+// Крестик отмены в кольце хода передачи (components/_xfer.scss) — меньше
+// значка, на месте которого стоит: на всю кнопку он кричит.
+$xfer-cancel-icon: 22px;
+$scrollbar-width:   8px;
+$message-max-width: 600px;  // native: MAX_MSG_W
+
+// How big a single photo or video preview is allowed to get in the
+// history. NOT the native window's 220: that number is right for a
+// column half this wide, and at 600 it reads as a thumbnail rather
+// than a picture. Both axes, so a portrait shot is capped by its
+// height the way a landscape one is by its width.
+$media-max-width:  420px;
+$media-max-height: 420px;
+
+// ------------------------------------------------------------ z-index
+// Named rather than numeric at the call site: "which of 40 and 60 is on
+// top" is a question nobody should have to answer twice.
+$z-base:     0;
+$z-sticky:   10;
+$z-dropdown: 20;
+$z-overlay:  30;
+$z-modal:    40;
+$z-toast:    50;
+$z-notice:   60;   // уведомления сверху (ui/notices.js): над окнами и карточками
+
+// -------------------------------------------------------- transitions
+$ease:        cubic-bezier(.4, 0, .2, 1);
+$dur-fast:    .12s;
+$dur-base:    .18s;
+$dur-slow:    .3s;
+
+// Появление всплывающих меню и модальных окон (components/_pop.scss):
+// въезд на $pop-delta со стороны якоря и проявление.
+$pop-delta:    1rem;
+$pop-duration: .2s;
+$pop-ease:     cubic-bezier(.2, .7, .2, 1);
+
+// Разделители в меню (components/_menu.scss): доля акцента на прозрачном.
+$menu-sep-share: 30%;
+
+// Текст на карточках файлов, аудио и голосовых (blocks/_media.scss):
+// доля чёрного в акценте — подложка у них бледная из того же акцента.
+$audio-text-dark: 30%;
+
+// Свои справа, чужие слева (blocks/_message.scss): наибольшая ширина
+// сообщения — доля колонки истории.
+$message-side-max: 78%;
+
+// Въезд нового сообщения снизу (blocks/_message.scss, ui/history.js).
+$arrive-delta:    1rem;
+$arrive-duration: .3s;
+$arrive-ease:     cubic-bezier(.2, .7, .2, 1);
+
+// --------------------------------------------------------- breakpoints
+$breakpoints: (
+  "sm": 640px,
+  "md": 900px,
+  "lg": 1200px,
+);
+
+// ---------------------------------------------------- кнопки ботов
+// Цвета buttonStylePrimary / buttonStyleSuccess (td_api.tl: «dark blue»,
+// «green»); buttonStyleDanger — общий --c-danger.
+$button-style-primary: #2a5db0;
+$button-style-success: #2e9e4f;
+
+// ------------------------------------------------------- accent palette
+// Telegram's accent colours, as a finite set. This is what lets a chat
+// be coloured by adding a class instead of by writing an inline style.
+//
+// Where the numbers come from, so they can be checked rather than
+// trusted:
+//   a0..a6   BUILT_IN_COLORS in constants.pas, converted from TColor
+//            (which is BGR) to RGB.
+//   a7..a20  updateAccentColors, read out of this account's own
+//            tdlib_raw.log. TDLib sends a light and a dark variant for
+//            each, and both are kept: the dark theme gets Telegram's
+//            intended dark accent rather than a light colour on a dark
+//            card.
+//   f0..f7   SENDER_PALETTE in constants.pas - the hashed fallback for
+//            a chat with no accent id, same as the native window uses.
+//
+// A SNAPSHOT, and deliberately so. The native side keeps resolving
+// a7..a20 live from updateAccentColors, so if Telegram ever retunes
+// them the two windows drift by a hue until this map is refreshed. The
+// alternative was writing colours into the DOM per element, which is
+// exactly what this replaces.
+$accent-light: (
+  "a0": #e63c3c, "a1": #e68c1e, "a2": #9650d2, "a3": #3caa5a,
+  "a4": #28a0af, "a5": #3278dc, "a6": #dc5096,
+  "a7": #e15052, "a8": #e0802b, "a9": #a05ff3, "a10": #27a910,
+  "a11": #27acce, "a12": #3391d4, "a13": #dd4371, "a14": #247bed,
+  "a15": #d67722, "a16": #179e42, "a17": #2894af, "a18": #0c9ab3,
+  "a19": #7757d6, "a20": #1585cf,
+  "f0": #b22222, "f1": #228b22, "f2": #1e50a0, "f3": #800080,
+  "f4": #b45a00, "f5": #008080, "f6": #c71585, "f7": #808000,
+);
+
+$accent-dark: (
+  "a0": #e63c3c, "a1": #e68c1e, "a2": #9650d2, "a3": #3caa5a,
+  "a4": #28a0af, "a5": #3278dc, "a6": #dc5096,
+  "a7": #ff9380, "a8": #ecb04e, "a9": #c697ff, "a10": #a7eb6e,
+  "a11": #40d8d0, "a12": #52bfff, "a13": #ff86a6, "a14": #3fa2fe,
+  "a15": #ff905e, "a16": #66d364, "a17": #22bce2, "a18": #22bce2,
+  "a19": #9791ff, "a20": #3da6eb,
+  "f0": #e06666, "f1": #6cc36c, "f2": #6f9fe0, "f3": #c77ac7,
+  "f4": #e6a05a, "f5": #5cc4c4, "f6": #e87ac0, "f7": #c4c46a,
+);
+
+// ------------------------------------------------------------ palette
+// Emitted as custom properties by base/_root.scss. Keep the two maps
+// key-for-key identical: the dark theme is produced by swapping values,
+// never by adding or dropping names.
+$theme-light: (
+  "bg":            #f1f2f3,   // the surface the cards sit on
+  "surface":       #ffffff,
+  "surface-2":     #f7f8f9,
+  "surface-hover": #eef0f2,
+  "surface-active":#e4e8ec,
+  "border":        #6e7072,
+  "border-strong": #c6ccd2,
+  "text":          #1a1d21,
+  "text-dim":      #6b7280,
+  "text-faint":    #9aa0a6,
+  "accent":        #2196f3,
+  "accent-hover":  #1e88e5,
+  "accent-text":   #ffffff,
+  "ok":            #4caf50,
+  "warn":          #d59600,
+  "danger":        #e53935,
+  "unread":        #2196f3,
+  // Audio, voice notes and files are tinted with this instead of the
+  // sender's accent: the colour says "media", not "who". Was the
+  // native AUDIO_COLOR (#03a9f4); now the app accent (Settings ->
+  // General), so the widgets follow it like everything else.
+  "audio":         var(--c-accent),
+  "shadow":        rgba(16, 24, 40, .10),
+  "dark":          #131313,
+  "light":         #f1f2f3
+);
+
+$theme-dark: (
+  "bg":            #131313,
+  "surface":       #1f2125,
+  "surface-2":     #24272c,
+  "surface-hover": #2a2e34,
+  "surface-active":#32373e,
+  "border": #494d54,
+  "border-strong": #454a52,
+  "text":          #e7e9ea,
+  "text-dim":      #9aa0a6,
+  "text-faint":    #6f757c,
+  "accent":        #2196f3,
+  "accent-hover":  #42a5f5,
+  "accent-text":   #ffffff,
+  "ok":            #4caf50,
+  "warn":          #d59600,
+  "danger":        #ef5350,
+  "unread":        #2196f3,
+  // Audio, voice notes and files are tinted with this instead of the
+  // sender's accent: the colour says "media", not "who". Was the
+  // native AUDIO_COLOR (#03a9f4); now the app accent (Settings ->
+  // General), so the widgets follow it like everything else.
+  "audio":         var(--c-accent),
+  "shadow":        rgba(0, 0, 0, .45),
+  "dark":          #131313,
+  "light":         #f1f2f3
+);
+
+// ------------------------------------------------------ акцент приложения
+// Settings → General → Accent color (ui/theme.js, ACCENTS — те же ключи).
+// Выбор — атрибут <html data-accent="ключ">, base/_app-accent.scss
+// подменяет им --c-accent (и --c-unread); --c-accent-hover выводится из
+// него же. Синий — по умолчанию: его выбор снимает атрибут, и действует
+// "accent" из $theme-light / $theme-dark. Новый цвет — строка здесь и
+// ключ в ACCENTS.
+$app-accents: (
+  "blue":   #2196f3,
+  "cyan":   #00acc1,
+  "teal":   #009688,
+  "green":  #43a047,
+  "lime":   #7cb342,
+  "amber":  #ffb300,
+  "orange": #fb8c00,
+  "red":    #e53935,
+  "pink":   #d81b60,
+  "purple": #8e24aa,
+  "indigo": #3949ab,
+  "grey":   #757575
+);
+
+// Наведение на акцентное: светлее в тёмной схеме, темнее в светлой.
+$app-accent-hover-dark:  15%;   // доля белого
+$app-accent-hover-light: 12%;   // доля чёрного
+
+// ------------------------------------------------------- простые темы
+// «Dark» и «Light» из меню тем (кисточка): themes/_plain.scss. Поверх
+// $theme-dark / $theme-light выше — здесь только то, что у простых тем
+// своё. Три независимые сущности, у каждой свои цвета и свой флаг:
+//
+//   panel — панели: боковая (список чатов), рабочая область, статусная
+//           строка, инфопанель, окно настроек, меню и всплывающие окна;
+//   card  — карточки: строки списка чатов и контактов, сообщения,
+//           приветствие пустого чата, плашка подгрузки;
+//   chip  — чипы: папки, реакции, «комментарии», служебные сообщения.
+//
+// Флаг true — заливка градиентом сверху вниз (*-top -> *-bottom),
+// false — сплошным *-solid. Свои сообщения — заливка и граница карточки,
+// смешанные с акцентом в доле own-mix.
+$plain-panel-gradients: false;
+$plain-card-gradients: false;
+$plain-chip-gradients: false;
+
+$plain-dark: (
+  "bg":            #000000,   // фон приложения
+
+  "panel-top":     #313131,   // панели: градиент
+  "panel-bottom":  #131313,
+  "panel-solid":   #030303,   // панели: без градиента
+  "panel-border":  #030303,   // панели: граница
+
+  "card-top":      #313131,   // карточки: градиент
+  "card-bottom":   #131313,
+  "card-solid":    #131313,   // карточки: без градиента
+  "card-border":   #131313,   // карточки: граница
+  "own-mix":       15%,       // доля акцента в своих сообщениях
+
+  "chip-top":      #f1f2f3,   // чипы: градиент
+  "chip-bottom":   #c1c2c3,
+  "chip-solid":    #414141,   // чипы: без градиента
+  "chip-text":     #f1f2f3
+);
+
+$plain-light: (
+  "bg":            #ffffff,
+
+  "panel-top":     #f1f2f3,
+  "panel-bottom":  #c1c2c3,
+  "panel-solid":   #f0f0f0,
+  "panel-border":  #f0f0f0,
+
+  "card-top":      #f1f2f3,
+  "card-bottom":   #c1c2c3,
+  "card-solid":    #ffffff,
+  "card-border":   #ffffff,
+  "own-mix":       25%,
+
+  "chip-top":      #313131,
+  "chip-bottom":   #131313,
+  "chip-solid":    #777777,
+  "chip-text":     #f1f2f3
+);
+
+// ------------------------------------------------------------- Aurora
+// «Aurora» из меню тем: themes/_aurora.scss. Вид макета окна на сайте
+// проекта (website/assets/scss: abstracts/_variables, sections/_mockup):
+// стеклянные панели на синем фоне с «авророй». Только тёмная схема.
+// Поверх $theme-dark: все числа и цвета темы — здесь, правила — там.
+//
+// ВСЕ цвета темы выводятся из акцента (Settings → General), постоянного
+// синего нет — сменил акцент, сменился и фон. Как записано:
+//   NN%          — у тёмных: доля ЧЁРНОГО в акценте; у текста: доля
+//                  БЕЛОГО; у сияний, свечений, своих сообщений: доля
+//                  акцента на прозрачном;
+//   (W, A)       — полупрозрачное: акцент с долей белого W, на
+//                  прозрачном в доле A;
+//   (A, #серый)  — приглушённый текст: акцент в доле A, остальное серое.
+$aurora: (
+  // ---------------------------------------------------------- цвета
+  "bg":               93%,       // фон; он же — цвет рамки окна (DWM)
+  "bg-top":           90%,       // вертикальный градиент фона: верх
+  "bg-bottom":        95%,       //                             низ
+  "surface":          84%,       // непрозрачное: настройки, окна, меню
+  "surface-2":        rgba(0, 0, 0, .4),         // поля, таблетки дат
+  "surface-hover":    (40%, 8%),
+  "surface-active":   (40%, 14%),
+  "border":           (50%, 14%),
+  "border-strong":    (50%, 30%),
+  "text":             92%,
+  "text-dim":         (22%, #a4a7ad),
+  "text-faint":       (25%, #676b72),
+  "accent":           #3d8bff,   // если акцент в настройках не выбран
+  "accent-hover":     #74b8ff,
+  "soft":             22%,       // акцентная подложка: вкладка, строка, папка
+  "glow":             45%,       // свечение кнопки и своих сообщений
+
+  // --------------------------------------------------- фон: аврора
+  // Сияния — эллипсы акцентного цвета; «-dark» — доля чёрного в нём.
+  "aurora-1":         55%,       // большое справа сверху
+  "aurora-1-dark":    25%,
+  "aurora-2":         45%,       // слева посередине
+  "aurora-2-dark":    55%,
+  "aurora-3":         40%,       // сверху по центру, над лучом
+  "aurora-3-dark":    0%,
+  "aurora-4":         22%,       // справа снизу
+  "aurora-4-dark":    35%,
+  // Луч сверху: вытянутое вниз сияние, светлое (доля белого в акценте).
+  "beam":             55%,       // яркость луча
+  "beam-white":       55%,       // доля белого в его верхушке
+  "beam-width":       12%,       // полуширина у верха окна
+  "beam-depth":       46%,       // докуда достаёт, от верха окна
+  // Диагональная световая полоса.
+  "streak":           30%,       // яркость (доля белого в акценте — beam-white)
+  "streak-angle":     162deg,    // направление градиента: 180deg — полоса горизонтальна, меньше — поднимается вправо
+  "streak-width":     .4%,
+  "streak-at":        30%,       // где лежит, от верха окна (вдоль направления)
+  // Сетка точек — фактура под стеклом, гаснет к низу.
+  "dots":             (50%, 7%),
+  "dots-step":        28px,
+  "dots-fade":        70%,       // где гаснет совсем
+
+  // --------------------------------------------------------- стекло
+  "glass-angle":      160deg,
+  "glass-top":        (40%, 12%),
+  "glass-bottom":     (0%, 4%),
+  "glass-blur":       blur(22px) saturate(140%),
+  "glass-shine":      rgba(255, 255, 255, .08),  // блик по верхней кромке
+  "panel-shadow":     none,//0 24px 60px -24px rgba(0, 0, 0, .7),
+  "panel-radius":     16px,      // боковая и рабочая область
+  "panel-gap":        8px,       // между ними и до краёв окна
+  "popup-share":      92%,       // непрозрачность меню и инфопанели
+
+  // ----------------------------------------------------- список чатов
+  "item-radius":      12px,
+  "item-active-from": 22%,       // выбранная: полоса акцента слева...
+  "item-active-to":   7%,        // ...гаснет вправо
+  "item-border":      25%,       // кайма выбранной
+  "tab-radius":       999px,     // вкладки Chats / Archive / Contacts
+  "search-radius":    999px,
+
+  // ------------------------------------------------------- сообщения
+  "msg-radius":       18px,      // все углы одинаковые
+  "msg-gap":          16px,      // между сообщениями
+  "msg-head-padding": 8px 14px 0,
+  "pill-head-padding": 6px 14px, // шапка стикера и гифки без подписи — сама по себе плашка
+  "msg-body-padding": 8px 14px 12px,
+  "msg-in":           (40%, 10%),                // входящие: стекло
+  // Свои: градиент акцента по glass-angle, доли сверху и снизу. Меньше —
+  // спокойнее; 85% / 80% — насыщенно, как пузырь на сайте.
+  "own-top":          42%,
+  "own-bottom":       26%,
+  "own-border":       35%,
+  "own-glow":         25%,
+  "own-text":         #ffffff,
+  "pill-padding":     2px 12px,  // даты, служебные сообщения
+
+  // -------------------------------------------------------- композер
+  "input-radius":     8px,
+  "input-padding":    8px 16px,
+  "send-radius":      8px,
+  "send-white":       30%        // доля белого вверху кнопки «Send»
+);

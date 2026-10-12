@@ -1,0 +1,359 @@
+@use "sass:list";
+@use "sass:map";
+@use "sass:string";
+@use "../abstracts" as *;
+
+// «Aurora» из меню тем (кисточка, ui/theme.js; id dark-aurora). Вид
+// макета окна на сайте проекта (website/assets/scss/sections/_mockup):
+// стеклянные панели на синем фоне с «авророй».
+//
+// Как и простые темы (themes/_plain), это слой поверх тёмной схемы:
+// data-theme="dark" даёт все токены и палитры, data-style="aurora" —
+// правила ниже, с селекторами :root[data-style="aurora"] … — они
+// специфичнее правил блоков, и файлы блоков не правятся.
+//
+// ВСЕ числа и цвета — карта $aurora (abstracts/_variables.scss); здесь
+// только сборка из них.
+//
+// Аврора — не картинка, а слои градиентов из var(--c-accent): сайт
+// рисует её SVG-файлом, но цвет внешнего SVG из CSS не поменять, а здесь
+// она идёт за акцентом из Settings → General.
+//
+// Правила:
+//   * фон — градиент, сияния и луч акцентного цвета, сетка точек;
+//   * панели (боковая, рабочая область) — стекло с размытием;
+//   * карточки чатов не красятся в цвет чата: прозрачные, выбранная —
+//     акцентной полосой, как в макете;
+//   * входящие сообщения — стеклянные, свои — акцентный градиент; углы
+//     у всех одинаковые;
+//   * поиск, поле ввода, плашки дат — тёмные «таблетки».
+
+@function a($key) {
+  @return map.get($aurora, $key);
+}
+
+// Акцент в доле $share на прозрачном; $dark — сколько в нём чёрного,
+// $white — сколько белого. Строкой: color-mix Sass вычислять незачем.
+@function accent($share, $dark: 0%, $white: 0%) {
+  $c: "var(--c-accent)";
+  @if $dark > 0% {
+    $c: "color-mix(in srgb, var(--c-accent), black #{$dark})";
+  } @else if $white > 0% {
+    $c: "color-mix(in srgb, var(--c-accent), white #{$white})";
+  }
+  @return string.unquote("color-mix(in srgb, #{$c} #{$share}, transparent)");
+}
+
+// Тёмное из акцента: $black — доля чёрного.
+@function aur-shade($black) {
+  @return string.unquote("color-mix(in srgb, var(--c-accent), black #{$black})");
+}
+
+// Светлое из акцента: $white — доля белого.
+@function aur-light($white) {
+  @return string.unquote("color-mix(in srgb, var(--c-accent), white #{$white})");
+}
+
+// Полупрозрачное: (доля белого, доля на прозрачном).
+@function aur-tint($spec) {
+  @return accent(list.nth($spec, 2), 0%, list.nth($spec, 1));
+}
+
+// Приглушённое: (доля акцента, серый).
+@function aur-grey($spec) {
+  @return string.unquote("color-mix(in srgb, var(--c-accent) #{list.nth($spec, 1)}, #{list.nth($spec, 2)})");
+}
+
+// --------------------------------------------------------------- токены
+:root[data-style="aurora"] {
+  --c-bg: #{aur-shade(a("bg"))};
+  --c-surface: #{aur-shade(a("surface"))};
+  --c-surface-2: #{a("surface-2")};
+  --c-surface-hover: #{aur-tint(a("surface-hover"))};
+  --c-surface-active: #{aur-tint(a("surface-active"))};
+  --c-border: #{aur-tint(a("border"))};
+  --c-border-strong: #{aur-tint(a("border-strong"))};
+  --c-text: #{aur-light(a("text"))};
+  --c-text-dim: #{aur-grey(a("text-dim"))};
+  --c-text-faint: #{aur-grey(a("text-faint"))};
+  --c-shadow: rgba(0, 0, 0, .6);
+
+  --aurora-soft: #{accent(a("soft"))};
+  --aurora-glow: #{accent(a("glow"))};
+  --aurora-border: var(--c-border);
+
+  // Панели из миксина card (abstracts/_mixins.scss) читают эти три.
+  --card-bg: linear-gradient(#{a("glass-angle")}, #{aur-tint(a("glass-top"))}, #{aur-tint(a("glass-bottom"))});
+  --card-border: 1px solid var(--c-border);
+  --card-blur: #{a("glass-blur")};
+}
+
+// Акцент — свой, пока в настройках не выбран другой (base/_app-accent).
+:root[data-style="aurora"]:not([data-accent]) {
+  --c-accent: #{a("accent")};
+  --c-accent-hover: #{a("accent-hover")};
+  --c-unread: #{a("accent")};
+}
+
+:root[data-style="aurora"] {
+  // ---------------------------------------------------------------- фон
+  // Снизу вверх: градиент фона, четыре сияния, луч, диагональная полоса.
+  // Всё — слоями фона body, без своих слоёв с filter: размытый
+  // фиксированный слой под панелями с backdrop-filter — главный
+  // подозреваемый в мерцающей вертикальной полосе в WebView2 (на стенде
+  // в браузере её не было).
+  body {
+    background:
+      linear-gradient(#{a("streak-angle")},
+        transparent calc(#{a("streak-at")} - #{a("streak-width")}),
+        #{accent(a("streak"), 0%, a("beam-white"))} #{a("streak-at")},
+        transparent calc(#{a("streak-at")} + #{a("streak-width")})),
+      radial-gradient(ellipse #{a("beam-width")} #{a("beam-depth")} at 50% 0%, #{accent(a("beam"), 0%, a("beam-white"))}, transparent),
+      radial-gradient(ellipse 26% 18% at 50% -4%, #{accent(a("aurora-3"), a("aurora-3-dark"))}, transparent),
+      radial-gradient(ellipse 34% 32% at 74% 6%, #{accent(a("aurora-1"), a("aurora-1-dark"))}, transparent),
+      radial-gradient(ellipse 26% 28% at 16% 42%, #{accent(a("aurora-2"), a("aurora-2-dark"))}, transparent),
+      radial-gradient(ellipse 70% 50% at 100% 100%, #{accent(a("aurora-4"), a("aurora-4-dark"))}, transparent),
+      linear-gradient(180deg, #{aur-shade(a("bg-top"))} 0%, var(--c-bg) 55%, #{aur-shade(a("bg-bottom"))} 100%);
+    background-color: var(--c-bg);
+  }
+
+  // Сетка точек — фактура под стеклом; гаснет к низу окна.
+  body::before {
+    background-image: radial-gradient(#{aur-tint(a("dots"))} 1px, transparent 1px);
+    background-size: a("dots-step") a("dots-step");
+    content: "";
+    inset: 0;
+    mask-image: linear-gradient(180deg, #000 0%, transparent a("dots-fade"));
+    pointer-events: none;
+    position: fixed;
+    z-index: -1;
+  }
+
+  // -------------------------------------------------------------- панели
+  .app {
+    gap: a("panel-gap");
+    padding: a("panel-gap");
+  }
+
+  .sidebar,
+  .workspace {
+    border-radius: a("panel-radius");
+    box-shadow: #{a("panel-shadow")};
+  }
+
+  .sidebar__head,
+  .chat-header,
+  .composer {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .chat-header {
+    border-bottom: 1px solid var(--aurora-border);
+  }
+
+  .chat-header__title {
+    color: var(--c-text);
+  }
+
+  .info-panel,
+  .menu,
+  .mention-pop {
+    backdrop-filter: #{a("glass-blur")};
+    background: color-mix(in srgb, var(--c-surface) #{a("popup-share")}, transparent);
+    border-color: var(--aurora-border);
+  }
+
+  // Вкладки списка — «таблетки», выбранная подсвечена, как в макете.
+  .sidebar__tab {
+    border-radius: a("tab-radius");
+
+    &.is-active,
+    &.is-active:hover {
+      background: var(--aurora-soft);
+      color: #ffffff;
+    }
+  }
+
+  // Поиск — тёмная таблетка.
+  .sidebar__search .field,
+  .chat-header__search {
+    background: var(--c-surface-2);
+    border: 1px solid var(--aurora-border);
+    border-radius: a("search-radius");
+
+    &:focus-within {
+      background: var(--c-surface-2);
+      border-color: var(--c-accent);
+    }
+  }
+
+  // -------------------------------------------------------- список чатов
+  .chat-item {
+    backdrop-filter: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: a("item-radius");
+    box-shadow: none;
+
+    &:hover {
+      background: var(--c-surface-hover);
+      border-color: transparent;
+    }
+
+    &.is-active {
+      background: linear-gradient(90deg, #{accent(a("item-active-from"))}, #{accent(a("item-active-to"))});
+      border-color: #{accent(a("item-border"))};
+    }
+  }
+
+  .chat-item__head {
+    background: transparent;
+  }
+
+  .chat-item__kind {
+    fill: var(--c-text-dim);
+  }
+
+  .chat-item__folder,
+  .chat-item__folder--none {
+    background: var(--aurora-soft);
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--c-text);
+  }
+
+  .contact-row {
+    background: transparent;
+    border-radius: a("item-radius");
+
+    &:hover {
+      background: var(--c-surface-hover);
+    }
+  }
+
+  // Непрочитанное: свой счётчик — акцент, без звука — приглушённый.
+  .badge--muted {
+    background: color-mix(in srgb, var(--c-text-dim) 40%, transparent);
+  }
+
+  // ----------------------------------------------------------- сообщения
+  .message {
+    background: #{aur-tint(a("msg-in"))};
+    border: 1px solid var(--aurora-border);
+    border-radius: a("msg-radius");
+    box-shadow: none;
+    margin-bottom: a("msg-gap");
+  }
+
+  .message__head {
+    padding: a("msg-head-padding");
+  }
+
+  .message__body {
+    padding: a("msg-body-padding");
+  }
+
+  .message__head,
+  .message__reactions {
+    background: transparent;
+  }
+
+  .message--outgoing {
+    background: linear-gradient(#{a("glass-angle")}, #{accent(a("own-top"))}, #{accent(a("own-bottom"))});
+    border-color: #{accent(a("own-border"))};
+    box-shadow: 0 8px 24px -10px #{accent(a("own-glow"))};
+    color: a("own-text");
+
+    // На акцентной заливке имя отправителя — цвета текста своих.
+    --sender-color: #{a("own-text")};
+  }
+
+  // Стикер и гифка без подписи — без карточки; карточка — у шапки.
+  .message:has(.media--sticker),
+  .message:has(.media--gif):not(:has(b)) {
+    background: none;
+    border: none;
+    box-shadow: none;
+
+    .message__head {
+      background: #{aur-tint(a("msg-in"))};
+      border: 1px solid var(--aurora-border);
+      border-radius: a("msg-radius");
+      box-shadow: none;
+      // Отдельная плашка, а не верх карточки: отступы симметричные, иначе
+      // текст в ней садился к низу (у msg-head-padding снизу 0 — дальше
+      // идёт тело карточки).
+      padding: a("pill-head-padding");
+    }
+  }
+
+  .message--outgoing:has(.media--sticker),
+  .message--outgoing:has(.media--gif):not(:has(b)) {
+    .message__head {
+      background: #{accent(a("own-top"))};
+      border-color: #{accent(a("own-border"))};
+    }
+  }
+
+  .reaction {
+    background: color-mix(in srgb, var(--c-surface-2) 70%, transparent);
+    border: 1px solid var(--aurora-border);
+
+    &.is-chosen {
+      background: var(--aurora-soft);
+      border-color: var(--c-accent-hover);
+    }
+  }
+
+  .comments {
+    background: var(--c-surface-2);
+    border-color: var(--aurora-border);
+    box-shadow: none;
+    color: var(--c-text);
+  }
+
+  // Даты и служебные сообщения — тёмные таблетки.
+  .history__date > span,
+  .history__float-date > span,
+  .message-service__text {
+    background: var(--c-surface-2);
+    box-shadow: none;
+    color: var(--c-text-dim);
+    padding: a("pill-padding");
+  }
+
+  // Плавающая — поверх сообщений: под ней размытие, иначе не прочесть.
+  .history__float-date > span {
+    backdrop-filter: #{a("glass-blur")};
+  }
+
+  .greeting,
+  .history__loader-pill {
+    backdrop-filter: #{a("glass-blur")};
+    background: var(--c-surface-2);
+    border: 1px solid var(--aurora-border);
+  }
+
+  // ------------------------------------------------------------- композер
+  .composer__input {
+    background: var(--c-surface-2);
+    border: 1px solid var(--aurora-border);
+    border-radius: a("input-radius");
+    padding: a("input-padding");
+
+    &:focus {
+      border-color: #{accent(60%)};
+    }
+  }
+
+  .composer__send {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--c-accent), white #{a("send-white")}), var(--c-accent));
+    border-radius: a("send-radius");
+    box-shadow: 0 6px 18px -6px var(--aurora-glow);
+
+    &:hover {
+      background: linear-gradient(180deg, color-mix(in srgb, var(--c-accent-hover), white #{a("send-white")}), var(--c-accent-hover));
+    }
+  }
+}

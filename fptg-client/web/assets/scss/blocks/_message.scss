@@ -1,0 +1,431 @@
+@use "../abstracts" as *;
+
+// One message block, following framehistory.pas rather than inventing
+// a second visual language: a coloured header line (sender, time,
+// delivery mark) over the body, the whole thing tinted with the
+// sender's own accent.
+//
+// --sender-color is set per message from the JS.
+.message {
+  background: color-mix(in srgb, var(--sender-color) 7%, var(--c-surface));
+  border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
+  border-radius: $radius-md;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+  --sender-color: var(--accent-color, var(--c-accent));
+  margin-bottom: $space-6;
+  overflow: hidden;
+}
+
+.message__head {
+  @include flex(row, center, flex-start, $space-2);
+  background: color-mix(in srgb, var(--sender-color) 14%, var(--c-surface));
+  color: var(--sender-color);
+  font-size: $fs-base;
+  font-weight: $fw-bold;
+  padding: $space-3 $space-5;
+}
+
+.message__receipt {
+  @include size($icon-sm);
+}
+
+.message__sender {
+  @include ellipsis;
+}
+
+// Аватарка отправителя перед именем. Размер — $message-avatar-size
+// (abstracts/_variables.scss).
+.message__avatar {
+  --avatar-color: var(--accent-color);
+  @include size($message-avatar-size);
+  flex: 0 0 auto;
+  font-size: calc(#{$message-avatar-size} * .5);
+}
+
+.message__time {
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: $fw-regular;
+  opacity: .75;
+}
+
+.message__state {
+  color: var(--c-text);
+  font-size: $fs-xs;
+  font-weight: $fw-regular;
+  margin-left: auto;
+
+  &.is-failed {
+    color: var(--c-danger);
+  }
+}
+
+.message__body {
+  font-size: $fs-base;
+  line-height: $lh-base;
+  overflow-wrap: anywhere; // a bare URL must not widen the column
+  padding: $space-5;
+  white-space: pre-wrap; // TDLib sends real newlines, keep them
+}
+
+.message__body a {
+  text-decoration: underline;
+}
+
+// Упоминание человека (@username или имя-ссылка) — без подчёркивания,
+// цветом акцента, как у Telegram.
+.message__body a.mention {
+  color: var(--c-accent);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+// ------------------------------------------------------- text styles
+.message__body {
+  b, strong {
+    font-weight: $fw-bold;
+  }
+
+  i, em {
+    font-style: italic;
+  }
+
+  u {
+    text-decoration: underline;
+  }
+
+  s {
+    text-decoration: line-through;
+  }
+
+  code, pre {
+    //background: var(--c-surface-2);
+    border-radius: 0;
+    font-family: $font-mono;
+    font-size: $fs-sm;
+  }
+
+  code {
+    padding: 1px $space-2;
+  }
+
+  pre {
+    background: color-mix(in srgb, var(--sender-color) 20%, transparent);
+    color: var(--sender-color);
+    display: block;
+    margin: 0;
+    overflow-x: auto;
+    padding: $space-4;
+    @include scrollbar(6px);
+  }
+
+  .spoiler {
+    background: var(--c-text-dim);
+    border-radius: $radius-sm;
+    color: transparent;
+    cursor: pointer;
+
+    &.is-revealed {
+      background: none;
+      color: inherit;
+    }
+  }
+}
+
+// ------------------------------------------------------- blockquote
+// Matches the native rendering: a tinted band with a bar down the left,
+// one blank line of breathing room either side.
+.message__quote {
+  background: color-mix(in srgb, var(--sender-color) 20%, transparent);
+  border-left: 3px solid var(--sender-color);
+  border-radius: $radius-sm;
+  margin: 0 0 .25rem 0;
+  padding: $space-3 $space-5;
+}
+
+// --------------------------------------------------- reply-to banner
+// --source-color, not --sender-color: the box belongs to the person
+// being QUOTED, not to whoever is quoting them. That is what the
+// native PaintReplyBox does - it resolves the accent of the quoted
+// message's sender and paints the whole box with it - and it is why
+// the banner carries its own accent- class. The name already used it;
+// the tint and the icon were still taking the card's colour, so a
+// quote of an orange contact inside a blue message came out half and
+// half. (The rule that DEFINES --source-color for this block is the
+// second .message__reply below, beside the forward card's.)
+.message__reply {
+  @include flex(row, center, flex-start, $space-2);
+  background: color-mix(in srgb, var(--source-color) 12%, transparent);
+  border-radius: $radius-sm;
+  cursor: pointer;
+  font-size: $fs-sm;
+  margin: 0 $space-5 $space-3;
+  padding: $space-3;
+
+  .icon {
+    @include size($icon-sm);
+    color: var(--source-color);
+  }
+
+  &:hover {
+    background: color-mix(in srgb, var(--source-color) 20%, transparent);
+  }
+}
+
+.message__reply-text {
+  @include ellipsis;
+  color: var(--c-text-dim);
+}
+
+// ------------------------------------------------------- reactions
+// A strip with the same tint as the header, carrying pill-shaped
+// counters — again the native arrangement rather than a new one.
+.message__reactions {
+  @include flex(row, center, flex-start, $space-2);
+  background: color-mix(in srgb, var(--sender-color) 14%, var(--c-surface));
+  flex-wrap: wrap;
+  padding: $space-3 $space-5;
+}
+
+// Shoves whatever follows it to the far edge of the strip. Its own
+// element rather than margin-inline-start:auto on the pill, so the
+// pill's own styling stays free of layout.
+.message__reactions-gap,
+// Pushes the comments button to the far end of a sticker's head, the
+// same way the one above does it in the strip.
+.message__head-gap {
+  flex: 1 1 auto;
+}
+
+// The comments button when it rides in the head rather than in a strip
+// of its own. Shorter, so the head keeps the height it has without one.
+.message__head .comments {
+  margin-block: -$space-2;
+}
+
+// The comments pill. Deliberately built out of the same measurements as
+// .reaction below - it reads as one of the row, which is what the
+// original client does - but kept a SEPARATE class so it can be
+// restyled without touching reactions. A starting point, not a final
+// look.
+.comments {
+  @include flex(row, center, center, $space-2);
+  background: linear-gradient(to bottom, color-mix(in srgb, white 90%, black), color-mix(in srgb, white 80%, black));
+  border: 1px solid white;
+  border-radius: $radius-pill;
+  box-shadow: 0 .25rem .25rem rgba(0, 0, 0, .1);
+  color: var(--c-dark);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+  line-height: 1;
+  padding: $space-2 $space-3;
+  text-shadow: 0 1px rgba(255, 255, 255, .75);
+  @include transition;
+
+  &:focus-visible {
+    @include focus-ring(var(--c-accent), 2px);
+  }
+}
+
+.comments__icon {
+  @include size($icon-sm);
+}
+
+.comments__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.reaction {
+  @include flex(row, center, center, $space-2);
+  background: color-mix(in srgb, var(--sender-color) 25%, var(--c-surface));
+  border: 1px solid transparent;
+  border-radius: $radius-pill;
+  font-size: $fs-sm;
+  font-variant-numeric: tabular-nums;
+  height: 22px;
+  padding: 0 $space-4;
+
+  &.is-chosen {
+    background: color-mix(in srgb, var(--sender-color) 50%, var(--c-surface));
+    border-color: var(--sender-color);
+    font-weight: $fw-bold;
+  }
+}
+
+.reaction__emoji {
+  @include size(16px);
+  font-size: 14px;
+  line-height: 1;
+}
+
+// --------------------------------------------------------- outgoing
+// СВОИ СПРАВА, ЧУЖИЕ СЛЕВА (2026-10-12; раньше — одна колонка, как в
+// нативном окне). Ширина — по содержимому, не больше $message-side-max
+// колонки. Сообщения с медиа, превью ссылки или опросом — ровно
+// $message-side-max: их части тянутся на 100% карточки, и по содержимому
+// она бы схлопнулась. Стикер и гифка без подписи карточки не имеют —
+// им по содержимому.
+//
+// Кроме ленты канала (.is-channel ставит ui/history.js): там «свои» —
+// все посты владельца, разнос ничего не различал бы.
+.history__column:not(.is-channel) {
+  .message {
+    margin-right: auto;
+    max-width: $message-side-max;
+    width: fit-content;
+  }
+
+  .message:has(.media, .album, .link-preview, .poll):not(:has(.media--sticker)):not(:has(.media--gif):not(:has(b))) {
+    width: $message-side-max;
+  }
+
+  .message--outgoing {
+    margin-left: auto;
+    margin-right: 0;
+  }
+}
+
+//
+// AND THEY WEAR THEIR OWN COLOUR. This block used to pin
+// --sender-color to the app's accent, which threw away the one thing
+// Telegram had actually said about the account: measured on a live
+// one, the card carried --accent-color #28a0af (accent id 4, what the
+// server sent) and painted itself #2196f3. The native window has no
+// outgoing branch at all - SenderColor(row) is ResolveAccentColor of
+// the sender, whoever that is - so this had nothing to match either.
+// The class stays: the page uses it to skip own messages when marking
+// things read.
+
+// ------------------------------------------------------ arrival
+// Новое сообщение въезжает снизу (класс ставит и снимает ui/history.js).
+// translate, а не transform: на высоту в потоке не влияет — замеры
+// высот виртуального окна и прокрутка к низу не сбиваются.
+@keyframes message-arrive {
+  from {
+    opacity: 0;
+    translate: 0 $arrive-delta;
+  }
+}
+
+.is-arriving {
+  animation: message-arrive $arrive-duration $arrive-ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-arriving {
+    animation: none;
+  }
+}
+
+// ------------------------------------------------- forwarded-from card
+// A nested block of the same "header over content" shape as the message
+// itself, in the SOURCE's colour rather than the sender's - two
+// independently tinted areas of one card, exactly as the native
+// PaintForwardCard arranges them.
+.message__forward {
+  background: color-mix(in srgb, var(--source-color) 14%, transparent);
+
+  border: 0;
+  border-inline-start: 2px solid var(--source-color);
+  border-radius: $radius-sm;
+  --source-color: var(--accent-color, var(--sender-color));
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  font: inherit;
+  gap: 1px;
+  margin: $space-5 $space-5 0 $space-5;
+  padding: $space-3 $space-5;
+  text-align: start;
+  width: calc(100% - #{$space-5} * 2);
+  @include transition;
+}
+
+button.message__forward {
+  cursor: pointer;
+}
+
+button.message__forward:hover {
+  background: color-mix(in srgb, var(--source-color) 24%, transparent);
+}
+
+.message__forward-label {
+  color: var(--c-text-dim);
+  font-size: $fs-xs;
+}
+
+.message__forward-name {
+  @include ellipsis;
+  color: var(--source-color);
+  font-size: $fs-sm;
+  font-weight: $fw-medium;
+}
+
+.message__reply {
+  border: 0;
+  @include transition;
+  border-inline-start: 2px solid var(--source-color);
+  --source-color: var(--accent-color, var(--sender-color));
+  color: inherit;
+  font: inherit;
+  margin-top: $space-5;
+  text-align: start;
+  width: calc(100% - #{$space-5} * 2);
+}
+
+.message__reply-name {
+  color: var(--source-color);
+  flex: 0 0 auto;
+  font-weight: $fw-medium;
+}
+
+.message:has(.media--sticker),
+.message:has(.media--gif):not(:has(b)) {
+  background: none;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+  padding: 0;
+
+  .message__head {
+    border: 1px solid color-mix(in srgb, var(--sender-color) 28%, transparent);
+    border-radius: $radius-md;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+    margin-bottom: $space-6;
+  }
+
+  .message__body {
+    padding: 0;
+  }
+}
+
+.message {
+  &.message--sticker {
+    .message__reactions {
+      padding: 0;
+      background: none;
+    }
+  }
+}
+
+// ------------------------------------------------------- сервисные
+// ui/message.js: создание группы, вход и выход участников, закреп… —
+// строка посередине истории, как дата между днями, без пузыря.
+.message-service {
+  @include flex(row, center, center);
+  margin: $space-4 0;
+}
+
+.message-service__text {
+  background: color-mix(in srgb, var(--c-bg) 70%, transparent);
+  border-radius: $radius-pill;
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  max-width: 80%;
+  padding: $space-2 $space-5;
+  text-align: center;
+}
