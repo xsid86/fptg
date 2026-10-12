@@ -63,6 +63,10 @@ const
 
   { Журнал leveldb localStorage профиля (lsrepair.pas): блок и заголовок
     записи — leveldb doc/log_format.md; папка — внутри папки данных. }
+  { Длина пути в системном диалоге «Сохранить как» (webview2.AskSavePath),
+    в символах: длинные пути Windows, не MAX_PATH. }
+  SAVE_DIALOG_PATH_MAX = 32767;
+
   LS_LOG_BLOCK = 32768;
   LS_LOG_HEADER = 7;
   LS_LEVELDB_SUBDIR = 'EBWebView\Default\Local Storage\leveldb\';

@@ -34,7 +34,7 @@ unit webview2;
 interface
 
 uses
-  Windows, ActiveX, SysUtils, Classes;
+  Windows, ActiveX, SysUtils, Classes, CommDlg;
 
 type
   { The header's EventRegistrationToken is a struct wrapping one int64;
@@ -424,15 +424,23 @@ type
     function get_State(out state: integer): HRESULT; stdcall;                   { 13 }
   end;
 
+  { Отсрочка события: рантайм ждёт Complete, прежде чем читать
+    выставленное в аргументах (WebView2.h, тот же SDK). }
+  ICoreWebView2Deferral = interface(IUnknown)
+    ['{C10E7F7B-B585-46F0-A623-8BEFBF3E4EE0}']
+    function Complete: HRESULT; stdcall;                                        { 0 }
+  end;
+
   ICoreWebView2DownloadStartingEventArgs = interface(IUnknown)
     ['{E99BBE21-43E9-4544-A732-282764EAFA60}']
     function get_DownloadOperation(out op: ICoreWebView2DownloadOperation): HRESULT; stdcall; { 0 }
     function get_Cancel(a: Pointer): HRESULT; stdcall;                          { 1 slot only }
-    function put_Cancel(a: BOOL): HRESULT; stdcall;                             { 2 slot only }
-    function get_ResultFilePath(a: Pointer): HRESULT; stdcall;                  { 3 slot only }
-    function put_ResultFilePath(a: PWideChar): HRESULT; stdcall;                { 4 slot only }
+    function put_Cancel(cancel: BOOL): HRESULT; stdcall;                        { 2 }
+    function get_ResultFilePath(out path: PWideChar): HRESULT; stdcall;         { 3 }
+    function put_ResultFilePath(path: PWideChar): HRESULT; stdcall;             { 4 }
     function get_Handled(a: Pointer): HRESULT; stdcall;                         { 5 slot only }
     function put_Handled(handled: BOOL): HRESULT; stdcall;                      { 6 }
+    function GetDeferral(out deferral: ICoreWebView2Deferral): HRESULT; stdcall; { 7 }
   end;
 
   ICoreWebView2DownloadStartingEventHandler = interface(IUnknown)
@@ -462,14 +470,20 @@ type
     сеанса браузера больше не спрашивать об этом сервере). }
   TWebView2CertEvent = procedure(Sender: TObject; const AUri, APem: utf8string;
     var AAllow: boolean) of object;
-  { Началась загрузка: AOpen := True — забрать её себе (без окна загрузок
-    WebView2) и по окончании получить OnDownloadDone; False — обычная
-    загрузка WebView2. }
+  { Что делать с загрузкой. Окна загрузок WebView2 нет НИКОГДА — любая
+    загрузка забирается (put_Handled):
+      dmSave — системный диалог «Сохранить как»; отказ в нём отменяет
+               загрузку, и OnDownloadDone о ней не придёт;
+      dmOpen — молча в папку загрузок по умолчанию, по окончании —
+               OnDownloadDone (хозяин открывает файл сам). }
+  TWebView2DownloadMode = (dmSave, dmOpen);
+  { Началась загрузка: AMode — что с ней делать (по умолчанию dmSave).
+    Без обработчика — dmSave: так и в окнах мини-приложений и звонка. }
   TWebView2DownloadStartEvent = procedure(Sender: TObject; const AUri: utf8string;
-    var AOpen: boolean) of object;
-  { Забранная загрузка кончилась: APath — куда легла; AOk — целиком. }
+    var AMode: TWebView2DownloadMode) of object;
+  { Загрузка кончилась: APath — куда легла; AOk — целиком. }
   TWebView2DownloadDoneEvent = procedure(Sender: TObject; const APath: utf8string;
-    AOk: boolean) of object;
+    AOk: boolean; AMode: TWebView2DownloadMode) of object;
 
   { Hosts one WebView2 inside an existing window handle.
 
@@ -496,6 +510,9 @@ type
     FOnCertificateError: TWebView2CertEvent;
     FOnDownloadStart: TWebView2DownloadStartEvent;
     FOnDownloadDone: TWebView2DownloadDoneEvent;
+    { Диалоги сохранения, ещё стоящие в очереди (TDownloadAsk): при
+      разрушении им говорится, что хозяина больше нет. }
+    FAsks: TFPList;
     procedure EnvironmentReady(AResult: HRESULT; AEnv: ICoreWebView2Environment);
     procedure ControllerReady(AResult: HRESULT; ACtrl: ICoreWebView2Controller);
     function ExternalUriRequested(const AUri: UnicodeString): boolean;
@@ -505,8 +522,10 @@ type
     procedure StartupScriptAdded;
     procedure WebMessage(const AText: UnicodeString);
     function CertificateError(const AUri, APem: UnicodeString): boolean;
-    function DownloadStarting(const AUri: UnicodeString): boolean;
-    procedure DownloadFinished(const APath: UnicodeString; AOk: boolean);
+    function DownloadMode(const AUri: UnicodeString): TWebView2DownloadMode;
+    procedure DownloadFinished(const APath: UnicodeString; AOk: boolean;
+      AMode: TWebView2DownloadMode);
+    function AskSavePath(const ASuggested: UnicodeString): UnicodeString;
   public
     constructor Create(AHost: HWND);
     destructor Destroy; override;
@@ -523,8 +542,8 @@ type
       browser - a stranger's link must never open inside a shell with
       no address bar. }
     property OnExternalUri: TWebView2NavigateEvent read FOnExternalUri write FOnExternalUri;
-    { Загрузки. Задавать ДО готовности контроллера: подписка ставится в
-      ControllerReady. }
+    { Загрузки (см. TWebView2DownloadMode). Подписка на них ставится
+      всегда, в ControllerReady. }
     property OnDownloadStart: TWebView2DownloadStartEvent read FOnDownloadStart write FOnDownloadStart;
     property OnDownloadDone: TWebView2DownloadDoneEvent read FOnDownloadDone write FOnDownloadDone;
     { The runtime is missing or refused to start. Reported rather than
@@ -744,9 +763,25 @@ type
     ICoreWebView2StateChangedEventHandler)
   private
     FOwner: TWebView2;
+    FMode: TWebView2DownloadMode;
   public
-    constructor Create(AOwner: TWebView2);
+    constructor Create(AOwner: TWebView2; AMode: TWebView2DownloadMode);
     function Invoke(sender: ICoreWebView2DownloadOperation; args: IUnknown): HRESULT; stdcall;
+  end;
+
+  { Вопрос «куда сохранить» — ВНЕ обработчика события: модальный диалог
+    внутри вызова из рантайма — вложенный цикл сообщений посреди его
+    кода. Обработчик берёт отсрочку и ставит этот объект в очередь
+    главного потока (TThread.ForceQueue); ответ — в аргументы, потом
+    Complete. Держит аргументы и операцию живыми до ответа. }
+  TDownloadAsk = class
+  public
+    Owner: TWebView2;
+    Args: ICoreWebView2DownloadStartingEventArgs;
+    Op: ICoreWebView2DownloadOperation;
+    Deferral: ICoreWebView2Deferral;
+    Suggested: UnicodeString;
+    procedure Run;
   end;
 
   TFullScreenHandler = class(TInterfacedObject,
@@ -785,6 +820,8 @@ var
   Op: ICoreWebView2DownloadOperation;
   P: PWideChar;
   Token: TEventToken;
+  Mode: TWebView2DownloadMode;
+  Ask: TDownloadAsk;
 begin
   Result := S_OK;
   if (FOwner = nil) or (args = nil) then begin
@@ -796,19 +833,60 @@ begin
   end;
   P := nil;
   Op.get_Uri(P);
-  if not FOwner.DownloadStarting(TakeComString(P)) then begin
+  Mode := FOwner.DownloadMode(TakeComString(P));
+  { Окна загрузок WebView2 нет ни у одной загрузки. }
+  args.put_Handled(True);
+  if Mode = dmOpen then begin
+    { Путь — по умолчанию (папка загрузок, имя без затирания). }
+    Op.add_StateChanged(TDownloadStateHandler.Create(FOwner, dmOpen), Token);
     Exit;
   end;
-  { Своя: окна загрузок WebView2 не показывать, ждать окончания. Путь —
-    по умолчанию (папка загрузок человека, имя без затирания). }
-  args.put_Handled(True);
-  Op.add_StateChanged(TDownloadStateHandler.Create(FOwner), Token);
+  { Сохранение — сначала спросить куда. }
+  Ask := TDownloadAsk.Create;
+  Ask.Owner := FOwner;
+  Ask.Args := args;
+  Ask.Op := Op;
+  P := nil;
+  args.get_ResultFilePath(P);
+  Ask.Suggested := TakeComString(P);
+  Ask.Deferral := nil;
+  args.GetDeferral(Ask.Deferral);
+  FOwner.FAsks.Add(Ask);
+  TThread.ForceQueue(nil, @Ask.Run);
 end;
 
-constructor TDownloadStateHandler.Create(AOwner: TWebView2);
+procedure TDownloadAsk.Run;
+var
+  Path: UnicodeString;
+  Token: TEventToken;
+begin
+  try
+    Path := '';
+    if Owner <> nil then begin
+      Owner.FAsks.Remove(Self);
+      Path := Owner.AskSavePath(Suggested);
+    end;
+    if Path = '' then begin
+      Args.put_Cancel(True);
+    end else begin
+      { Файл уже есть — человек согласился его заменить в диалоге; рантайм
+        по такому пути перезаписывает. }
+      Args.put_ResultFilePath(PWideChar(Path));
+      Op.add_StateChanged(TDownloadStateHandler.Create(Owner, dmSave), Token);
+    end;
+    if Deferral <> nil then begin
+      Deferral.Complete;
+    end;
+  finally
+    Free;
+  end;
+end;
+
+constructor TDownloadStateHandler.Create(AOwner: TWebView2; AMode: TWebView2DownloadMode);
 begin
   inherited Create;
   FOwner := AOwner;
+  FMode := AMode;
 end;
 
 function TDownloadStateHandler.Invoke(sender: ICoreWebView2DownloadOperation;
@@ -827,7 +905,7 @@ begin
   end;
   P := nil;
   sender.get_ResultFilePath(P);
-  FOwner.DownloadFinished(TakeComString(P), State = DOWNLOAD_STATE_COMPLETED);
+  FOwner.DownloadFinished(TakeComString(P), State = DOWNLOAD_STATE_COMPLETED, FMode);
 end;
 
 constructor TWebMessageHandler.Create(AOwner: TWebView2);
@@ -1064,6 +1142,7 @@ begin
   inherited Create;
   FHost := AHost;
   FReady := False;
+  FAsks := TFPList.Create;
 
   { WebView2 needs COM initialised on the calling thread. The LCL does
     not promise to have done it, and the standalone test only worked
@@ -1111,7 +1190,14 @@ begin
 end;
 
 destructor TWebView2.Destroy;
+var
+  I: integer;
 begin
+  { Диалог, ещё не показанный, — без хозяина: загрузка отменится. }
+  for I := 0 to FAsks.Count - 1 do begin
+    TDownloadAsk(FAsks[I]).Owner := nil;
+  end;
+  FAsks.Free;
   if FController <> nil then begin
     FController.Close;
     FController := nil;
@@ -1180,7 +1266,7 @@ begin
     V14.add_ServerCertificateErrorDetected(TCertErrorHandler.Create(Self), Token);
   end;
   FWebView.add_NewWindowRequested(TNewWindowHandler.Create(Self), Token);
-  if Assigned(FOnDownloadStart) and Supports(FWebView, ICoreWebView2_4, V4) then begin
+  if Supports(FWebView, ICoreWebView2_4, V4) then begin
     V4.add_DownloadStarting(TDownloadStartingHandler.Create(Self), Token);
   end;
   FWebView.add_ContainsFullScreenElementChanged(TFullScreenHandler.Create(Self), Token);
@@ -1254,19 +1340,86 @@ begin
   end;
 end;
 
-function TWebView2.DownloadStarting(const AUri: UnicodeString): boolean;
+function TWebView2.DownloadMode(const AUri: UnicodeString): TWebView2DownloadMode;
 begin
-  Result := False;
+  Result := dmSave;
   if Assigned(FOnDownloadStart) then begin
     FOnDownloadStart(Self, utf8string(AUri), Result);
   end;
 end;
 
-procedure TWebView2.DownloadFinished(const APath: UnicodeString; AOk: boolean);
+procedure TWebView2.DownloadFinished(const APath: UnicodeString; AOk: boolean;
+  AMode: TWebView2DownloadMode);
 begin
   if Assigned(FOnDownloadDone) then begin
-    FOnDownloadDone(Self, utf8string(APath), AOk);
+    FOnDownloadDone(Self, utf8string(APath), AOk, AMode);
   end;
+end;
+
+{ Папка, куда сохраняли в последний раз, — до конца работы программы;
+  в первый раз — папка, которую предложил рантайм (загрузки человека). }
+var
+  GLastSaveDir: UnicodeString = '';
+
+{ Системный «Сохранить как» (comdlg32, вид Проводника). '' — отказ.
+  Фильтр — по расширению предложенного имени, плюс «все файлы». }
+function TWebView2.AskSavePath(const ASuggested: UnicodeString): UnicodeString;
+var
+  Ofn: TOpenFileNameW;
+  Buf: array[0..SAVE_DIALOG_PATH_MAX] of WideChar;
+  Name, Dir, Ext, Filter, DefExt: UnicodeString;
+  Owner: HWND;
+begin
+  Result := '';
+  Name := ExtractFileName(ASuggested);
+  Dir := GLastSaveDir;
+  if Dir = '' then begin
+    Dir := ExtractFileDir(ASuggested);
+  end;
+  Ext := ExtractFileExt(Name);
+  DefExt := Copy(Ext, 2, MaxInt);
+  if DefExt <> '' then begin
+    Filter := UpperCase(DefExt) + ' file (*' + Ext + ')' + #0 + '*' + Ext + #0
+      + 'All files (*.*)' + #0 + '*.*' + #0#0;
+  end else begin
+    Filter := 'All files (*.*)' + #0 + '*.*' + #0#0;
+  end;
+
+  FillChar(Buf, SizeOf(Buf), 0);
+  if Length(Name) > SAVE_DIALOG_PATH_MAX then begin
+    SetLength(Name, SAVE_DIALOG_PATH_MAX);
+  end;
+  if Name <> '' then begin
+    Move(PWideChar(Name)^, Buf[0], Length(Name) * SizeOf(WideChar));
+  end;
+
+  { Владелец — окно верхнего уровня: пока диалог открыт, оно недоступно,
+    как у любого модального окна. }
+  Owner := GetAncestor(FHost, GA_ROOT);
+  if Owner = 0 then begin
+    Owner := FHost;
+  end;
+
+  FillChar(Ofn, SizeOf(Ofn), 0);
+  Ofn.lStructSize := SizeOf(Ofn);
+  Ofn.hwndOwner := Owner;
+  Ofn.lpstrFilter := PWideChar(Filter);
+  Ofn.nFilterIndex := 1;
+  Ofn.lpstrFile := @Buf[0];
+  Ofn.nMaxFile := Length(Buf);
+  if Dir <> '' then begin
+    Ofn.lpstrInitialDir := PWideChar(Dir);
+  end;
+  if DefExt <> '' then begin
+    Ofn.lpstrDefExt := PWideChar(DefExt);
+  end;
+  Ofn.Flags := OFN_EXPLORER or OFN_OVERWRITEPROMPT or OFN_PATHMUSTEXIST
+    or OFN_NOCHANGEDIR;
+  if not GetSaveFileNameW(LPOPENFILENAME(@Ofn)) then begin
+    Exit;
+  end;
+  Result := UnicodeString(PWideChar(@Buf[0]));
+  GLastSaveDir := ExtractFileDir(Result);
 end;
 
 procedure TWebView2.StartupScriptAdded;

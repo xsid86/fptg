@@ -69,8 +69,10 @@ type
       var AAllow: boolean);
     procedure HandlePageMessage(O: TJSONObject);
     procedure ViewExternalUri(Sender: TObject; const AUri: utf8string);
-    procedure ViewDownloadStart(Sender: TObject; const AUri: utf8string; var AOpen: boolean);
-    procedure ViewDownloadDone(Sender: TObject; const APath: utf8string; AOk: boolean);
+    procedure ViewDownloadStart(Sender: TObject; const AUri: utf8string;
+      var AMode: TWebView2DownloadMode);
+    procedure ViewDownloadDone(Sender: TObject; const APath: utf8string; AOk: boolean;
+      AMode: TWebView2DownloadMode);
     procedure ViewUnavailable(Sender: TObject; const AMessage: string);
     procedure ViewAcceleratorKey(Sender: TObject; AVirtualKey: word;
       var AHandled: boolean);
@@ -644,13 +646,14 @@ begin
   OpenURL(AUri);
 end;
 
-{ Файл из сообщения: страница ведёт на /media/…?save=имя&open=1 (ui/message.js),
-  сервер отдаёт вложением, WebView2 начинает загрузку. Такую окно забирает
-  себе — без своего окна загрузок — и готовый файл открывает системным
-  приложением: иначе PDF и подобное открывались внутри окна, и из него
-  не было пути назад. Прочие загрузки («Save as…») — как обычно. }
+{ Окна загрузок WebView2 нет ни у одной загрузки (webview2.pas). Файл из
+  сообщения — /media/…?save=имя&open=1 (ui/message.js) — молча
+  скачивается и открывается системным приложением: иначе PDF и подобное
+  открывались внутри окна, и из него не было пути назад. Всё прочее
+  («Save as…», медиа, файлы мини-приложений) — через системный диалог
+  «Сохранить как»: dmSave, режим по умолчанию. }
 procedure TFormWebUi.ViewDownloadStart(Sender: TObject; const AUri: utf8string;
-  var AOpen: boolean);
+  var AMode: TWebView2DownloadMode);
 var
   Q: string;
 begin
@@ -659,15 +662,20 @@ begin
     Exit;
   end;
   Q := '&' + Copy(Q, Pos('?', Q) + 1, MaxInt) + '&';
-  AOpen := Pos('&open=1&', Q) > 0;
+  if Pos('&open=1&', Q) > 0 then begin
+    AMode := dmOpen;
+  end;
 end;
 
-procedure TFormWebUi.ViewDownloadDone(Sender: TObject; const APath: utf8string; AOk: boolean);
+procedure TFormWebUi.ViewDownloadDone(Sender: TObject; const APath: utf8string; AOk: boolean;
+  AMode: TWebView2DownloadMode);
 var
   O: TJSONObject;
 begin
   if AOk and (APath <> '') then begin
-    OpenDocument(string(APath));
+    if AMode = dmOpen then begin
+      OpenDocument(string(APath));
+    end;
     Exit;
   end;
   O := TJSONObject.Create;
