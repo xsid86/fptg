@@ -3,13 +3,14 @@ import { icon } from '../util/icons.js';
 import { openMenu } from '../util/menu.js';
 import { postShell } from './shell.js';
 
-// Theme switching: the brush in the status bar opens a list of four.
+// Theme switching: the brush in the status bar opens a list of five.
 //
 // The whole palette hangs off ATTRIBUTES on <html> - never an inline
 // style, and never a per-element repaint from here:
 //   data-theme  dark | light - the scheme; every token, palette and
 //               accent in scss/base hangs off it, for all four themes;
-//   data-style  "plain" for the simple themes only (scss/themes/_plain).
+//   data-style  "plain" for the simple themes (scss/themes/_plain),
+//               "aurora" for Aurora (scss/themes/_aurora), else absent.
 // No stored choice at all is a meaningful state: no attributes, which is
 // what leaves the OS preference in charge (a coloured theme then).
 //
@@ -27,6 +28,9 @@ const THEMES = [
   { id: 'light', label: 'Light colored' },
   { id: 'dark-plain', label: 'Dark' },
   { id: 'light-plain', label: 'Light' },
+  // Как макет окна на сайте проекта (website/, sections/_mockup.scss):
+  // стекло на синей «авроре». Только тёмная — scss/themes/_aurora.
+  { id: 'dark-aurora', label: 'Aurora' },
 ];
 
 let button = null;
@@ -62,6 +66,8 @@ export function setAccent(key) {
   } catch {
     // Не запомнится до следующего запуска, но сейчас подействует.
   }
+  // В Aurora из акцента выведен и фон — рамка окна тоже за ним.
+  paintFrame(schemeOf(effective()));
 }
 
 function stored() {
@@ -81,17 +87,28 @@ function effective() {
 }
 
 const schemeOf = (id) => (id.startsWith('dark') ? 'dark' : 'light');
-const plainOf = (id) => id.endsWith('-plain');
+// Стиль поверх схемы — то, что после дефиса: plain | aurora.
+const styleOf = (id) => id.split('-')[1] ?? null;
 
-// Цвет токена темы как '#rrggbb': канва приводит любую запись цвета к
-// этому виду (style трогать нельзя, а getComputedStyle отдаёт токен
-// так, как он записан).
+// Цвет токена темы как '#rrggbb' (style трогать нельзя, а
+// getComputedStyle отдаёт токен так, как он записан). Через пиксель
+// канвы, а не её fillStyle: color-mix (токены Aurora) fillStyle отдаёт
+// как 'color(srgb …)', а winframe ждёт '#rrggbb'.
 let probe = null;
 function tokenColor(name) {
-  probe ??= document.createElement('canvas').getContext('2d');
+  probe ??= Object.assign(document.createElement('canvas'), { width: 1, height: 1 })
+    .getContext('2d', { willReadFrequently: true });
+  const css = getComputedStyle(document.documentElement);
+  // Полупрозрачный токен (кайма Aurora — акцент на 14%) — поверх фона
+  // страницы, как его и видно; иначе пиксель отдал бы чистый акцент.
   probe.fillStyle = '#000000';
-  probe.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return probe.fillStyle;
+  probe.fillStyle = css.getPropertyValue('--c-bg').trim();
+  probe.fillRect(0, 0, 1, 1);
+  probe.fillStyle = '#000000';
+  probe.fillStyle = css.getPropertyValue(name).trim();
+  probe.fillRect(0, 0, 1, 1);
+  const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
 // Рамка окна в цвет темы (winframe.pas): заголовок — фон страницы,
@@ -123,7 +140,8 @@ function render() {
 function apply(id) {
   const root = document.documentElement;
   root.dataset.theme = schemeOf(id);
-  if (plainOf(id)) root.dataset.style = 'plain';
+  const style = styleOf(id);
+  if (style) root.dataset.style = style;
   else delete root.dataset.style;
   try {
     localStorage.setItem(KEY, id);

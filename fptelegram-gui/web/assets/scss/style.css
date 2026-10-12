@@ -10803,6 +10803,221 @@ span.picker__gif {
   border-color: var(--plain-card-border-own);
 }
 
+:root[data-style=aurora] {
+  --c-bg: color-mix(in srgb, var(--c-accent), black 93%);
+  --c-surface: color-mix(in srgb, var(--c-accent), black 84%);
+  --c-surface-2: rgba(0, 0, 0, 0.4);
+  --c-surface-hover: color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 40%) 8%, transparent);
+  --c-surface-active: color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 40%) 14%, transparent);
+  --c-border: color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 50%) 14%, transparent);
+  --c-border-strong: color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 50%) 30%, transparent);
+  --c-text: color-mix(in srgb, var(--c-accent), white 92%);
+  --c-text-dim: color-mix(in srgb, var(--c-accent) 22%, #a4a7ad);
+  --c-text-faint: color-mix(in srgb, var(--c-accent) 25%, #676b72);
+  --c-shadow: rgba(0, 0, 0, .6);
+  --aurora-soft: color-mix(in srgb, var(--c-accent) 22%, transparent);
+  --aurora-glow: color-mix(in srgb, var(--c-accent) 45%, transparent);
+  --aurora-border: var(--c-border);
+  --card-bg: linear-gradient(160deg, color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 40%) 12%, transparent), color-mix(in srgb, var(--c-accent) 4%, transparent));
+  --card-border: 1px solid var(--c-border);
+  --card-blur: blur(22px) saturate(140%);
+}
+
+:root[data-style=aurora]:not([data-accent]) {
+  --c-accent: #3d8bff;
+  --c-accent-hover: #74b8ff;
+  --c-unread: #3d8bff;
+}
+
+:root[data-style=aurora] body {
+  background: linear-gradient(162deg, transparent calc(30% - 0.4%), color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 55%) 30%, transparent) 30%, transparent calc(30% + 0.4%)), radial-gradient(ellipse 12% 46% at 50% 0%, color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 55%) 55%, transparent), transparent), radial-gradient(ellipse 26% 18% at 50% -4%, color-mix(in srgb, var(--c-accent) 40%, transparent), transparent), radial-gradient(ellipse 34% 32% at 74% 6%, color-mix(in srgb, color-mix(in srgb, var(--c-accent), black 25%) 55%, transparent), transparent), radial-gradient(ellipse 26% 28% at 16% 42%, color-mix(in srgb, color-mix(in srgb, var(--c-accent), black 55%) 45%, transparent), transparent), radial-gradient(ellipse 70% 50% at 100% 100%, color-mix(in srgb, color-mix(in srgb, var(--c-accent), black 35%) 22%, transparent), transparent), linear-gradient(180deg, color-mix(in srgb, var(--c-accent), black 90%) 0%, var(--c-bg) 55%, color-mix(in srgb, var(--c-accent), black 95%) 100%);
+  background-color: var(--c-bg);
+}
+:root[data-style=aurora] body::before {
+  background-image: radial-gradient(color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 50%) 7%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+  content: "";
+  inset: 0;
+  mask-image: linear-gradient(180deg, #000 0%, transparent 70%);
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+:root[data-style=aurora] .app {
+  gap: 8px;
+  padding: 8px;
+}
+:root[data-style=aurora] .sidebar,
+:root[data-style=aurora] .workspace {
+  border-radius: 16px;
+  box-shadow: none;
+}
+:root[data-style=aurora] .sidebar__head,
+:root[data-style=aurora] .chat-header,
+:root[data-style=aurora] .composer {
+  background: transparent;
+  box-shadow: none;
+}
+:root[data-style=aurora] .chat-header {
+  border-bottom: 1px solid var(--aurora-border);
+}
+:root[data-style=aurora] .chat-header__title {
+  color: var(--c-text);
+}
+:root[data-style=aurora] .info-panel,
+:root[data-style=aurora] .menu,
+:root[data-style=aurora] .mention-pop {
+  backdrop-filter: blur(22px) saturate(140%);
+  background: color-mix(in srgb, var(--c-surface) 92%, transparent);
+  border-color: var(--aurora-border);
+}
+:root[data-style=aurora] .sidebar__tab {
+  border-radius: 999px;
+}
+:root[data-style=aurora] .sidebar__tab.is-active, :root[data-style=aurora] .sidebar__tab.is-active:hover {
+  background: var(--aurora-soft);
+  color: #ffffff;
+}
+:root[data-style=aurora] .sidebar__search .field,
+:root[data-style=aurora] .chat-header__search {
+  background: var(--c-surface-2);
+  border: 1px solid var(--aurora-border);
+  border-radius: 999px;
+}
+:root[data-style=aurora] .sidebar__search .field:focus-within,
+:root[data-style=aurora] .chat-header__search:focus-within {
+  background: var(--c-surface-2);
+  border-color: var(--c-accent);
+}
+:root[data-style=aurora] .chat-item {
+  backdrop-filter: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  box-shadow: none;
+}
+:root[data-style=aurora] .chat-item:hover {
+  background: var(--c-surface-hover);
+  border-color: transparent;
+}
+:root[data-style=aurora] .chat-item.is-active {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c-accent) 22%, transparent), color-mix(in srgb, var(--c-accent) 7%, transparent));
+  border-color: color-mix(in srgb, var(--c-accent) 25%, transparent);
+}
+:root[data-style=aurora] .chat-item__head {
+  background: transparent;
+}
+:root[data-style=aurora] .chat-item__kind {
+  fill: var(--c-text-dim);
+}
+:root[data-style=aurora] .chat-item__folder,
+:root[data-style=aurora] .chat-item__folder--none {
+  background: var(--aurora-soft);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--c-text);
+}
+:root[data-style=aurora] .contact-row {
+  background: transparent;
+  border-radius: 12px;
+}
+:root[data-style=aurora] .contact-row:hover {
+  background: var(--c-surface-hover);
+}
+:root[data-style=aurora] .badge--muted {
+  background: color-mix(in srgb, var(--c-text-dim) 40%, transparent);
+}
+:root[data-style=aurora] .message {
+  background: color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 40%) 10%, transparent);
+  border: 1px solid var(--aurora-border);
+  border-radius: 18px;
+  box-shadow: none;
+  margin-bottom: 16px;
+}
+:root[data-style=aurora] .message__head {
+  padding: 8px 14px 0;
+}
+:root[data-style=aurora] .message__body {
+  padding: 8px 14px 12px;
+}
+:root[data-style=aurora] .message__head,
+:root[data-style=aurora] .message__reactions {
+  background: transparent;
+}
+:root[data-style=aurora] .message--outgoing {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c-accent) 42%, transparent), color-mix(in srgb, var(--c-accent) 26%, transparent));
+  border-color: color-mix(in srgb, var(--c-accent) 35%, transparent);
+  box-shadow: 0 8px 24px -10px color-mix(in srgb, var(--c-accent) 25%, transparent);
+  color: #ffffff;
+  --sender-color: #ffffff;
+}
+:root[data-style=aurora] .message:has(.media--sticker),
+:root[data-style=aurora] .message:has(.media--gif):not(:has(b)) {
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+:root[data-style=aurora] .message:has(.media--sticker) .message__head,
+:root[data-style=aurora] .message:has(.media--gif):not(:has(b)) .message__head {
+  background: color-mix(in srgb, color-mix(in srgb, var(--c-accent), white 40%) 10%, transparent);
+  border: 1px solid var(--aurora-border);
+  border-radius: 18px;
+  box-shadow: none;
+}
+:root[data-style=aurora] .message--outgoing:has(.media--sticker) .message__head,
+:root[data-style=aurora] .message--outgoing:has(.media--gif):not(:has(b)) .message__head {
+  background: color-mix(in srgb, var(--c-accent) 42%, transparent);
+  border-color: color-mix(in srgb, var(--c-accent) 35%, transparent);
+}
+:root[data-style=aurora] .reaction {
+  background: color-mix(in srgb, var(--c-surface-2) 70%, transparent);
+  border: 1px solid var(--aurora-border);
+}
+:root[data-style=aurora] .reaction.is-chosen {
+  background: var(--aurora-soft);
+  border-color: var(--c-accent-hover);
+}
+:root[data-style=aurora] .comments {
+  background: var(--c-surface-2);
+  border-color: var(--aurora-border);
+  box-shadow: none;
+  color: var(--c-text);
+}
+:root[data-style=aurora] .history__date > span,
+:root[data-style=aurora] .history__float-date > span,
+:root[data-style=aurora] .message-service__text {
+  background: var(--c-surface-2);
+  box-shadow: none;
+  color: var(--c-text-dim);
+  padding: 2px 12px;
+}
+:root[data-style=aurora] .history__float-date > span {
+  backdrop-filter: blur(22px) saturate(140%);
+}
+:root[data-style=aurora] .greeting,
+:root[data-style=aurora] .history__loader-pill {
+  backdrop-filter: blur(22px) saturate(140%);
+  background: var(--c-surface-2);
+  border: 1px solid var(--aurora-border);
+}
+:root[data-style=aurora] .composer__input {
+  background: var(--c-surface-2);
+  border: 1px solid var(--aurora-border);
+  border-radius: 8px;
+  padding: 8px 16px;
+}
+:root[data-style=aurora] .composer__input:focus {
+  border-color: color-mix(in srgb, var(--c-accent) 60%, transparent);
+}
+:root[data-style=aurora] .composer__send {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c-accent), white 30%), var(--c-accent));
+  border-radius: 8px;
+  box-shadow: 0 6px 18px -6px var(--aurora-glow);
+}
+:root[data-style=aurora] .composer__send:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c-accent-hover), white 30%), var(--c-accent-hover));
+}
+
 .pswp {
   backdrop-filter: blur(30px);
 }

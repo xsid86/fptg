@@ -10,11 +10,12 @@
   // localStorage (общий профиль WebView2), иначе тема системы.
   try {
     var t = localStorage.getItem('theme');
-    // dark | light | dark-plain | light-plain (ui/theme.js): схема — в
-    // data-theme, простые темы — ещё data-style="plain".
-    if (/^(dark|light)(-plain)?$/.test(t || '')) {
+    // dark | light | dark-plain | light-plain | dark-aurora (ui/theme.js):
+    // схема — в data-theme, у простых и Aurora ещё data-style (plain | aurora).
+    if (/^(dark|light)(-plain|-aurora)?$/.test(t || '')) {
       document.documentElement.dataset.theme = t.indexOf('dark') === 0 ? 'dark' : 'light';
-      if (/-plain$/.test(t)) { document.documentElement.dataset.style = 'plain'; }
+      var s = /-(plain|aurora)$/.exec(t);
+      if (s) { document.documentElement.dataset.style = s[1]; }
     }
     // Акцент (Settings → General, ui/theme.js): ключ из $app-accents.
     var a = localStorage.getItem('accent');
