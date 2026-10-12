@@ -197,27 +197,20 @@ function TdStickerList: TTdStickers;
 function TdAttachBotList: TTdAttachBots;
 function TdRequests: TTdRequests;
 
-{ Presence: "Online" versus "Invisible".
+{ Присутствие: клиент всегда «в сети» (setOption online = true).
 
-  The FLAG itself lives in tdmessages, right next to the viewMessages
-  it suppresses - that is where a read receipt would leak from. What
-  lives here is the rest of the setting: the config.ini line it is
-  remembered in, and the setOption("online") TDLib has to be told
-  about, both of which need the active account.
+  Режима «Невидимка» больше нет (2026-10-12): он не слал viewMessages и
+  прятал онлайн — прямое нарушение условий Telegram API (§1.4, «ghost
+  mode»), за которое отзывают api_id. Кто видит «был(а) в сети» и время
+  прочтения — официальные настройки приватности (webapi privacy.*).
 
-  Here rather than in the main form because the form is no longer the
-  only face. The page has the same switch, and a setting owned by one
-  of two windows is a setting the other one can contradict. }
-function TdPresenceInvisible: boolean;
-{ Reads the remembered value. Call once at startup, before any client
-  is up - it only sets the flag, it does not talk to TDLib. }
+  Убирает строку [ui] invisible из conf.dat, если её оставила прежняя
+  версия. Один раз при старте, до клиентов. }
 procedure TdLoadPresence;
-{ Changes it: remembers, and tells whoever is listening. }
-procedure TdSetPresence(AInvisible: boolean);
-{ Pushes the current value at TDLib. Called on every transition to
-  Ready, not just the first: each client has its own "online" option,
-  so an account switch or a reconnect has to be told again. Resending
-  the same value is harmless. }
+{ Говорит TDLib, что клиент в сети. На каждом переходе в Ready, а не
+  один раз: опция online у каждого клиента своя, так что смена
+  аккаунта или переподключение должны услышать её заново. Повтор
+  того же значения безвреден. }
 procedure TdApplyPresence;
 
 { The other two settings that shape how the app behaves rather than how
@@ -411,57 +404,31 @@ begin
   end;
 end;
 
-function TdPresenceInvisible: boolean;
-begin
-  Result := tdmessages.PresenceInvisible;
-end;
-
 procedure TdLoadPresence;
 begin
   with OpenConfig do begin
     try
-      tdmessages.SetPresenceInvisible(ReadBool('ui', 'invisible', False));
+      { Пишется только когда строка и правда была: запись — это
+        перешифровка всего conf.dat. }
+      if ValueExists('ui', 'invisible') then begin
+        DeleteKey('ui', 'invisible');
+        UpdateFile;
+      end;
     finally
       Free;
     end;
   end;
-end;
-
-procedure TdSetPresence(AInvisible: boolean);
-begin
-  if AInvisible = tdmessages.PresenceInvisible then begin
-    Exit;
-  end;
-  { The flag first, and unconditionally: it is ours, not TDLib's, and
-    it has to be right even when there is no client to tell. }
-  tdmessages.SetPresenceInvisible(AInvisible);
-  with OpenConfig do begin
-    try
-      WriteBool('ui', 'invisible', AInvisible);
-    finally
-      Free;
-    end;
-  end;
-  TdApplyPresence;
 end;
 
 procedure TdApplyPresence;
-var
-  ValStr: utf8string;
 begin
   if TdRequests = nil then begin
     Exit;
   end;
-  if tdmessages.PresenceInvisible then begin
-    ValStr := 'false';
-  end else begin
-    ValStr := 'true';
-  end;
   { TDLib has no bare-bool shortcut for setOption - the value must be
     wrapped in an optionValueBoolean object. }
   TdRequests.SendRequest('setOption',
-    '"name":"online","value":{"@type":"optionValueBoolean","value":' +
-    ValStr + '}', nil);
+    '"name":"online","value":{"@type":"optionValueBoolean","value":true}', nil);
 end;
 
 procedure TdLoadDownloadLimits;

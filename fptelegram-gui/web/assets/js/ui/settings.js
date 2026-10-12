@@ -27,6 +27,7 @@ import { uploadUrl, serverBase, currentUser, signOut } from '../core/session.js'
 const SECTIONS = [
   { id: 'general', label: 'General', icon: 'settings', render: renderGeneral },
   { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
+  { id: 'privacy', label: 'Privacy', icon: 'lock', render: renderPrivacy },
   { id: 'notifications', label: 'Notifications', icon: 'bell', render: renderNotifications },
   { id: 'calls', label: 'Calls', icon: 'mic', render: renderCalls },
   { id: 'maps', label: 'Location service', icon: 'pin', render: renderMaps },
@@ -587,6 +588,83 @@ function renderAccount() {
   ];
 }
 
+// ------------------------------------------------------------ privacy
+// Кто видит «был(а) в сети» и время прочтения — официальные настройки
+// Telegram (webapi privacy.*: правила userPrivacySettingShowStatus и
+// readDatePrivacySettings). Они заменили «Невидимку» (2026-10-12): прятать
+// онлайн и не отмечать прочитанное условия Telegram API (§1.4) запрещают,
+// а эти настройки работают по-честному — взаимно, как у всех клиентов.
+// Как и «My account», из TDLib при каждом открытии: меняются и с телефона.
+
+const LAST_SEEN = [
+  { id: 'everybody', label: 'Everybody' },
+  { id: 'contacts', label: 'My contacts' },
+  { id: 'nobody', label: 'Nobody' },
+];
+
+let privacy = null;     // последний ответ privacy.get
+let privacyLoading = false;
+
+async function reloadPrivacy() {
+  if (privacyLoading) return;
+  privacyLoading = true;
+  try {
+    privacy = await hooks.load('privacy.get');
+  } catch (error) {
+    hooks.report(error);
+    return;
+  } finally {
+    privacyLoading = false;
+  }
+  if (current === 'privacy' && dialog.open && !editing()) renderPane();
+}
+
+async function savePrivacy(args) {
+  try {
+    await hooks.load('privacy.set', args);
+  } catch (error) {
+    hooks.report(error);
+  }
+  // В любом случае — заново из TDLib: поле показывает действующее.
+  reloadPrivacy();
+}
+
+function renderPrivacy() {
+  if (!privacy) {
+    reloadPrivacy();
+    return [el('p', { class: 'settings__hint' }, 'Loading…')];
+  }
+  const p = privacy;
+  const name = uid();
+  const readDate = uid();
+  return [
+    el('p', { class: 'settings__intro' },
+      'If you don’t share your last seen and online status, you won’t see '
+      + 'other people’s either.'
+      + (p.exceptions > 0
+        ? ` Exceptions for ${p.exceptions === 1 ? 'one rule' : `${p.exceptions} rules`} `
+          + 'set in another Telegram app stay as they are.'
+        : '')),
+    group('Last seen & online',
+      ...LAST_SEEN.map((o) => {
+        const id = uid();
+        const radio = el('input', {
+          class: 'settings__check', type: 'radio', name, id,
+          checked: p.lastSeen === o.id,
+          onchange: () => savePrivacy({ key: 'lastSeen', value: o.id }),
+        });
+        return row(id, o.label, null, radio);
+      })),
+    group(null,
+      row(readDate, 'Show my read time',
+        'In private chats people see when you read their messages. Turn it '
+        + 'off and you won’t see their read time either. People who can see '
+        + 'your last seen always see it.',
+        switchControl(readDate, p.showReadDate,
+          (checked) => savePrivacy({ key: 'readDate', value: checked })))),
+  ];
+}
+
 // ----------------------------------------------------------- sections
 // Устройства звонков и громкость — та же панель, что в окне звонка
 // (calls/devices.js). Хранится в браузере этой страницы, не на сервере.
@@ -627,7 +705,7 @@ function renderGeneral() {
         }, 'color-grid--inline')),
       // Не сервер, а вид этого окна — без commit (ui/status-bar.js).
       row(traffic, 'Show connection traffic',
-        'Under Online/Invisible: what this window has received and sent, '
+        'Under Online: what this window has received and sent, '
         + 'with the current speed.',
         switchControl(traffic, trafficShown(), (checked) => setTrafficShown(checked))),
       row(device, 'Device name',
@@ -872,6 +950,7 @@ async function open() {
   if (dialog.open) return;
   // Аккаунт меняется и с телефона — при каждом открытии спрашивается заново.
   account = null;
+  privacy = null;
   accountView = 'main';
   pick = null;
   renderNav();
@@ -887,6 +966,16 @@ async function open() {
 
 function close() {
   dialog.close();
+}
+
+/** Открыть сразу на разделе (клик по «Online» в строке состояния). */
+export function openSettings(id) {
+  if (dialog.open) {
+    select(id);
+    return;
+  }
+  if (SECTIONS.some((s) => s.id === id)) current = id;
+  open();
 }
 
 /**

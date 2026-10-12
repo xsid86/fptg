@@ -1145,6 +1145,13 @@ type
       legitimate thing to send. }
     procedure SetPollAnswers(ARow: TMsgRow; const AOptionIndexes: array of integer);
     procedure MarkRead(const AMessageIds: array of Int64);
+    { Своё действие в открытом чате (и ветке — тот же topic_id, что у
+      sendMessage): AAction — @type ChatAction (chatActionTyping,
+      chatActionUploadingPhoto…, chatActionCancel). У действий загрузки
+      есть поле progress — AWithProgress добавляет его нулём. Ответ не
+      ждётся: отказ (нет права писать) для «печатает» не новость.
+      Условия Telegram API (§1.3) — индикатор набора не глушить. }
+    procedure SendChatAction(const AAction: utf8string; AWithProgress: boolean);
     { Loads (if not already loaded) and prepares for display a batch of
       messages AROUND AMessageId in the CURRENTLY open chat — not to be
       confused with OpenChat(AChatId, AJumpToMessageId), which first
@@ -1305,18 +1312,6 @@ function DownloadConcurrency: integer;
 procedure SetDownloadSpeedLimit(AValue: integer);
 function DownloadSpeedLimit: integer;
 
-{ Invisible mode. Set from the presence switch in the status bar
-  (main.pas); read by MarkRead, which refuses to send viewMessages while
-  it is on.
-
-  The gate lives HERE, next to the request it suppresses, rather than in
-  whichever view happened to ask. There are two views now — the native
-  window and the browser — and a check that only one of them performs
-  would mean the account stops leaking read receipts in one window and
-  carries on leaking them in the other. }
-procedure SetPresenceInvisible(AValue: boolean);
-function PresenceInvisible: boolean;
-
 { What SendFormattedText hands to TDLib's parseTextEntities. Pure
   functions with no state, declared here so a harness can feed them a
   message and print what the parser would actually see - which is the
@@ -1354,8 +1349,6 @@ end;
 var
   GDownloadConcurrency: integer = DOWNLOAD_CONCURRENCY_DEFAULT;
   GDownloadSpeedLimit: integer = DOWNLOAD_SPEED_DEFAULT_KB;
-  { See SetPresenceInvisible. }
-  GPresenceInvisible: boolean = False;
 
 procedure SetDownloadConcurrency(AValue: integer);
 begin
@@ -1371,16 +1364,6 @@ end;
 function DownloadConcurrency: integer;
 begin
   Result := GDownloadConcurrency;
-end;
-
-procedure SetPresenceInvisible(AValue: boolean);
-begin
-  GPresenceInvisible := AValue;
-end;
-
-function PresenceInvisible: boolean;
-begin
-  Result := GPresenceInvisible;
 end;
 
 procedure SetDownloadSpeedLimit(AValue: integer);
@@ -5557,11 +5540,6 @@ begin
   if (FReq = nil) or (FChatId = 0) or (Length(AMessageIds) = 0) then begin
     Exit;
   end;
-  { Invisible mode: reading is exactly the signal it is meant to
-    withhold. See SetPresenceInvisible. }
-  if GPresenceInvisible then begin
-    Exit;
-  end;
   Ids := '';
   for I := 0 to High(AMessageIds) do begin
     if Ids <> '' then begin
@@ -5574,6 +5552,30 @@ begin
     ',"message_ids":[' + Ids + ']' +
     ',"source":{"@type":"messageSourceChatHistory"},"force_read":true',
     @ActionDone);
+end;
+
+procedure TTdMessages.SendChatAction(const AAction: utf8string; AWithProgress: boolean);
+var
+  Action: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (AAction = '') then begin
+    Exit;
+  end;
+  Action := '{"@type":"' + AAction + '"';
+  if AWithProgress then begin
+    Action := Action + ',"progress":0';
+  end;
+  Action := Action + '}';
+  { topic_id без ветки — null: поле в схеме обязательное по имени. }
+  if FThreadId = 0 then begin
+    FReq.SendRequest('sendChatAction',
+      '"chat_id":' + utf8string(IntToStr(FChatId)) +
+      ',"topic_id":null,"business_connection_id":"","action":' + Action, nil);
+  end else begin
+    FReq.SendRequest('sendChatAction',
+      '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart +
+      ',"business_connection_id":"","action":' + Action, nil);
+  end;
 end;
 
 procedure TTdMessages.ActionDone(Sender: TObject; const AResp: TTdResponse);

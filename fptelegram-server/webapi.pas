@@ -343,8 +343,12 @@ type
     function  CmdThreadJump(AArgs: TJSONObject): TJSONData;
     function  CmdThreadClose: TJSONData;
     function  CmdChatJoin(AArgs: TJSONObject): TJSONData;
-    function  CmdPresenceGet: TJSONData;
-    function  CmdPresenceSet(AArgs: TJSONObject): TJSONData;
+    function  CmdPrivacyGet(AConnId: Int64; AReqId: integer): boolean;
+    function  CmdPrivacySet(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure PrivacyRulesDone(Sender: TObject; const AResp: TTdResponse);
+    procedure PrivacyReadDateDone(Sender: TObject; const AResp: TTdResponse);
+    procedure PrivacyRulesForSetDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdChatTyping(AArgs: TJSONObject): TJSONData;
     function  CmdSettingsGet: TJSONData;
     function  CmdSettingsSet(AArgs: TJSONObject): TJSONData;
     function  CmdStorageGet: TJSONData;
@@ -3466,36 +3470,189 @@ begin
   Result := CmdMessagesList;
 end;
 
-{ Online / Invisible. The setting lives in tdcore, which also
-  remembers it and tells TDLib; what happens here is only the page's
-  half of the conversation.
+{ ------------------------------------------------------------------ }
+{ privacy: кто видит «в сети» и время прочтения                       }
+{ ------------------------------------------------------------------ }
 
-  The answer carries the value rather than just an ok, so a page that
-  has just switched and a page that only asked get their state from
-  the same place. }
-function TWebApi.CmdPresenceGet: TJSONData;
+{ Вместо «Невидимки» (2026-10-12, условия Telegram API §1.4) — те же
+  официальные настройки, что у приложений Telegram (td_api.tl коммита
+  d1085f9): правила userPrivacySettingShowStatus и readDatePrivacySettings.
+
+  privacy.get -> lastSeen (everybody | contacts | nobody), exceptions —
+  сколько правил-исключений (конкретные люди и чаты) стоит рядом с
+  основным, showReadDate. Ответ — из TDLib при каждом запросе: правила
+  меняются и с телефона. }
+function TWebApi.CmdPrivacyGet(AConnId: Int64; AReqId: integer): boolean;
 var
-  Res: TJSONObject;
+  Slot: PtrInt;
 begin
-  Res := TJSONObject.Create;
-  Res.Add('invisible', TdPresenceInvisible);
-  Result := Res;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('getUserPrivacySettingRules',
+    '"setting":{"@type":"userPrivacySettingShowStatus"}', @PrivacyRulesDone, Slot);
+  Result := True;
 end;
 
-function TWebApi.CmdPresenceSet(AArgs: TJSONObject): TJSONData;
+{ Основное правило — то, что применяется ко всем, кого не назвали
+  исключения. В TDLib правила проверяются по порядку, «никто не подошёл»
+  = запрещено, поэтому: есть AllowAll — все, иначе AllowContacts —
+  контакты, иначе никто. }
+function PrivacyBaseRule(const AType: utf8string): boolean;
+begin
+  Result := (AType = 'userPrivacySettingRuleAllowAll')
+    or (AType = 'userPrivacySettingRuleAllowContacts')
+    or (AType = 'userPrivacySettingRuleRestrictAll')
+    or (AType = 'userPrivacySettingRuleRestrictContacts');
+end;
+
+procedure TWebApi.PrivacyRulesDone(Sender: TObject; const AResp: TTdResponse);
 var
-  Data: TJSONObject;
+  Slot: PtrInt;
+  Rules: TJSONData;
+  I, Exceptions: integer;
+  T, LastSeen: utf8string;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  LastSeen := 'nobody';
+  Exceptions := 0;
+  Rules := AResp.Obj.Find('rules');
+  if (Rules <> nil) and (Rules.JSONType = jtArray) then begin
+    for I := 0 to Rules.Count - 1 do begin
+      if Rules.Items[I].JSONType <> jtObject then begin
+        Continue;
+      end;
+      T := JGetStr(TJSONObject(Rules.Items[I]), '@type');
+      if T = 'userPrivacySettingRuleAllowAll' then begin
+        LastSeen := 'everybody';
+      end else if (T = 'userPrivacySettingRuleAllowContacts')
+        and (LastSeen <> 'everybody') then begin
+        LastSeen := 'contacts';
+      end;
+      if not PrivacyBaseRule(T) then begin
+        Inc(Exceptions);
+      end;
+    end;
+  end;
+  FDeferred[Slot].Held.Add('lastSeen', string(LastSeen));
+  FDeferred[Slot].Held.Add('exceptions', Exceptions);
+  RequireMsgs.Request('getReadDatePrivacySettings', '', @PrivacyReadDateDone, Slot);
+end;
+
+procedure TWebApi.PrivacyReadDateDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject(FDeferred[Slot].Held.Clone);
+  Res.Add('showReadDate', JGetBool(AResp.Obj, 'show_read_date'));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ privacy.set (key, value) -> ok:
+    lastSeen = everybody | contacts | nobody — меняется только основное
+      правило, исключения (люди, чаты), заданные с телефона, остаются:
+      поэтому сначала текущие правила, потом set;
+    readDate = true | false — show_read_date. }
+function TWebApi.CmdPrivacySet(AConnId: Int64; AReqId: integer;
+  AArgs: TJSONObject): boolean;
+var
+  Key, Value: utf8string;
+  Slot: PtrInt;
 begin
   if AArgs = nil then begin
-    raise Exception.Create('presence.set needs a value');
+    raise Exception.Create('privacy.set needs a key and a value');
   end;
-  TdSetPresence(AArgs.Get('invisible', False));
-  { Anyone else with the page open is looking at the same account, so
-    they are told too - the same reasoning as every other push here. }
-  Data := TJSONObject.Create;
-  Data.Add('invisible', TdPresenceInvisible);
-  PushEvent('presence', Data);
-  Result := CmdPresenceGet;
+  Key := utf8string(AArgs.Get('key', ''));
+  if Key = 'readDate' then begin
+    Slot := TakeDeferred(AConnId, AReqId, 0);
+    RequireMsgs.Request('setReadDatePrivacySettings',
+      '"settings":{"@type":"readDatePrivacySettings","show_read_date":' +
+      utf8string(BoolToStr(AArgs.Get('value', True), 'true', 'false')) + '}',
+      @SimpleDone, Slot);
+  end else if Key = 'lastSeen' then begin
+    Value := utf8string(AArgs.Get('value', ''));
+    if (Value <> 'everybody') and (Value <> 'contacts') and (Value <> 'nobody') then begin
+      raise Exception.Create('privacy.set: unknown value ' + Value);
+    end;
+    Slot := TakeDeferred(AConnId, AReqId, 0);
+    FDeferred[Slot].Held := TJSONObject.Create;
+    FDeferred[Slot].Held.Add('lastSeen', string(Value));
+    RequireMsgs.Request('getUserPrivacySettingRules',
+      '"setting":{"@type":"userPrivacySettingShowStatus"}',
+      @PrivacyRulesForSetDone, Slot);
+  end else begin
+    raise Exception.Create('privacy.set: unknown key ' + Key);
+  end;
+  Result := True;
+end;
+
+procedure TWebApi.PrivacyRulesForSetDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Rules: TJSONData;
+  I: integer;
+  List, Value: utf8string;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Value := utf8string(FDeferred[Slot].Held.Get('lastSeen', ''));
+  { Исключения — первыми, как стояли: порядок у TDLib значим. }
+  List := '';
+  Rules := AResp.Obj.Find('rules');
+  if (Rules <> nil) and (Rules.JSONType = jtArray) then begin
+    for I := 0 to Rules.Count - 1 do begin
+      if (Rules.Items[I].JSONType = jtObject)
+        and not PrivacyBaseRule(JGetStr(TJSONObject(Rules.Items[I]), '@type')) then begin
+        List := List + utf8string(Rules.Items[I].AsJSON) + ',';
+      end;
+    end;
+  end;
+  if Value = 'everybody' then begin
+    List := List + '{"@type":"userPrivacySettingRuleAllowAll"}';
+  end else if Value = 'contacts' then begin
+    List := List + '{"@type":"userPrivacySettingRuleAllowContacts"}';
+  end else begin
+    List := List + '{"@type":"userPrivacySettingRuleRestrictAll"}';
+  end;
+  RequireMsgs.Request('setUserPrivacySettingRules',
+    '"setting":{"@type":"userPrivacySettingShowStatus"},' +
+    '"rules":{"@type":"userPrivacySettingRules","rules":[' + List + ']}',
+    @SimpleDone, Slot);
+end;
+
+{ chat.typing (action) — своё действие в открытом чате (ui/sendaction.js):
+  typing, cancel, photo, video, document. Чат и ветку знает модель — туда
+  же уходит и сообщение. Условия Telegram API §1.3: индикатор набора
+  клиент обязан слать, а не глушить. }
+function TWebApi.CmdChatTyping(AArgs: TJSONObject): TJSONData;
+var
+  Action: utf8string;
+begin
+  Action := '';
+  if AArgs <> nil then begin
+    Action := utf8string(AArgs.Get('action', ''));
+  end;
+  if Action = 'typing' then begin
+    RequireMsgs.SendChatAction('chatActionTyping', False);
+  end else if Action = 'cancel' then begin
+    RequireMsgs.SendChatAction('chatActionCancel', False);
+  end else if Action = 'photo' then begin
+    RequireMsgs.SendChatAction('chatActionUploadingPhoto', True);
+  end else if Action = 'video' then begin
+    RequireMsgs.SendChatAction('chatActionUploadingVideo', True);
+  end else if Action = 'document' then begin
+    RequireMsgs.SendChatAction('chatActionUploadingDocument', True);
+  end else begin
+    raise Exception.Create('unknown chat.typing action: ' + Action);
+  end;
+  Result := nil;
 end;
 
 { ------------------------------------------------------------------ }
@@ -9626,10 +9783,12 @@ begin
         ReplyMessages(AConnId, ReqId, CmdMessagesTrim, False);
       end else if Cmd = 'chat.join' then begin
         Reply(AConnId, ReqId, CmdChatJoin(Args));
-      end else if Cmd = 'presence.get' then begin
-        Reply(AConnId, ReqId, CmdPresenceGet);
-      end else if Cmd = 'presence.set' then begin
-        Reply(AConnId, ReqId, CmdPresenceSet(Args));
+      end else if Cmd = 'privacy.get' then begin
+        CmdPrivacyGet(AConnId, ReqId);
+      end else if Cmd = 'privacy.set' then begin
+        CmdPrivacySet(AConnId, ReqId, Args);
+      end else if Cmd = 'chat.typing' then begin
+        Reply(AConnId, ReqId, CmdChatTyping(Args));
       end else if Cmd = 'settings.get' then begin
         Reply(AConnId, ReqId, CmdSettingsGet);
       end else if Cmd = 'settings.set' then begin

@@ -4,6 +4,7 @@ import { icon } from '../util/icons.js';
 import { fileSize } from '../util/format.js';
 import { openEmojiPicker } from './picker.js';
 import { uploadUrl } from '../core/session.js';
+import { startUpload, endUpload, stopAction } from './sendaction.js';
 
 // Отправка файлов — как в нативном клиенте Telegram.
 //
@@ -339,10 +340,14 @@ async function send() {
         }
       }
       meta.push(info);
+      // «Отправляет фото/видео/файл» собеседнику, пока байты идут на сервер.
+      startUpload(mode === 'media' ? (isPhoto(file) ? 'photo' : 'video') : 'document');
       ids.push(await upload(file, (loaded) => setProgress((done + loaded) / total)));
       done += file.size;
     }
     xhr = null;
+    // Дальше файл грузит в Telegram сама TDLib — и действие шлёт она же.
+    endUpload();
     await hooks.call('message.sendFiles', {
       files: ids,
       meta,
@@ -355,6 +360,7 @@ async function send() {
     closeDialog();
   } catch (error) {
     xhr = null;
+    stopAction();
     if (cancelled) return;
     setBusy(false);
     view.error.textContent = error instanceof Error ? error.message : String(error);

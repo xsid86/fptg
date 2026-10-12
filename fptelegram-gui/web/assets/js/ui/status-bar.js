@@ -6,6 +6,7 @@ import { fillAvatar } from '../util/avatar.js';
 import { openMenu } from '../util/menu.js';
 import { formDialog } from './bots.js';
 import { fileSize } from '../util/format.js';
+import { openSettings } from './settings.js';
 
 // Connection state and a couple of counters. Deliberately the only
 // place that reports the socket: a status that appears in two places
@@ -20,10 +21,6 @@ const LABEL = {
 let conn = null;
 let counts = null;
 let presence = null;
-// What the server last said. Never guessed from the click: the switch
-// is remembered on disk and shared with the native window, so the
-// answer is the only thing that knows.
-let invisible = false;
 
 function renderStatus(status) {
   conn.className = `conn is-${status}`;
@@ -33,46 +30,17 @@ function renderStatus(status) {
   );
 }
 
-// Online or Invisible, the same switch the native window keeps in its
-// status bar - and in the same corner, because that is where it has
-// always been.
-//
-// Invisible is not decoration: while it is on, nothing this client
-// reads is reported back (viewMessages is withheld in the model) and
-// contacts are not shown an online presence. So it says which one is
-// on in words, not only by colour.
+// «Online» — всегда: режима «Невидимка» больше нет (2026-10-12, условия
+// Telegram API §1.4 — нельзя прятать онлайн и не отмечать прочитанное).
+// Кто видит «в сети» и время прочтения — официальные настройки
+// приватности, клик ведёт прямо в них (Settings → Privacy).
 function renderPresence() {
-  presence.classList.toggle('is-invisible', invisible);
-  presence.title = invisible
-    ? 'Invisible: messages are not marked as read and contacts do not see you online'
-    : 'Online: reading a chat marks its messages as read';
+  presence.title = 'Who can see your last seen, online status and read time: '
+    + 'Settings → Privacy';
   clear(presence).append(
     el('span', { class: 'conn__dot' }),
-    el('span', { textContent: invisible ? 'Invisible' : 'Online' }),
+    el('span', { textContent: 'Online' }),
   );
-}
-
-async function loadPresence() {
-  try {
-    const answer = await call('presence.get');
-    invisible = !!answer.invisible;
-  } catch {
-    return;                       // the connection will say so itself
-  }
-  renderPresence();
-}
-
-async function togglePresence() {
-  presence.disabled = true;
-  try {
-    const answer = await call('presence.set', { invisible: !invisible });
-    invisible = !!answer.invisible;
-    renderPresence();
-  } catch (error) {
-    showError(error.message);
-  } finally {
-    presence.disabled = false;
-  }
 }
 
 function renderCounts() {
@@ -181,7 +149,7 @@ function openAccounts() {
 }
 
 // ---------------------------------------------------------- traffic
-// Трафик ЭТОГО окна с сервером под Online/Invisible. Считает сервер — по
+// Трафик ЭТОГО окна с сервером под Online. Считает сервер — по
 // сеансу входа, с запуска сервера — и присылает итог раз в секунду
 // (событие traffic: sent/recv со стороны сервера); скорость — по
 // разнице двух соседних итогов. ↓ получено окном, ↑ отправлено.
@@ -232,7 +200,7 @@ export function mountStatusBar(node) {
   conn = qs('.conn', node);
   counts = qs('.status-bar__counts', node);
   presence = qs('.status-bar__presence', node);
-  presence.addEventListener('click', togglePresence);
+  presence.addEventListener('click', () => openSettings('privacy'));
   traffic = qs('.status-bar__traffic', node);
   traffic.title = 'Traffic of this window with the server (this sign-in, '
     + 'since the server started): ↓ received, ↑ sent';
@@ -247,17 +215,7 @@ export function mountStatusBar(node) {
     renderStatus(status);
     // Без связи прежний итог не сравнивать — скорость начнётся заново.
     if (status !== 'open') prevTraffic = null;
-    // Asked again on every connect, not once at start-up: another page
-    // - or the native window - may have flipped it while this one was
-    // away, and the server is the one that knows.
-    if (status === 'open') {
-      loadPresence();
-      loadAccounts();
-    }
-  });
-  on('srv:presence', (data) => {
-    invisible = !!data?.invisible;
-    renderPresence();
+    if (status === 'open') loadAccounts();
   });
   on('store:chats', renderCounts);
   renderStatus('connecting');

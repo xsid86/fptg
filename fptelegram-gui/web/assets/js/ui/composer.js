@@ -3,6 +3,7 @@ import { on, emit } from '../core/bus.js';
 import { store, onActiveChat, openThread, chatJoin } from '../core/store.js';
 import { mountMentions, closeMentions } from './mentions.js';
 import { call } from '../core/net.js';
+import { noteTyping, stopAction } from './sendaction.js';
 
 // The message box, and the same formatting toolbar msginput.pas has.
 //
@@ -393,6 +394,7 @@ function send() {
   drawBanner();
   closeMentions();
   input.value = '';
+  stopAction();
   input.focus();
 }
 
@@ -430,6 +432,12 @@ export function mountComposer(node) {
   // важно: она слушает в фазе перехвата.
   mountMentions(input, { enabled: () => canSend, isHtml });
   sendBtn.addEventListener('click', send);
+  // «Печатает» собеседнику (ui/sendaction.js). Не при правке своего
+  // сообщения — там ничего нового не пишут, официальные клиенты молчат.
+  input.addEventListener('input', () => {
+    if (!canSend || pending?.mode === 'edit') return;
+    noteTyping(!input.value.trim());
+  });
   qs('.composer__banner-cancel', banner)?.addEventListener('click', cancelPending);
   // Файлы из буфера обмена (снимок экрана, скопированный в проводнике
   // файл) — в тот же диалог отправки. Текст вставляется как обычно.

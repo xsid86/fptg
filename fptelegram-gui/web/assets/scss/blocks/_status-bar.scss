@@ -86,13 +86,12 @@
   &:disabled { cursor: default; }
   &:focus-visible { @include focus-ring(var(--c-accent), -2px); }
 
-  // Online borrows the connection dot's own green; Invisible goes grey,
-  // which is what "nothing is going out" should look like.
+  // Online borrows the connection dot's own green. Клик — в Settings →
+  // Privacy («Невидимки» больше нет, 2026-10-12).
   .conn__dot { background: var(--c-ok); }
-  &.is-invisible .conn__dot { background: var(--c-text-faint); }
 }
 
-// Online/Invisible и под ним трафик окна — как «transport check» с
+// Online и под ним трафик окна — как «transport check» с
 // состоянием соединения.
 .status-bar__presence-box {
   @include flex(column, flex-start, center, $space-1);
