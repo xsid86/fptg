@@ -1,3 +1,4 @@
+@use "sass:math";
 @use "../abstracts" as *;
 
 // One row of the chat list, laid out like the native card it mirrors
@@ -128,27 +129,45 @@
 
 // Значок идущего видеочата / трансляции (ui/chat-list.js): кружок у
 // правого нижнего края аватарки с тремя «пляшущими» полосками.
+// Вырез в аватарке под значком: SVG-маска во весь элемент — квадрат с
+// круглой дыркой (fill-rule evenodd), координаты в процентах от аватарки
+// (viewBox 0..100, preserveAspectRatio none). Растягивается вместе с
+// аватаркой, и вырез с ней. Каймы вокруг значка нет — фон чата виден
+// в вырезе, какой бы он ни был.
+$-live-r: math.div($live-badge-share, 2) + $live-badge-gap;
+$-live-hole: "M0 0H100V100H0Z M#{$live-badge-center - $-live-r} #{$live-badge-center}a#{$-live-r} #{$-live-r} 0 1 0 #{2 * $-live-r} 0a#{$-live-r} #{$-live-r} 0 1 0 #{-2 * $-live-r} 0Z";
+$-live-mask: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath fill-rule='evenodd' d='#{$-live-hole}'/%3E%3C/svg%3E";
+
 .chat-item__avatar-box {
   flex: 0 0 auto;
   position: relative;
+
+  // Аватарка (или аватарка с кольцом историй) — с вырезом.
+  > :first-child {
+    mask-image: url($-live-mask);
+    mask-repeat: no-repeat;
+    mask-size: 100% 100%;
+  }
 }
 
 .chat-item__live {
-  @include flex(row, center, center, 1px);
-  @include size($live-badge-size);
+  @include flex(row, center, center, 0);
   background: var(--c-ok);
-  border: 2px solid var(--c-bg);
   border-radius: 50%;
-  bottom: -2px;
+  gap: 6%;
+  height: percentage(math.div($live-badge-share, 100));
+  left: percentage(math.div($live-badge-center - math.div($live-badge-share, 2), 100));
   position: absolute;
-  right: -2px;
+  top: percentage(math.div($live-badge-center - math.div($live-badge-share, 2), 100));
+  width: percentage(math.div($live-badge-share, 100));
 
+  // Полоски — в долях значка: масштабируются вместе с ним.
   i {
     animation: live-bar-dance 1s ease-in-out infinite;
     background: #ffffff;
     border-radius: 1px;
-    height: 7px;
-    width: 2px;
+    height: 40%;
+    width: 11%;
 
     &:nth-child(2) { animation-delay: -.33s; }
     &:nth-child(3) { animation-delay: -.66s; }

@@ -3119,29 +3119,32 @@ dialog[open].is-pop-up,
   flex: 0 0 auto;
   position: relative;
 }
+.chat-item__avatar-box > :first-child {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath fill-rule='evenodd' d='M0 0H100V100H0Z M61.25 84a22.75 22.75 0 1 0 45.5 0a22.75 22.75 0 1 0 -45.5 0Z'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+}
 
 .chat-item__live {
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
   background: var(--c-ok);
-  border: 2px solid var(--c-bg);
   border-radius: 50%;
-  bottom: -2px;
+  gap: 6%;
+  height: 37.5%;
+  left: 65.25%;
   position: absolute;
-  right: -2px;
+  top: 65.25%;
+  width: 37.5%;
 }
 .chat-item__live i {
   animation: live-bar-dance 1s ease-in-out infinite;
   background: #ffffff;
   border-radius: 1px;
-  height: 7px;
-  width: 2px;
+  height: 40%;
+  width: 11%;
 }
 .chat-item__live i:nth-child(2) {
   animation-delay: -0.33s;
