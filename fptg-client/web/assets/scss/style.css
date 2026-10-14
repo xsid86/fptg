@@ -2700,8 +2700,13 @@ dialog[open].is-pop-up,
 
 .story-ring__seg {
   fill: none;
-  stroke: var(--chat-color, var(--c-accent));
   stroke-linecap: butt;
+}
+.story-ring__seg:not(.is-read) {
+  stroke: var(--chat-color, var(--c-accent));
+}
+:root[data-style=plain] .story-ring__seg:not(.is-read), :root[data-style=aurora] .story-ring__seg:not(.is-read) {
+  stroke: var(--c-accent);
 }
 .story-ring__seg.is-read {
   stroke: var(--c-text-faint);
@@ -3130,7 +3135,7 @@ dialog[open].is-pop-up,
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  background: var(--c-ok);
+  background: var(--chat-color, var(--c-accent));
   border-radius: 50%;
   gap: 6%;
   height: 37.5%;
@@ -3138,6 +3143,9 @@ dialog[open].is-pop-up,
   position: absolute;
   top: 65.25%;
   width: 37.5%;
+}
+:root[data-style=plain] .chat-item__live, :root[data-style=aurora] .chat-item__live {
+  background: var(--c-accent);
 }
 .chat-item__live i {
   animation: live-bar-dance 1s ease-in-out infinite;
@@ -10935,6 +10943,7 @@ span.picker__gif {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
+  --chat-color: var(--accent-color, var(--c-accent));
   background: color-mix(in srgb, var(--c-surface) 85%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   padding: 6px 16px;
@@ -10951,9 +10960,15 @@ span.picker__gif {
   width: 32px;
   height: 32px;
   flex: 0 0 auto;
-  background: color-mix(in srgb, var(--c-ok) 20%, transparent);
+  background: color-mix(in srgb, var(--chat-color, var(--c-accent)) 20%, transparent);
+  color: var(--chat-color, var(--c-accent));
   border-radius: 50%;
-  color: var(--c-ok);
+}
+:root[data-style=plain] .live-bar__icon, :root[data-style=aurora] .live-bar__icon {
+  background: color-mix(in srgb, var(--c-accent) 20%, transparent);
+}
+:root[data-style=plain] .live-bar__icon, :root[data-style=aurora] .live-bar__icon {
+  color: var(--c-accent);
 }
 
 .live-bar__text {
@@ -11405,9 +11420,6 @@ span.picker__gif {
 :root[data-style=plain] .chat-item__action:hover, :root[data-style=plain] .chat-item__action:active, :root[data-style=plain] .chat-item__action:focus {
   color: var(--c-accent);
 }
-:root[data-style=plain] .story-ring__seg:not(.is-read) {
-  stroke: var(--c-accent);
-}
 :root[data-style=plain] .contact-row:hover {
   background: var(--c-accent);
 }
@@ -11582,9 +11594,6 @@ span.picker__gif {
 }
 :root[data-style=aurora] .chat-item__kind {
   fill: var(--c-text-dim);
-}
-:root[data-style=aurora] .story-ring__seg:not(.is-read) {
-  stroke: var(--c-accent);
 }
 :root[data-style=aurora] .chat-item__action:hover, :root[data-style=aurora] .chat-item__action:active, :root[data-style=aurora] .chat-item__action:focus {
   color: var(--c-accent);

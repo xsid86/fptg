@@ -1,6 +1,37 @@
 @use "sass:map";
 @use "sass:math";
+@use "sass:string";
 @use "variables" as v;
+
+// ЦВЕТ ЧАТА — одно правило на всё, что красится «под собеседника»:
+// в цветных темах (Dark colored, Light colored) — цвет контакта
+// (--chat-color блока, из класса .accent-*), в простых темах и Aurora —
+// акцент приложения (--c-accent). Поэтому в блоке пишется одна строка:
+//
+//     @include chat-tint(background, 20%);    // подложка: 20% цвета на прозрачном
+//     @include chat-tint(color);              // сам цвет
+//     @include chat-tint(stroke);
+//
+// $share — доля цвета, $mix — с чем смешан (по умолчанию прозрачный).
+// Переопределение для простых тем и Aurora миксин ставит сам (селектор
+// с :root[data-style] специфичнее правил блока) — в файлы тем ничего не
+// дописывается. Условие одно: у элемента или его предка задан
+// --chat-color, иначе в цветных темах берётся акцент.
+@function tint-value($color, $share, $mix) {
+  @if $share == 100% {
+    @return string.unquote($color);
+  }
+  @return string.unquote("color-mix(in srgb, #{$color} #{$share}, #{$mix})");
+}
+
+@mixin chat-tint($property, $share: 100%, $mix: transparent) {
+  #{$property}: tint-value("var(--chat-color, var(--c-accent))", $share, $mix);
+
+  :root[data-style="plain"] &,
+  :root[data-style="aurora"] & {
+    #{$property}: tint-value("var(--c-accent)", $share, $mix);
+  }
+}
 
 // Mixins that earn their place: each one is used in more than one
 // block, and each one hides something that is easy to get subtly wrong

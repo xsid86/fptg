@@ -152,7 +152,7 @@ $-live-mask: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewB
 
 .chat-item__live {
   @include flex(row, center, center, 0);
-  background: var(--c-ok);
+  @include chat-tint(background);
   border-radius: 50%;
   gap: 6%;
   height: percentage(math.div($live-badge-share, 100));

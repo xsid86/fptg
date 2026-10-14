@@ -5,6 +5,8 @@
 // «Join». Как у официальных клиентов под шапкой чата.
 .live-bar {
   @include flex(row, center, flex-start, $space-4);
+  // Цвет чата для tint: класс .accent-* ставит ui/livebar.js.
+  --chat-color: var(--accent-color, var(--c-accent));
   background: color-mix(in srgb, var(--c-surface) 85%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   padding: $space-3 $space-6;
@@ -17,9 +19,9 @@
 .live-bar__icon {
   @include flex(row, center, center);
   @include size(32px);
-  background: color-mix(in srgb, var(--c-ok) 20%, transparent);
+  @include chat-tint(background, 20%);
+  @include chat-tint(color);
   border-radius: 50%;
-  color: var(--c-ok);
 }
 
 .live-bar__text {

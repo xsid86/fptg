@@ -37,6 +37,8 @@ function paint() {
   const visible = Boolean(chat && call && call.active && !openThread());
   bar.hidden = !visible;
   if (!visible) return;
+  // Цвет контакта для «цвета чата» (@include tint в _live-bar.scss).
+  bar.className = `live-bar accent-${chat.color || 'a5'}`;
   const stream = call.rtmp || chat.kind === 'channel';
   parts.title.textContent = call.title || (stream ? 'Live stream' : 'Video chat');
   parts.count.textContent = plural(call.count ?? 0, 'participant', 'participants');
