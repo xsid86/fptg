@@ -21,6 +21,9 @@ import { mountTranslate } from './ui/translate.js';
 import { mountCalls } from './ui/call.js';
 import { setCanTranscribe } from './ui/message.js';
 import { mountVideoChat } from './ui/videochat.js';
+import { mountLiveBar } from './ui/livebar.js';
+import { mountLiveStream } from './ui/livestream.js';
+import { mountStories } from './ui/stories.js';
 import { mountPicker, pickerChanged } from './ui/picker.js';
 import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
@@ -561,6 +564,7 @@ async function boot() {
 
   mountChatList(listNode);
   mountChatHeader(qs('#chat-header'));
+  mountLiveBar(qs('#chat-header'), { call: (cmd, args) => call(cmd, args) });
   mountHistory(qs('#history'));
   mountComposer(qs('#composer'));
   // The menu reads and acts through main.js like every other view:
@@ -634,6 +638,8 @@ async function boot() {
   mountCalls({ call: (cmd, args) => call(cmd, args), report, notice });
   // Видеочаты групп и каналов (ui/videochat.js, calls/group.js); открыть — ui:vchat-open.
   mountVideoChat({ call: (cmd, args) => call(cmd, args), report, notice });
+  mountLiveStream({ call: (cmd, args) => call(cmd, args), report, notice });
+  mountStories({ call: (cmd, args) => call(cmd, args), report, notice });
   // «Add contact» на карточке контакта в истории — то же окно, что в панели.
   on('ui:add-contact', (args) => { addContactDialog(args); });
   mountAttachMenu(qs('#composer'), {

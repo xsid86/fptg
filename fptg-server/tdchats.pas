@@ -106,6 +106,16 @@ type
     UnreadCount:        integer;
     UnreadMentionCount: integer;
     IsMarkedAsUnread:   boolean;
+    { Видеочат / трансляция чата (chat.video_chat, updateChatVideoChat):
+      id звонка (0 — нет) и есть ли в нём кто-то — значок в списке и
+      плашка над историей (ui/livebar.js). }
+    VideoChatId:        integer;
+    VideoChatLive:      boolean;
+    { Активные истории чата (updateChatActiveStories): сколько и сколько
+      из них прочитано (story_id <= max_read_story_id) — кольцо из
+      сегментов вокруг аватарки (ui/chat-list.js). }
+    StoryCount:         integer;
+    StoryReadCount:     integer;
     IsMuted:            boolean;   { mute_for > 0 }
     { Raw notification settings. Kept whole because
       setChatNotificationSettings takes the object AS A WHOLE: building
@@ -291,6 +301,10 @@ type
     procedure SetLoading(AValue: boolean);
     procedure LoadChatsDone(Sender: TObject; const AResp: TTdResponse);
     procedure ArchiveDone(Sender: TObject; const AResp: TTdResponse);
+    procedure LoadStories(AArchive: boolean);
+    procedure StoriesMainDone(Sender: TObject; const AResp: TTdResponse);
+    procedure StoriesArchiveDone(Sender: TObject; const AResp: TTdResponse);
+    procedure ApplyActiveStories(AObj: TJSONObject);
     function GetArchiveCount: integer;
     function GetArchiveRow(AIndex: integer): TChatRow;
     procedure RebuildArchive;
@@ -1592,6 +1606,70 @@ begin
   end;
 end;
 
+{ Истории: TDLib присылает updateChatActiveStories только для списков,
+  которые попросили загрузить (loadActiveStories); просить до 404 —
+  «загружено всё». }
+procedure TTdChats.LoadStories(AArchive: boolean);
+const
+  LIST: array[boolean] of utf8string = ('storyListMain', 'storyListArchive');
+begin
+  if (FReq = nil) or (FSession = nil) or (FSession.State <> tasReady) then begin
+    Exit;
+  end;
+  if AArchive then begin
+    FReq.SendRequest('loadActiveStories',
+      '"story_list":{"@type":"' + LIST[True] + '"}', @StoriesArchiveDone);
+  end else begin
+    FReq.SendRequest('loadActiveStories',
+      '"story_list":{"@type":"' + LIST[False] + '"}', @StoriesMainDone);
+  end;
+end;
+
+procedure TTdChats.StoriesMainDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if AResp.Success then begin
+    LoadStories(False);
+  end;
+end;
+
+procedure TTdChats.StoriesArchiveDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if AResp.Success then begin
+    LoadStories(True);
+  end;
+end;
+
+procedure TTdChats.ApplyActiveStories(AObj: TJSONObject);
+var
+  R: TChatRow;
+  List: TJSONArray;
+  MaxRead, I: integer;
+begin
+  if AObj = nil then begin
+    Exit;
+  end;
+  R := Lookup(JGetInt64(AObj, 'chat_id'));
+  if R = nil then begin
+    Exit;
+  end;
+  List := JGetArr(AObj, 'stories');
+  MaxRead := JGetInt(AObj, 'max_read_story_id');
+  R.StoryCount := 0;
+  R.StoryReadCount := 0;
+  if List <> nil then begin
+    for I := 0 to List.Count - 1 do begin
+      if not (List.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      Inc(R.StoryCount);
+      if JGetInt(TJSONObject(List.Items[I]), 'story_id') <= MaxRead then begin
+        Inc(R.StoryReadCount);
+      end;
+    end;
+  end;
+  Touch;
+end;
+
 procedure TTdChats.ApplyUnreadCount(AObj: TJSONObject);
 var
   Kind: utf8string;
@@ -2445,6 +2523,8 @@ begin
   R.LastReadOutbox := JGetInt64(AChat, 'last_read_outbox_message_id');
   R.LastReadInbox := JGetInt64(AChat, 'last_read_inbox_message_id');
   R.AccentColorId := JGetInt(AChat, 'accent_color_id');
+  R.VideoChatId := JGetInt(JGetObj(AChat, 'video_chat'), 'group_call_id');
+  R.VideoChatLive := JGetBool(JGetObj(AChat, 'video_chat'), 'has_participants');
   ApplyPermissions(R, JGetObj(AChat, 'permissions'));
   ApplyNotifySettings(R, JGetObj(AChat, 'notification_settings'));
   ApplyPhoto(R, JGetObj(AChat, 'photo'));
@@ -2483,6 +2563,21 @@ begin
       end;
       FOnChatAction(Self, JGetInt64(Obj, 'chat_id'), ThreadId,
         JGetObj(Obj, 'sender_id'), JGetStr(JGetObj(Obj, 'action'), '@type'));
+    end;
+    Exit;
+  end;
+
+  if T = 'updateChatActiveStories' then begin
+    ApplyActiveStories(JGetObj(Obj, 'active_stories'));
+    Exit;
+  end;
+
+  if T = 'updateChatVideoChat' then begin
+    R := Lookup(JGetInt64(Obj, 'chat_id'));
+    if R <> nil then begin
+      R.VideoChatId := JGetInt(JGetObj(Obj, 'video_chat'), 'group_call_id');
+      R.VideoChatLive := JGetBool(JGetObj(Obj, 'video_chat'), 'has_participants');
+      Touch;
     end;
     Exit;
   end;
@@ -2600,6 +2695,8 @@ begin
     Clear;
     LoadMore;
     LoadMoreArchive;
+    LoadStories(False);
+    LoadStories(True);
   end else if TdIsShuttingState(AState) then begin
     Clear;
     SetLoading(False);

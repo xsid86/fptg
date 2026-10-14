@@ -126,6 +126,46 @@
   padding: $space-3;
 }
 
+// Значок идущего видеочата / трансляции (ui/chat-list.js): кружок у
+// правого нижнего края аватарки с тремя «пляшущими» полосками.
+.chat-item__avatar-box {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.chat-item__live {
+  @include flex(row, center, center, 1px);
+  @include size($live-badge-size);
+  background: var(--c-ok);
+  border: 2px solid var(--c-bg);
+  border-radius: 50%;
+  bottom: -2px;
+  position: absolute;
+  right: -2px;
+
+  i {
+    animation: live-bar-dance 1s ease-in-out infinite;
+    background: #ffffff;
+    border-radius: 1px;
+    height: 7px;
+    width: 2px;
+
+    &:nth-child(2) { animation-delay: -.33s; }
+    &:nth-child(3) { animation-delay: -.66s; }
+  }
+}
+
+@keyframes live-bar-dance {
+  0%, 100% { transform: scaleY(.4); }
+  50% { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-item__live i {
+    animation: none;
+  }
+}
+
 .chat-item__avatar {
   align-self: stretch;
 

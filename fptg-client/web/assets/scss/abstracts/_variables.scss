@@ -136,6 +136,20 @@ $audio-text-dark: 30%;
 // сообщения — доля колонки истории.
 $message-side-max: 78%;
 
+// Значок идущего видеочата на аватарке в списке чатов.
+$live-badge-size: 18px;
+
+// Кольцо историй (components/_story-ring.scss): насколько аватарка внутри
+// меньше кольца — зазор между фото и кольцом. Толщина дуги и зазоры
+// между сегментами — в util/storyring.js (STROKE, GAP).
+$story-ring-inset: 5px;
+
+// Окно трансляции (ui/livestream.js): ширина карточки.
+$live-width: 760px;
+
+// Просмотр историй (blocks/_stories.scss): высота карточки 9:16 от окна.
+$stories-height: 90vh;
+
 // Въезд нового сообщения снизу (blocks/_message.scss, ui/history.js).
 $arrive-delta:    1rem;
 $arrive-duration: .3s;

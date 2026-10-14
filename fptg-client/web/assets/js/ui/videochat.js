@@ -6,6 +6,7 @@ import { formDialog } from './bots.js';
 import { GroupSession } from '../calls/group.js';
 import { routeAudio, devicePanel, togglePanel } from '../calls/devices.js';
 import { store } from '../core/store.js';
+import { openLiveStream } from './livestream.js';
 
 // Окно видеочата (группового звонка чата): плитки участников (видео или
 // аватарка, имя, микрофон, рамка у говорящего), кнопки — микрофон,
@@ -275,8 +276,9 @@ async function openChat({ chatId, title }) {
       return;
     }
   }
+  // RTMP-трансляция — своё окно и куски вместо WebRTC (ui/livestream.js).
   if (info.call?.rtmp) {
-    hooks.notice?.('Live streams are not supported yet');
+    openLiveStream({ chatId, title, callId, call: info.call });
     return;
   }
   state = {

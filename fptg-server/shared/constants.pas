@@ -276,6 +276,9 @@ const
     а консольный сервер выводил бы туда переписку. Что TDLib прислала,
     и так видно в tdlib_raw.log. }
   TDLIB_LOG_VERBOSITY = 1;
+  { Сколько последних говоривших показывать на плашке трансляции
+    (webapi.SpeakersJson). }
+  VCHAT_BAR_SPEAKERS = 3;
 
   { ================= tdmessages.pas ================= }
 

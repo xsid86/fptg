@@ -168,6 +168,11 @@
     }
   }
 
+  // Кольцо историй — акцентом, не цветом контакта.
+  .story-ring__seg:not(.is-read) {
+    stroke: var(--c-accent);
+  }
+
   .contact-row:hover {
     background: var(--c-accent);
   }

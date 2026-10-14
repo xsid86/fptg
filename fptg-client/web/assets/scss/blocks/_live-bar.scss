@@ -1,0 +1,59 @@
+@use "../abstracts" as *;
+
+// Плашка видеочата / трансляции над историей (ui/livebar.js): значок,
+// «Live stream» и число участников, аватарки последних говоривших,
+// «Join». Как у официальных клиентов под шапкой чата.
+.live-bar {
+  @include flex(row, center, flex-start, $space-4);
+  background: color-mix(in srgb, var(--c-surface) 85%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  padding: $space-3 $space-6;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.live-bar__icon {
+  @include flex(row, center, center);
+  @include size(32px);
+  background: color-mix(in srgb, var(--c-ok) 20%, transparent);
+  border-radius: 50%;
+  color: var(--c-ok);
+}
+
+.live-bar__text {
+  @include flex(column, flex-start, center, 0);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.live-bar__title {
+  @include ellipsis;
+  color: var(--c-text);
+  font-weight: $fw-bold;
+}
+
+.live-bar__count {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+// Аватарки внахлёст.
+.live-bar__faces {
+  @include flex(row, center, flex-start, 0);
+
+  .live-bar__face + .live-bar__face {
+    margin-left: -8px;
+  }
+}
+
+.live-bar__face {
+  border: 2px solid var(--c-surface);
+}
+
+.live-bar__join {
+  border-radius: $radius-pill;
+  flex: 0 0 auto;
+  padding: $space-2 $space-6;
+}

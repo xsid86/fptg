@@ -6,6 +6,7 @@ import { listTime, countLabel } from '../util/format.js';
 import { closeMenuIfDetached } from '../util/menu.js';
 import { customEmojiNode, customEmojiUrl } from '../util/emoji.js';
 import { fillAvatar } from '../util/avatar.js';
+import { storyRing } from '../util/storyring.js';
 import { renderRichText } from '../util/entities.js';
 import { userIdNode } from './userid.js';
 
@@ -167,9 +168,28 @@ function receipt(chat) {
 }
 
 function avatar(chat) {
-  const box = el('span', { class: 'avatar chat-item__avatar' });
+  let box = el('span', { class: 'avatar chat-item__avatar' });
   fillAvatar(box, chat);
-  return box;
+  // Активные истории — кольцо сегментов вокруг аватарки (util/storyring.js).
+  if (chat.stories > 0) {
+    box = storyRing(box, chat.stories, chat.storiesRead ?? 0);
+    // Клик по кольцу — истории (ui/stories.js), а не открыть чат.
+    box.classList.add('is-clickable');
+    box.addEventListener('click', (event) => {
+      event.stopPropagation();
+      emit('ui:stories-open', chat);
+    });
+  }
+  if (!(chat.videoChat && chat.videoChatLive)) return box;
+  // Идёт видеочат или трансляция с участниками — значок на аватарке, как
+  // у официальных клиентов. Рядом с аватаркой, а не в ней: у той
+  // overflow: hidden (круг).
+  return el('span', { class: 'chat-item__avatar-box' },
+    box,
+    el('span', {
+      class: 'chat-item__live',
+      title: chat.kind === 'channel' ? 'Live stream' : 'Video chat',
+    }, el('i'), el('i'), el('i')));
 }
 
 // Which row the viewport is resting on, so a rebuild can put it back.

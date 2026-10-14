@@ -1,0 +1,49 @@
+@use "../abstracts" as *;
+
+// Окно трансляции (ui/livestream.js). Каркас — от окна видеочата
+// (.call, .vchat__card, .call__actions в _call.scss); здесь только
+// «сцена»: чёрный кадр 16:9 с видео или надписью «не ведёт трансляцию».
+.live__card {
+  width: $live-width;
+}
+
+.live__stage {
+  @include flex(row, center, center);
+  aspect-ratio: 16 / 9;
+  background: #000000;
+  border-radius: $radius-md;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+
+  &:fullscreen {
+    border-radius: 0;
+  }
+}
+
+.live__video {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+// Поворот кадра из заголовка куска tgcalls.
+.live__stage.is-rot-90 .live__video { rotate: 90deg; }
+.live__stage.is-rot-180 .live__video { rotate: 180deg; }
+.live__stage.is-rot-270 .live__video { rotate: 270deg; }
+
+.live__note {
+  @include absolute-fill;
+  @include flex(row, center, center);
+  color: var(--c-text-dim);
+  padding: $space-6;
+  text-align: center;
+
+  &[hidden] {
+    display: none;
+  }
+}

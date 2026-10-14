@@ -223,6 +223,15 @@ type
     function  CmdVchatJoin(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure VchatJoinDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdVchatParticipants(AArgs: TJSONObject): TJSONData;
+    function  CmdStoryList(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure StoryListDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdStoryOpen(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure StoryGetDone(Sender: TObject; const AResp: TTdResponse);
+    procedure StoryFileDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdVchatStreams(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure VchatStreamsDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdVchatSegment(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure VchatSegmentDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdVchatSimple(const ACmd: utf8string; AConnId: Int64; AReqId: integer;
       AArgs: TJSONObject): boolean;
     procedure VchatCreateDone(Sender: TObject; const AResp: TTdResponse);
@@ -794,6 +803,13 @@ begin
     the current entry without matching on a display string. 0 = the
     chat is in no folder, the same convention RowFolderId uses. }
   Result.Add('folderId', FolderId);
+  { Видеочат или трансляция: id звонка (0 — нет) и идёт ли он с
+    участниками — значок на аватарке и плашка над историей. }
+  Result.Add('videoChat', ARow.VideoChatId);
+  Result.Add('videoChatLive', ARow.VideoChatLive);
+  { Истории: всего и прочитано — сегменты кольца вокруг аватарки. }
+  Result.Add('stories', ARow.StoryCount);
+  Result.Add('storiesRead', ARow.StoryReadCount);
   Result.Add('premium',  AChats.IsPremiumUser(ARow));
   Result.Add('deleted',  AChats.IsDeletedUser(ARow));
   { Whether this account may write here at all — a channel it only
@@ -9070,6 +9086,29 @@ end;
 { ------------------------------------------------------------------ }
 
 { groupCall для страницы — то, что нужно окну видеочата. }
+{ Последние говорившие (groupCall.recent_speakers) — аватарки на плашке
+  трансляции; не больше VCHAT_BAR_SPEAKERS. }
+function SpeakersJson(AList: TJSONArray): TJSONArray;
+var
+  I: integer;
+  Item: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  if AList = nil then begin
+    Exit;
+  end;
+  for I := 0 to AList.Count - 1 do begin
+    if Result.Count >= VCHAT_BAR_SPEAKERS then begin
+      Break;
+    end;
+    if not (AList.Items[I] is TJSONObject) then begin
+      Continue;
+    end;
+    Item := TJSONObject(AList.Items[I]);
+    Result.Add(SenderPersonJson(JGetObj(Item, 'participant_id'), 0));
+  end;
+end;
+
 function GroupCallToJson(AGroup: TJSONObject): TJSONObject;
 begin
   Result := TJSONObject.Create;
@@ -9085,6 +9124,7 @@ begin
   Result.Add('myVideo', JGetBool(AGroup, 'is_my_video_enabled'));
   Result.Add('canEnableVideo', JGetBool(AGroup, 'can_enable_video'));
   Result.Add('muteNew', JGetBool(AGroup, 'mute_new_participants'));
+  Result.Add('speakers', SpeakersJson(JGetArr(AGroup, 'recent_speakers')));
 end;
 
 { Видеоканал участника: endpoint и группы SSRC (SIM/FID). nil — нет. }
@@ -9333,6 +9373,261 @@ begin
   RequireMsgs.Request('loadGroupCallParticipants', '"group_call_id":'
     + utf8string(IntToStr(Id)) + ',"limit":' + utf8string(IntToStr(VCHAT_LOAD_PARTICIPANTS)),
     nil, 0);
+end;
+
+{ Истории (ui/stories.js).
+
+  story.list (chatId): getChatActiveStories -> stories: массив (id,
+  date) по возрастанию id, maxRead — max_read_story_id. }
+function TWebApi.CmdStoryList(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+begin
+  Result := True;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('getChatActiveStories', '"chat_id":'
+    + utf8string(IntToStr(ArgId(AArgs, 'chatId'))), @StoryListDone, Slot);
+end;
+
+procedure TWebApi.StoryListDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, O, S: TJSONObject;
+  Src: TJSONArray;
+  Arr: TJSONArray;
+  I: integer;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('maxRead', JGetInt(AResp.Obj, 'max_read_story_id'));
+  Arr := TJSONArray.Create;
+  Src := JGetArr(AResp.Obj, 'stories');
+  if Src <> nil then begin
+    for I := 0 to Src.Count - 1 do begin
+      if not (Src.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      S := TJSONObject(Src.Items[I]);
+      O := TJSONObject.Create;
+      O.Add('id', JGetInt(S, 'story_id'));
+      O.Add('date', JGetInt(S, 'date'));
+      Arr.Add(O);
+    end;
+  end;
+  Res.Add('stories', Arr);
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ story.open (chatId, storyId): getStory -> что показать (фото — самый
+  крупный размер, видео — сам файл) -> downloadFile synchronous ->
+  id, date, kind (photo | video | unsupported), url, thumb (размытая
+  миниатюра), duration, caption. И openStory: так TDLib считает
+  историю просмотренной (max_read_story_id, кольцо в списке). }
+function TWebApi.CmdStoryOpen(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Ids: utf8string;
+begin
+  Result := True;
+  Ids := '"story_poster_chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'chatId')))
+    + ',"story_id":' + utf8string(IntToStr(integer(AArgs.Get('storyId', 0))));
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('getStory', Ids + ',"only_local":false', @StoryGetDone, Slot);
+  RequireMsgs.Request('openStory', Ids, nil, 0);
+end;
+
+procedure TWebApi.StoryGetDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  H, Content, Media, F, Local, Mini, Best: TJSONObject;
+  Sizes: TJSONArray;
+  Kind: utf8string;
+  I: integer;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  H := FDeferred[Slot].Held;
+  H.Add('id', JGetInt(AResp.Obj, 'id'));
+  H.Add('date', JGetInt(AResp.Obj, 'date'));
+  H.Add('caption', string(JGetStr(JGetObj(AResp.Obj, 'caption'), 'text')));
+  Content := JGetObj(AResp.Obj, 'content');
+  Kind := JGetStr(Content, '@type');
+  F := nil;
+  Mini := nil;
+  if Kind = 'storyContentPhoto' then begin
+    Media := JGetObj(Content, 'photo');
+    Mini := JGetObj(Media, 'minithumbnail');
+    Sizes := JGetArr(Media, 'sizes');
+    Best := nil;
+    if Sizes <> nil then begin
+      for I := 0 to Sizes.Count - 1 do begin
+        if (Sizes.Items[I] is TJSONObject) and ((Best = nil)
+           or (JGetInt(TJSONObject(Sizes.Items[I]), 'width') > JGetInt(Best, 'width'))) then begin
+          Best := TJSONObject(Sizes.Items[I]);
+        end;
+      end;
+    end;
+    F := JGetObj(Best, 'photo');
+    H.Add('kind', 'photo');
+    H.Add('duration', 0);
+  end else if Kind = 'storyContentVideo' then begin
+    Media := JGetObj(Content, 'video');
+    Mini := JGetObj(Media, 'minithumbnail');
+    F := JGetObj(Media, 'video');
+    H.Add('kind', 'video');
+    if Media <> nil then begin
+      H.Add('duration', Media.Get('duration', 0.0));
+    end else begin
+      H.Add('duration', 0);
+    end;
+  end else begin
+    H.Add('kind', 'unsupported');
+    H.Add('duration', 0);
+  end;
+  if (Mini <> nil) and (JGetStr(Mini, 'data') <> '') then begin
+    H.Add('thumb', 'data:image/jpeg;base64,' + string(JGetStr(Mini, 'data')));
+  end else begin
+    H.Add('thumb', '');
+  end;
+  H.Add('url', '');
+  if F = nil then begin
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, H);
+    FDeferred[Slot].Held := nil;
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  Local := JGetObj(F, 'local');
+  if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+    H.Strings['url'] := string(FileUrl(JGetInt(F, 'id'), JGetStr(Local, 'path')));
+    Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, H);
+    FDeferred[Slot].Held := nil;
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  RequireMsgs.Request('downloadFile',
+    '"file_id":' + utf8string(IntToStr(JGetInt(F, 'id'))) +
+    ',"priority":24,"offset":0,"limit":0,"synchronous":true',
+    @StoryFileDone, Slot);
+end;
+
+procedure TWebApi.StoryFileDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  H, Local: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  H := FDeferred[Slot].Held;
+  Local := JGetObj(AResp.Obj, 'local');
+  if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+    H.Strings['url'] := string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, H);
+  FDeferred[Slot].Held := nil;
+  ReleaseDeferred(Slot);
+end;
+
+{ Трансляция (видеочат в режиме stream — ответ SFU с "stream":true —
+  или RTMP): медиа не по WebRTC, а сегментами (ui/livestream.js).
+
+  vchat.streams (groupCallId): getGroupCallStreams -> streams: массив
+  (channelId, scale, timeOffset); timeOffset — где поток сейчас
+  кончается, unix-время в мс, строкой (int53). }
+function TWebApi.CmdVchatStreams(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+begin
+  Result := True;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('getGroupCallStreams', '"group_call_id":'
+    + utf8string(IntToStr(integer(ArgId(AArgs, 'groupCallId')))),
+    @VchatStreamsDone, Slot);
+end;
+
+procedure TWebApi.VchatStreamsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, S, O: TJSONObject;
+  Arr: TJSONArray;
+  Src: TJSONArray;
+  I: integer;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Arr := TJSONArray.Create;
+  Src := JGetArr(AResp.Obj, 'streams');
+  if Src <> nil then begin
+    for I := 0 to Src.Count - 1 do begin
+      if not (Src.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      S := TJSONObject(Src.Items[I]);
+      O := TJSONObject.Create;
+      O.Add('channelId', JGetInt(S, 'channel_id'));
+      O.Add('scale', JGetInt(S, 'scale'));
+      O.Add('timeOffset', IntToStr(JGetInt64(S, 'time_offset')));
+      Arr.Add(O);
+    end;
+  end;
+  Res.Add('streams', Arr);
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ vchat.segment (groupCallId, timeOffset, scale, channelId, quality):
+  getGroupCallStreamSegment -> data (base64, как TDLib отдаёт bytes).
+  quality: thumbnail | medium | full | '' (худшее доступное).
+  channelId 0 и quality '' — звук (OGG), иначе — видео (MPEG-4); у
+  обоих свой заголовок tgcalls впереди. }
+function TWebApi.CmdVchatSegment(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Quality, Q: utf8string;
+begin
+  Result := True;
+  Quality := utf8string(AArgs.Get('quality', ''));
+  if Quality = 'thumbnail' then begin
+    Q := '{"@type":"groupCallVideoQualityThumbnail"}';
+  end else if Quality = 'medium' then begin
+    Q := '{"@type":"groupCallVideoQualityMedium"}';
+  end else if Quality = 'full' then begin
+    Q := '{"@type":"groupCallVideoQualityFull"}';
+  end else begin
+    Q := 'null';
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('getGroupCallStreamSegment', '"group_call_id":'
+    + utf8string(IntToStr(integer(ArgId(AArgs, 'groupCallId'))))
+    + ',"time_offset":' + utf8string(IntToStr(StrToInt64Def(string(AArgs.Get('timeOffset', '0')), 0)))
+    + ',"scale":' + utf8string(IntToStr(integer(AArgs.Get('scale', 0))))
+    + ',"channel_id":' + utf8string(IntToStr(integer(AArgs.Get('channelId', 0))))
+    + ',"video_quality":' + Q,
+    @VchatSegmentDone, Slot);
+end;
+
+procedure TWebApi.VchatSegmentDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('data', string(JGetStr(AResp.Obj, 'data')));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
 end;
 
 { vchat.participants (groupCallId): известные модели участники — для
@@ -10449,6 +10744,20 @@ begin
         CmdVchatJoin(AConnId, ReqId, Args);
       end else if Cmd = 'vchat.participants' then begin
         Reply(AConnId, ReqId, CmdVchatParticipants(Args));
+      end else if Cmd = 'story.list' then begin
+        CmdStoryList(AConnId, ReqId, Args);
+      end else if Cmd = 'story.open' then begin
+        CmdStoryOpen(AConnId, ReqId, Args);
+      end else if Cmd = 'story.close' then begin
+        { Просмотр кончился (td_api.tl: closeStory) — без ответа TDLib. }
+        RequireMsgs.Request('closeStory', '"story_poster_chat_id":'
+          + utf8string(IntToStr(ArgId(Args, 'chatId'))) + ',"story_id":'
+          + utf8string(IntToStr(integer(Args.Get('storyId', 0)))), nil, 0);
+        Reply(AConnId, ReqId, nil);
+      end else if Cmd = 'vchat.streams' then begin
+        CmdVchatStreams(AConnId, ReqId, Args);
+      end else if Cmd = 'vchat.segment' then begin
+        CmdVchatSegment(AConnId, ReqId, Args);
       end else if (Cmd = 'vchat.create') or (Cmd = 'vchat.leave') or (Cmd = 'vchat.end')
                   or (Cmd = 'vchat.mute') or (Cmd = 'vchat.video')
                   or (Cmd = 'vchat.load') then begin

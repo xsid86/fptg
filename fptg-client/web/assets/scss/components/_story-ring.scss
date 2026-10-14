@@ -1,0 +1,44 @@
+@use "../abstracts" as *;
+
+// Кольцо историй вокруг аватарки (util/storyring.js): SVG по размеру
+// обёртки, аватарка внутри меньше на $story-ring-inset с каждой стороны —
+// это и есть зазор между кольцом и фото. Непрочитанные сегменты — цветом
+// контакта (--chat-color строки) в цветных темах; простые темы и Aurora
+// перекрывают акцентом (themes/). Прочитанные — серые.
+.story-ring {
+  @include flex(row, center, center);
+  flex: 0 0 auto;
+  position: relative;
+
+  > .avatar {
+    margin: $story-ring-inset;
+  }
+}
+
+.story-ring.is-clickable {
+  cursor: pointer;
+}
+
+.story-ring__svg {
+  @include absolute-fill;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  width: 100%;
+}
+
+.story-ring__seg {
+  fill: none;
+  stroke: var(--chat-color, var(--c-accent));
+  stroke-linecap: round;
+
+  &.is-read {
+    stroke: var(--c-text-faint);
+  }
+}
+
+// Аватарка в строке списка — 48px вместе с кольцом: внутри меньше.
+.chat-item .story-ring > .chat-item__avatar {
+  height: calc(48px - #{2 * $story-ring-inset});
+  width: calc(48px - #{2 * $story-ring-inset});
+}

@@ -1,0 +1,143 @@
+@use "../abstracts" as *;
+
+// Просмотр историй (ui/stories.js): затемнение на всё окно, по центру
+// карточка 9:16 — медиа на всю карточку, сверху полоски прогресса и
+// шапка, снизу подпись; левая и правая трети — «назад» и «вперёд».
+.stories {
+  @include flex(row, center, center);
+  background: rgba(0, 0, 0, .85);
+  inset: 0;
+  position: fixed;
+  z-index: $z-modal;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.stories__card {
+  aspect-ratio: 9 / 16;
+  background: #000000;
+  border-radius: $radius-lg;
+  height: $stories-height;
+  max-width: calc(100vw - #{2 * $space-6});
+  overflow: hidden;
+  position: relative;
+}
+
+.stories__media {
+  @include absolute-fill;
+  @include flex(row, center, center);
+}
+
+.stories__img,
+.stories__video,
+.stories__thumb {
+  @include absolute-fill;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+// Размытая миниатюра, пока грузится файл.
+.stories__thumb {
+  filter: blur(12px);
+  object-fit: cover;
+}
+
+.stories__wait,
+.stories__note {
+  color: rgba(255, 255, 255, .8);
+  position: relative;
+  text-align: center;
+}
+
+.stories__top {
+  @include flex(column, stretch, flex-start, $space-3);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, .55), transparent);
+  inset-block-start: 0;
+  inset-inline: 0;
+  padding: $space-4 $space-4 $space-7;
+  position: absolute;
+}
+
+.stories__bars {
+  @include flex(row, center, stretch, $space-2);
+}
+
+.stories__bar {
+  appearance: none;
+  background: rgba(255, 255, 255, .35);
+  border: 0;
+  border-radius: 2px;
+  flex: 1 1 0;
+  height: 3px;
+  overflow: hidden;
+
+  &::-webkit-progress-bar {
+    background: transparent;
+  }
+
+  &::-webkit-progress-value {
+    background: #ffffff;
+  }
+}
+
+.stories__head {
+  @include flex(row, center, flex-start, $space-3);
+  color: #ffffff;
+}
+
+.stories__who {
+  @include flex(column, flex-start, center, 0);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stories__name {
+  @include ellipsis;
+  font-weight: $fw-bold;
+}
+
+.stories__time {
+  font-size: $fs-sm;
+  opacity: .75;
+}
+
+.stories__close {
+  color: #ffffff;
+}
+
+.stories__caption {
+  background: linear-gradient(to top, rgba(0, 0, 0, .7), transparent);
+  color: #ffffff;
+  inset-block-end: 0;
+  inset-inline: 0;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: $space-7 $space-5 $space-5;
+  position: absolute;
+  white-space: pre-wrap;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+// Невидимые зоны «назад» / «вперёд» — по трети карточки.
+.stories__nav {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  inset-block: 0;
+  position: absolute;
+  width: 33%;
+}
+
+.stories__nav--prev {
+  inset-inline-start: 0;
+}
+
+.stories__nav--next {
+  inset-inline-end: 0;
+}
