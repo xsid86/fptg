@@ -30,7 +30,8 @@
 .story-ring__seg {
   fill: none;
   stroke: var(--chat-color, var(--c-accent));
-  stroke-linecap: round;
+  // Плоские концы: зазоры читаются ровными рисками (util/storyring.js).
+  stroke-linecap: butt;
 
   &.is-read {
     stroke: var(--c-text-faint);

@@ -5,14 +5,15 @@
 // SVG, а не градиент: число сегментов любое и у каждого своё состояние.
 // Дуги — штрих окружности: stroke-dasharray / stroke-dashoffset —
 // АТРИБУТЫ SVG, не style (правило проекта о style не нарушается); цвет —
-// в CSS. Толщина — здесь же, атрибутом: от неё зависит зазор (см. GAP).
+// в CSS. Толщина — здесь же, атрибутом. Концы дуг плоские (CSS:
+// stroke-linecap: butt): круглый кончик на 48px сглаживается неровно, и
+// зазоры выглядели разными.
 
 const NS = 'http://www.w3.org/2000/svg';
 const VIEW = 100;
 const RADIUS = 47;                 // кольцо по краю viewBox
 const STROKE = 5;                  // толщина дуги, единицы viewBox (100 = вся аватарка)
-// Видимый зазор между сегментами. Круглые концы выступают на STROKE/2 с
-// каждой стороны и съели бы его — к штриху прибавляется ещё STROKE.
+// Зазор между сегментами — плоские концы не выступают, он ровно такой.
 const GAP = 9;
 const LENGTH = 2 * Math.PI * RADIUS;
 // Длина окружности для штрихов — ровно PATH (атрибут pathLength): браузер
@@ -38,7 +39,7 @@ export function storyRing(avatarNode, total, read) {
   box.className = `story-ring${read >= total ? ' is-read' : ''}`;
   const svg = svgEl('svg', { class: 'story-ring__svg', viewBox: `0 0 ${VIEW} ${VIEW}`, 'aria-hidden': 'true' });
   const step = PATH / total;
-  const gap = total > 1 ? (GAP + STROKE) * UNIT : 0;
+  const gap = total > 1 ? GAP * UNIT : 0;
   const dash = Math.max(step - gap, 0.01);
   for (let i = 0; i < total; i += 1) {
     svg.append(svgEl('circle', {

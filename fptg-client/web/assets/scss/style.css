@@ -2701,7 +2701,7 @@ dialog[open].is-pop-up,
 .story-ring__seg {
   fill: none;
   stroke: var(--chat-color, var(--c-accent));
-  stroke-linecap: round;
+  stroke-linecap: butt;
 }
 .story-ring__seg.is-read {
   stroke: var(--c-text-faint);
