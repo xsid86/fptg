@@ -31,8 +31,15 @@ type
     вызывающий) или бросает исключение — оно уйдёт как error. }
   TInstanceCommand = function(const ACmd: string; AArgs: TJSONObject): TJSONObject of object;
 
-{ Захватить экземпляр ADir/AName.lock. False — уже запущен другой. }
+{ Захватить экземпляр ADir/AName.lock. False — уже запущен другой.
+  Сервер (INSTANCE_SERVER) — ещё и машинную блокировку: один на всю
+  машину. False с InstanceElsewhere = True — папка свободна, но сервер
+  уже работает из другой копии или у другого пользователя ОС: канала
+  управления к нему отсюда нет. }
 function AcquireInstance(const ADir, AName: string): boolean;
+
+{ Последний AcquireInstance не прошёл из-за машинной блокировки. }
+function InstanceElsewhere: boolean;
 { Открыть канал управления и записать AName.instance. AKind — вид
   программы ('gui', 'console', 'client'): по нему второй запуск решает,
   что делать. }
@@ -51,9 +58,9 @@ implementation
 
 uses
   {$IFDEF WINDOWS}
-  WinSock2,
+  Windows, WinSock2,
   {$ELSE}
-  BaseUnix,
+  BaseUnix, Unix,
   {$ENDIF}
   sockets, jsonparser, constants, secureconfig, sha256u;
 
@@ -80,6 +87,14 @@ var
   GKind: string = '';
   GPort: word = 0;
   GThread: TControlThread = nil;
+  { Машинная блокировка сервера: мьютекс (Windows) или дескриптор файла
+    с flock (Unix); 0 / -1 — не взята. }
+  {$IFDEF WINDOWS}
+  GMachine: THandle = 0;
+  {$ELSE}
+  GMachine: longint = -1;
+  {$ENDIF}
+  GElsewhere: boolean = False;
 
 function InfoPath(const ADir, AName: string): string;
 begin
@@ -266,11 +281,75 @@ end;
 
 { ---------------- экземпляр ---------------- }
 
+{ Машинная блокировка. Windows: мьютекс уже есть — ERROR_ALREADY_EXISTS;
+  создан процессом ДРУГОГО пользователя — его права не пускают даже
+  открыть: ERROR_ACCESS_DENIED. Оба — «занято». Держится, пока жив
+  дескриптор: упал процесс — ОС закрыла его, мьютекс исчез. }
+function AcquireMachine: boolean;
+{$IFDEF WINDOWS}
+var
+  H: THandle;
+  Name: UnicodeString;
+begin
+  Name := UnicodeString(INSTANCE_MACHINE_MUTEX);
+  H := CreateMutexW(nil, False, PWideChar(Name));
+  if H = 0 then begin
+    Exit(False);                        { ERROR_ACCESS_DENIED и прочее — занято }
+  end;
+  if GetLastError = ERROR_ALREADY_EXISTS then begin
+    CloseHandle(H);
+    Exit(False);
+  end;
+  GMachine := H;
+  Result := True;
+end;
+{$ELSE}
+var
+  Fd: longint;
+begin
+  Fd := fpOpen(INSTANCE_MACHINE_LOCK_FILE, O_RDONLY or O_CREAT, &644);
+  if Fd < 0 then begin
+    { Файл создан другим пользователем и не открывается — занято им. }
+    Exit(False);
+  end;
+  if fpFlock(Fd, LOCK_EX or LOCK_NB) <> 0 then begin
+    fpClose(Fd);
+    Exit(False);
+  end;
+  { Создал — открыть всем на чтение: flock другого пользователя берётся
+    и на дескрипторе только для чтения. }
+  fpChmod(INSTANCE_MACHINE_LOCK_FILE, &644);
+  GMachine := Fd;
+  Result := True;
+end;
+{$ENDIF}
+
+procedure ReleaseMachine;
+begin
+  {$IFDEF WINDOWS}
+  if GMachine <> 0 then begin
+    CloseHandle(GMachine);
+    GMachine := 0;
+  end;
+  {$ELSE}
+  if GMachine >= 0 then begin
+    fpClose(GMachine);
+    GMachine := -1;
+  end;
+  {$ENDIF}
+end;
+
+function InstanceElsewhere: boolean;
+begin
+  Result := GElsewhere;
+end;
+
 function AcquireInstance(const ADir, AName: string): boolean;
 var
   Path: string;
   H: THandle;
 begin
+  GElsewhere := False;
   Path := IncludeTrailingPathDelimiter(ADir) + AName + INSTANCE_LOCK_EXT;
   if not FileExists(Path) then begin
     H := FileCreate(Path);
@@ -280,6 +359,14 @@ begin
   end;
   GLock := FileOpen(Path, fmOpenReadWrite or fmShareExclusive);
   Result := GLock <> THandle(-1);
+  { Папка свободна, но сервер на машине уже есть — из другой копии или у
+    другого пользователя: отпустить папку, второй не нужен. }
+  if Result and (AName = INSTANCE_SERVER) and not AcquireMachine then begin
+    FileClose(GLock);
+    GLock := THandle(-1);
+    GElsewhere := True;
+    Result := False;
+  end;
   if Result then begin
     GDir := ADir;
     GName := AName;
@@ -303,7 +390,7 @@ begin
     S := TStringStream.Create(O.AsJSON);
     { Сначала пустой файл с правами только владельца, потом содержимое:
       ключ ни мгновения не лежит в файле, открытом для чтения другим. }
-    DeleteFile(Path);
+    SysUtils.DeleteFile(Path);
     FileClose(FileCreate(Path));
     {$IFNDEF WINDOWS}
     fpChmod(Path, &600);
@@ -363,12 +450,13 @@ begin
     GThread.WaitFor;
     CloseSocket(GThread.FListen);
     FreeAndNil(GThread);
-    DeleteFile(InfoPath(GDir, GName));
+    SysUtils.DeleteFile(InfoPath(GDir, GName));
   end;
   if GLock <> THandle(-1) then begin
     FileClose(GLock);
     GLock := THandle(-1);
   end;
+  ReleaseMachine;
 end;
 
 { ---------------- клиент канала ---------------- }

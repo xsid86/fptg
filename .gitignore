@@ -28,3 +28,7 @@ lib/
 
 # Lazarus/lazbuild backups of edited project files.
 backup/
+
+# Платная многопользовательская часть сервера — закрытая, в публичный
+# репозиторий не попадает (свой приватный репозиторий).
+fptg-server-premium/

@@ -201,7 +201,7 @@ implementation
 uses
   { ssl_openssl3 подключает OpenSSL 3 к Synapse (SSLImplementation) при
     загрузке модуля. }
-  ssl_openssl3, fpjson, jsonparser, srvauth;
+  ssl_openssl3, fpjson, jsonparser, srvauth, appdirs;
 
 {$IFDEF WINDOWS}
 { RtlGenRandom, the small CSPRNG every Windows process already has.
@@ -270,7 +270,7 @@ end;
 
 function UploadRoot: string;
 begin
-  Result := ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_UPLOAD_DIR + PathDelim;
+  Result := ServerDataDir + LOCAL_SERVER_UPLOAD_DIR + PathDelim;
 end;
 
 { id загрузки — ровно то, что выдаёт NewToken: 32 строчные hex-цифры.

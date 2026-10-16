@@ -1,12 +1,12 @@
 object FormServerPanel: TFormServerPanel
   Left = 400
-  Height = 371
+  Height = 511
   Top = 200
   Width = 320
   BorderIcons = [biSystemMenu, biMinimize]
   BorderStyle = bsSingle
   Caption = 'fptg server'
-  ClientHeight = 371
+  ClientHeight = 511
   ClientWidth = 320
   Position = poScreenCenter
   ShowInTaskBar = stAlways
@@ -123,17 +123,88 @@ object FormServerPanel: TFormServerPanel
     TabStop = False
     TabOrder = 3
   end
-  object lblUser: TLabel
+  object lblCert: TLabel
     Left = 12
     Height = 15
     Top = 228
+    Width = 140
+    Caption = 'Certificate (PEM file)'
+  end
+  object edtCert: TEdit
+    Left = 12
+    Height = 23
+    Top = 246
+    Width = 222
+    Anchors = [akTop, akLeft, akRight]
+    TabOrder = 10
+    TextHint = 'Built-in self-signed certificate'
+    OnChange = edtTlsChange
+  end
+  object btnCert: TButton
+    Left = 240
+    Height = 23
+    Top = 246
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Browse...'
+    TabOrder = 11
+    OnClick = btnCertClick
+  end
+  object lblKey: TLabel
+    Left = 12
+    Height = 15
+    Top = 277
+    Width = 140
+    Caption = 'Private key (PEM file)'
+  end
+  object edtKey: TEdit
+    Left = 12
+    Height = 23
+    Top = 295
+    Width = 222
+    Anchors = [akTop, akLeft, akRight]
+    TabOrder = 12
+    TextHint = 'Built-in self-signed certificate'
+    OnChange = edtTlsChange
+  end
+  object btnKey: TButton
+    Left = 240
+    Height = 23
+    Top = 295
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Browse...'
+    TabOrder = 13
+    OnClick = btnKeyClick
+  end
+  object btnTlsApply: TButton
+    Left = 12
+    Height = 30
+    Top = 330
+    Width = 296
+    Anchors = [akTop, akLeft, akRight]
+    Caption = 'Apply certificate'
+    Enabled = False
+    TabOrder = 14
+    OnClick = btnTlsApplyClick
+  end
+  object dlgPem: TOpenDialog
+    Filter = 'PEM files (*.pem;*.crt;*.cer;*.key)|*.pem;*.crt;*.cer;*.key|All files (*.*)|*.*'
+    Options = [ofFileMustExist, ofEnableSizing, ofViewDetail]
+    Left = 264
+    Top = 8
+  end
+  object lblUser: TLabel
+    Left = 12
+    Height = 15
+    Top = 368
     Width = 26
     Caption = 'User'
   end
   object edtUser: TEdit
     Left = 12
     Height = 23
-    Top = 246
+    Top = 386
     Width = 222
     Anchors = [akTop, akLeft, akRight]
     ReadOnly = True
@@ -143,7 +214,7 @@ object FormServerPanel: TFormServerPanel
   object btnUser: TButton
     Left = 240
     Height = 23
-    Top = 246
+    Top = 386
     Width = 68
     Anchors = [akTop, akRight]
     Caption = 'Change...'
@@ -153,7 +224,7 @@ object FormServerPanel: TFormServerPanel
   object btnSignOut: TButton
     Left = 12
     Height = 30
-    Top = 281
+    Top = 421
     Width = 296
     Anchors = [akTop, akLeft, akRight]
     Caption = 'Sign out'

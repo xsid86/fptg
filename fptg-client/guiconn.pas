@@ -41,7 +41,7 @@ function UrlEncode(const S: string): string;
 implementation
 
 uses
-  constants, guiconst, secureconfig;
+  constants, guiconst, secureconfig, appdirs;
 
 const
   KEY_HOST = 'host';
@@ -56,7 +56,8 @@ var
 procedure EnsureConfigDir;
 begin
   if not GConfigReady then begin
-    SecureConfigSetDir(ExtractFilePath(ParamStr(0)));
+    { conf.dat окна — в профиле пользователя (appdirs.pas). }
+    SecureConfigSetDir(ClientDataDir);
     GConfigReady := True;
   end;
 end;

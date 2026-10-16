@@ -2370,6 +2370,10 @@ begin
     end else begin
       ScheduleLoad(RETRY_DELAY_MS);
     end;
+    { The unread search waits for pending loads (CheckUnreadBackfill);
+      this exit skips the call at the end, so make it here — once the
+      history is given up as exhausted, the search must end too. }
+    CheckUnreadBackfill;
     Exit;
   end;
 
@@ -2498,11 +2502,24 @@ begin
     FUnreadReady := True;
     Exit;
   end;
-  { Out of history, out of budget, or a retry is already pending for
-    this same anchor (piling another LoadOlder on top of FRetryTimer
-    would just race it). }
-  if FOldestLoaded or (FUnreadBackfill <= 0) or FRetryTimer.Enabled then begin
+  { Out of history or out of budget — give up, the chat opens at the
+    bottom. }
+  if FOldestLoaded or (FUnreadBackfill <= 0) then begin
     FUnreadReady := True;
+    Exit;
+  end;
+  { A load is already scheduled — the fill after a one-message first
+    page, or a delayed retry. Wait for it rather than give up: its
+    completion calls this again (piling another LoadOlder on top of
+    FRetryTimer would just race it). Giving up here was a live bug: the
+    fill armed the timer right after the FIRST page (getChatHistory
+    answers it with one message), the search ended on the spot, and a
+    channel with 63 unread opened at the bottom with no divider — where
+    everything on screen used to be marked read (tdlib_raw.log: two
+    getChatHistory in all, budget of 4 pages untouched). Both kinds of
+    pending load are bounded (FILL_TARGET, MAX_NO_PROGRESS_RETRIES), so
+    the wait ends. }
+  if FRetryTimer.Enabled then begin
     Exit;
   end;
   Dec(FUnreadBackfill);

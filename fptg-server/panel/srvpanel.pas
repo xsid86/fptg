@@ -24,7 +24,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls, Menus, Dialogs, Clipbrd, LCLIntf,
-  fpjson, constants, localserver, srvhost, srvauth, instance;
+  fpjson, constants, localserver, srvhost, srvauth, instance, appdirs;
 
 type
 
@@ -36,6 +36,14 @@ type
     btnSignOut: TButton;
     btnStartStop: TButton;
     btnUser: TButton;
+    btnCert: TButton;
+    btnKey: TButton;
+    btnTlsApply: TButton;
+    dlgPem: TOpenDialog;
+    edtCert: TEdit;
+    edtKey: TEdit;
+    lblCert: TLabel;
+    lblKey: TLabel;
     edtAddress: TEdit;
     edtPort: TEdit;
     edtPrint: TEdit;
@@ -64,6 +72,10 @@ type
     procedure btnSignOutClick(Sender: TObject);
     procedure btnStartStopClick(Sender: TObject);
     procedure btnUserClick(Sender: TObject);
+    procedure btnCertClick(Sender: TObject);
+    procedure btnKeyClick(Sender: TObject);
+    procedure btnTlsApplyClick(Sender: TObject);
+    procedure edtTlsChange(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
@@ -83,6 +95,11 @@ type
     { Прошлый ответ traffic — скорость по разнице. }
     FPrevTraffic: array[0..3] of Int64;
     FPrevTick: QWord;
+    { Поля сертификата правят — состояние сервера их не перезаписывает,
+      пока не нажат Apply. FTlsFilling — поля заполняет сам ApplyStatus. }
+    FTlsDirty: boolean;
+    FTlsFilling: boolean;
+    procedure PickPem(AEdit: TEdit; const ATitle: string);
     function Exec(const ACmd: string; AArgs: TJSONObject; out AError: string): boolean;
     procedure Command(const ACmd: string; AArgs: TJSONObject);
     procedure ApplyStatus(S: TJSONObject);
@@ -109,7 +126,7 @@ implementation
 
 function DataDir: string;
 begin
-  Result := ExtractFilePath(ParamStr(0));
+  Result := ServerDataDir;
 end;
 
 { ---------------- режимы ---------------- }
@@ -255,6 +272,26 @@ begin
 
     lblUrl.Visible := lblUrl.Caption <> '';
     edtUser.Text := S.Get('user', '');
+    { Свой сертификат: пути из conf.dat; заданный ключами --cert/--key
+      из окна не меняется. }
+    if not FTlsDirty then begin
+      FTlsFilling := True;
+      try
+        edtCert.Text := S.Get('certFile', '');
+        edtKey.Text := S.Get('keyFile', '');
+      finally
+        FTlsFilling := False;
+      end;
+    end;
+    edtCert.Enabled := not S.Get('certFromCli', False);
+    edtKey.Enabled := edtCert.Enabled;
+    btnCert.Enabled := edtCert.Enabled;
+    btnKey.Enabled := edtCert.Enabled;
+    btnTlsApply.Enabled := edtCert.Enabled and FTlsDirty;
+    if not edtCert.Enabled then begin
+      edtCert.Hint := 'Set by --cert/--key on the command line';
+      edtCert.ShowHint := True;
+    end;
     btnUser.Enabled := True;
     btnSignOut.Enabled := True;
     trayIcon.Hint := Caption + ' - ' + lblStatus.Caption + ' ' + lblUrl.Caption;
@@ -505,6 +542,81 @@ begin
   end;
   if AskPassword('User', UserName, Pwd) then begin
     UserCommand(Self, 'user.set', UserName, Pwd);
+  end;
+end;
+
+{ ---------------- сертификат ---------------- }
+
+procedure TFormServerPanel.PickPem(AEdit: TEdit; const ATitle: string);
+begin
+  dlgPem.Title := ATitle;
+  if AEdit.Text <> '' then begin
+    dlgPem.InitialDir := ExtractFileDir(AEdit.Text);
+    dlgPem.FileName := ExtractFileName(AEdit.Text);
+  end else begin
+    dlgPem.FileName := '';
+  end;
+  if dlgPem.Execute then begin
+    AEdit.Text := dlgPem.FileName;
+  end;
+end;
+
+procedure TFormServerPanel.btnCertClick(Sender: TObject);
+begin
+  PickPem(edtCert, 'Certificate (PEM)');
+end;
+
+procedure TFormServerPanel.btnKeyClick(Sender: TObject);
+begin
+  PickPem(edtKey, 'Private key (PEM)');
+end;
+
+procedure TFormServerPanel.edtTlsChange(Sender: TObject);
+begin
+  if FTlsFilling then begin
+    Exit;
+  end;
+  FTlsDirty := True;
+  btnTlsApply.Enabled := edtCert.Enabled;
+end;
+
+{ Оба пути — или ни одного (тогда встроенный самоподписанный). Сервер
+  сам проверит файлы и, если работает, перезапустит приём; смена
+  сертификата — смена отпечатка: окна клиентов спросят, доверять ли. }
+procedure TFormServerPanel.btnTlsApplyClick(Sender: TObject);
+var
+  A: TJSONObject;
+  Cert, Key, Err, Restart: string;
+begin
+  Restart := '';
+  if FRunning then begin
+    Restart := ' The server restarts.';
+  end;
+  Cert := Trim(edtCert.Text);
+  Key := Trim(edtKey.Text);
+  if (Cert = '') <> (Key = '') then begin
+    MessageDlg('Certificate', 'Choose both the certificate and its private key, '
+      + 'or clear both to use the built-in self-signed certificate.', mtWarning, [mbOK], 0);
+    Exit;
+  end;
+  if MessageDlg('Certificate', 'Apply this certificate? The fingerprint changes, and '
+      + 'client windows will ask to trust the server again.' + Restart,
+      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then begin
+    Exit;
+  end;
+  A := TJSONObject.Create;
+  try
+    A.Add('certFile', Cert);
+    A.Add('keyFile', Key);
+    if Exec('tls.set', A, Err) then begin
+      FTlsDirty := False;
+      btnTlsApply.Enabled := False;
+      Exec('status', nil, Err);
+    end else begin
+      MessageDlg('Certificate', Err, mtError, [mbOK], 0);
+    end;
+  finally
+    A.Free;
   end;
 end;
 

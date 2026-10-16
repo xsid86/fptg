@@ -3,7 +3,7 @@ import { on, emit } from '../core/bus.js';
 import { store, onActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
 import { reanchorMenu, closeMenuIfDetached } from '../util/menu.js';
-import { dateLabel } from '../util/format.js';
+import { dateLabel, countLabel } from '../util/format.js';
 import { updateFloatDate as updateFloatDateIn } from '../util/floatdate.js';
 import { renderMessage, renderMessageReusing, renderAlbum } from './message.js';
 import { greetingNode } from './greeting.js';
@@ -21,6 +21,8 @@ import { channelAds, adCard } from './sponsored.js';
 let root = null;
 let column = null;
 let scrollBtn = null;
+// Чип непрочитанных над кнопкой «вниз» (число — строка открытого чата).
+let unreadChip = null;
 let threadBtn = null;
 let floatDate = null;
 // A message the view owes the reader - see the ui:show-message
@@ -115,6 +117,7 @@ export function mountHistory(node) {
   column = el('div', { class: 'history__column' });
   root.append(column);
 
+  unreadChip = el('span', { class: 'history__to-bottom-count', hidden: true });
   scrollBtn = el('button', {
     class: 'history__to-bottom',
     type: 'button',
@@ -124,7 +127,7 @@ export function mountHistory(node) {
       takeOver();
       scrollToBottom();
     },
-  }, icon('chevron-down'));
+  }, icon('chevron-down'), unreadChip);
   root.parentElement.append(scrollBtn);
 
   // The way out of a comment thread, back to the post it hangs from.
@@ -185,6 +188,7 @@ export function mountHistory(node) {
   // Реклама канала доехала (или ушла после жалобы) — ui/sponsored.js.
   on('ui:ads', () => render(lastState));
   onActiveChat(() => {
+    paintUnreadChip();
     // Whether a chat is OPEN, not whether its row happens to be in the
     // list on screen. The two came apart when the archive was shown
     // with an ordinary chat open, and treating a missing row as "no
@@ -194,6 +198,18 @@ export function mountHistory(node) {
     }
   });
   renderEmpty('Pick a chat on the left', 'Its messages will show up here.');
+}
+
+/**
+ * Число непрочитанных открытого чата — чипом над кнопкой «вниз».
+ * Строка чата приходит с каждым обновлением списка (onActiveChat), так
+ * что число живое. В ветке комментариев — не показывать: оно о канале.
+ */
+function paintUnreadChip() {
+  if (!unreadChip) return;
+  const n = store.messages?.thread ? 0 : (store.activeChat?.unread ?? 0);
+  unreadChip.hidden = n <= 0;
+  unreadChip.textContent = n > 0 ? countLabel(n) : '';
 }
 
 /**
@@ -1005,6 +1021,15 @@ function onScroll() {
  * flick of the wheel would otherwise fire a request per frame.
  */
 function collectRead() {
+  // Чат ещё открывается: позиция не выбрана ('pending') или окно держит
+  // её само ('settling'), а не читатель. Видимое тогда ещё ничего не
+  // значит — в 'settling' без разделителя непрочитанного applyScroll
+  // ставит историю в самый низ, и всё внизу ушло бы прочитанным, а TDLib
+  // по самому новому id отмечает прочитанным ВСЁ (живой случай: 89 -> 0
+  // при открытии канала, viewMessages с самыми новыми id через 1,3 с
+  // после openChat). Считать видимое — только у разделителя.
+  if (wantScroll === 'pending') return;
+  if (wantScroll === 'settling' && !userMoved && !separators.get('unread')?.isConnected) return;
   const top = root.scrollTop;
   const bottom = top + root.clientHeight;
   // Whatever the map is keyed by, what goes out are the MESSAGE ids the

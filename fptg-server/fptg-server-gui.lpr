@@ -23,8 +23,8 @@ uses
   cthreads,
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
-  Forms, SysUtils, fpjson,
-  constants, instance, srvpanel;
+  Forms, Dialogs, SysUtils, fpjson,
+  constants, instance, srvpanel, appdirs, secureconfig;
 
 {$R *.res}
 
@@ -38,8 +38,19 @@ begin
     страницу и теряют не-латиницу. }
   DefaultSystemCodePage := CP_UTF8;
 
-  Dir := ExtractFilePath(ParamStr(0));
+  { Данные сервера — в профиле пользователя (appdirs.pas), не рядом с exe. }
+  Dir := ServerDataDir;
+  SecureConfigSetDir(Dir);
   Own := AcquireInstance(Dir, INSTANCE_SERVER);
+  { Сервер уже работает из другой копии или у другого пользователя ОС —
+    пульта к нему отсюда нет, а второй на машине не нужен. }
+  if (not Own) and InstanceElsewhere then begin
+    Application.Initialize;
+    MessageDlg(APP_TITLE + ' server',
+      'An fptg server is already running on this computer (another copy '
+      + 'or another user). Only one can run per computer.', mtInformation, [mbOK], 0);
+    Exit;
+  end;
   if (not Own) and (InstanceKind(Dir, INSTANCE_SERVER) = 'gui') then begin
     { Окно уже открыто — показать его, второго не нужно. }
     if CallInstance(Dir, INSTANCE_SERVER, 'show', nil, Res, Err) then begin

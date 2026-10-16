@@ -36,6 +36,10 @@ type
     FTls: TServerTls;
     FTlsOk: boolean;
     FTlsError: string;
+    { Сертификат задан ключами --cert/--key — из окна его не меняют. }
+    FTlsFromCli: boolean;
+    { Свой сертификат из conf.dat (пути; '' — встроенный). }
+    FCertFile, FKeyFile: string;
     FTdStarted: boolean;
     FOnShow: TNotifyEvent;
     FOnChanged: TNotifyEvent;
@@ -44,6 +48,8 @@ type
     FTrafficTimer: TTdTimer;
     FTgSent, FTgRecv: array of Int64;
     procedure Changed;
+    procedure PrepareTls;
+    procedure SetTls(const ACertFile, AKeyFile: string);
     procedure TrafficTick(Sender: TObject);
     procedure NetStatsDone(Sender: TObject; const AResp: TTdResponse);
     function TrafficJson: TJSONObject;
@@ -130,7 +136,7 @@ constructor TServerHost.Create(const AKind: string);
 begin
   inherited Create;
   FKind := AKind;
-  FTlsOk := PrepareServerTls(ParamValue('--cert='), ParamValue('--key='), FTls, FTlsError);
+  PrepareTls;
   FTrafficTimer := TTdTimer.Create(nil);
   FTrafficTimer.Interval := TRAFFIC_TICK_MS;
   FTrafficTimer.OnTimer := @TrafficTick;
@@ -222,6 +228,66 @@ begin
   Result := LocalServerUrl <> '';
 end;
 
+{ Откуда сертификат: --cert/--key, иначе пути из conf.dat (окно
+  сервера), иначе встроенный самоподписанный (tlscert). }
+procedure TServerHost.PrepareTls;
+var
+  Ini: TSecureIni;
+begin
+  FTlsFromCli := (ParamValue('--cert=') <> '') or (ParamValue('--key=') <> '');
+  Ini := OpenConfig;
+  try
+    FCertFile := Ini.ReadString(TLS_CONFIG_SECTION, TLS_CONFIG_CERT_FILE, '');
+    FKeyFile := Ini.ReadString(TLS_CONFIG_SECTION, TLS_CONFIG_KEY_FILE, '');
+  finally
+    Ini.Free;
+  end;
+  if FTlsFromCli then begin
+    FTlsOk := PrepareServerTls(ParamValue('--cert='), ParamValue('--key='), FTls, FTlsError);
+  end else begin
+    FTlsOk := PrepareServerTls(FCertFile, FKeyFile, FTls, FTlsError);
+  end;
+end;
+
+{ tls.set из окна: сначала проверить новые файлы (ошибка — сразу и с
+  объяснением, прежний сертификат остаётся), потом сохранить и, если
+  сервер работает, перезапустить приём — сертификат берётся при старте.
+  Пустые оба пути — встроенный самоподписанный. }
+procedure TServerHost.SetTls(const ACertFile, AKeyFile: string);
+var
+  Tls: TServerTls;
+  Err: string;
+  Ini: TSecureIni;
+  WasRunning: boolean;
+begin
+  if FTlsFromCli then begin
+    raise Exception.Create('The certificate is set by --cert/--key on the command line.');
+  end;
+  if not PrepareServerTls(ACertFile, AKeyFile, Tls, Err) then begin
+    raise Exception.Create(Err);
+  end;
+  Ini := OpenConfig;
+  try
+    Ini.WriteString(TLS_CONFIG_SECTION, TLS_CONFIG_CERT_FILE, ACertFile);
+    Ini.WriteString(TLS_CONFIG_SECTION, TLS_CONFIG_KEY_FILE, AKeyFile);
+  finally
+    Ini.Free;
+  end;
+  FCertFile := ACertFile;
+  FKeyFile := AKeyFile;
+  FTls := Tls;
+  FTlsOk := True;
+  FTlsError := '';
+  WasRunning := Running;
+  if WasRunning then begin
+    Stop;
+    if not Start(word(SavedPort), Err) then begin
+      raise Exception.Create(Err);
+    end;
+  end;
+  Changed;
+end;
+
 function TServerHost.Start(APort: word; out AError: string): boolean;
 begin
   AError := '';
@@ -283,6 +349,9 @@ begin
     Result.Add('fingerprint', 'TLS: ' + FTlsError);
   end;
   Result.Add('tlsOk', FTlsOk);
+  Result.Add('certFile', FCertFile);
+  Result.Add('keyFile', FKeyFile);
+  Result.Add('certFromCli', FTlsFromCli);
   Result.Add('user', AuthUserName);
 end;
 
@@ -322,6 +391,12 @@ begin
     Changed;
   end else if ACmd = 'signOut' then begin
     AuthLogoutAll;
+  end else if ACmd = 'tls.set' then begin
+    if AArgs = nil then begin
+      SetTls('', '');
+    end else begin
+      SetTls(Trim(AArgs.Get('certFile', '')), Trim(AArgs.Get('keyFile', '')));
+    end;
   end else if ACmd = 'traffic' then begin
     { Раз в секунду от окна — без всего состояния. }
     Result := TrafficJson;

@@ -5,7 +5,7 @@ unit tdjson;
 interface
 
 uses
-  Classes, SysUtils, ctypes, SyncObjs, constants;
+  Classes, SysUtils, ctypes, SyncObjs, constants, appdirs;
 
 type
   { Called from TDLib's internal threads. LCL must not be touched
@@ -58,7 +58,7 @@ begin
     if GLogFile = nil then begin
       try
         GLogFile := TFileStream.Create(
-          ExtractFilePath(ParamStr(0)) + 'tdlib_raw.log', fmCreate or fmShareDenyWrite);
+          ServerDataDir + 'tdlib_raw.log', fmCreate or fmShareDenyWrite);
       except
         GLogFile := nil;
       end;

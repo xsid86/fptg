@@ -410,6 +410,20 @@ const
     данные общие. }
   INSTANCE_SERVER = 'server';
   INSTANCE_CLIENT = 'client';
+  { Сервер — один на всю машину, под каким бы пользователем ОС ни
+    запускался (публичная версия, 2026-10-16): поверх блокировки папки —
+    общая для ОС. Windows — именованный мьютекс в глобальном
+    пространстве имён (виден из всех сеансов), Unix — flock на файле в
+    /tmp (доступен всем пользователям). }
+  INSTANCE_MACHINE_MUTEX = 'Global\fptg-server';
+  INSTANCE_MACHINE_LOCK_FILE = '/tmp/fptg-server.lock';
+
+  { ================= папки данных (appdirs.pas) ================= }
+
+  { %LOCALAPPDATA%\fptg\<программа> (Unix: ~/.local/share/fptg/...). }
+  APP_DATA_ROOT = 'fptg';
+  APP_DATA_SERVER = 'server';
+  APP_DATA_CLIENT = 'client';
   INSTANCE_LOCK_EXT = '.lock';
   INSTANCE_INFO_EXT = '.instance';
   INSTANCE_KEY_BYTES = 32;
@@ -435,6 +449,12 @@ const
   TLS_CONFIG_SECTION = 'tls';
   TLS_CONFIG_CERT = 'cert';
   TLS_CONFIG_KEY = 'key';
+  { Свой сертификат из окна сервера — ПУТИ к файлам PEM, не их текст:
+    так Synapse берёт всю цепочку (SslCtxUseCertificateChainFile), а
+    продлённый certbot'ом файл подхватывается без правок. Ключи
+    командной строки --cert/--key главнее. }
+  TLS_CONFIG_CERT_FILE = 'cert_file';
+  TLS_CONFIG_KEY_FILE = 'key_file';
 
   { ================= вход (srvauth.pas) ================= }
 

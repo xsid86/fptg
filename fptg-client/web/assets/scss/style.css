@@ -3830,7 +3830,29 @@ dialog[open].is-pop-up,
   pointer-events: none;
 }
 
-.history__column:has(> .greeting) {
+.history__to-bottom-count {
+  background: var(--c-accent);
+  border-radius: 999px;
+  color: var(--c-accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  inset-block-end: calc(100% + 4px);
+  inset-inline-start: 50%;
+  line-height: 1;
+  min-width: 20px;
+  padding: 4px 6px;
+  pointer-events: none;
+  position: absolute;
+  text-align: center;
+  translate: -50% 0;
+  white-space: nowrap;
+}
+.history__to-bottom-count[hidden] {
+  display: none;
+}
+
+.history__column:has(> .greeting),
+.history__column:has(> .workspace__empty) {
   display: flex;
   flex-direction: column;
   align-items: center;

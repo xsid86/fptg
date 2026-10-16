@@ -179,12 +179,38 @@
   inset-inline-end: $space-6;
 }
 
+// Непрочитанные открытого чата — над кнопкой «вниз», по центру неё,
+// акцентом (ui/history.js, paintUnreadChip).
+.history__to-bottom-count {
+  background: var(--c-accent);
+  border-radius: $radius-pill;
+  color: var(--c-accent-text);
+  font-size: $fs-sm;
+  font-weight: $fw-bold;
+  inset-block-end: calc(100% + #{$space-2});
+  inset-inline-start: 50%;
+  line-height: 1;
+  min-width: 20px;
+  padding: $space-2 $space-3;
+  pointer-events: none;
+  position: absolute;
+  text-align: center;
+  translate: -50% 0;
+  white-space: nowrap;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
 // --------------------------------------------------------- приветствие
 // ui/greeting.js: карточка посреди пустого личного чата — как у нативного
 // клиента, полупрозрачная поверх фона.
-// Колонка сама высоты не имеет — пока в ней приветствие, она растягивается
-// на всю высоту истории и ставит карточку посередине.
-.history__column:has(> .greeting) {
+// Колонка сама высоты не имеет — пока в ней приветствие (или заглушка
+// «Pick a chat on the left»), она растягивается на всю высоту истории и
+// ставит его посередине — по обеим осям.
+.history__column:has(> .greeting),
+.history__column:has(> .workspace__empty) {
   @include flex(column, center, center);
   min-height: 100%;
 }

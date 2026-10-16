@@ -49,7 +49,7 @@ uses
     и молча брал его. constants — общие значения (APP_TITLE, пределы
     настроек карточек), secureconfig — шифрование conf.dat, sha256u —
     отпечаток сертификата сервера, instance — единственный экземпляр. }
-  constants, secureconfig, sha256u, instance,
+  constants, secureconfig, sha256u, instance, appdirs,
   guiconst, guiconn, webview2, webui, callpopup, desknotify, miniapp, appid, winframe, lsrepair
   { you can add units after this };
 
@@ -69,10 +69,10 @@ begin
     the system ANSI codepage. First line of the program. }
   DefaultSystemCodePage := CP_UTF8;
 
-  { Одно окно на папку программы: второй запуск показывает первое и
-    выходит (instance.pas). }
-  if not AcquireInstance(ExtractFilePath(ParamStr(0)), INSTANCE_CLIENT) then begin
-    if CallInstance(ExtractFilePath(ParamStr(0)), INSTANCE_CLIENT, 'show', nil,
+  { Одно окно на пользователя ОС: второй запуск показывает первое и
+    выходит (instance.pas). Блокировка — в папке данных окна (appdirs). }
+  if not AcquireInstance(ClientDataDir, INSTANCE_CLIENT) then begin
+    if CallInstance(ClientDataDir, INSTANCE_CLIENT, 'show', nil,
         InstanceReply, InstanceError) then begin
       InstanceReply.Free;
     end;

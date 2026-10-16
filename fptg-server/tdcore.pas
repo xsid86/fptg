@@ -280,6 +280,7 @@ procedure TdSessionUnsubscribe(const ASession: ITdSession; const AListener: IUnk
 implementation
 
 uses
+  appdirs,
   { In the implementation on purpose: tdstorage's own implementation
     uses this unit back, and a cycle is only legal while at least one
     side of it is down here. }
@@ -785,7 +786,8 @@ begin
   inherited Create;
   FAccounts := TFPList.Create;
   FActive := -1;
-  FBaseDir := ExtractFilePath(ParamStr(0));
+  { Данные — в профиле пользователя (appdirs.pas): tdlib/, conf.dat. }
+  FBaseDir := ServerDataDir;
   SecureConfigSetDir(FBaseDir);
 
   FPendingRemove := TFPList.Create;

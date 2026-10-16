@@ -33,7 +33,8 @@ uses
   cthreads,
   {$ENDIF}
   Classes, SysUtils, fpjson,
-  constants, tdtimer, localserver, srvloop, srvauth, srvconsole, srvhost, instance;
+  constants, tdtimer, localserver, srvloop, srvauth, srvconsole, srvhost, instance,
+  appdirs, secureconfig;
 
 { Ресурсы проекта (fptg-server.res, его пишет сборка): в них
   VERSIONINFO, которую tdaccount.AppVersionString отдаёт TDLib. }
@@ -51,9 +52,10 @@ begin
   end;
 end;
 
+{ Данные сервера — в профиле пользователя (appdirs.pas), не рядом с exe. }
 function DataDir: string;
 begin
-  Result := ExtractFilePath(ParamStr(0));
+  Result := ServerDataDir;
 end;
 
 { Пароль дважды, с подтверждением. '' — человек передумал или не совпало.
@@ -138,6 +140,12 @@ var
   Cmd, Err: string;
   Args, Res: TJSONObject;
 begin
+  if InstanceElsewhere then begin
+    WriteLn(ErrOutput, 'An fptg server is already running on this computer ',
+      '(another copy or another user). Only one can run per computer.');
+    ExitCode := 1;
+    Exit;
+  end;
   if not IsUserCommand then begin
     WriteLn(ErrOutput, 'The server is already running (', InstanceKind(DataDir, INSTANCE_SERVER),
       '). Only one copy can run with this data.');
@@ -222,6 +230,8 @@ begin
   { Без этого неявные преобразования строк идут через системную кодовую
     страницу и теряют не-латиницу. }
   DefaultSystemCodePage := CP_UTF8;
+  { conf.dat — тоже в папке данных; до первого чтения (AuthLoad). }
+  SecureConfigSetDir(DataDir);
 
   if not AcquireInstance(DataDir, INSTANCE_SERVER) then begin
     ServeSecondCopy;
