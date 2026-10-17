@@ -40,6 +40,7 @@ const COUNTS = [
   ['url', 'link', 'links', '@link'],
   ['voice', 'mic', 'voice messages', '@voice'],
   ['animation', 'gif', 'GIFs', '@gif'],
+  ['poll', 'poll', 'polls', '@poll'],
 ];
 
 let hooks = {};
@@ -243,7 +244,12 @@ function actions(i) {
       : confirmAct(`Block ${i.title}?`, 'Block',
         { action: 'user.block', userId: i.userId, block: true }, 'Blocked')), true]);
   }
-  if (i.kind === 'group' || i.kind === 'channel') {
+  if ((i.kind === 'group' || i.kind === 'channel') && i.isMember === false) {
+    // Не состоит — вступить (чат открыт: chat.join берёт открытый).
+    if (i.chatId === store.activeChatId) {
+      list.push([i.kind === 'channel' ? 'Join channel' : 'Join group', () => emit('ui:join-chat')]);
+    }
+  } else if (i.kind === 'group' || i.kind === 'channel') {
     const what = i.kind === 'channel' ? 'Leave channel' : 'Leave group';
     list.push([what, () => confirmAct(`${what}?`, 'Leave',
       { action: 'chat.leave', chatId: String(i.chatId) }, 'Left'), true]);
@@ -323,7 +329,11 @@ async function loadMembers(box, i) {
 // Открывается строкой «N gifts» в панели и кнопкой Gifts в шапке чата.
 const GIFT_KINDS = [['all', 'All'], ['limited', 'Limited'], ['unlimited', 'Unlimited'], ['unique', 'Unique']];
 
-let view = 'info';         // 'info' | 'gifts' | 'media'
+let view = 'info';         // 'info' | 'gifts' | 'media' | 'similar'
+// Похожие каналы (chat.similar): канал, для которого, строки и узел вида.
+let similar = { chatId: null, items: null, node: null };
+const similarMissing = new Set();
+let similarBoxes = new Map();
 let gifts = { kind: 'all', sortByPrice: false, items: [], next: '', total: 0, loading: false };
 
 /** Смена вида; шапке чата — какая сетка медиа открыта (подсветка кнопки). */
@@ -337,6 +347,90 @@ function setView(next) {
   view = next;
   const now = view === 'media' ? media.filter : '';
   if (was !== now) emit('info:media-view', now);
+}
+
+// ------------------------------------------------------- similar
+// Похожие каналы, как у нативного клиента: список в панели; щелчок
+// открывает канал (openChatSimilarChat — Telegram учитывает выбор).
+function openSimilar() {
+  setView('similar');
+  similar = { chatId: info?.chatId ?? null, items: null, node: null };
+  if (!open) setOpen(true);
+  renderSimilar();
+  loadSimilar();
+}
+
+async function loadSimilar() {
+  const chatId = similar.chatId;
+  let answer;
+  try {
+    answer = await hooks.call('chat.similar', { chatId });
+  } catch (error) {
+    hooks.report(error);
+    answer = { items: [] };
+  }
+  if (view !== 'similar' || similar.chatId !== chatId) return;
+  similar.items = answer.items ?? [];
+  similar.node = null;
+  renderSimilar();
+  const missing = similar.items.filter((c) => !c.avatar).map((c) => c.id);
+  missing.forEach((id) => similarMissing.add(id));
+  if (missing.length) hooks.call('chats.avatars', { ids: missing }).catch(() => {});
+}
+
+function similarRow(chat) {
+  const avatar = el('span', { class: `avatar media-row__avatar accent-${chat.color || 'a5'}` });
+  fillAvatar(avatar, chat);
+  if (!similarBoxes.has(chat.id)) similarBoxes.set(chat.id, new Set());
+  similarBoxes.get(chat.id).add(avatar);
+  return el('button', {
+    class: 'media-row', type: 'button',
+    onclick: () => {
+      hooks.call('chat.similarOpened', { chatId: similar.chatId, openedId: chat.id }).catch(() => {});
+      setActiveChat(chat.id);
+    },
+  },
+  el('span', { class: 'media-row__cover is-round' }, avatar),
+  el('span', { class: 'media-row__text' },
+    el('span', { class: 'media-row__title' }, chat.title || 'Channel'),
+    chat.preview ? el('span', { class: 'media-row__desc' }, chat.preview) : null));
+}
+
+function renderSimilar() {
+  // Уже нарисовано — не перестраивать (srv:chats перечитывает панель).
+  if (similar.node?.isConnected) return;
+  const back = el('button', {
+    class: 'btn info-panel__back', type: 'button',
+    onclick: () => { setView('info'); render(); },
+  }, icon('chevron-left'), info?.title || 'Back');
+  const items = similar.items;
+  const title = el('div', { class: 'info-panel__section-title' },
+    items ? `${items.length} similar channels` : 'Similar channels');
+  similarBoxes = new Map();
+  const list = items === null
+    ? el('p', { class: 'info-panel__hint' }, 'Loading…')
+    : items.length
+      ? el('div', { class: 'media-list' }, ...items.map(similarRow))
+      : el('p', { class: 'info-panel__hint' }, 'No similar channels.');
+  similar.node = el('div', {}, back, title, list);
+  clear(body).append(similar.node);
+  body.scrollTop = 0;
+}
+
+/** Догрузившиеся аватарки похожих каналов — на место. */
+async function refreshSimilarAvatars() {
+  if (view !== 'similar' || !similarMissing.size) return;
+  let answer;
+  try {
+    answer = await hooks.call('chats.rows', { ids: [...similarMissing] });
+  } catch {
+    return;
+  }
+  for (const row of answer?.items ?? []) {
+    if (!row.avatar) continue;
+    similarMissing.delete(row.id);
+    for (const box of similarBoxes.get(row.id) ?? []) fillAvatar(box, row);
+  }
 }
 
 function openGifts() {
@@ -516,6 +610,7 @@ const MEDIA_KINDS = [
   ['link', 'Links', 'links', 'No links here.', 'list'],
   ['voice', 'Voice', 'voice messages', 'No voice messages here.', 'list'],
   ['file', 'Files', 'files', 'No files here.', 'list'],
+  ['poll', 'Polls', 'polls', 'No polls here.', 'list'],
   ['pinned', 'Pinned', 'pinned messages', 'No pinned messages.', 'list'],
 ];
 // За сколько пикселей до конца прокрутки просить следующую страницу.
@@ -641,7 +736,8 @@ function mediaItem(item) {
   if (item.kind === 'audio') return audioRow(item);
   if (item.kind === 'voice') return voiceRow(item);
   if (item.kind === 'file') return fileRow(item);
-  if (item.kind === 'pinned') return pinnedRow(item);
+  // Опрос — строкой, как закреплённое: «Poll: вопрос» и автор.
+  if (item.kind === 'pinned' || item.kind === 'poll') return pinnedRow(item);
   if (item.kind === 'link') return linkRow(item);
   return mediaTile(item);
 }
@@ -861,6 +957,10 @@ function render() {
     if (!mediaParts) renderMedia();
     return;
   }
+  if (view === 'similar') {
+    renderSimilar();
+    return;
+  }
   mediaParts = null;
   const avatar = el('span', { class: `avatar info-panel__avatar accent-${i.color}` });
   fillAvatar(avatar, {
@@ -947,6 +1047,11 @@ function render() {
       class: 'info-panel__count', type: 'button',
       onclick: () => (filter.startsWith('@') ? openMedia(filter.slice(1)) : emit('ui:set-filter', filter)),
     }, icon(iconName), el('span', {}, `${n} ${label}`)));
+  }
+  if (i.similarCount > 0) {
+    counts.push(el('button', {
+      class: 'info-panel__count', type: 'button', onclick: openSimilar,
+    }, icon('channel'), el('span', {}, `${i.similarCount} similar channels`)));
   }
 
   const parts = [head, buttons];
@@ -1077,6 +1182,7 @@ export function mountInfoPanel(box, options) {
   // открытая панель перечитывается, но не чаще, чем раз в несколько секунд.
   let last = 0;
   on('srv:chats', () => {
+    if (open && view === 'similar' && similarMissing.size) refreshSimilarAvatars();
     if (!open || loadingFor !== null || Date.now() - last < 5000) return;
     last = Date.now();
     load();

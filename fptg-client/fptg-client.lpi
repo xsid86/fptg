@@ -20,7 +20,7 @@
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
       <MinorVersionNr Value="1"/>
-      <BuildNr Value="644"/>
+      <BuildNr Value="646"/>
       <StringTable CompanyName="xsid86" InternalName="fptg-client" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>

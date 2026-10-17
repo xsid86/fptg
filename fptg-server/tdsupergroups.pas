@@ -107,6 +107,10 @@ type
       False и запрос getSupergroup; ответ придёт updateSupergroup.
       AByRequest — вступление через одобрение администратора. }
     function CanJoin(AId: Int64; out AByRequest: boolean): boolean;
+    { Известен ли собственный статус аккаунта в группе или канале и
+      состоит ли он (AIsMember). Ничего не запрашивает: неизвестная
+      группа — False. }
+    function Membership(AId: Int64; out AIsMember: boolean): boolean;
 
     { ITdUpdateListener }
     procedure TdUpdate(const AJson: utf8string; AData: TJSONObject);
@@ -326,6 +330,18 @@ begin
   end;
   AByRequest := Row.JoinByRequest;
   Result := (not Row.IsMember) and (not Row.IsBanned);
+end;
+
+function TTdSupergroups.Membership(AId: Int64; out AIsMember: boolean): boolean;
+var
+  Row: TSupergroupRow;
+begin
+  AIsMember := False;
+  Row := Lookup(AId);
+  Result := Row <> nil;
+  if Result then begin
+    AIsMember := Row.IsMember;
+  end;
 end;
 
 procedure TTdSupergroups.RequestGroup(AId: Int64);

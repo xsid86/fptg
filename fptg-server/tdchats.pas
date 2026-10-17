@@ -882,7 +882,13 @@ begin
   end else if T = 'messageContact' then begin
     Result := 'Contact';
   end else if T = 'messagePoll' then begin
-    Result := 'Poll';
+    { poll.question — formattedText (td_api.tl коммита d1085f9). }
+    Cap := JGetStr(JGetObj(JGetObj(AContent, 'poll'), 'question'), 'text');
+    if Cap <> '' then begin
+      Result := 'Poll: ' + Cap;
+    end else begin
+      Result := 'Poll';
+    end;
   end else if T = 'messageCall' then begin
     Result := 'Call';
   end else if T = 'messageRichMessage' then begin

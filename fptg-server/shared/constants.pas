@@ -279,6 +279,11 @@ const
   { Сколько последних говоривших показывать на плашке трансляции
     (webapi.SpeakersJson). }
   VCHAT_BAR_SPEAKERS = 3;
+  { Глобальный поиск (webapi, ui/search.js): частые — лентой, списки и
+    сообщения — сколько отдавать за раз. }
+  SEARCH_TOP_LIMIT = 30;
+  SEARCH_LIST_LIMIT = 50;
+  SEARCH_MESSAGES_LIMIT = 30;
   { Сколько символов текста богатого сообщения собирать на превью в
     списке чатов (tdchats.MessagePreview). }
   CHAT_PREVIEW_RICH_CHARS = 200;

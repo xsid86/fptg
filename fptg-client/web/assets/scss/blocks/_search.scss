@@ -1,0 +1,244 @@
+@use "../abstracts" as *;
+
+// Поиск над списком чатов (ui/search.js), как у Telegram Desktop: пока
+// он открыт, вместо списка — панель с вкладками; частые — лентой,
+// прокручиваемой вбок («All» — сеткой), ниже — строки.
+.sidebar.is-searching {
+  .chat-list,
+  .chat-list__to-top {
+    display: none;
+  }
+}
+
+// Кнопка закрытия поиска — в поле, вместо крестика type=search (тот
+// есть, только пока набран текст).
+.search__close {
+  flex: 0 0 auto;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+#chats-search::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search {
+  @include flex(column, stretch, flex-start);
+  height: 100%;
+  min-height: 0;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.search__tabs {
+  @include flex(row, stretch, flex-start, $space-1);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 50%, transparent);
+  flex: 0 0 auto;
+  padding: 0 $space-4;
+}
+
+.search__tab {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  font-weight: $fw-medium;
+  padding: $space-3 $space-4;
+  transition: color $dur-base $ease, border-color $dur-base $ease;
+
+  &:hover {
+    color: var(--c-text);
+  }
+
+  &.is-active {
+    border-bottom-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+}
+
+.search__body {
+  @include flex(column, stretch, flex-start, $space-4);
+  @include scroll-area;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: $space-4 0;
+}
+
+.search__section {
+  @include flex(column, stretch, flex-start, $space-2);
+}
+
+.search__section-head {
+  @include flex(row, center, space-between, $space-3);
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  padding: 0 $space-5;
+}
+
+.search__section-title {
+  font-weight: $fw-medium;
+}
+
+.search__head-btn {
+  background: none;
+  border: 0;
+  color: var(--c-accent);
+  cursor: pointer;
+  font-size: $fs-sm;
+  padding: 0;
+}
+
+// Частые: одна строка, прокрутка вбок; развёрнутая — сетка.
+.search__strip {
+  @include flex(row, flex-start, flex-start, $space-2);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: $space-1 $space-4 $space-2;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  &.is-expanded {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    overflow: visible;
+  }
+}
+
+.search__peer {
+  @include flex(column, center, flex-start, $space-2);
+  background: none;
+  border: 0;
+  border-radius: $radius-md;
+  color: var(--c-text);
+  cursor: pointer;
+  flex: 0 0 64px;
+  padding: $space-2 0;
+  scroll-snap-align: start;
+  width: 64px;
+
+  &:hover,
+  &.is-selected {
+    @include chat-tint(background, 12%);
+  }
+}
+
+.search__peer-avatar {
+  @include size(48px);
+  font-size: $fs-lg;
+}
+
+.search__peer-name {
+  @include ellipsis;
+  font-size: $fs-sm;
+  max-width: 100%;
+  text-align: center;
+}
+
+.search__rows {
+  @include flex(column, stretch, flex-start);
+}
+
+.search__row {
+  @include flex(row, center, flex-start, $space-4);
+  cursor: pointer;
+  min-width: 0;
+  padding: $space-3 $space-5;
+  position: relative;
+
+  &:hover,
+  &.is-selected {
+    @include chat-tint(background, 10%);
+
+    .search__row-remove {
+      opacity: 1;
+    }
+  }
+}
+
+.search__row-avatar {
+  @include size(42px);
+  flex: 0 0 auto;
+}
+
+.search__row-text {
+  @include flex(column, stretch, center, $space-1);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.search__row-line {
+  @include flex(row, baseline, space-between, $space-3);
+  min-width: 0;
+}
+
+.search__row-title {
+  @include ellipsis;
+  font-weight: $fw-medium;
+  min-width: 0;
+}
+
+.search__row-date {
+  color: var(--c-text-faint);
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+}
+
+.search__row-sub {
+  @include ellipsis;
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.search__row-who {
+  @include chat-tint(color);
+}
+
+.search__row-remove {
+  flex: 0 0 auto;
+  font-size: $fs-lg;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity $dur-fast $ease;
+}
+
+.search__more {
+  @include chat-tint(color);
+  align-self: center;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-weight: $fw-medium;
+  padding: $space-3;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+// Posts: лимиты бесплатных поисков и кнопка поиска (платного — с ценой).
+.search__posts-head {
+  @include flex(column, center, flex-start, $space-3);
+  padding: 0 $space-5;
+  text-align: center;
+}
+
+.search__posts-info {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  margin: 0;
+}
+
+.search__empty {
+  color: var(--c-text-dim);
+  margin: $space-6 0;
+  text-align: center;
+}

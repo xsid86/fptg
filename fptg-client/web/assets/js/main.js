@@ -16,6 +16,7 @@ import {
   htmlMode, canCompose, takeReply, customEmojiMarkup, richAttach,
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
+import { mountSearch } from './ui/search.js';
 import { mountPayments } from './ui/payments.js';
 import { mountTranslate } from './ui/translate.js';
 import { mountCalls } from './ui/call.js';
@@ -504,6 +505,13 @@ function setContactsMode(on) {
  * подсвечена (is-active); архив и контакты — одно из двух.
  */
 function setSidebarView(view) {
+  // Другая вкладка — поиск и фильтр контактов кончаются.
+  const box = qs('#chats-search');
+  if (box.value) {
+    box.value = '';
+    setChatFilter('');
+  }
+  emit('ui:search-close');
   for (const tab of qsa('.sidebar__tab')) {
     const on = tab.dataset.view === view;
     tab.classList.toggle('is-active', on);
@@ -548,13 +556,14 @@ function wireSidebar() {
   });
   on('store:archived', loadChats);
 
-  // Filtering the loaded list in the page rather than asking the server
-  // again: it is already here, and a round trip per keystroke would be
-  // both slower and noisier than a scan of a few hundred items. The
-  // filtering itself belongs to the list, which is the only thing that
-  // knows when it is about to rebuild - see setChatFilter.
+  // Поле над списком: в Chats и Archive — поиск, как у Telegram Desktop
+  // (ui/search.js); в Contacts — фильтр загруженных контактов, он уже
+  // весь здесь (setChatFilter).
+  mountSearch(qs('#chats-search'), qs('.sidebar'), qs('.sidebar__body'), {
+    disabled: () => contactsOn,
+  });
   qs('#chats-search').addEventListener('input', (event) => {
-    setChatFilter(event.target.value);
+    if (contactsOn) setChatFilter(event.target.value);
   });
 }
 

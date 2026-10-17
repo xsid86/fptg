@@ -197,6 +197,19 @@ type
     procedure MentionMembersDone(Sender: TObject; const AResp: TTdResponse);
     procedure MentionContactsDone(Sender: TObject; const AResp: TTdResponse);
     procedure MentionReply(ASlot: PtrInt; const AIds: array of Int64);
+    function  CmdSearchHome(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdSearchQuery(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdSearchRecent(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure SearchNext(ASlot: PtrInt);
+    procedure SearchStepDone(Sender: TObject; const AResp: TTdResponse);
+    procedure InfoSimilarDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdChatSimilar(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdChatSimilarOpened(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdSearchMessages(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdSearchPostLimits(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure PostLimitsDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdSearchPosts(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure PostsDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdAccountsList: TJSONData;
     function  CmdAccountsSwitch(AArgs: TJSONObject): TJSONData;
     function  CmdAccountsAdd: TJSONData;
@@ -356,6 +369,7 @@ type
     function  CmdChatsList(AArgs: TJSONObject): TJSONData;
     function  CmdChatsAvatars(AArgs: TJSONObject): TJSONData;
     function  CmdChatsMore(AArgs: TJSONObject): TJSONData;
+    function  CmdChatsRows(AArgs: TJSONObject): TJSONData;
     function  CmdChatOpen(AArgs: TJSONObject): TJSONData;
     function  CmdChatClose: TJSONData;
     function  CmdChatAction(AArgs: TJSONObject): TJSONData;
@@ -3058,9 +3072,26 @@ procedure TWebApi.ChatArrived(Sender: TObject; ARow: TChatRow;
   const APreview: utf8string);
 var
   Data: TJSONObject;
+  Member: boolean;
 begin
   if ARow = nil then begin
     Exit;
+  end;
+  { Только чаты, где человек состоит. TDLib присылает новые сообщения и
+    каналов, на которые он не подписан, — пока такой чат открыт (здесь,
+    в поиске, или в другом клиенте того же аккаунта), — а их
+    уведомления по умолчанию «не заглушены». Канал и супергруппа —
+    по собственному статусу (supergroup.status); пока его нет — по
+    месту в списке чатов: не в основном и не в архиве — не наш. }
+  if ARow.SupergroupId <> 0 then begin
+    if (TdSupergroupList <> nil)
+       and TdSupergroupList.Membership(ARow.SupergroupId, Member) then begin
+      if not Member then begin
+        Exit;
+      end;
+    end else if not (ARow.InList or ARow.InArchive) then begin
+      Exit;
+    end;
   end;
   Data := TJSONObject.Create;
   { A number, the same shape chats.list sends an id in - the page
@@ -3301,6 +3332,38 @@ begin
     end;
   end;
   Result := nil;
+end;
+
+{ chats.rows (ids) — строки уже известных чатов, как в списке, без
+  запросов в TDLib: поиск (ui/search.js) так подбирает аватарки,
+  скачанные после того, как он нарисовал свои строки. }
+function TWebApi.CmdChatsRows(AArgs: TJSONObject): TJSONData;
+var
+  Chats: TTdChats;
+  Arr, Out: TJSONArray;
+  CRow: TChatRow;
+  I: integer;
+begin
+  Chats := RequireChats;
+  Out := TJSONArray.Create;
+  Result := TJSONObject.Create;
+  TJSONObject(Result).Add('items', Out);
+  if AArgs = nil then begin
+    Exit;
+  end;
+  Arr := TJSONArray(AArgs.Find('ids', jtArray));
+  if Arr = nil then begin
+    Exit;
+  end;
+  for I := 0 to Arr.Count - 1 do begin
+    if Arr.Items[I].JSONType <> jtNumber then begin
+      Continue;
+    end;
+    CRow := Chats.Lookup(Arr.Items[I].AsInt64);
+    if CRow <> nil then begin
+      Out.Add(RowToJson(Chats, CRow));
+    end;
+  end;
 end;
 
 function TWebApi.CmdChatsMore(AArgs: TJSONObject): TJSONData;
@@ -7571,58 +7634,448 @@ end;
 { Люди по id — из модели пользователей (TDLib присылает updateUser до
   ответа поиска): имя, username, цвет, аватарка (на диске — адрес, нет —
   minithumbnail и докачка). Себя не предлагаем. }
+{ Один пользователь -> карточка для страницы (подсказка «@», поиск):
+  userId, name, username, color, avatar / avatarThumb. nil — удалённый
+  аккаунт или сам пользователь (AMe). }
+function UserItemJson(AId, AMe: Int64): TJSONObject;
+var
+  Users: TTdUsers;
+  U: TUserRow;
+begin
+  Result := nil;
+  if (AId = 0) or (AId = AMe) then begin
+    Exit;
+  end;
+  Result := TJSONObject.Create;
+  Result.Add('userId', string(IntToStr(AId)));
+  Result.Add('name', '');
+  Result.Add('username', '');
+  Result.Add('color', string(AccentKeyFor(-1, AId)));
+  Result.Add('avatar', '');
+  Result.Add('avatarThumb', '');
+  Users := TdUserList;
+  if Users = nil then begin
+    Exit;
+  end;
+  U := Users.Find(AId);
+  if U = nil then begin
+    Result.Strings['name'] := string(Users.DisplayName(AId));
+    Exit;
+  end;
+  if U.Deleted then begin
+    FreeAndNil(Result);
+    Exit;
+  end;
+  Result.Strings['name'] := string(U.DisplayName);
+  Result.Strings['username'] := string(U.Username);
+  Result.Strings['color'] := string(AccentKeyFor(U.AccentColorId, AId));
+  if U.PhotoPath <> '' then begin
+    Result.Strings['avatar'] := string(FileUrl(U.PhotoFileId, U.PhotoPath));
+  end else begin
+    Users.EnsurePhoto(U);
+    Result.Strings['avatarThumb'] := string(ThumbDataUri(U.Minithumb));
+  end;
+end;
+
+function MyUserId: Int64;
+begin
+  Result := 0;
+  if TdApp.Active <> nil then begin
+    Result := TdApp.Active.UserId;
+  end;
+end;
+
 procedure TWebApi.MentionReply(ASlot: PtrInt; const AIds: array of Int64);
 var
   Res, O: TJSONObject;
   Out: TJSONArray;
-  Users: TTdUsers;
-  U: TUserRow;
   I: integer;
   Me: Int64;
 begin
   Out := TJSONArray.Create;
-  Users := TdUserList;
-  Me := 0;
-  if TdApp.Active <> nil then begin
-    Me := TdApp.Active.UserId;
-  end;
+  Me := MyUserId;
   for I := 0 to High(AIds) do begin
-    if (AIds[I] = 0) or (AIds[I] = Me) then begin
-      Continue;
+    O := UserItemJson(AIds[I], Me);
+    if O <> nil then begin
+      Out.Add(O);
     end;
-    O := TJSONObject.Create;
-    O.Add('userId', string(IntToStr(AIds[I])));
-    O.Add('name', '');
-    O.Add('username', '');
-    O.Add('color', string(AccentKeyFor(-1, AIds[I])));
-    O.Add('avatar', '');
-    O.Add('avatarThumb', '');
-    if Users <> nil then begin
-      U := Users.Find(AIds[I]);
-      if U <> nil then begin
-        if U.Deleted then begin
-          O.Free;
-          Continue;
-        end;
-        O.Strings['name'] := string(U.DisplayName);
-        O.Strings['username'] := string(U.Username);
-        O.Strings['color'] := string(AccentKeyFor(U.AccentColorId, AIds[I]));
-        if U.PhotoPath <> '' then begin
-          O.Strings['avatar'] := string(FileUrl(U.PhotoFileId, U.PhotoPath));
-        end else begin
-          Users.EnsurePhoto(U);
-          O.Strings['avatarThumb'] := string(ThumbDataUri(U.Minithumb));
-        end;
-      end else begin
-        O.Strings['name'] := string(Users.DisplayName(AIds[I]));
-      end;
-    end;
-    Out.Add(O);
   end;
   Res := TJSONObject.Create;
   Res.Add('items', Out);
   Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
   ReleaseDeferred(ASlot);
+end;
+
+{ ------------------------------------------------------------------ }
+{ глобальный поиск (ui/search.js)                                    }
+{ ------------------------------------------------------------------ }
+
+{ Поиск — как у Telegram Desktop: фокус в поле над списком открывает
+  панель с вкладками Chats / Channels / Apps. Пустой запрос —
+  search.home (частые и недавние/рекомендуемые), запрос — search.query
+  (известные чаты, публичные, сообщения). Каждая — короткий план запросов
+  TDLib по очереди на одном отложенном ответе: в Held — plan (шаги:
+  key, method, params, kind), i (текущий шаг) и out (ответ). Ошибка шага — пустой список под его
+  ключом, не ошибка всего ответа (searchPublicChats, например, отвечает
+  ошибкой на слишком короткий запрос). Поля сверены с td_api.tl коммита
+  d1085f9 (там нет getRecentlyFoundChats — недавние даёт
+  searchRecentlyFoundChats с пустым запросом). }
+
+procedure SearchStep(AHeld: TJSONObject; const AKey, AMethod, AParams, AKind: utf8string);
+var
+  Step: TJSONObject;
+begin
+  Step := TJSONObject.Create;
+  Step.Add('key', string(AKey));
+  Step.Add('method', string(AMethod));
+  Step.Add('params', string(AParams));
+  Step.Add('kind', string(AKind));
+  TJSONArray(AHeld.Find('plan', jtArray)).Add(Step);
+end;
+
+function SearchHeld: TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.Add('plan', TJSONArray.Create);
+  Result.Add('i', 0);
+  Result.Add('out', TJSONObject.Create);
+end;
+
+{ Фильтр вида чатов для searchMessages по вкладке поиска ('' — вкладка
+  без сообщений). }
+function SearchMessagesFilter(const ATab: utf8string): utf8string;
+begin
+  if ATab = 'channels' then begin
+    Result := '{"@type":"searchMessagesChatTypeFilterChannel"}';
+  end else if ATab = 'apps' then begin
+    Result := '';
+  end else begin
+    Result := 'null';
+  end;
+end;
+
+function JsonText(const AText: utf8string): utf8string;
+var
+  Q: TJSONString;
+begin
+  Q := TJSONString.Create(string(AText));
+  try
+    Result := utf8string(Q.AsJSON);
+  finally
+    Q.Free;
+  end;
+end;
+
+function TopChats(const ACategory: utf8string): utf8string;
+begin
+  Result := '"category":{"@type":"' + ACategory + '"},"limit":' +
+    utf8string(IntToStr(SEARCH_TOP_LIMIT));
+end;
+
+function TWebApi.CmdSearchHome(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Held: TJSONObject;
+  Tab: utf8string;
+begin
+  Result := True;
+  RequireMsgs;
+  Tab := utf8string(AArgs.Get('tab', 'chats'));
+  Held := SearchHeld;
+  if Tab = 'channels' then begin
+    SearchStep(Held, 'top', 'getTopChats', TopChats('topChatCategoryChannels'), 'chats');
+    SearchStep(Held, 'recommended', 'getRecommendedChats', '', 'chats');
+  end else if Tab = 'apps' then begin
+    SearchStep(Held, 'top', 'getTopChats', TopChats('topChatCategoryWebAppBots'), 'chats');
+    SearchStep(Held, 'popular', 'getGrossingWebAppBots',
+      '"offset":"","limit":' + utf8string(IntToStr(SEARCH_LIST_LIMIT)), 'users');
+  end else begin
+    SearchStep(Held, 'top', 'getTopChats', TopChats('topChatCategoryUsers'), 'chats');
+    SearchStep(Held, 'recent', 'searchRecentlyFoundChats',
+      '"query":"","type_filter":null,"limit":' + utf8string(IntToStr(SEARCH_LIST_LIMIT)), 'chats');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := Held;
+  SearchNext(Slot);
+end;
+
+function TWebApi.CmdSearchQuery(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Held: TJSONObject;
+  Tab, Query, Filter, MsgFilter: utf8string;
+  Q: TJSONString;
+begin
+  Result := True;
+  RequireMsgs;
+  Tab := utf8string(AArgs.Get('tab', 'chats'));
+  Q := TJSONString.Create(Trim(AArgs.Get('query', '')));
+  try
+    Query := utf8string(Q.AsJSON);
+  finally
+    Q.Free;
+  end;
+  if Tab = 'channels' then begin
+    Filter := '{"@type":"searchChatTypeFilterChannel"}';
+  end else if Tab = 'apps' then begin
+    Filter := '{"@type":"searchChatTypeFilterBot"}';
+  end else begin
+    Filter := 'null';
+  end;
+  MsgFilter := SearchMessagesFilter(Tab);
+  Held := SearchHeld;
+  SearchStep(Held, 'chats', 'searchChats', '"query":' + Query + ',"type_filter":' + Filter +
+    ',"limit":' + utf8string(IntToStr(SEARCH_LIST_LIMIT)), 'chats');
+  SearchStep(Held, 'global', 'searchPublicChats', '"query":' + Query + ',"type_filter":' + Filter, 'chats');
+  if MsgFilter <> '' then begin
+    SearchStep(Held, 'messages', 'searchMessages',
+      '"chat_list":{"@type":"chatListMain"},"query":' + Query + ',"offset":"","limit":' +
+      utf8string(IntToStr(SEARCH_MESSAGES_LIMIT)) + ',"filter":null,"chat_type_filter":' + MsgFilter +
+      ',"min_date":0,"max_date":0', 'messages');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := Held;
+  SearchNext(Slot);
+end;
+
+{ Следующий шаг плана, или ответ странице, когда шаги кончились. }
+procedure TWebApi.SearchNext(ASlot: PtrInt);
+var
+  Held, Step, Res: TJSONObject;
+  Plan: TJSONArray;
+  I: integer;
+begin
+  Held := FDeferred[ASlot].Held;
+  Plan := TJSONArray(Held.Find('plan', jtArray));
+  I := Held.Get('i', 0);
+  if I >= Plan.Count then begin
+    Res := TJSONObject(Held.Find('out', jtObject).Clone);
+    Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId, Res);
+    ReleaseDeferred(ASlot);
+    Exit;
+  end;
+  Step := Plan.Objects[I];
+  RequireMsgs.Request(utf8string(Step.Get('method', '')), utf8string(Step.Get('params', '')),
+    @SearchStepDone, ASlot);
+end;
+
+{ Ответ TDLib на шаг -> список для страницы:
+    chats — chat_ids -> строки, как в списке чатов (RowToJson);
+    users — user_ids -> карточки (UserItemJson);
+    messages — сообщения -> chat (строка), id, date, text (превью, как
+      в списке — MessagePreview), sender, outgoing. }
+function GiftSenderName(ASender: TJSONObject): utf8string; forward;
+
+function SearchItems(const AKind: utf8string; AObj: TJSONObject): TJSONArray;
+var
+  Arr: TJSONArray;
+  Chats: TTdChats;
+  Row: TChatRow;
+  M, Item, U: TJSONObject;
+  I: integer;
+  Me: Int64;
+  Glyphs: TPreviewGlyphArray;
+begin
+  Result := TJSONArray.Create;
+  Chats := TdChatList;
+  Me := MyUserId;
+  if AKind = 'users' then begin
+    Arr := JGetArr(AObj, 'user_ids');
+    if Arr = nil then begin
+      Exit;
+    end;
+    for I := 0 to Arr.Count - 1 do begin
+      U := UserItemJson(Arr.Items[I].AsInt64, Me);
+      if U <> nil then begin
+        Result.Add(U);
+      end;
+    end;
+  end else if AKind = 'messages' then begin
+    Arr := JGetArr(AObj, 'messages');
+    if (Arr = nil) or (Chats = nil) then begin
+      Exit;
+    end;
+    for I := 0 to Arr.Count - 1 do begin
+      if not (Arr.Items[I] is TJSONObject) then begin
+        Continue;
+      end;
+      M := TJSONObject(Arr.Items[I]);
+      Row := Chats.Lookup(JGetInt64(M, 'chat_id'));
+      if Row = nil then begin
+        Continue;
+      end;
+      Item := TJSONObject.Create;
+      Item.Add('chat', RowToJson(Chats, Row));
+      Item.Add('id', JGetInt64(M, 'id'));
+      Item.Add('date', JGetInt64(M, 'date'));
+      Item.Add('text', string(MessagePreview(JGetObj(M, 'content'), Glyphs)));
+      Item.Add('sender', string(GiftSenderName(JGetObj(M, 'sender_id'))));
+      Item.Add('outgoing', JGetBool(M, 'is_outgoing'));
+      Result.Add(Item);
+    end;
+  end else begin
+    Arr := JGetArr(AObj, 'chat_ids');
+    if (Arr = nil) or (Chats = nil) then begin
+      Exit;
+    end;
+    for I := 0 to Arr.Count - 1 do begin
+      Row := Chats.Lookup(Arr.Items[I].AsInt64);
+      if Row <> nil then begin
+        Result.Add(RowToJson(Chats, Row));
+      end;
+    end;
+  end;
+end;
+
+procedure TWebApi.SearchStepDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Held, Step: TJSONObject;
+  Items: TJSONArray;
+  I: integer;
+begin
+  Slot := AResp.Tag;
+  if (Slot < 0) or (Slot > High(FDeferred)) or (not FDeferred[Slot].Busy)
+     or (FDeferred[Slot].Held = nil) then begin
+    Exit;
+  end;
+  Held := FDeferred[Slot].Held;
+  I := Held.Get('i', 0);
+  Step := TJSONArray(Held.Find('plan', jtArray)).Objects[I];
+  if AResp.Success then begin
+    Items := SearchItems(utf8string(Step.Get('kind', '')), AResp.Obj);
+  end else begin
+    Items := TJSONArray.Create;
+  end;
+  TJSONObject(Held.Find('out', jtObject)).Add(Step.Get('key', ''), Items);
+  { Сообщения листаются дальше (search.messages): их next_offset. }
+  if AResp.Success and (Step.Get('kind', '') = 'messages') then begin
+    TJSONObject(Held.Find('out', jtObject)).Add(Step.Get('key', '') + 'Next',
+      JGetStr(AResp.Obj, 'next_offset'));
+  end;
+  Held.Integers['i'] := I + 1;
+  SearchNext(Slot);
+end;
+
+{ search.messages (tab, query, offset) — «Show more» под найденными
+  сообщениями: следующая страница searchMessages. }
+function TWebApi.CmdSearchMessages(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Held: TJSONObject;
+  Filter: utf8string;
+begin
+  Result := True;
+  RequireMsgs;
+  Filter := SearchMessagesFilter(utf8string(AArgs.Get('tab', 'chats')));
+  if Filter = '' then begin
+    raise Exception.Create('no messages in this tab');
+  end;
+  Held := SearchHeld;
+  SearchStep(Held, 'messages', 'searchMessages',
+    '"chat_list":{"@type":"chatListMain"},"query":' + JsonText(Trim(AArgs.Get('query', ''))) +
+    ',"offset":' + JsonText(AArgs.Get('offset', '')) + ',"limit":' +
+    utf8string(IntToStr(SEARCH_MESSAGES_LIMIT)) + ',"filter":null,"chat_type_filter":' + Filter +
+    ',"min_date":0,"max_date":0', 'messages');
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := Held;
+  SearchNext(Slot);
+end;
+
+{ ---- публичные посты (вкладка Posts) ----
+  Поиск по всем публичным каналам: несколько запросов в день бесплатно,
+  дальше — за звёзды (td_api.tl: getPublicPostSearchLimits,
+  searchPublicPosts, star_count — сколько человек согласился заплатить;
+  0 — бесплатно). Страница сначала спрашивает лимиты и показывает их, а
+  ищет — только по нажатию, платный поиск — по отдельной кнопке с ценой. }
+
+function PostLimitsJson(L: TJSONObject): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.Add('dailyFree', JGetInt(L, 'daily_free_query_count'));
+  Result.Add('remainingFree', JGetInt(L, 'remaining_free_query_count'));
+  Result.Add('nextFreeIn', JGetInt(L, 'next_free_query_in'));
+  Result.Add('stars', JGetInt64(L, 'star_count'));
+  Result.Add('currentFree', JGetBool(L, 'is_current_query_free'));
+end;
+
+{ search.postLimits (query) -> лимиты для этого запроса. }
+function TWebApi.CmdSearchPostLimits(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+begin
+  Result := True;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('getPublicPostSearchLimits',
+    '"query":' + JsonText(Trim(AArgs.Get('query', ''))), @PostLimitsDone, Slot);
+end;
+
+procedure TWebApi.PostLimitsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, PostLimitsJson(AResp.Obj));
+  ReleaseDeferred(Slot);
+end;
+
+{ search.posts (query, offset, stars) -> messages, next, limits,
+  exceeded. }
+function TWebApi.CmdSearchPosts(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+begin
+  Result := True;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('searchPublicPosts',
+    '"query":' + JsonText(Trim(AArgs.Get('query', ''))) +
+    ',"offset":' + JsonText(AArgs.Get('offset', '')) +
+    ',"limit":' + utf8string(IntToStr(SEARCH_MESSAGES_LIMIT)) +
+    ',"star_count":' + utf8string(IntToStr(ArgId(AArgs, 'stars'))), @PostsDone, Slot);
+end;
+
+procedure TWebApi.PostsDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('messages', SearchItems('messages', AResp.Obj));
+  Res.Add('next', JGetStr(AResp.Obj, 'next_offset'));
+  Res.Add('limits', PostLimitsJson(JGetObj(AResp.Obj, 'search_limits')));
+  Res.Add('exceeded', JGetBool(AResp.Obj, 'are_limits_exceeded'));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ search.recent (op: add | remove | clear, id) — недавние найденные:
+  открытый из поиска чат встаёт в них, крестик и Clear — убирают. }
+function TWebApi.CmdSearchRecent(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Op, Body: utf8string;
+  Method: utf8string;
+begin
+  Result := True;
+  Op := utf8string(AArgs.Get('op', ''));
+  Body := '"chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'id')));
+  if Op = 'add' then begin
+    Method := 'addRecentlyFoundChat';
+  end else if Op = 'remove' then begin
+    Method := 'removeRecentlyFoundChat';
+  end else if Op = 'clear' then begin
+    Method := 'clearRecentlyFoundChats';
+    Body := '';
+  end else begin
+    raise Exception.Create('search.recent needs op: add, remove or clear');
+  end;
+  RequireMsgs.Request(Method, Body, @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
 { ------------------------------------------------------------------ }
@@ -7959,12 +8412,13 @@ end;
 { Виды медиа для счётчиков панели — searchMessagesFilter* (td_api.tl);
   ключи — те, что ждёт страница. }
 const
-  INFO_COUNT_FILTERS: array[0..6] of string = ('searchMessagesFilterPhoto',
+  INFO_COUNT_FILTERS: array[0..7] of string = ('searchMessagesFilterPhoto',
     'searchMessagesFilterVideo', 'searchMessagesFilterDocument',
     'searchMessagesFilterAudio', 'searchMessagesFilterUrl',
-    'searchMessagesFilterVoiceNote', 'searchMessagesFilterAnimation');
-  INFO_COUNT_KEYS: array[0..6] of string = ('photo', 'video', 'document',
-    'audio', 'url', 'voice', 'animation');
+    'searchMessagesFilterVoiceNote', 'searchMessagesFilterAnimation',
+    'searchMessagesFilterPoll');
+  INFO_COUNT_KEYS: array[0..7] of string = ('photo', 'video', 'document',
+    'audio', 'url', 'voice', 'animation', 'poll');
   { Счётчик кодирует в теге и слот, и вид: Slot * INFO_TAG_MUL + индекс. }
   INFO_TAG_MUL = 16;
 
@@ -8009,6 +8463,10 @@ begin
   end else if Row.BasicGroupId <> 0 then begin
     Inc(Left, 2);
   end;
+  { Канал — ещё число похожих каналов (getChatSimilarChatCount). }
+  if Row.Kind = ckChannel then begin
+    Inc(Left);
+  end;
   FDeferred[Slot].Held.Add('left', Left);
 
   if (not Chats.IsSelfChat(Row)) and (Row.Kind = ckPrivate) and (Row.UserId <> 0) then begin
@@ -8026,6 +8484,10 @@ begin
       @InfoGroupDone, Slot);
     Msgs.Request('getBasicGroupFullInfo', '"basic_group_id":' + utf8string(IntToStr(Row.BasicGroupId)),
       @InfoGroupFullDone, Slot);
+  end;
+  if Row.Kind = ckChannel then begin
+    Msgs.Request('getChatSimilarChatCount', '"chat_id":' + utf8string(IntToStr(ChatId)) +
+      ',"return_local":false', @InfoSimilarDone, Slot);
   end;
   for I := 0 to High(INFO_COUNT_FILTERS) do begin
     Msgs.Request('getChatMessageCount',
@@ -8129,6 +8591,15 @@ begin
     if Res.Find('memberCount') = nil then begin
       Res.Add('memberCount', JGetInt(AResp.Obj, 'member_count'));
     end;
+    { Собственный статус: состоит ли аккаунт — панели решать, «Join» или
+      «Leave». Restricted — по is_member. }
+    if JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusRestricted' then begin
+      Res.Add('isMember', JGetBool(JGetObj(AResp.Obj, 'status'), 'is_member'));
+    end else begin
+      Res.Add('isMember', (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusCreator')
+        or (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusAdministrator')
+        or (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusMember'));
+    end;
     User := JGetStr(JGetObj(AResp.Obj, 'usernames'), 'editable_username');
     if User <> '' then begin
       Res.Add('username', string(User));
@@ -8192,6 +8663,51 @@ begin
     TJSONObject(Res.Objects['counts']).Add(INFO_COUNT_KEYS[Idx], JGetInt(AResp.Obj, 'count'));
   end;
   InfoStep(Slot);
+end;
+
+{ getChatSimilarChatCount -> similarCount (примерное число похожих
+  каналов; ошибка — без числа). }
+procedure TWebApi.InfoSimilarDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  Slot := AResp.Tag;
+  if not InfoSlot(Slot, Res) then begin
+    Exit;
+  end;
+  if AResp.Success then begin
+    Res.Add('similarCount', JGetInt(AResp.Obj, 'count'));
+  end;
+  InfoStep(Slot);
+end;
+
+{ chat.similar (chatId) — похожие каналы (getChatSimilarChats), строками
+  списка чатов, как результаты поиска. }
+function TWebApi.CmdChatSimilar(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Held: TJSONObject;
+begin
+  Result := True;
+  RequireMsgs;
+  Held := SearchHeld;
+  SearchStep(Held, 'items', 'getChatSimilarChats',
+    '"chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'chatId'))), 'chats');
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := Held;
+  SearchNext(Slot);
+end;
+
+{ chat.similarOpened (chatId, openedId) — openChatSimilarChat: Telegram
+  учитывает, какие из предложенных каналов открывают. }
+function TWebApi.CmdChatSimilarOpened(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+begin
+  Result := True;
+  RequireMsgs.Request('openChatSimilarChat',
+    '"chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'chatId'))) +
+    ',"opened_chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'openedId'))),
+    @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
 { chat.members: участники группы — getSupergroupMembers (последние,
@@ -8783,6 +9299,8 @@ begin
     Filter := 'searchMessagesFilterDocument';
   end else if Kind = 'pinned' then begin
     Filter := 'searchMessagesFilterPinned';
+  end else if Kind = 'poll' then begin
+    Filter := 'searchMessagesFilterPoll';
   end else begin
     Kind := 'photo';
     Filter := 'searchMessagesFilterPhoto';
@@ -8847,7 +9365,8 @@ begin
       FileObj := nil;
       Mini := nil;
       TKind := 'img';
-      if Want = 'pinned' then begin
+      { Опрос — строкой, как закреплённое: «Poll: вопрос» и автор. }
+      if (Want = 'pinned') or (Want = 'poll') then begin
         Item.Add('text', string(MessagePreview(Content, Glyphs)));
         Item.Add('sender', string(GiftSenderName(JGetObj(M, 'sender_id'))));
         GiftSenderAvatar(Item, JGetObj(M, 'sender_id'));
@@ -10957,6 +11476,8 @@ begin
         Reply(AConnId, ReqId, CmdChatsList(Args));
       end else if Cmd = 'chats.avatars' then begin
         Reply(AConnId, ReqId, CmdChatsAvatars(Args));
+      end else if Cmd = 'chats.rows' then begin
+        Reply(AConnId, ReqId, CmdChatsRows(Args));
       end else if Cmd = 'chats.more' then begin
         Reply(AConnId, ReqId, CmdChatsMore(Args));
       end else if Cmd = 'chat.open' then begin
@@ -11100,6 +11621,22 @@ begin
         CmdChatGreeting(AConnId, ReqId, Args);
       end else if Cmd = 'greeting.send' then begin
         Reply(AConnId, ReqId, CmdGreetingSend(Args));
+      end else if Cmd = 'search.home' then begin
+        CmdSearchHome(AConnId, ReqId, Args);
+      end else if Cmd = 'search.query' then begin
+        CmdSearchQuery(AConnId, ReqId, Args);
+      end else if Cmd = 'chat.similar' then begin
+        CmdChatSimilar(AConnId, ReqId, Args);
+      end else if Cmd = 'chat.similarOpened' then begin
+        CmdChatSimilarOpened(AConnId, ReqId, Args);
+      end else if Cmd = 'search.recent' then begin
+        CmdSearchRecent(AConnId, ReqId, Args);
+      end else if Cmd = 'search.messages' then begin
+        CmdSearchMessages(AConnId, ReqId, Args);
+      end else if Cmd = 'search.postLimits' then begin
+        CmdSearchPostLimits(AConnId, ReqId, Args);
+      end else if Cmd = 'search.posts' then begin
+        CmdSearchPosts(AConnId, ReqId, Args);
       end else if Cmd = 'mention.search' then begin
         CmdMentionSearch(AConnId, ReqId, Args);
       end else if Cmd = 'contacts.list' then begin
