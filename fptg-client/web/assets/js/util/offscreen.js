@@ -241,6 +241,23 @@ export function holdVideo(video, full, loop = false) {
 }
 
 /**
+ * Сменить, как играет уже взятое видео (настройки Battery and animation,
+ * Chat settings — без перерисовки истории): 'loop', 'once' или false —
+ * только по щелчку.
+ */
+export function setVideoMode(video, loop) {
+  const info = held.get(video);
+  if (!info) return;
+  info.loop = loop;
+  video.loop = loop === 'loop';
+  if (!loop) {
+    video.pause();
+  } else if (info.visible && !info.off) {
+    video.play().catch(() => { /* went away mid-start */ });
+  }
+}
+
+/**
  * Отпускает всё, что держится внутри `root`, СЕЙЧАС, а не по
  * следующему событию истории.
  *

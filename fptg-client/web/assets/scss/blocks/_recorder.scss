@@ -41,10 +41,15 @@
   user-select: none;
   z-index: 3;
 
-  // Наведение — цветом чата, но не во время записи: там фон уже этого
-  // цвета, и значок пропал бы.
+  // Наведение — как у соседних кнопок-значков (.btn): подложка и
+  // светлее значок; не во время записи — там фон уже цвета чата.
   &:hover:not(.is-recording) {
-    @include chat-tint(color);
+    background: var(--c-surface-hover);
+    color: var(--c-text);
+  }
+
+  &:active:not(.is-recording) {
+    background: var(--c-surface-active);
   }
 
   .composer.is-locked &:hover {
@@ -327,4 +332,34 @@
   padding: 1px $space-3;
   position: absolute;
   transform: translateX(-50%);
+}
+
+// Отложенная отправка (ui/schedule.js): слева от кнопки записи. Точка —
+// в чате есть запланированные сообщения.
+.composer__schedule {
+  @include size($composer-min);
+  border-radius: 50%;
+  color: var(--c-text-dim);
+  flex: 0 0 auto;
+  padding: 0;
+  position: relative;
+
+  &[hidden],
+  .composer--join & {
+    display: none;
+  }
+}
+
+.composer__schedule-dot {
+  @include size(8px);
+  background: var(--c-accent);
+  border-radius: 50%;
+  display: none;
+  inset-block-start: 8px;
+  inset-inline-end: 8px;
+  position: absolute;
+
+  .composer__schedule.has-scheduled & {
+    display: block;
+  }
 }

@@ -1,10 +1,10 @@
 import {el, clear} from '../core/dom.js';
 import {emit} from '../core/bus.js';
 import {icon} from '../util/icons.js';
-import {playSticker} from './sticker.js';
+import {playSticker, restyleStickers} from './sticker.js';
 import {customEmojiNode} from '../util/emoji.js';
 import {renderRichText} from '../util/entities.js';
-import {holdImage, holdVideo} from '../util/offscreen.js';
+import {holdImage, holdVideo, setVideoMode} from '../util/offscreen.js';
 import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 import {addRing, xferText, xferLeft} from '../util/xfer.js';
 import {peopleOnHover} from './people.js';
@@ -15,6 +15,24 @@ import {fillAvatar} from '../util/avatar.js';
 import {copyText} from '../util/clipboard.js';
 import {translationFor, watchTranslation} from './translate.js';
 import {downloadUrl} from '../util/download.js';
+import {getPref} from '../util/prefs.js';
+import {on} from '../core/bus.js';
+
+// Настройки анимаций поменялись — уже показанные GIF и стикеры играют по
+// новым правилам сразу, без перерисовки истории.
+function restyleMedia() {
+    const loop = getPref('loopStickers');
+    const still = !getPref('animatedStickers');
+    for (const v of document.querySelectorAll('video.media__video:not([controls])')) {
+        setVideoMode(v, getPref('autoplayGifs') ? 'loop' : false);
+    }
+    for (const v of document.querySelectorAll('video.media__sticker')) {
+        v.loop = loop && !still;
+        setVideoMode(v, still ? false : (loop ? 'loop' : 'once'));
+    }
+    restyleStickers(document.body, {loop, still});
+}
+for (const key of ['autoplayGifs', 'loopStickers', 'animatedStickers']) on(`pref:${key}`, restyleMedia);
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -792,7 +810,9 @@ function renderAnimation(msg, m) {
                 });
             },
         });
-        if (!reused) holdVideo(player, m.url, 'loop');
+        // «Autoplay GIFs» выключено (Battery and animation) — играет
+        // только по щелчку, наблюдатель её не запускает.
+        if (!reused) holdVideo(player, m.url, getPref('autoplayGifs') ? 'loop' : false);
         box.append(player);
         if (m.xfer) box.append(xferOverlay(msg, m));
         wrapper.append(box);
@@ -1059,11 +1079,19 @@ function renderSticker(msg, m) {
         // Not autoplay: what starts it is coming into view, and what
         // stops it is leaving - see util/offscreen.js. A click replays
         // it from the start.
+        // «Loop animated stickers» — по кругу, пока на экране; «Animated
+        // stickers» выключены — стоит первым кадром до щелчка (кадр
+        // появляется только после перемотки, см. util/emoji.js).
+        const looping = getPref('loopStickers');
+        const still = !getPref('animatedStickers');
         const reused = takeVideo(m.url);
         const player = reused ?? el('video', {
             class: 'media__sticker',
-            src: m.url, loop: false, muted: true, playsInline: true,
+            src: m.url, loop: looping && !still, muted: true, playsInline: true,
             dataset: {media: m.url},
+            onloadeddata: still ? () => {
+                try { player.currentTime = 0.01; } catch { /* no data */ }
+            } : null,
             onclick: () => {
                 player.currentTime = 0;
                 player.play().catch(() => {
@@ -1075,7 +1103,7 @@ function renderSticker(msg, m) {
                 player.currentTime = 0;
             },
         });
-        if (!reused) holdVideo(player, m.url, 'once');
+        if (!reused) holdVideo(player, m.url, still ? false : (looping ? 'loop' : 'once'));
         box.append(player);
     } else if (m.format === 'tgs') {
         // A gzip-compressed Lottie animation - see ui/sticker.js, which
@@ -1085,7 +1113,12 @@ function renderSticker(msg, m) {
         // hole the size of a sticker.
         const frame = el('div', {class: 'media__sticker media__sticker--lottie'});
         box.append(frame);
-        playSticker(frame, m.url, {once: true}).then((ok) => {
+        // «Loop animated stickers» (Chat settings) — по кругу; «Animated
+        // stickers» выключены (Battery and animation) — стоит до щелчка.
+        playSticker(frame, m.url, {
+            once: !getPref('loopStickers'),
+            still: !getPref('animatedStickers'),
+        }).then((ok) => {
             if (ok || !frame.isConnected) return;
             frame.replaceWith(el('div', {
                 class: 'media__sticker-wait',

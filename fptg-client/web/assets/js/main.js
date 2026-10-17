@@ -3,6 +3,7 @@ import { on, emit } from './core/bus.js';
 import { connect, call } from './core/net.js';
 import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat, activeOffList } from './core/store.js';
 import { setCustomEmoji } from './util/emoji.js';
+import { applyRoot } from './util/prefs.js';
 import { loadIcons, hydrateIcons } from './util/icons.js';
 import { openMenu } from './util/menu.js';
 import {
@@ -464,8 +465,8 @@ function wireActions() {
     }).catch(report);
   });
 
-  on('ui:search', ({ filter, query }) => {
-    call('search.set', { filter, query }).then(applyMessages).catch(report);
+  on('ui:search', ({ filter, query, savedTopic }) => {
+    call('search.set', { filter, query, savedTopic: savedTopic ?? 0 }).then(applyMessages).catch(report);
   });
 }
 
@@ -634,6 +635,9 @@ async function boot() {
   // мини-приложения, трей (ui/shell.js). Клик по карточке и ссылки из
   // мини-приложения приходят оттуда же.
   mountShell({ call: (cmd, args) => call(cmd, args), openLink, report });
+  // Масштаб и анимации интерфейса этого окна (Chat settings, Battery
+  // and animation) — классы корня, до первых окон.
+  applyRoot();
   mountThemeToggle(qs('#theme-toggle'));
   mountSettings(qs('#settings'), qs('#settings-open'), {
     load: (cmd, args) => call(cmd, args),

@@ -929,3 +929,16 @@
     text-decoration: underline;
   }
 }
+
+// Источник «Избранного» (ui/infopanel.js): последнее сообщение одной
+// строкой, дата справа.
+.info-panel__topic .info-panel__label {
+  @include ellipsis;
+}
+
+.info-panel__topic-date {
+  align-self: flex-start;
+  color: var(--c-text-dim);
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+}

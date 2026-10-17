@@ -106,6 +106,10 @@ type
     UnreadCount:        integer;
     UnreadMentionCount: integer;
     IsMarkedAsUnread:   boolean;
+    { Есть запланированные сообщения (chat.has_scheduled_messages,
+      updateChatHasScheduledMessages): значок у кнопки отложенной
+      отправки (ui/schedule.js). }
+    HasScheduled:       boolean;
     { Видеочат / трансляция чата (chat.video_chat, updateChatVideoChat):
       id звонка (0 — нет) и есть ли в нём кто-то — значок в списке и
       плашка над историей (ui/livebar.js). }
@@ -2564,6 +2568,7 @@ begin
   R.UnreadCount := JGetInt(AChat, 'unread_count');
   R.UnreadMentionCount := JGetInt(AChat, 'unread_mention_count');
   R.IsMarkedAsUnread := JGetBool(AChat, 'is_marked_as_unread');
+  R.HasScheduled := JGetBool(AChat, 'has_scheduled_messages');
   R.LastReadOutbox := JGetInt64(AChat, 'last_read_outbox_message_id');
   R.LastReadInbox := JGetInt64(AChat, 'last_read_inbox_message_id');
   R.AccentColorId := JGetInt(AChat, 'accent_color_id');
@@ -2613,6 +2618,15 @@ begin
 
   if T = 'updateChatActiveStories' then begin
     ApplyActiveStories(JGetObj(Obj, 'active_stories'));
+    Exit;
+  end;
+
+  if T = 'updateChatHasScheduledMessages' then begin
+    R := Lookup(JGetInt64(Obj, 'chat_id'));
+    if R <> nil then begin
+      R.HasScheduled := JGetBool(Obj, 'has_scheduled_messages');
+      Touch;
+    end;
     Exit;
   end;
 

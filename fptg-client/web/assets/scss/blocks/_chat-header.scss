@@ -126,3 +126,19 @@
     opacity: .35;
   }
 }
+
+// Показан один источник «Избранного» (ui/chat-header.js): чип с его
+// именем над поиском, крестик — вся история.
+.chat-header__topic {
+  @include flex(row, center, flex-start, $space-2);
+  @include chat-tint(background, 15%);
+  max-width: 100%;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.chat-header__topic-label {
+  @include ellipsis;
+}

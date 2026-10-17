@@ -11,6 +11,16 @@ import { shellSettings, postShell } from './shell.js';
 import { trafficShown, setTrafficShown } from './status-bar.js';
 import { ACCENTS, currentAccent, setAccent } from './theme.js';
 import { uploadUrl, serverBase, currentUser, signOut } from '../core/session.js';
+import {
+  initKit, setPremium, row, group, switchControl, numberControl, textControl, uid, navRow,
+} from './setkit.js';
+import { renderPrivacySecurity } from './setprivacy.js';
+import { renderNotifyScopes, renderAcceptCalls } from './setnotify.js';
+import { renderChatSettings as chatSettingsParts, renderPower, renderLanguage } from './setchats.js';
+import { renderFolders } from './setfolders.js';
+import { renderPremium, renderStars, renderGift } from './setpremium.js';
+import { renderBusiness } from './setbusiness.js';
+import { openProxies } from './setproxy.js';
 
 // Настройки приложения.
 //
@@ -23,77 +33,51 @@ import { uploadUrl, serverBase, currentUser, signOut } from '../core/session.js'
 // Раскладка как у нативного окна настроек: разделы слева, содержимое
 // раздела справа. Окно — модальный <dialog>, растянутый на всё окно
 // приложения с отступом 32px (см. blocks/_settings.scss).
+//
+// Разделы — в порядке и под именами Telegram Desktop. Наше, чего у
+// Desktop нет отдельным разделом (загрузки, кэш, сервис карт, закрытие в
+// трей, сервер), — внутри Advanced, как у него «Data and storage» и
+// «System integration». Раздел может быть async: старое содержимое
+// стоит, пока новое не готово (renderPane).
+//
+// Три пункта справки — пока пустые: это будут ссылки на сайт проекта
+// с вопросами о самом fptg, не о Telegram.
 
 const SECTIONS = [
-  { id: 'general', label: 'General', icon: 'settings', render: renderGeneral },
   { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
-  { id: 'privacy', label: 'Privacy', icon: 'lock', render: renderPrivacy },
-  { id: 'notifications', label: 'Notifications', icon: 'bell', render: renderNotifications },
-  { id: 'calls', label: 'Calls', icon: 'mic', render: renderCalls },
-  { id: 'maps', label: 'Location service', icon: 'pin', render: renderMaps },
-  { id: 'downloads', label: 'Downloads', icon: 'download', render: renderDownloads },
-  { id: 'autodownload', label: 'Auto download', icon: 'image', render: renderAutoDownload },
-  { id: 'storage', label: 'Storage', icon: 'archive', render: renderStorage },
+  { id: 'notifications', label: 'Notifications and sounds', icon: 'bell', render: renderNotifications },
+  { id: 'privacy', label: 'Privacy and security', icon: 'lock', render: renderPrivacySecurity },
+  { id: 'chats', label: 'Chat settings', icon: 'chat', render: renderChats },
+  { id: 'folders', label: 'Folders', icon: 'folder', render: renderFolders },
+  { id: 'advanced', label: 'Advanced', icon: 'settings', render: renderAdvanced },
+  { id: 'calls', label: 'Speakers and camera', icon: 'mic', render: renderCalls },
+  { id: 'power', label: 'Battery and animation', icon: 'battery', render: renderPower },
+  { id: 'language', label: 'Language', icon: 'globe', render: renderLanguage },
+  { sep: true },
+  { id: 'premium', label: 'Telegram Premium', icon: 'star', render: renderPremium },
+  { id: 'stars', label: 'My stars', icon: 'star', render: renderStars },
+  { id: 'business', label: 'Telegram Business', icon: 'briefcase', render: renderBusiness },
+  { id: 'gift', label: 'Send a gift', icon: 'gift', render: renderGift },
+  { sep: true },
+  { id: 'faq', label: 'Telegram FAQ', icon: 'help', render: () => [] },
+  { id: 'features', label: 'Telegram Features', icon: 'bulb', render: () => [] },
+  { id: 'ask', label: 'Ask a question', icon: 'chat', render: () => [] },
 ];
+const PAGES = SECTIONS.filter((x) => !x.sep);
 
 let dialog = null;
 let opener = null;
 let hooks = {};
 let nav = null;
 let pane = null;
-let current = SECTIONS[0].id;
+let current = PAGES[0].id;
 let data = null;      // последний ответ settings.get / событие settings
 let storage = null;   // последний ответ storage.get / событие storage
 let storageView = null;
-let nextId = 0;
-
-const uid = () => `settings-${++nextId}`;
-
-// ------------------------------------------------------------ controls
-/** Строка раздела: подпись и пояснение слева, элемент управления справа. */
-function row(id, label, hint, control) {
-  return el('div', { class: 'settings__row' },
-    el('div', { class: 'settings__text' },
-      el('label', { class: 'settings__label', htmlFor: id }, label),
-      hint ? el('p', { class: 'settings__hint' }, hint) : null),
-    el('div', { class: 'settings__control' }, control));
-}
-
-function group(title, ...rows) {
-  return el('section', { class: 'settings__group' },
-    title ? el('h3', { class: 'settings__group-title' }, title) : null,
-    ...rows);
-}
-
-function switchControl(id, checked, onCommit) {
-  const input = el('input', {
-    class: 'switch__input', type: 'checkbox', id, checked,
-    onchange: () => onCommit(input.checked, input),
-  });
-  return el('span', { class: 'switch' }, input, el('span', { class: 'switch__track' }));
-}
-
-/**
- * Число с единицей измерения. Отправляется по change (Enter или уход из
- * поля), а не на каждый ввод: иначе набор «100» сохранил бы сначала 1.
- */
-function numberControl(id, { value, min, max, unit }, onCommit) {
-  const input = el('input', {
-    class: 'field__input settings__number', type: 'number', id,
-    min: String(min), max: String(max), step: '1', value: String(value),
-    onchange: () => {
-      const v = Math.round(Number(input.value));
-      if (input.value === '' || !Number.isFinite(v)) {
-        input.value = String(value);
-        return;
-      }
-      onCommit(v, input);
-    },
-  });
-  return el('label', { class: 'field settings__field' },
-    input,
-    unit ? el('span', { class: 'settings__unit' }, unit) : null);
-}
+// Подстраница Advanced: null — сам раздел, иначе id подстраницы
+// (downloads, autodownload, storage, maps).
+let advancedView = null;
+let paneSeq = 0;
 
 // Углы экрана — коды те же, что у сервера (DESKNOTIFY_CORNERS).
 const CORNERS = [
@@ -128,14 +112,6 @@ function markCorner(box, value) {
     spot.classList.toggle('is-active', on);
     spot.setAttribute('aria-pressed', String(on));
   }
-}
-
-function textControl(id, value, onCommit) {
-  const input = el('input', {
-    class: 'field__input', type: 'text', id, value, autocomplete: 'off',
-    onchange: () => onCommit(input.value.trim(), input),
-  });
-  return el('label', { class: 'field settings__field settings__field--wide' }, input);
 }
 
 // ------------------------------------------------------------- saving
@@ -588,137 +564,103 @@ function renderAccount() {
   ];
 }
 
-// ------------------------------------------------------------ privacy
-// Кто видит «был(а) в сети» и время прочтения — официальные настройки
-// Telegram (webapi privacy.*: правила userPrivacySettingShowStatus и
-// readDatePrivacySettings). Они заменили «Невидимку» (2026-10-12): прятать
-// онлайн и не отмечать прочитанное условия Telegram API (§1.4) запрещают,
-// а эти настройки работают по-честному — взаимно, как у всех клиентов.
-// Как и «My account», из TDLib при каждом открытии: меняются и с телефона.
-
-const LAST_SEEN = [
-  { id: 'everybody', label: 'Everybody' },
-  { id: 'contacts', label: 'My contacts' },
-  { id: 'nobody', label: 'Nobody' },
-];
-
-let privacy = null;     // последний ответ privacy.get
-let privacyLoading = false;
-
-async function reloadPrivacy() {
-  if (privacyLoading) return;
-  privacyLoading = true;
-  try {
-    privacy = await hooks.load('privacy.get');
-  } catch (error) {
-    hooks.report(error);
-    return;
-  } finally {
-    privacyLoading = false;
-  }
-  if (current === 'privacy' && dialog.open && !editing()) renderPane();
-}
-
-async function savePrivacy(args) {
-  try {
-    await hooks.load('privacy.set', args);
-  } catch (error) {
-    hooks.report(error);
-  }
-  // В любом случае — заново из TDLib: поле показывает действующее.
-  reloadPrivacy();
-}
-
-function renderPrivacy() {
-  if (!privacy) {
-    reloadPrivacy();
-    return [el('p', { class: 'settings__hint' }, 'Loading…')];
-  }
-  const p = privacy;
-  const name = uid();
-  const readDate = uid();
-  return [
-    el('p', { class: 'settings__intro' },
-      'If you don’t share your last seen and online status, you won’t see '
-      + 'other people’s either.'
-      + (p.exceptions > 0
-        ? ` Exceptions for ${p.exceptions === 1 ? 'one rule' : `${p.exceptions} rules`} `
-          + 'set in another Telegram app stay as they are.'
-        : '')),
-    group('Last seen & online',
-      ...LAST_SEEN.map((o) => {
-        const id = uid();
-        const radio = el('input', {
-          class: 'settings__check', type: 'radio', name, id,
-          checked: p.lastSeen === o.id,
-          onchange: () => savePrivacy({ key: 'lastSeen', value: o.id }),
-        });
-        return row(id, o.label, null, radio);
-      })),
-    group(null,
-      row(readDate, 'Show my read time',
-        'In private chats people see when you read their messages. Turn it '
-        + 'off and you won’t see their read time either. People who can see '
-        + 'your last seen always see it.',
-        switchControl(readDate, p.showReadDate,
-          (checked) => savePrivacy({ key: 'readDate', value: checked })))),
-  ];
-}
-
 // ----------------------------------------------------------- sections
 // Устройства звонков и громкость — та же панель, что в окне звонка
 // (calls/devices.js). Хранится в браузере этой страницы, не на сервере.
-function renderCalls() {
+async function renderCalls() {
   return [
     group('Devices and volume', devicePanel()),
     el('p', { class: 'settings__hint' },
       'Saved in this browser: another device running the app keeps its own choice. '
       + 'Changes apply to a call in progress right away.'),
+    ...await renderAcceptCalls(),
   ];
 }
 
-function renderGeneral() {
+/** Chat settings: масштаб, тема, акцент — вид окна; дальше аккаунт. */
+function renderChats() {
+  return chatSettingsParts(swatchGrid(ACCENTS, 'app-', currentAccent(), (key) => {
+    setAccent(key);
+    renderPane();
+  }, 'color-grid--inline'));
+}
+
+// Подстраницы Advanced: «Data and storage» и наше.
+const ADVANCED_VIEWS = {
+  downloads: { label: 'Downloads', render: () => renderDownloads() },
+  autodownload: { label: 'Automatic media download', render: () => renderAutoDownload() },
+  storage: { label: 'Storage usage', render: () => renderStorage() },
+  maps: { label: 'Location service', render: () => renderMaps() },
+};
+
+function openAdvanced(view) {
+  advancedView = view;
+  renderPane();
+}
+
+function renderAdvanced() {
+  const sub = advancedView && ADVANCED_VIEWS[advancedView];
+  if (sub) {
+    return [
+      el('button', {
+        class: 'btn settings__back', type: 'button',
+        onclick: () => openAdvanced(null),
+      }, icon('chevron-left'), 'Advanced'),
+      el('h3', { class: 'settings__subheading' }, sub.label),
+      ...sub.render(),
+    ];
+  }
   const traffic = uid();
   const tray = uid();
   const device = uid();
   const server = uid();
   return [
-    group(null,
-      // Вход на сервер (core/session.js): кто и куда; выход гасит сеанс на
-      // сервере — в окне это ещё и трей → Sign out.
-      row(server, 'Server',
-        `Signed in as ${currentUser() || '?'} on ${serverBase.replace(/^https?:\/\//, '')}.`,
-        el('button', { id: server, class: 'btn settings__link', type: 'button',
-          onclick: () => { signOut(); } }, 'Sign out')),
+    group('Data and storage',
+      navRow({ iconName: 'download', label: 'Downloads', hint: 'Parallel downloads and speed limit.',
+        onClick: () => openAdvanced('downloads') }),
+      navRow({ iconName: 'image', label: 'Automatic media download', hint: 'What downloads by itself.',
+        onClick: () => openAdvanced('autodownload') }),
+      navRow({ iconName: 'archive', label: 'Storage usage', hint: 'Media cache and its limits.',
+        onClick: () => openAdvanced('storage') }),
+      navRow({ iconName: 'pin', label: 'Location service', hint: 'Where a location from a message opens.',
+        onClick: () => openAdvanced('maps') })),
+    group('Network',
+      navRow({ iconName: 'globe', label: 'Connection type', hint: 'Proxy for the server’s connection to Telegram.',
+        onClick: openProxies })),
+    group('System integration',
       row(tray, 'Close to tray',
         'The close button hides the window and keeps the app running. '
         + 'Quit from the tray icon.',
         switchControl(tray, data.closeToTray, (checked, input) => commit(
           { key: 'closeToTray', value: checked }, input,
           (node, d) => { node.checked = d.closeToTray; }))),
-      // Акцент — тоже вид этого окна (ui/theme.js), без commit.
-      row(null, 'Accent color',
-        'Buttons, links, selection and unread counters.',
-        swatchGrid(ACCENTS, 'app-', currentAccent(), (key) => {
-          setAccent(key);
-          renderPane();
-        }, 'color-grid--inline')),
       // Не сервер, а вид этого окна — без commit (ui/status-bar.js).
       row(traffic, 'Show connection traffic',
         'Under Online: what this window has received and sent, '
         + 'with the current speed.',
-        switchControl(traffic, trafficShown(), (checked) => setTrafficShown(checked))),
+        switchControl(traffic, trafficShown(), (checked) => setTrafficShown(checked)))),
+    group('Server',
       row(device, 'Device name',
         'How this app is listed in Telegram under Active sessions. '
         + 'Takes effect the next time an account signs in.',
         textControl(device, data.deviceModel, (value, input) => commit(
           { key: 'deviceModel', value }, input,
-          (node, d) => { node.value = d.deviceModel; })))),
+          (node, d) => { node.value = d.deviceModel; }))),
+      // Вход на сервер (core/session.js): кто и куда; выход гасит сеанс на
+      // сервере — в окне это ещё и трей → Sign out.
+      row(server, 'fptg server',
+        `Signed in as ${currentUser() || '?'} on ${serverBase.replace(/^https?:\/\//, '')}.`,
+        el('button', { id: server, class: 'btn settings__link', type: 'button',
+          onclick: () => { signOut(); } }, 'Sign out'))),
   ];
 }
 
-function renderNotifications() {
+async function renderNotifications() {
   const n = data.notify;
+  const account = await renderNotifyScopes().catch((error) => {
+    hooks.report(error);
+    return [];
+  });
   const enabled = uid();
   const corner = uid();
   const limit = uid();
@@ -729,7 +671,8 @@ function renderNotifications() {
     (v, input) => commit({ key: `notify.${key}`, value: v }, input,
       (node, d) => { node.value = String(d.notify[key]); }));
   return [
-    group(null,
+    ...account,
+    group('Desktop notifications',
       row(enabled, 'Desktop notifications',
         'Pop-ups for new messages in chats that are not muted. Not shown '
         + 'for the chat that is open while the window is in front.',
@@ -748,7 +691,7 @@ function renderNotifications() {
         numberControl(limit, { value: n.limit, min: n.limitMin, max: n.limitMax },
           (value, input) => commit({ key: 'notify.limit', value }, input,
             (node, d) => { node.value = String(d.notify.limit); })))),
-    group('Text',
+    group('Notification text',
       row(titleFont, 'Title size',
         `The chat name (${n.fontMin}–${n.fontMax}).`,
         font(titleFont, 'titleFont', n.titleFont)),
@@ -916,32 +859,63 @@ function renderStorage() {
 function renderNav() {
   clear(nav).append(
     el('h2', { class: 'settings__title' }, 'Settings'),
-    ...SECTIONS.map((s) => el('button', {
+    ...SECTIONS.map((s) => (s.sep ? el('hr', { class: 'settings__sep' }) : el('button', {
       class: `settings__tab${s.id === current ? ' is-active' : ''}`,
       type: 'button',
       'aria-current': s.id === current ? 'page' : null,
       onclick: () => select(s.id),
-    }, icon(s.icon, 'icon--sm'), el('span', {}, s.label))));
+    }, icon(s.icon, 'icon--sm'), el('span', {}, s.label)))));
 }
 
-function renderPane() {
-  const section = SECTIONS.find((s) => s.id === current) ?? SECTIONS[0];
-  storageView = null;
-  clear(pane).append(
-    el('header', { class: 'settings__head' },
-      el('h2', { class: 'settings__heading' }, section.label),
-      el('button', {
-        class: 'btn btn--icon', type: 'button', title: 'Close',
-        onclick: close,
-      }, icon('close'), el('span', { class: 'u-sr-only' }, 'Close'))),
-    // Колонка содержимого — по центру панели (blocks/_settings.scss).
-    el('div', { class: 'settings__body' },
-      el('div', { class: 'settings__content' },
-        ...(data ? section.render() : [el('p', { class: 'settings__hint' }, 'Loading…')]))));
+/**
+ * Раздел — в панель. Async-раздел (данные из TDLib) сначала готовится
+ * целиком, старое содержимое тем временем на месте (панель «занята»),
+ * и только потом подмена: так же, как переходы окон (ui/tgbox.js).
+ * Первый показ раздела — «Loading…», пока готовится.
+ */
+async function renderPane() {
+  const section = PAGES.find((s) => s.id === current) ?? PAGES[0];
+  const my = ++paneSeq;
+  const sameSection = pane.dataset.section === section.id;
+  if (!sameSection) {
+    pane.dataset.section = section.id;
+    storageView = null;
+    clear(pane).append(paneHead(section), paneBody([el('p', { class: 'settings__hint' }, 'Loading…')]));
+  }
+  if (!data) return;
+  pane.classList.add('is-busy');
+  let nodes;
+  try {
+    nodes = await section.render();
+  } catch (error) {
+    nodes = [el('p', { class: 'settings__error', role: 'alert' }, error?.message || String(error))];
+  }
+  if (my !== paneSeq) return;
+  pane.classList.remove('is-busy');
+  const body = pane.querySelector('.settings__body');
+  const top = sameSection ? body?.scrollTop ?? 0 : 0;
+  clear(pane).append(paneHead(section), paneBody(nodes.filter(Boolean)));
+  pane.querySelector('.settings__body').scrollTop = top;
+}
+
+function paneHead(section) {
+  return el('header', { class: 'settings__head' },
+    el('h2', { class: 'settings__heading' }, section.label),
+    el('button', {
+      class: 'btn btn--icon', type: 'button', title: 'Close',
+      onclick: close,
+    }, icon('close'), el('span', { class: 'u-sr-only' }, 'Close')));
+}
+
+// Колонка содержимого — по центру панели (blocks/_settings.scss).
+function paneBody(nodes) {
+  return el('div', { class: 'settings__body' },
+    el('div', { class: 'settings__content' }, ...nodes));
 }
 
 function select(id) {
   current = id;
+  advancedView = null;
   renderNav();
   renderPane();
 }
@@ -950,14 +924,24 @@ async function open() {
   if (dialog.open) return;
   // Аккаунт меняется и с телефона — при каждом открытии спрашивается заново.
   account = null;
-  privacy = null;
   accountView = 'main';
+  advancedView = null;
   pick = null;
+  delete pane.dataset.section;
   renderNav();
   renderPane();
   dialog.showModal();
   try {
-    data = await hooks.load('settings.get');
+    // Premium решает, какие настройки активны (ui/setkit.js).
+    const [settings, me] = await Promise.all([
+      hooks.load('settings.get'),
+      hooks.load('account.get').catch(() => null),
+    ]);
+    data = settings;
+    if (me) {
+      account = me;
+      setPremium(me.premium);
+    }
     renderPane();
   } catch (error) {
     hooks.report(error);
@@ -974,7 +958,7 @@ export function openSettings(id) {
     select(id);
     return;
   }
-  if (SECTIONS.some((s) => s.id === id)) current = id;
+  if (PAGES.some((s) => s.id === id)) current = id;
   open();
 }
 
@@ -992,6 +976,9 @@ export function mountSettings(node, button, options) {
   dialog = node;
   opener = button;
   hooks = options;
+  initKit(options, () => {
+    if (dialog.open && !editing()) renderPane();
+  });
   nav = el('nav', { class: 'settings__nav', 'aria-label': 'Settings sections' });
   pane = el('div', { class: 'settings__pane' });
   dialog.append(el('div', { class: 'settings__window' }, nav, pane));

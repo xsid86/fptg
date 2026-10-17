@@ -1,4 +1,5 @@
 import { customEmojiNode } from '../util/emoji.js';
+import { getPref } from '../util/prefs.js';
 
 // Поле ввода сообщения: contenteditable, который показывает результат,
 // а не разметку — жирный жирным, кастомный эмодзи картинкой.
@@ -664,8 +665,11 @@ class FptgEditor extends HTMLElement {
   _keys(event) {
     const mod = event.ctrlKey || event.metaKey;
     // Shift+Enter и Ctrl+Enter — новая строка (Enter отправляет — это
-    // решает поле ввода, ui/composer.js).
-    if (event.key === 'Enter' && (mod || event.shiftKey)) {
+    // решает поле ввода, ui/composer.js). «Send with Ctrl+Enter» (Chat
+    // settings) — наоборот: Enter и Shift+Enter — строка, Ctrl+Enter
+    // отправляет.
+    const byCtrl = getPref('sendByCtrlEnter');
+    if (event.key === 'Enter' && (byCtrl ? !mod : (mod || event.shiftKey))) {
       event.preventDefault();
       this._snapshot(true);
       document.execCommand('insertLineBreak');

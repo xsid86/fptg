@@ -163,6 +163,12 @@ function openThemes() {
   })));
 }
 
+// Для «Chat settings» → Theme (ui/setchats.js): тот же список и тот же
+// выбор, что в меню кисти.
+export const themeList = () => THEMES.map((t) => ({ ...t }));
+export const currentTheme = () => effective();
+export const setTheme = (id) => apply(id);
+
 export function mountThemeToggle(node) {
   button = node;
   button.addEventListener('click', openThemes);

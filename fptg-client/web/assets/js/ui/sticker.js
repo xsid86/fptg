@@ -246,6 +246,29 @@ export function stopStickers(root) {
  * it could not be played, so the caller can say so instead of leaving
  * an empty frame.
  */
+/**
+ * Сменить, как играют уже показанные стикеры внутри root (Battery and
+ * animation, Chat settings): loop — по кругу, иначе раз за показ; still —
+ * стоят первым кадром до щелчка. Значки (badge) не трогает.
+ */
+export function restyleStickers(root, { loop, still }) {
+    for (const [node, anim] of live) {
+        if (!node.classList.contains('media__sticker--lottie') || !root.contains(node)) continue;
+        anim.loop = !!loop && !still;
+        if (loop) once.delete(node);
+        else once.add(node);
+        if (still) {
+            observer().unobserve(node);
+            anim.goToAndStop(0, true);
+        } else {
+            // Заново под наблюдение: первый же отклик (на экране) и
+            // запустит его по новым правилам.
+            observer().unobserve(node);
+            observer().observe(node);
+        }
+    }
+}
+
 export async function playSticker(node, url, opts = {}) {
     const badge = !!opts.badge;
     try {
@@ -327,6 +350,9 @@ export async function playSticker(node, url, opts = {}) {
             // exists to play what comes into view, which is the one
             // thing this must not do.
             anim.goToAndStop(0, true);
+        } else if (opts.still) {
+            // «Animated stickers» выключены (util/prefs.js): лицо стоит,
+            // играет только по щелчку — наблюдатель не нужен.
         } else {
             observer().observe(node);
         }

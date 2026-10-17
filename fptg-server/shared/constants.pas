@@ -618,6 +618,15 @@ const
     ошибкой) — как у официальных клиентов. }
   REPLY_DELETED_TEXT = 'Deleted message';
 
+  { Обновления TDLib, у которых нет метода-«геттера», а настройкам
+    (ui/settings.js) нужно их последнее значение: быстрая реакция,
+    папки (включены ли теги), баланс звёзд, список быстрых реакций.
+    Аккаунт хранит последнее пришедшее каждого типа (tdaccount,
+    KeptUpdate), страница читает командой td.kept. }
+  KEPT_UPDATE_TYPES: array[0..5] of string = (
+    'updateDefaultReactionType', 'updateChatFolders', 'updateOwnedStarCount',
+    'updateActiveEmojiReactions', 'updateQuickReplyShortcuts', 'updateSavedMessagesTopicCount');
+
 implementation
 
 end.

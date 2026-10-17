@@ -643,6 +643,10 @@ type
     FThreadChatId: Int64;
     FThreadPostId: Int64;
     FThreadId: Int64;
+    { Отложенная отправка следующего sendMessage (webapi ставит на время
+      одной команды message.send*): 0 — сразу, >0 — дата unix, -1 —
+      «когда собеседник будет в сети». }
+    FScheduleAt: Int64;
     FThreadBack: Int64;
     { What OpenThread asked about, held until the answer comes back. }
     FPendingThreadChat: Int64;
@@ -679,6 +683,9 @@ type
       the same purpose, which isn't enough here because the filter can
       change without the chat changing. }
     FFilterType:     utf8string;
+    { Тема «Избранного» (savedMessagesTopic.id), чьи сообщения показаны:
+      источник на панели сведений (ui/infopanel.js). 0 — вся история. }
+    FSavedTopic:     Int64;
     FSearchQuery:    utf8string;
     FSearchNextFrom: Int64;
     FSearchTotal:    integer;
@@ -966,6 +973,10 @@ type
     procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0;
       AUnreadFrom: Int64 = 0);
     function TopicPart: utf8string;
+    { ',"options":…' для sendMessage: без звука и отложенная отправка
+      (ScheduleAt); пусто — когда ни того ни другого. }
+    function OptionsPart(ASilent: boolean): utf8string;
+    property ScheduleAt: Int64 read FScheduleAt write FScheduleAt;
     procedure ThreadDone(Sender: TObject; const AResp: TTdResponse);
     procedure CloseChat;
     { Loads an older page of history — or, while a filter/search is
@@ -991,7 +1002,9 @@ type
       Note the chat itself stays open in TDLib's eyes: openChat/
       closeChat are NOT re-sent here (the user is still looking at this
       chat, just at a subset of it), unlike OpenChat/CloseChat. }
-    procedure SetSearchFilter(const AFilterType, AQuery: utf8string);
+    procedure SetSearchFilter(const AFilterType, AQuery: utf8string;
+      ASavedTopic: Int64 = 0);
+    property SavedTopic: Int64 read FSavedTopic;
     { The message's index in Rows[] by its id, -1 if not loaded. Needed
       by framehistory for selecting text across several messages and
       for holding the scroll anchor during LoadOlder. }
@@ -1764,6 +1777,7 @@ begin
   Inc(FSearchSeq);
   FFilterType := '';
   FSearchQuery := '';
+  FSavedTopic := 0;
   FSearchNextFrom := 0;
   FSearchTotal := 0;
   FLoadingOlder := False;
@@ -1993,12 +2007,14 @@ end;
 
 function TTdMessages.GetSearchActive: boolean;
 begin
-  Result := (FFilterType <> '') or (FSearchQuery <> '');
+  Result := (FFilterType <> '') or (FSearchQuery <> '') or (FSavedTopic <> 0);
 end;
 
-procedure TTdMessages.SetSearchFilter(const AFilterType, AQuery: utf8string);
+procedure TTdMessages.SetSearchFilter(const AFilterType, AQuery: utf8string;
+  ASavedTopic: Int64);
 begin
-  if (FFilterType = AFilterType) and (FSearchQuery = AQuery) then begin
+  if (FFilterType = AFilterType) and (FSearchQuery = AQuery)
+     and (FSavedTopic = ASavedTopic) then begin
     Exit;
   end;
   { Clear wipes the loaded rows AND the search state (and bumps the
@@ -2006,6 +2022,7 @@ begin
   Clear;
   FFilterType := AFilterType;
   FSearchQuery := AQuery;
+  FSavedTopic := ASavedTopic;
 
   { Synchronously, before any request goes out — the list is already
     empty at this point and the view must show that immediately rather
@@ -2074,6 +2091,11 @@ begin
         ',"offset":0' +
         ',"limit":' + utf8string(IntToStr(FLoadLimit)) +
         ',"filter":{"@type":"' + FilterPart + '"}';
+      { Источник «Избранного» — та же выдача, ограниченная темой. }
+      if FSavedTopic <> 0 then begin
+        Body := Body + ',"topic_id":{"@type":"messageTopicSavedMessages",' +
+          '"saved_messages_topic_id":' + utf8string(IntToStr(FSavedTopic)) + '}';
+      end;
     finally
       QueryVal.Free;
     end;
@@ -2184,6 +2206,27 @@ begin
   end else begin
     Result := ',"topic_id":{"@type":"messageTopicThread","message_thread_id":' +
       utf8string(IntToStr(FThreadId)) + '}';
+  end;
+end;
+
+function TTdMessages.OptionsPart(ASilent: boolean): utf8string;
+var
+  Inner: utf8string;
+begin
+  Inner := '';
+  if ASilent then begin
+    Inner := ',"disable_notification":true';
+  end;
+  if FScheduleAt > 0 then begin
+    Inner := Inner + ',"scheduling_state":{"@type":"messageSchedulingStateSendAtDate",' +
+      '"send_date":' + utf8string(IntToStr(FScheduleAt)) + ',"repeat_period":0}';
+  end else if FScheduleAt < 0 then begin
+    Inner := Inner + ',"scheduling_state":{"@type":"messageSchedulingStateSendWhenOnline"}';
+  end;
+  if Inner = '' then begin
+    Result := '';
+  end else begin
+    Result := ',"options":{"@type":"messageSendOptions"' + Inner + '}';
   end;
 end;
 
@@ -4217,6 +4260,13 @@ begin
   if AMsg = nil then begin
     Exit;
   end;
+  { Запланированное сообщение (scheduling_state есть) — не история: оно
+    живёт в своём списке (getChatScheduledMessages, ui/schedule.js), а
+    в ленту придёт обычным сообщением, когда отправится. Иначе ответ
+    sendMessage и updateNewMessage с ним вставили бы его в историю. }
+  if JGetObj(AMsg, 'scheduling_state') <> nil then begin
+    Exit;
+  end;
   MsgChatId := JGetInt64(AMsg, 'chat_id');
   if (FChatId <> 0) and (MsgChatId <> FChatId) then begin
     Exit;
@@ -4557,10 +4607,7 @@ begin
     Exit;
   end;
   Body := '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart;
-  if ASilent then begin
-    Body := Body +
-      ',"options":{"@type":"messageSendOptions","disable_notification":true}';
-  end;
+  Body := Body + OptionsPart(ASilent);
   Body := Body + ',"input_message_content":' + AContent;
   FReq.SendRequest('sendMessage', Body, @SendTextDone);
 end;
@@ -4612,10 +4659,7 @@ begin
   Rid := TJSONString.Create(string(AResultId));
   try
     Body := '"chat_id":' + utf8string(IntToStr(FChatId));
-    if ASilent then begin
-      Body := Body +
-        ',"options":{"@type":"messageSendOptions","disable_notification":true}';
-    end;
+    Body := Body + OptionsPart(ASilent);
     { query_id is an int64, and td_api's JSON carries those as TEXT. }
     Body := Body +
       ',"query_id":"' + utf8string(IntToStr(AQueryId)) + '"' +
@@ -5070,10 +5114,7 @@ begin
     Exit;
   end;
   Body := '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart;
-  if ASilent then begin
-    Body := Body +
-      ',"options":{"@type":"messageSendOptions","disable_notification":true}';
-  end;
+  Body := Body + OptionsPart(ASilent);
   if AReplyTo <> 0 then begin
     Body := Body +
       ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +
@@ -5346,10 +5387,7 @@ begin
     end;
 
     Body := '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart;
-    if Silent then begin
-      Body := Body +
-        ',"options":{"@type":"messageSendOptions","disable_notification":true}';
-    end;
+    Body := Body + OptionsPart(Silent);
     { Ответом — только первое сообщение; остальные пачки идут следом. }
     if (First = 0) and (ReplyTo <> 0) then begin
       Body := Body +
@@ -5733,12 +5771,7 @@ begin
       lands loose in the discussion group instead of under the post.
       An EDIT never does: it already belongs where it is. }
     Body := Body + TopicPart;
-    if ASilent then begin
-      { Only sent when it is actually on: everything omitted from
-        messageSendOptions defaults to false/absent anyway. }
-      Body := Body +
-        ',"options":{"@type":"messageSendOptions","disable_notification":true}';
-    end;
+    Body := Body + OptionsPart(ASilent);
     if AReplyTo <> 0 then begin
       Body := Body +
         ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +

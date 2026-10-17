@@ -8,6 +8,8 @@ import { composeRich } from '../util/richcompose.js';
 import { toTdEntities, fromMessageEntities } from './editor.js';
 import { setCustomEmoji } from '../util/emoji.js';
 import { uploadRichFile } from './attach.js';
+import { getPref } from '../util/prefs.js';
+import { mountSchedule } from './schedule.js';
 
 // The message box and its formatting toolbar.
 //
@@ -371,10 +373,16 @@ function applyFormat(kind) {
 }
 
 // ------------------------------------------------------------- send
-function send() {
+/**
+ * schedule — отложенная отправка (ui/schedule.js): дата unix или -1
+ * («когда будет в сети»); 0 — сразу. Правка своего сообщения — всегда
+ * сразу.
+ */
+function send(schedule = 0) {
   if (!canSend) return;
   const doc = input.getFormatted();
   if (!doc.text.trim()) return;
+  const later = schedule && pending?.mode !== 'edit' ? { schedule } : {};
 
   if (pending?.mode === 'edit') {
     emit('ui:edit', { id: String(pending.msg.id), text: doc.text, entities: toTdEntities(doc.entities) });
@@ -391,6 +399,7 @@ function send() {
       blocks,
       silent: Boolean(silentBox?.checked),
       replyTo: pending?.mode === 'reply' ? String(pending.msg.id) : '',
+      ...later,
     });
   } else {
     emit('ui:send', {
@@ -398,8 +407,10 @@ function send() {
       entities: toTdEntities(doc.entities),
       silent: Boolean(silentBox?.checked),
       replyTo: pending?.mode === 'reply' ? String(pending.msg.id) : '',
+      ...later,
     });
   }
+  if (later.schedule) emit('ui:scheduled', later.schedule);
   pending = null;
   drawBanner();
   closeMentions();
@@ -454,7 +465,14 @@ export function mountComposer(node) {
   mountMentions(input, { enabled: () => canSend });
   // Ctrl+K в поле — та же ссылка, что у кнопки Link.
   input.addEventListener('editor:link', linkSelection);
-  sendBtn.addEventListener('click', send);
+  sendBtn.addEventListener('click', () => send());
+  // Отложенная отправка — кнопка слева от записи голосовых.
+  mountSchedule(qs('.composer__row', box), {
+    canSend: () => canSend,
+    hasText: () => !!input.getFormatted().text.trim(),
+    send: (schedule) => send(schedule),
+    report: (error) => emit('ui:error', error?.message ?? String(error)),
+  });
   // «Печатает» собеседнику (ui/sendaction.js). Не при правке своего
   // сообщения — там ничего нового не пишут, официальные клиенты молчат.
   input.addEventListener('input', () => {
@@ -484,7 +502,10 @@ export function mountComposer(node) {
     }
     // Enter sends, Ctrl+Enter inserts a newline - the same split the
     // native input uses, so muscle memory carries between the two.
-    if (event.key !== 'Enter' || event.ctrlKey || event.shiftKey) return;
+    // «Send messages with: Ctrl+Enter» (Chat settings) — наоборот: Enter
+    // — новая строка (её вставляет поле, ui/editor.js).
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    if (getPref('sendByCtrlEnter') ? !(event.ctrlKey || event.metaKey) : event.ctrlKey) return;
     event.preventDefault();
     send();
   });

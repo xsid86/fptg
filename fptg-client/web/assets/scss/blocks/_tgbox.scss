@@ -452,3 +452,185 @@
   margin-inline-start: auto;
   position: static;
 }
+
+// ------------------------------------------------ окна настроек
+// (ui/setprivacy.js, setchats.js, setfolders.js, setpremium.js, setproxy.js)
+
+// Подпись строки — в одну строку с многоточием; полное — в title.
+.tgbox__peer .tgbox__toggle-text {
+  flex: 1 1 auto;
+  min-width: 0;
+
+  .tgbox__row-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.tgbox__peer.is-clickable {
+  cursor: pointer;
+}
+
+// Кнопки действий в строке (Unblock, Archive, Remove…) — в ряд.
+.tgbox__actions {
+  @include flex(row, center, flex-end, .25rem);
+  flex: 0 0 auto;
+}
+
+.tgbox__act {
+  @include chat-tint(background, 10%);
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+  padding: $space-2 $space-4;
+
+  &.is-danger {
+    color: var(--c-danger);
+  }
+}
+
+.tgbox__remove {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+}
+
+// Обложка набора стикеров.
+.tgbox__set-thumb {
+  @include flex(row, center, center);
+  @include size(40px);
+  color: var(--c-text-dim);
+  flex: 0 0 auto;
+
+  img,
+  video,
+  .tgbox__set-lottie {
+    @include size(40px);
+    display: block;
+    object-fit: contain;
+  }
+}
+
+// Значок устройства, сайта, прокси вместо аватарки.
+.tgbox__device {
+  @include flex(row, center, center);
+  @include chat-tint(background, 20%);
+  color: var(--c-accent);
+}
+
+// Подробности сеанса: подпись сверху, значение под ней.
+.tgbox__detail {
+  @include flex(column, stretch, flex-start, $space-1);
+  padding: $space-2 0;
+}
+
+// Быстрая реакция: сетка эмодзи.
+.tgbox__emoji-grid {
+  display: grid;
+  gap: $space-2;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+}
+
+.tgbox__emoji {
+  border-radius: $radius-md;
+  font-size: 24px;
+  line-height: 40px;
+
+  &:hover {
+    background: var(--c-surface-hover);
+  }
+
+  &.is-active {
+    @include chat-tint(background, 20%);
+  }
+}
+
+// Цвет тега папки: кружки палитры имён (.accent-aN), «без цвета» — значок.
+.tgbox__colors {
+  @include flex(row, center, flex-start, $space-3);
+  flex-wrap: wrap;
+}
+
+.tgbox__color {
+  @include size(28px);
+  @include focus-ring;
+  background: var(--accent-color);
+  border-radius: $radius-pill;
+  cursor: pointer;
+
+  &.is-none {
+    @include flex(row, center, center);
+    background: var(--c-surface-hover);
+    color: var(--c-text-dim);
+  }
+
+  &.is-active {
+    box-shadow: 0 0 0 2px var(--c-surface), 0 0 0 4px var(--accent-color, var(--c-accent));
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: .45;
+  }
+}
+
+// Часы работы: день, под ним «с — до».
+.tgbox__day {
+  @include flex(column, stretch, flex-start, $space-1);
+}
+
+.tgbox__times {
+  @include flex(row, center, flex-start, $space-3);
+  padding: 0 0 $space-3;
+}
+
+.tgbox__time {
+  width: 7rem;
+}
+
+// Подарки: та же плитка, что в профиле (.gift-tile), сеткой.
+.tgbox__gifts {
+  margin-top: $space-3;
+}
+
+.tgbox__gift {
+  position: relative;
+}
+
+.tgbox__gift-badge {
+  @include chat-tint(background);
+  border-radius: $radius-pill;
+  color: var(--c-accent-text);
+  font-size: $fs-sm;
+  inset-block-start: $space-2;
+  inset-inline-end: $space-2;
+  padding: 0 $space-2;
+  position: absolute;
+}
+
+.tgbox__gift-preview {
+  @include flex(row, center, center);
+}
+
+// Запланированное сообщение (ui/schedule.js): текст, под ним время и кнопки.
+.tgbox__scheduled {
+  @include flex(column, stretch, flex-start, $space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 20%, transparent);
+  padding: $space-3 0;
+}
+
+.tgbox__scheduled-text {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.tgbox__scheduled-foot {
+  @include flex(row, center, space-between, $space-3);
+
+  .tgbox__row-sub {
+    @include flex(row, center, flex-start, $space-2);
+  }
+}

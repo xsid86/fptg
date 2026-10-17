@@ -328,6 +328,116 @@ async function loadMembers(box, i) {
   }
 }
 
+// ------------------------------------------------------ источники «Избранного»
+// Как у Telegram Desktop: в сведениях «Избранного» — чаты, из которых
+// сохранены сообщения (savedMessagesTopic), с последним сообщением;
+// щелчок — история только этого источника (search.set savedTopic, шапка
+// показывает его чипом). Тем TDLib не отдаёт методом — loadSavedMessagesTopics
+// и обновления, которые хранит сервер (td.kept «updateSavedMessagesTopic:»).
+//
+// Между перерисовками панели держатся ДАННЫЕ, а строки строятся заново:
+// готовые узлы, пролежав вне документа, теряют картинки — util/offscreen.js
+// отпускает их и при чистке (sweep) забывает, и аватарка оставалась
+// размытой заглушкой навсегда.
+const SAVED_REFRESH_MS = 10000;
+const TOPIC_AVATAR_RETRY_MS = 1500;
+const TOPIC_AVATAR_RETRIES = 6;
+let saved = { at: 0, items: null, count: 0 };   // items: [{ id, name, type, row, last }]
+
+function topicPreview(m) {
+  const c = m?.content;
+  if (!c) return '';
+  const text = c.text?.text ?? c.caption?.text ?? '';
+  const kind = {
+    messagePhoto: 'Photo', messageVideo: 'Video', messageDocument: 'File', messageAudio: 'Audio',
+    messageVoiceNote: 'Voice message', messageVideoNote: 'Video message', messageSticker: 'Sticker',
+    messageAnimation: 'GIF', messagePoll: 'Poll', messageLocation: 'Location', messageContact: 'Contact',
+  }[c['@type']];
+  if (kind && text) return `${kind}, ${text}`;
+  return text || kind || '';
+}
+
+function topicNodes() {
+  if (!saved.items) return [el('p', { class: 'info-panel__hint' }, 'Loading…')];
+  if (!saved.items.length) return [el('p', { class: 'info-panel__hint' }, 'Nothing saved yet.')];
+  return saved.items.map((t) => {
+    const avatar = el('span', { class: `avatar avatar--sm accent-${t.row?.color ?? 'a5'}` });
+    if (t.row) fillAvatar(avatar, t.row);
+    else avatar.append(icon(t.type === 'savedMessagesTopicTypeMyNotes' ? 'bookmark' : 'person', 'icon--sm'));
+    if (t.row) avatar.dataset.topicChat = String(t.row.id);
+    return el('button', {
+      class: 'info-panel__member info-panel__topic', type: 'button',
+      onclick: () => emit('ui:saved-topic', { id: t.id, title: t.name }),
+    },
+    avatar,
+    el('span', { class: 'info-panel__member-text' },
+      el('span', { class: 'info-panel__member-name' }, t.name),
+      el('span', { class: 'info-panel__label' }, topicPreview(t.last))),
+    el('span', { class: 'info-panel__topic-date' }, t.last?.date ? listTime(t.last.date) : ''));
+  });
+}
+
+const topicsTitle = () => (saved.count ? `${saved.count} ${saved.count === 1 ? 'chat' : 'chats'}` : 'Saved from');
+
+/** Аватарки, которых не было на диске: заказаны chats.avatars — дождаться и вставить. */
+async function chaseTopicAvatars() {
+  for (let i = 0; i < TOPIC_AVATAR_RETRIES; i += 1) {
+    const waiting = (saved.items ?? []).filter((t) => t.row && !t.row.avatar);
+    if (!waiting.length) return;
+    await new Promise((r) => setTimeout(r, TOPIC_AVATAR_RETRY_MS));
+    let rows;
+    try {
+      rows = (await hooks.call('chats.rows', { ids: waiting.map((t) => t.row.id) }))?.items ?? [];
+    } catch {
+      return;
+    }
+    for (const row of rows) {
+      if (!row.avatar) continue;
+      const item = waiting.find((t) => t.row.id === row.id);
+      if (item) item.row = row;
+      for (const box of body?.querySelectorAll(`[data-topic-chat="${row.id}"]`) ?? []) fillAvatar(box, row);
+    }
+  }
+}
+
+async function loadSavedTopics(box, title) {
+  if (Date.now() - saved.at < SAVED_REFRESH_MS) return;
+  saved.at = Date.now();
+  try {
+    await hooks.call('admin', { steps: [{ key: 'r', method: 'loadSavedMessagesTopics', params: { limit: 100 }, soft: true }] });
+    await new Promise((r) => setTimeout(r, 200));
+    const raw = await hooks.call('td.kept', { types: ['updateSavedMessagesTopic:', 'updateSavedMessagesTopicCount'] }) ?? {};
+    const parse = (t) => { try { return JSON.parse(t); } catch { return null; } };
+    const topics = Object.keys(raw).filter((k) => k.startsWith('updateSavedMessagesTopic:'))
+      .map((k) => parse(raw[k])?.topic).filter((t) => t && t.order && t.order !== '0')
+      .sort((a, b) => (BigInt(b.order) > BigInt(a.order) ? 1 : -1));
+    const ids = topics.map((t) => t.type?.chat_id).filter(Boolean);
+    const rows = ids.length ? (await hooks.call('chats.rows', { ids }))?.items ?? [] : [];
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const missing = rows.filter((r) => !r.avatar).map((r) => r.id);
+    if (missing.length) hooks.call('chats.avatars', { ids: missing }).catch(() => {});
+    saved = {
+      at: saved.at,
+      count: parse(raw.updateSavedMessagesTopicCount)?.topic_count ?? topics.length,
+      items: topics.map((t) => {
+        const type = t.type?.['@type'];
+        const row = byId.get(t.type?.chat_id) ?? null;
+        const name = type === 'savedMessagesTopicTypeMyNotes' ? 'My notes'
+          : type === 'savedMessagesTopicTypeAuthorHidden' ? 'Author hidden' : (row?.title ?? 'Unknown chat');
+        return { id: t.id, name, type, row, last: t.last_message };
+      }),
+    };
+    if (box.isConnected) {
+      clear(box).append(...topicNodes());
+      title.textContent = topicsTitle();
+    }
+    chaseTopicAvatars();
+  } catch (error) {
+    saved.at = 0;
+    hooks.report(error);
+  }
+}
+
 // ------------------------------------------------------------ gifts
 // Подарки профиля (gifts.list — getReceivedGifts): сетка стикеров с ценой
 // и отправителем, фильтр по виду (как у нативного клиента: все,
@@ -1145,6 +1255,13 @@ function render() {
   const parts = [head, buttons];
   if (rows.length) parts.push(el('section', { class: 'info-panel__section' }, ...rows));
   if (counts.length) parts.push(el('section', { class: 'info-panel__section' }, ...counts));
+
+  if (i.kind === 'self') {
+    const box = el('div', { class: 'info-panel__members' }, ...topicNodes());
+    const title = el('div', { class: 'info-panel__section-title' }, topicsTitle());
+    parts.push(el('section', { class: 'info-panel__section' }, title, box));
+    loadSavedTopics(box, title);
+  }
 
   if ((i.kind === 'group') && i.canGetMembers) {
     // Прежний список этого чата — до прихода свежего: иначе на время

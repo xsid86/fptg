@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, tdtimer, fpjson, jsonparser, base64,
   tdauth, tdclient, tdsession, tdreq, tdchats, tdmessages, tdusers, tdaccentcolors,
-  tdsupergroups, tdstickers, tdattachbots, tdcalls, fileinfo;
+  tdsupergroups, tdstickers, tdattachbots, tdcalls, fileinfo, constants;
 
 type
 
@@ -39,6 +39,9 @@ type
       updateOption is_premium. Нужен странице, чтобы прятать то, что
       без Premium недоступно (расшифровка голосовых). }
     FIsPremium: boolean;
+    { Последнее обновление каждого типа из KEPT_UPDATE_TYPES (constants):
+      Name — @type, Value — JSON как пришёл. }
+    FKept: TStringList;
     FPhone:    utf8string;
     FUsername: utf8string;
     FPhotoFileId:  integer;
@@ -139,6 +142,11 @@ type
     property Slot: integer read FSlot;
     property UserId: Int64 read FUserId;
     property IsPremium: boolean read FIsPremium;
+    { Последнее обновление типа AType (KEPT_UPDATE_TYPES) — JSON, или ''. }
+    function KeptUpdate(const AType: string): utf8string;
+    { Все хранимые с именем на APrefix (быстрые ответы — по одному на
+      шорткат: «тип:id») — в AOut строками «имя=JSON». }
+    procedure KeptMatching(const APrefix: string; AOut: TStrings);
     property Phone: utf8string read FPhone;
     property Username: utf8string read FUsername;
     { Own avatar — for the account menu. The mini-thumbnail arrives
@@ -227,6 +235,7 @@ begin
   FDataDir := ABaseDir + 'tdlib' + PathDelim + 'acc' + IntToStr(ASlot);
   FFilesDir := FDataDir + PathDelim + 'files';
 
+  FKept := TStringList.Create;
   FRestartTimer := TTdTimer.Create(Self);
   FRestartTimer.Interval := 1;
   FRestartTimer.OnTimer := @RestartTick;
@@ -246,11 +255,15 @@ begin
   SetLength(FUpdateL, 0);
   SetLength(FStateL, 0);
   SetLength(FAuthL, 0);
+  FreeAndNil(FKept);
   inherited Destroy;
 end;
 
 procedure TTdAccount.CreateEngine;
 begin
+  if FKept <> nil then begin
+    FKept.Clear;
+  end;
   FClient := TTdClient.Create;
   { Order matters: TTdAuth's constructor inserts itself into the
     OnUpdate chain. }
@@ -465,10 +478,33 @@ end;
   Lists are copied before iterating: a subscriber is allowed to
   unsubscribe from within its own handler. }
 
+function TTdAccount.KeptUpdate(const AType: string): utf8string;
+begin
+  Result := '';
+  if FKept <> nil then begin
+    Result := utf8string(FKept.Values[AType]);
+  end;
+end;
+
+procedure TTdAccount.KeptMatching(const APrefix: string; AOut: TStrings);
+var
+  I: integer;
+begin
+  if FKept = nil then begin
+    Exit;
+  end;
+  for I := 0 to FKept.Count - 1 do begin
+    if Copy(FKept.Names[I], 1, Length(APrefix)) = APrefix then begin
+      AOut.Add(FKept[I]);
+    end;
+  end;
+end;
+
 procedure TTdAccount.HandleUpdate(Sender: TObject; const AJson: utf8string; AData: TJSONObject);
 var
   Snap: array of ITdUpdateListener;
   I: integer;
+  T, Id: string;
 begin
   { Own avatar finished downloading. AData is already parsed by the
     receive thread (tdrecv.pas) — this used to have its own separate
@@ -482,6 +518,30 @@ begin
   if (AData <> nil) and (JGetStr(AData, '@type') = 'updateOption')
      and (JGetStr(AData, 'name') = 'is_premium') then begin
     FIsPremium := JGetBool(JGetObj(AData, 'value'), 'value');
+  end;
+  if (AData <> nil) and (FKept <> nil) then begin
+    T := JGetStr(AData, '@type');
+    for I := 0 to High(KEPT_UPDATE_TYPES) do begin
+      if KEPT_UPDATE_TYPES[I] = T then begin
+        FKept.Values[T] := string(AJson);
+        Break;
+      end;
+    end;
+    { Быстрые ответы Telegram Business (ui/setbusiness.js): геттеров у
+      TDLib нет, только load* и обновления — по одному на шорткат.
+      Values[...] := '' удаляет строку. }
+    if T = 'updateQuickReplyShortcut' then begin
+      FKept.Values[T + ':' + IntToStr(JGetInt(JGetObj(AData, 'shortcut'), 'id'))] := string(AJson);
+    end else if T = 'updateQuickReplyShortcutMessages' then begin
+      FKept.Values[T + ':' + IntToStr(JGetInt(AData, 'shortcut_id'))] := string(AJson);
+    end else if T = 'updateSavedMessagesTopic' then begin
+      { Источники «Избранного» (ui/infopanel.js) — тоже без геттера. }
+      FKept.Values[T + ':' + IntToStr(JGetInt64(JGetObj(AData, 'topic'), 'id'))] := string(AJson);
+    end else if T = 'updateQuickReplyShortcutDeleted' then begin
+      Id := IntToStr(JGetInt(AData, 'shortcut_id'));
+      FKept.Values['updateQuickReplyShortcut:' + Id] := '';
+      FKept.Values['updateQuickReplyShortcutMessages:' + Id] := '';
+    end;
   end;
 
   Snap := Copy(FUpdateL);

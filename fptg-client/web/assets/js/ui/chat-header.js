@@ -61,6 +61,9 @@ const STUB_NOTE = 'answered by TDLib with something that is not a list of messag
 let root = null;
 let parts = null;
 let activeFilter = '';
+// Источник «Избранного», чьи сообщения показаны (ui/infopanel.js):
+// { id, title } или null — чип в полосе фильтров с крестиком.
+let savedTopic = null;
 // Что показывает сетка медиа в панели информации ('photo' | 'video' | ''):
 // её кнопка в полосе подсвечена, пока сетка открыта.
 let mediaView = '';
@@ -70,7 +73,12 @@ let lastChatId = null;
 let threadMark = '';
 
 function apply() {
-  emit('ui:search', { filter: activeFilter, query: parts.input.value.trim() });
+  emit('ui:search', { filter: activeFilter, query: parts.input.value.trim(), savedTopic: savedTopic?.id ?? 0 });
+}
+
+function syncTopic() {
+  parts.topic.hidden = !savedTopic;
+  parts.topicLabel.textContent = savedTopic?.title ?? '';
 }
 
 function toggleFilter(type) {
@@ -157,6 +165,15 @@ function build() {
   });
   const count = el('span', { class: 'chat-header__count', hidden: true });
 
+  const topicLabel = el('span', { class: 'chat-header__topic-label' });
+  const topic = el('button', {
+    class: 'chip chat-header__topic', type: 'button', hidden: true, title: 'Show all saved messages',
+    onclick: () => {
+      savedTopic = null;
+      syncTopic();
+      apply();
+    },
+  }, icon('bookmark', 'icon--sm'), topicLabel, icon('close', 'icon--sm'));
   const strip = el('div', { class: 'chat-header__filters' });
   const filters = FILTERS.map(([name, label, type]) => {
     const node = el('button', {
@@ -177,12 +194,13 @@ function build() {
       el('div', { class: 'chat-header__title' }, titleIcon, titleText),
       subtitle),
     el('div', { class: 'chat-header__tools' },
+      topic,
       el('label', { class: 'field chat-header__search' },
         icon('search', 'icon--sm'), input, count),
       strip),
   );
 
-  parts = { avatar, back, titleIcon, titleText, subtitle, input, count, filters };
+  parts = { avatar, back, titleIcon, titleText, subtitle, input, count, filters, topic, topicLabel };
 }
 
 /** "no comments yet" / "1 comment" / "N comments". */
@@ -232,9 +250,11 @@ function render(chat) {
     // does), so the bar must not go on showing one. Nothing is sent:
     // the model has already done it.
     activeFilter = '';
+    savedTopic = null;
     parts.input.value = '';
     parts.count.hidden = true;
     syncFilters();
+    syncTopic();
   }
 
   root.hidden = false;
@@ -300,6 +320,10 @@ function syncFromState(state) {
 
   activeFilter = state.searchFilter ?? '';
   syncFilters();
+  if (!state.savedTopic && savedTopic) {
+    savedTopic = null;
+    syncTopic();
+  }
 
   const query = state.searchQuery ?? '';
   if (document.activeElement !== parts.input && parts.input.value !== query) {
@@ -330,6 +354,12 @@ export function mountChatHeader(node) {
   });
   // Клик по счётчику медиа в панели информации (ui/infopanel.js) — тот же
   // фильтр, что кнопка в полосе фильтров.
+  // Источник «Избранного» из панели сведений — история только его.
+  on('ui:saved-topic', ({ id, title }) => {
+    savedTopic = { id, title };
+    syncTopic();
+    apply();
+  });
   on('ui:set-filter', (type) => {
     activeFilter = type;
     syncFilters();

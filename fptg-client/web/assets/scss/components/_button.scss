@@ -8,6 +8,8 @@
   font-size: $fs-base;
   padding: $space-2 $space-4;
   transition: background $dur-fast $ease, color $dur-fast $ease;
+  // Подпись кнопки не переносится («Discon-nect» в узкой колонке).
+  white-space: nowrap;
 
   &:hover {
     background: var(--c-surface-hover);

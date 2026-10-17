@@ -508,3 +508,79 @@
 .settings__status {
   min-height: $space-6;
 }
+
+// ------------------------------------------- строки-переходы, Premium
+// (ui/setkit.js): navRow — строка-кнопка со значением справа; без
+// Premium настройка неактивна, с пометкой.
+.settings__nav-row {
+  @include focus-ring;
+  align-items: center;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+
+  &:not(:disabled):hover { background: var(--c-surface-hover); }
+  &.is-danger .settings__label { color: var(--c-danger, #e5484d); }
+}
+
+.settings__nav-icon { color: var(--c-text-dim); flex: 0 0 auto; }
+.settings__nav-row .settings__text { flex: 1 1 auto; }
+.settings__nav-value { color: var(--c-accent); flex: 0 0 auto; }
+.settings__chevron { color: var(--c-text-faint); flex: 0 0 auto; }
+
+.settings__row.is-locked { opacity: .55; }
+
+.settings__badge {
+  @include flex(row, center, flex-start, $space-1);
+  background: color-mix(in srgb, var(--c-accent) 15%, transparent);
+  border-radius: $radius-pill;
+  color: var(--c-accent);
+  display: inline-flex;
+  font-size: $fs-sm;
+  margin-left: $space-3;
+  padding: 0 $space-3;
+
+  .icon { @include size(12px); }
+}
+
+.settings__sep {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 25%, transparent);
+  margin: $space-3 $space-4;
+}
+
+.settings__pane.is-busy { cursor: progress; }
+.settings__pane.is-busy .settings__body { pointer-events: none; }
+.settings__error { color: var(--c-danger, #e5484d); margin: 0; }
+.settings__subheading { font-size: $fs-md; font-weight: $fw-bold; margin: 0; }
+.settings__dot { @include size(10px); background: var(--accent-color); border-radius: $radius-pill; display: inline-block; }
+.settings__nav-row.is-dragging { opacity: .4; }
+
+.settings__hero {
+  @include flex(column, center, flex-start, $space-3);
+  padding: $space-6 0;
+  text-align: center;
+}
+
+.settings__hero-icon { color: var(--c-accent); }
+.settings__hero-title { font-size: $fs-lg; font-weight: $fw-bold; margin: 0; }
+.settings__amount { color: var(--c-text-dim); }
+.settings__amount.is-plus { color: var(--c-online, var(--c-accent)); }
+.settings__tabs { align-self: flex-start; margin-bottom: $space-3; }
+
+// Масштаб и анимации интерфейса этого окна (util/prefs.js).
+@each $n in 110, 125, 150, 175, 200 {
+  :root.ui-scale-#{$n} { zoom: $n * 1%; }
+}
+
+:root.no-motion *,
+:root.no-motion *::before,
+:root.no-motion *::after {
+  animation-duration: 0s !important;
+  transition-duration: 0s !important;
+}
+
+// «Show folder tags» выключено (Folders): чипов папок в строках нет.
+:root.no-folder-tags .chat-item__folder {
+  display: none;
+}

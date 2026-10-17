@@ -203,6 +203,7 @@ type
     procedure SearchNext(ASlot: PtrInt);
     procedure SearchStepDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdAdmin(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    function  CmdTdKept(AArgs: TJSONObject): TJSONData;
     procedure AdminNext(ASlot: PtrInt);
     procedure AdminStepDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdUsersCards(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
@@ -388,11 +389,6 @@ type
     function  CmdThreadJump(AArgs: TJSONObject): TJSONData;
     function  CmdThreadClose: TJSONData;
     function  CmdChatJoin(AArgs: TJSONObject): TJSONData;
-    function  CmdPrivacyGet(AConnId: Int64; AReqId: integer): boolean;
-    function  CmdPrivacySet(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
-    procedure PrivacyRulesDone(Sender: TObject; const AResp: TTdResponse);
-    procedure PrivacyReadDateDone(Sender: TObject; const AResp: TTdResponse);
-    procedure PrivacyRulesForSetDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdChatTyping(AArgs: TJSONObject): TJSONData;
     function  CmdSettingsGet: TJSONData;
     function  CmdSettingsSet(AArgs: TJSONObject): TJSONData;
@@ -893,6 +889,7 @@ begin
     reads says no, and the native window hides its composer for exactly
     this. }
   Result.Add('canSend',  ARow.CanSendBasicMessages);
+  Result.Add('scheduled', ARow.HasScheduled);
   { The avatar, if it is already on disk. NOT requested here: chats.list
     serialises the WHOLE list, and asking for a hundred downloads
     because someone opened the app is precisely what the native window
@@ -3758,6 +3755,7 @@ begin
   Res.Add('searchActive', Msgs.SearchActive);
   Res.Add('searchFilter', string(Msgs.SearchFilter));
   Res.Add('searchQuery',  string(Msgs.SearchQuery));
+  Res.Add('savedTopic',   Msgs.SavedTopic);
   Res.Add('customEmoji', Emoji);
   Res.Add('searchTotal',  Msgs.SearchTotalCount);
   Res.Add('items',        Arr);
@@ -3835,163 +3833,6 @@ function TWebApi.CmdThreadClose: TJSONData;
 begin
   RequireMsgs.CloseThread;
   Result := CmdMessagesList;
-end;
-
-{ ------------------------------------------------------------------ }
-{ privacy: кто видит «в сети» и время прочтения                       }
-{ ------------------------------------------------------------------ }
-
-{ Вместо «Невидимки» (2026-10-12, условия Telegram API §1.4) — те же
-  официальные настройки, что у приложений Telegram (td_api.tl коммита
-  d1085f9): правила userPrivacySettingShowStatus и readDatePrivacySettings.
-
-  privacy.get -> lastSeen (everybody | contacts | nobody), exceptions —
-  сколько правил-исключений (конкретные люди и чаты) стоит рядом с
-  основным, showReadDate. Ответ — из TDLib при каждом запросе: правила
-  меняются и с телефона. }
-function TWebApi.CmdPrivacyGet(AConnId: Int64; AReqId: integer): boolean;
-var
-  Slot: PtrInt;
-begin
-  Slot := TakeDeferred(AConnId, AReqId, 0);
-  FDeferred[Slot].Held := TJSONObject.Create;
-  RequireMsgs.Request('getUserPrivacySettingRules',
-    '"setting":{"@type":"userPrivacySettingShowStatus"}', @PrivacyRulesDone, Slot);
-  Result := True;
-end;
-
-{ Основное правило — то, что применяется ко всем, кого не назвали
-  исключения. В TDLib правила проверяются по порядку, «никто не подошёл»
-  = запрещено, поэтому: есть AllowAll — все, иначе AllowContacts —
-  контакты, иначе никто. }
-function PrivacyBaseRule(const AType: utf8string): boolean;
-begin
-  Result := (AType = 'userPrivacySettingRuleAllowAll')
-    or (AType = 'userPrivacySettingRuleAllowContacts')
-    or (AType = 'userPrivacySettingRuleRestrictAll')
-    or (AType = 'userPrivacySettingRuleRestrictContacts');
-end;
-
-procedure TWebApi.PrivacyRulesDone(Sender: TObject; const AResp: TTdResponse);
-var
-  Slot: PtrInt;
-  Rules: TJSONData;
-  I, Exceptions: integer;
-  T, LastSeen: utf8string;
-begin
-  if not AccountSlot(AResp, Slot) then begin
-    Exit;
-  end;
-  LastSeen := 'nobody';
-  Exceptions := 0;
-  Rules := AResp.Obj.Find('rules');
-  if (Rules <> nil) and (Rules.JSONType = jtArray) then begin
-    for I := 0 to Rules.Count - 1 do begin
-      if Rules.Items[I].JSONType <> jtObject then begin
-        Continue;
-      end;
-      T := JGetStr(TJSONObject(Rules.Items[I]), '@type');
-      if T = 'userPrivacySettingRuleAllowAll' then begin
-        LastSeen := 'everybody';
-      end else if (T = 'userPrivacySettingRuleAllowContacts')
-        and (LastSeen <> 'everybody') then begin
-        LastSeen := 'contacts';
-      end;
-      if not PrivacyBaseRule(T) then begin
-        Inc(Exceptions);
-      end;
-    end;
-  end;
-  FDeferred[Slot].Held.Add('lastSeen', string(LastSeen));
-  FDeferred[Slot].Held.Add('exceptions', Exceptions);
-  RequireMsgs.Request('getReadDatePrivacySettings', '', @PrivacyReadDateDone, Slot);
-end;
-
-procedure TWebApi.PrivacyReadDateDone(Sender: TObject; const AResp: TTdResponse);
-var
-  Slot: PtrInt;
-  Res: TJSONObject;
-begin
-  if not AccountSlot(AResp, Slot) then begin
-    Exit;
-  end;
-  Res := TJSONObject(FDeferred[Slot].Held.Clone);
-  Res.Add('showReadDate', JGetBool(AResp.Obj, 'show_read_date'));
-  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
-  ReleaseDeferred(Slot);
-end;
-
-{ privacy.set (key, value) -> ok:
-    lastSeen = everybody | contacts | nobody — меняется только основное
-      правило, исключения (люди, чаты), заданные с телефона, остаются:
-      поэтому сначала текущие правила, потом set;
-    readDate = true | false — show_read_date. }
-function TWebApi.CmdPrivacySet(AConnId: Int64; AReqId: integer;
-  AArgs: TJSONObject): boolean;
-var
-  Key, Value: utf8string;
-  Slot: PtrInt;
-begin
-  if AArgs = nil then begin
-    raise Exception.Create('privacy.set needs a key and a value');
-  end;
-  Key := utf8string(AArgs.Get('key', ''));
-  if Key = 'readDate' then begin
-    Slot := TakeDeferred(AConnId, AReqId, 0);
-    RequireMsgs.Request('setReadDatePrivacySettings',
-      '"settings":{"@type":"readDatePrivacySettings","show_read_date":' +
-      utf8string(BoolToStr(AArgs.Get('value', True), 'true', 'false')) + '}',
-      @SimpleDone, Slot);
-  end else if Key = 'lastSeen' then begin
-    Value := utf8string(AArgs.Get('value', ''));
-    if (Value <> 'everybody') and (Value <> 'contacts') and (Value <> 'nobody') then begin
-      raise Exception.Create('privacy.set: unknown value ' + Value);
-    end;
-    Slot := TakeDeferred(AConnId, AReqId, 0);
-    FDeferred[Slot].Held := TJSONObject.Create;
-    FDeferred[Slot].Held.Add('lastSeen', string(Value));
-    RequireMsgs.Request('getUserPrivacySettingRules',
-      '"setting":{"@type":"userPrivacySettingShowStatus"}',
-      @PrivacyRulesForSetDone, Slot);
-  end else begin
-    raise Exception.Create('privacy.set: unknown key ' + Key);
-  end;
-  Result := True;
-end;
-
-procedure TWebApi.PrivacyRulesForSetDone(Sender: TObject; const AResp: TTdResponse);
-var
-  Slot: PtrInt;
-  Rules: TJSONData;
-  I: integer;
-  List, Value: utf8string;
-begin
-  if not AccountSlot(AResp, Slot) then begin
-    Exit;
-  end;
-  Value := utf8string(FDeferred[Slot].Held.Get('lastSeen', ''));
-  { Исключения — первыми, как стояли: порядок у TDLib значим. }
-  List := '';
-  Rules := AResp.Obj.Find('rules');
-  if (Rules <> nil) and (Rules.JSONType = jtArray) then begin
-    for I := 0 to Rules.Count - 1 do begin
-      if (Rules.Items[I].JSONType = jtObject)
-        and not PrivacyBaseRule(JGetStr(TJSONObject(Rules.Items[I]), '@type')) then begin
-        List := List + utf8string(Rules.Items[I].AsJSON) + ',';
-      end;
-    end;
-  end;
-  if Value = 'everybody' then begin
-    List := List + '{"@type":"userPrivacySettingRuleAllowAll"}';
-  end else if Value = 'contacts' then begin
-    List := List + '{"@type":"userPrivacySettingRuleAllowContacts"}';
-  end else begin
-    List := List + '{"@type":"userPrivacySettingRuleRestrictAll"}';
-  end;
-  RequireMsgs.Request('setUserPrivacySettingRules',
-    '"setting":{"@type":"userPrivacySettingShowStatus"},' +
-    '"rules":{"@type":"userPrivacySettingRules","rules":[' + List + ']}',
-    @SimpleDone, Slot);
 end;
 
 { chat.typing (action) — своё действие в открытом чате (ui/sendaction.js):
@@ -4611,7 +4452,7 @@ begin
     Msgs.SetSearchFilter('', '');
   end else begin
     Msgs.SetSearchFilter(utf8string(AArgs.Get('filter', '')),
-      utf8string(AArgs.Get('query', '')));
+      utf8string(AArgs.Get('query', '')), AArgs.Get('savedTopic', Int64(0)));
   end;
   Result := CmdMessagesList;
 end;
@@ -8294,6 +8135,8 @@ begin
     Status := JGetObj(AResp.Obj, 'status');
     Item.Add('status', string(JGetStr(Status, '@type')));
     Item.Add('wasOnline', JGetInt64(Status, 'was_online'));
+    { Бот: вместо «в сети» строка пишет «bot», как у Desktop. }
+    Item.Add('bot', JGetStr(JGetObj(AResp.Obj, 'type'), '@type') = 'userTypeBot');
     { Участник группы (chat.members): роль из статуса участника. }
     if FDeferred[Slot].Held.Find('roles') is TJSONObject then begin
       Item.Add('role', TJSONObject(FDeferred[Slot].Held.Objects['roles']).Get(
@@ -8344,15 +8187,71 @@ const
     'upgradeBasicGroupChatToSupergroupChat', 'processChatJoinRequest',
     'toggleSupergroupJoinByRequest', 'setChatMemberTag');
 
-function AdminAllowed(const AMethod: string): boolean;
+  { Настройки аккаунта (ui/settings.js — разделы как у Telegram
+    Desktop): приватность, сеансы, уведомления, папки, Premium, звёзды,
+    подарки, прокси, Telegram Business. Тот же admin, тот же принцип:
+    страница читает поля TDLib сама. }
+  SETTINGS_METHODS: array[0..92] of string = (
+    'getMe', 'getUser', 'getUserFullInfo', 'getContacts',
+    'getUserPrivacySettingRules', 'setUserPrivacySettingRules',
+    'getReadDatePrivacySettings', 'setReadDatePrivacySettings',
+    'getNewChatPrivacySettings', 'setNewChatPrivacySettings',
+    'getBlockedMessageSenders', 'setMessageSenderBlockList',
+    'getActiveSessions', 'terminateSession', 'terminateAllOtherSessions',
+    'toggleSessionCanAcceptCalls', 'toggleSessionCanAcceptSecretChats',
+    'setInactiveSessionTtl', 'getAccountTtl', 'setAccountTtl',
+    'getDefaultMessageAutoDeleteTime', 'setDefaultMessageAutoDeleteTime',
+    'getPasswordState', 'setPassword', 'getConnectedWebsites',
+    'disconnectWebsite', 'disconnectAllWebsites',
+    'getArchiveChatListSettings', 'setArchiveChatListSettings',
+    'getOption', 'setOption',
+    'getScopeNotificationSettings', 'setScopeNotificationSettings',
+    'resetAllNotificationSettings', 'getChatNotificationSettingsExceptions',
+    'getChatFolder', 'createChatFolder', 'editChatFolder', 'deleteChatFolder',
+    'reorderChatFolders', 'getRecommendedChatFolders', 'toggleChatFolderTags',
+    'getChatFolderChatsToLeave', 'getChatFolderChatCount',
+    'getPremiumFeatures', 'getPremiumState', 'getPremiumLimit',
+    'getStarTransactions', 'getStarSubscriptions', 'getAvailableGifts', 'sendGift',
+    'getLocalizationTargetInfo', 'setDefaultReactionType', 'getEmojiReaction',
+    'getInstalledStickerSets', 'changeStickerSet', 'reorderInstalledStickerSets',
+    'getProxies', 'addProxy', 'editProxy', 'enableProxy', 'disableProxy',
+    'removeProxy', 'pingProxy',
+    'setBusinessLocation', 'setBusinessOpeningHours', 'setBusinessStartPage',
+    'setBusinessGreetingMessageSettings', 'setBusinessAwayMessageSettings',
+    'getBusinessChatLinks', 'getChats', 'searchChatsOnServer', 'getTimeZones',
+    'getChatScheduledMessages', 'editMessageSchedulingState', 'deleteMessages',
+    'loadQuickReplyShortcuts', 'loadQuickReplyShortcutMessages', 'checkQuickReplyShortcutName',
+    'setQuickReplyShortcutName', 'deleteQuickReplyShortcut', 'reorderQuickReplyShortcuts',
+    'deleteQuickReplyShortcutMessages', 'addQuickReplyShortcutMessage', 'editQuickReplyMessage',
+    'getBusinessConnectedBot', 'setBusinessConnectedBot', 'deleteBusinessConnectedBot',
+    'createBusinessChatLink', 'editBusinessChatLink', 'deleteBusinessChatLink', 'searchPublicChat',
+    'loadSavedMessagesTopics');
+
+  { setOption — только эти: остальные опции TDLib — устройство самого
+    сервера (online, пути, сеть), странице их не трогать. }
+  SETTINGS_OPTIONS: array[0..5] of string = (
+    'disable_top_chats', 'disable_contact_registered_notifications',
+    'ignore_sensitive_content_restrictions', 'disable_animated_emoji',
+    'language_pack_id', 'localization_target');
+
+function InList(const AName: string; const AList: array of string): boolean;
 var
   I: integer;
 begin
   Result := False;
-  for I := 0 to High(ADMIN_METHODS) do begin
-    if ADMIN_METHODS[I] = AMethod then begin
+  for I := 0 to High(AList) do begin
+    if AList[I] = AName then begin
       Exit(True);
     end;
+  end;
+end;
+
+function AdminAllowed(const AMethod: string; AParams: TJSONObject): boolean;
+begin
+  if AMethod = 'setOption' then begin
+    Result := (AParams <> nil) and InList(AParams.Get('name', ''), SETTINGS_OPTIONS);
+  end else begin
+    Result := InList(AMethod, ADMIN_METHODS) or InList(AMethod, SETTINGS_METHODS);
   end;
 end;
 
@@ -8395,7 +8294,7 @@ begin
         raise Exception.Create('admin: bad step');
       end;
       Src := TJSONObject(Steps.Items[I]);
-      if not AdminAllowed(Src.Get('method', '')) then begin
+      if not AdminAllowed(Src.Get('method', ''), TJSONObject(Src.Find('params', jtObject))) then begin
         raise Exception.Create('admin: method not allowed: ' + Src.Get('method', ''));
       end;
       Body := '';
@@ -8413,6 +8312,10 @@ begin
       Step.Add('key', Src.Get('key', IntToStr(I)));
       Step.Add('method', Src.Get('method', ''));
       Step.Add('params', Body);
+      { soft: ошибка этого шага — не ошибка команды, в ответе под его
+        ключом объект error с message (чтение: метод, недоступный
+        без Premium, не должен гасить весь раздел). }
+      Step.Add('soft', Src.Get('soft', False));
       Plan.Add(Step);
     end;
   except
@@ -8447,9 +8350,25 @@ end;
 procedure TWebApi.AdminStepDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
-  Held, Step: TJSONObject;
+  Held, Step, Err: TJSONObject;
   I: integer;
 begin
+  Slot := AResp.Tag;
+  if (not AResp.Success) and (Slot >= 0) and (Slot <= High(FDeferred))
+     and FDeferred[Slot].Busy and (FDeferred[Slot].Held <> nil) then begin
+    Held := FDeferred[Slot].Held;
+    I := Held.Get('i', 0);
+    Step := TJSONArray(Held.Find('plan', jtArray)).Objects[I];
+    if Step.Get('soft', False) then begin
+      Err := TJSONObject.Create;
+      Err.Add('@type', 'error');
+      Err.Add('message', string(AResp.ErrorMessage));
+      TJSONObject(Held.Find('out', jtObject)).Add(Step.Get('key', ''), Err);
+      Held.Integers['i'] := I + 1;
+      AdminNext(Slot);
+      Exit;
+    end;
+  end;
   if not AccountSlot(AResp, Slot) then begin
     Exit;
   end;
@@ -8459,6 +8378,47 @@ begin
   TJSONObject(Held.Find('out', jtObject)).Add(Step.Get('key', ''), AdminClean(AResp.Obj));
   Held.Integers['i'] := I + 1;
   AdminNext(Slot);
+end;
+
+{ td.kept (types) — последние обновления TDLib этих типов
+  (KEPT_UPDATE_TYPES): объект «тип - JSON обновления строкой или пусто». }
+function TWebApi.CmdTdKept(AArgs: TJSONObject): TJSONData;
+var
+  Types: TJSONArray;
+  Res: TJSONObject;
+  I, J: integer;
+  T: string;
+  Raw: utf8string;
+  Found: TStringList;
+begin
+  Res := TJSONObject.Create;
+  Result := Res;
+  Types := TJSONArray(AArgs.Find('types', jtArray));
+  if (Types = nil) or (TdApp.Active = nil) then begin
+    Exit;
+  end;
+  for I := 0 to Types.Count - 1 do begin
+    T := Types.Items[I].AsString;
+    { «тип:» — все хранимые этого типа по ключам «тип:id». }
+    if (T <> '') and (T[Length(T)] = ':') then begin
+      Found := TStringList.Create;
+      try
+        TdApp.Active.KeptMatching(T, Found);
+        for J := 0 to Found.Count - 1 do begin
+          Res.Add(Found.Names[J], Found.ValueFromIndex[J]);
+        end;
+      finally
+        Found.Free;
+      end;
+      Continue;
+    end;
+    Raw := TdApp.Active.KeptUpdate(T);
+    { Строкой, как пришло от TDLib, — страница разберёт сама. Не
+      GetJSON: эмодзи там суррогатными парами, и fpjson собирает из
+      некоторых невалидный UTF-8 — браузер на таком кадре рвёт
+      веб-сокет (живьём: updateActiveEmojiReactions). }
+    Res.Add(T, string(Raw));
+  end;
 end;
 
 { users.cards (ids) — карточки людей для списков управления: те же, что
@@ -11669,6 +11629,7 @@ var
   Obj, Args: TJSONObject;
   Cmd: utf8string;
   ReqId: integer;
+  Sched: TTdMessages;
 begin
   D := nil;
   try
@@ -11700,6 +11661,18 @@ begin
       the first command can easily arrive before the fallback tick
       that would otherwise do it. }
     EnsureBindings;
+
+    { Отложенная отправка (ui/schedule.js): schedule у message.send* —
+      дата unix или -1 («когда будет в сети»). Ставится модели на одну
+      эту команду: все её sendMessage строятся синхронно внутри неё. }
+    Sched := TdMsgList;
+    if Sched <> nil then begin
+      if (Copy(Cmd, 1, 12) = 'message.send') and (Args <> nil) then begin
+        Sched.ScheduleAt := Args.Get('schedule', Int64(0));
+      end else begin
+        Sched.ScheduleAt := 0;
+      end;
+    end;
 
     { The handlers are wrapped HERE, where the request id is known.
       Letting an exception travel up to the drain loop instead loses
@@ -11775,10 +11748,6 @@ begin
         ReplyMessages(AConnId, ReqId, CmdMessagesTrim, False);
       end else if Cmd = 'chat.join' then begin
         Reply(AConnId, ReqId, CmdChatJoin(Args));
-      end else if Cmd = 'privacy.get' then begin
-        CmdPrivacyGet(AConnId, ReqId);
-      end else if Cmd = 'privacy.set' then begin
-        CmdPrivacySet(AConnId, ReqId, Args);
       end else if Cmd = 'chat.typing' then begin
         Reply(AConnId, ReqId, CmdChatTyping(Args));
       end else if Cmd = 'settings.get' then begin
@@ -11895,6 +11864,8 @@ begin
         CmdSearchQuery(AConnId, ReqId, Args);
       end else if Cmd = 'admin' then begin
         CmdAdmin(AConnId, ReqId, Args);
+      end else if Cmd = 'td.kept' then begin
+        Reply(AConnId, ReqId, CmdTdKept(Args));
       end else if Cmd = 'users.cards' then begin
         CmdUsersCards(AConnId, ReqId, Args);
       end else if Cmd = 'chat.similar' then begin
@@ -12032,6 +12003,9 @@ begin
       end;
     end;
   finally
+    if TdMsgList <> nil then begin
+      TdMsgList.ScheduleAt := 0;
+    end;
     D.Free;
   end;
 end;
