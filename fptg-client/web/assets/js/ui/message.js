@@ -659,8 +659,17 @@ function roundRing() {
     arc.setAttribute('stroke-dasharray', '0 100');
     // Начало — сверху, по часовой.
     arc.setAttribute('transform', `rotate(-90 ${c} ${c})`);
+    svg.classList.add('is-empty');
     svg.append(arc);
-    return { svg, set: (part) => arc.setAttribute('stroke-dasharray', `${Math.max(0, Math.min(100, part * 100)).toFixed(2)} 100`) };
+    return {
+        svg,
+        set(part) {
+            const p = Math.max(0, Math.min(100, part * 100));
+            arc.setAttribute('stroke-dasharray', `${p.toFixed(2)} 100`);
+            // Ноль со скруглёнными концами — точка: пустое кольцо прячем.
+            svg.classList.toggle('is-empty', p < 0.5);
+        },
+    };
 }
 
 function renderVideoNote(msg, m) {
@@ -682,21 +691,24 @@ function renderVideoNote(msg, m) {
         clip.append(player);
         const ring = roundRing();
         const play = el('span', {class: 'media-round__play'}, icon('play'));
-        box.append(ring.svg, play);
+        box.append(ring.svg, play, el('span', {class: 'media-round__wait', 'aria-hidden': 'true'}));
         box.classList.add('is-clickable');
         box.addEventListener('click', () => {
             if (player.paused) player.play().catch(() => {});
             else player.pause();
         });
         player.addEventListener('play', () => box.classList.add('is-playing', 'is-started'));
-        player.addEventListener('pause', () => box.classList.remove('is-playing'));
+        player.addEventListener('pause', () => box.classList.remove('is-playing', 'is-waiting'));
+        // Ждёт данных (медленная сеть) — ровная дуга поверх видео.
+        player.addEventListener('waiting', () => box.classList.add('is-waiting'));
+        player.addEventListener('playing', () => box.classList.remove('is-waiting'));
         player.addEventListener('timeupdate', () => {
             const total = player.duration || m.duration || 0;
             if (total) ring.set(player.currentTime / total);
             if (badge) badge.textContent = duration(Math.max(0, Math.round(total - player.currentTime)));
         });
         player.addEventListener('ended', () => {
-            box.classList.remove('is-playing', 'is-started');
+            box.classList.remove('is-playing', 'is-started', 'is-waiting');
             player.currentTime = 0;
             ring.set(0);
             if (badge) badge.textContent = duration(m.duration);

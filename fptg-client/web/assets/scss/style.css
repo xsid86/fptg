@@ -12829,6 +12829,8 @@ span.picker__gif {
   width: 240px;
   height: 240px;
   flex: 0 0 auto;
+  background: #000;
+  position: relative;
   border: 3px solid var(--c-accent);
   border-radius: 50%;
   box-shadow: 0 1rem 3rem var(--c-shadow);
@@ -12842,6 +12844,9 @@ span.picker__gif {
   display: block;
   object-fit: cover;
   transform: scaleX(-1);
+}
+.recorder-video.is-waiting .recorder-video__live {
+  visibility: hidden;
 }
 .recorder-video__live.is-recorded {
   transform: none;
@@ -12896,6 +12901,9 @@ span.picker__gif {
 .media-round__ring circle {
   transition: stroke-dasharray 0.25s linear;
 }
+.media-round__ring.is-empty circle {
+  opacity: 0;
+}
 
 .media-round__play {
   display: flex;
@@ -12922,6 +12930,29 @@ span.picker__gif {
 }
 .media--round.is-playing .media-round__play {
   opacity: 0;
+}
+
+.media-round__wait,
+.recorder-video__wait {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  animation: spinner-turn 0.9s linear infinite;
+  border: 3px solid color-mix(in srgb, #fff 25%, transparent);
+  border-radius: 50%;
+  border-top-color: var(--c-accent);
+  inset-block-start: calc(50% - 22px);
+  inset-inline-start: calc(50% - 22px);
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+.media--round.is-waiting .media-round__wait, .recorder-video.is-waiting .media-round__wait,
+.media--round.is-waiting .recorder-video__wait,
+.recorder-video.is-waiting .recorder-video__wait {
+  opacity: 1;
 }
 
 .media-round__badge {

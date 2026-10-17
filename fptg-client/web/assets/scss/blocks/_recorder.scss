@@ -193,6 +193,8 @@
 
 .recorder-video__circle {
   @include size(240px);
+  background: #000;
+  position: relative;
   border: 3px solid var(--c-accent);
   border-radius: 50%;
   box-shadow: 0 1rem 3rem var(--c-shadow);
@@ -203,6 +205,11 @@
   @include size(100%);
   display: block;
   object-fit: cover;
+
+  // Пока с камеры не пришло ни одного кадра — пусто, поверх — дуга.
+  .recorder-video.is-waiting & {
+    visibility: hidden;
+  }
   // Живое превью — зеркалом, как у камер; записанное — как есть.
   transform: scaleX(-1);
 
@@ -260,6 +267,10 @@
   circle {
     transition: stroke-dasharray .25s linear;
   }
+
+  &.is-empty circle {
+    opacity: 0;
+  }
 }
 
 .media-round__play {
@@ -281,6 +292,28 @@
 
   .media--round.is-playing & {
     opacity: 0;
+  }
+}
+
+// Ожидание данных: ровная дуга цвета акцента, вращение на композиторе.
+.media-round__wait,
+.recorder-video__wait {
+  @include size(44px);
+  animation: spinner-turn .9s linear infinite;
+  border: 3px solid color-mix(in srgb, #fff 25%, transparent);
+  border-radius: 50%;
+  border-top-color: var(--c-accent);
+  inset-block-start: calc(50% - 22px);
+  inset-inline-start: calc(50% - 22px);
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity $dur-base $ease;
+  will-change: transform;
+
+  .media--round.is-waiting &,
+  .recorder-video.is-waiting & {
+    opacity: 1;
   }
 }
 

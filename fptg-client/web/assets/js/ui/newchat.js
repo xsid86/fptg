@@ -1,6 +1,6 @@
 import { el } from '../core/dom.js';
-import { emit } from '../core/bus.js';
-import { setActiveChat } from '../core/store.js';
+import { emit, on } from '../core/bus.js';
+import { store, setActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
 import { openMenu } from '../util/menu.js';
 import { openBox, textField, photoPicker, contactPicker, note } from './tgbox.js';
@@ -13,6 +13,8 @@ import { typePage, loadContext } from './manage.js';
 //   Канал: «New channel» (фото, название, описание) -> Create -> «Channel
 //   type» (публичный с адресом или частный по ссылке) -> «Add
 //   subscribers» -> канал открывается.
+//   Бот: «New bot» -> чат с @BotFather и ему /newbot — он начинает диалог
+//   создания бота.
 
 let hooks = {};
 
@@ -151,14 +153,52 @@ function subscribersStep(box, chatId) {
   };
 }
 
+// Сколько ждать открытия чата с BotFather, прежде чем сдаться.
+const BOTFATHER_OPEN_MS = 10000;
+
+/**
+ * New bot: открыть @BotFather и отправить ему /newbot. Команда уходит в
+ * открытый чат (message.send), поэтому — когда пришла его история.
+ */
+async function newBot() {
+  let target;
+  try {
+    target = await hooks.call('link.resolve', { url: 'https://t.me/BotFather' });
+  } catch (error) {
+    hooks.report(error);
+    return;
+  }
+  const chatId = target?.chatId;
+  if (!chatId) return;
+  const ready = new Promise((resolve) => {
+    let off = null;
+    const timer = setTimeout(() => { off?.(); resolve(false); }, BOTFATHER_OPEN_MS);
+    off = on('store:messages', () => {
+      if (store.activeChatId !== chatId) return;
+      clearTimeout(timer);
+      off();
+      resolve(true);
+    });
+  });
+  setActiveChat(chatId);
+  if (!(await ready)) return;
+  try {
+    await hooks.call('message.send', { text: '/newbot', entities: [] });
+  } catch (error) {
+    hooks.report(error);
+  }
+}
+
 /** Кнопка «+» в шапке боковой панели (рядом со вкладками). */
 export function mountNewChat(headNode, options) {
   hooks = options;
+  if (!hooks.report) hooks.report = (error) => emit('ui:error', error?.message || String(error));
   const btn = el('button', {
     class: 'sidebar__new', type: 'button', title: 'New group or channel',
     onclick: () => openMenu(btn, [
       { label: 'New group', onSelect: newGroup },
       { label: 'New channel', onSelect: newChannel },
+      { label: 'New bot', onSelect: () => { newBot().catch(console.error); } },
     ]),
   }, icon('plus'), el('span', { class: 'u-sr-only' }, 'New group or channel'));
   headNode.append(btn);

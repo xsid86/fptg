@@ -187,11 +187,16 @@ class VideoRec {
       video: cameraConstraints({ width: { ideal: 720 }, height: { ideal: 720 } }),
       audio: micConstraints({ echoCancellation: true, noiseSuppression: true }),
     });
-    this.video = el('video', { class: 'recorder-video__live', muted: true, autoplay: true, playsInline: true });
+    this.video = el('video', { muted: true, autoplay: true, playsInline: true });
     this.video.srcObject = this.stream;
-    await this.video.play().catch(() => {});
-    this.canvas = el('canvas', { width: LENGTH, height: LENGTH });
+    // Не ждать: без кадров с камеры play() не завершается, и запись
+    // зависала бы на старте; кадры появятся — draw их подхватит.
+    this.video.play().catch(() => {});
+    // Превью — сам холст записи (зеркалом в CSS): видно ровно то, что
+    // уйдёт; пока камера не дала ни одного кадра — своя дуга.
+    this.canvas = el('canvas', { class: 'recorder-video__live', width: LENGTH, height: LENGTH });
     this.g = this.canvas.getContext('2d');
+    this.hasFrame = false;
     this.draw();
     // Кадр — по таймеру: rAF у скрытого окна замирает.
     this.drawTimer = setInterval(() => this.draw(), 1000 / 30);
@@ -215,7 +220,7 @@ class VideoRec {
       c.getContext('2d').drawImage(this.canvas, 0, 0, THUMB, THUMB);
       c.toBlob((b) => resolve(b), 'image/jpeg', 0.8);
     }, 400));
-    return this.video;
+    return this.canvas;
   }
 
   /** Квадрат из середины кадра камеры. */
@@ -224,6 +229,10 @@ class VideoRec {
     if (!v || !v.videoWidth) return;
     const side = Math.min(v.videoWidth, v.videoHeight);
     this.g.drawImage(v, (v.videoWidth - side) / 2, (v.videoHeight - side) / 2, side, side, 0, 0, LENGTH, LENGTH);
+    if (!this.hasFrame) {
+      this.hasFrame = true;
+      this.onFrame?.();
+    }
   }
 
   level() {
@@ -277,7 +286,7 @@ function setButton(name, title) {
 
 function idleButton() {
   if (mode === 'video') {
-    setButton('videonote', 'Video message\nHold to record, click to switch to voice message');
+    setButton('video', 'Video message\nHold to record, click to switch to voice message');
   } else {
     setButton('mic', 'Voice message\nHold to record, click to switch to video message');
   }
@@ -333,7 +342,12 @@ async function begin() {
   try {
     const live = await rec.start();
     if (mode === 'video') {
-      videoBox = el('div', { class: 'recorder-video' }, el('div', { class: 'recorder-video__circle' }, live));
+      // Пока с камеры нет кадра — своя ровная дуга (.recorder-video__wait).
+      videoBox = el('div', { class: `recorder-video${rec.hasFrame ? '' : ' is-waiting'}` },
+        el('div', { class: 'recorder-video__circle' }, live,
+          el('span', { class: 'recorder-video__wait', 'aria-hidden': 'true' })));
+      const box = videoBox;
+      rec.onFrame = () => box.classList.remove('is-waiting');
       composer.append(videoBox);
     }
   } catch (error) {
