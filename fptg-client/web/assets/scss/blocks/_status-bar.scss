@@ -2,7 +2,7 @@
 
 .status-bar {
   @include flex(row, center, flex-start, $space-4);
-  @include card($radius-lg);
+  @include card($panel-radius);
   padding: $space-4;
   font-size: $fs-xs;
   color: var(--c-text-dim);

@@ -136,7 +136,8 @@
   }
 
   .sidebar,
-  .workspace {
+  .workspace,
+  .status-bar {
     border-radius: a("panel-radius");
     box-shadow: #{a("panel-shadow")};
   }

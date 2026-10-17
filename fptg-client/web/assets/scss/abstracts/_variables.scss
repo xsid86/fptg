@@ -61,7 +61,11 @@ $space-8:  32px;
 $radius-sm: 4px;
 $radius-md: 8px;    // native: MSG_CORNER_RADIUS
 $radius-lg: 10px;
+$radius-xl: 16px;
 $radius-pill: 999px;
+// Три панели окна — список, рабочая область и статус-бар — одним
+// радиусом (у Aurora — свой, a("panel-radius"), тоже на все три).
+$panel-radius: $radius-lg;
 
 // -------------------------------------------------------------- sizes
 $avatar-sm: 24px;

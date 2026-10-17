@@ -25,10 +25,52 @@
   }
 }
 
+// Переход между страницами (ui/tgbox.js): старая гаснет, новая
+// проявляется — заголовок, тело и кнопки вместе.
+.tgbox__title,
+.tgbox__body,
+.tgbox__foot {
+  transition: opacity .2s $ease;
+
+  .tgbox.is-leaving & {
+    opacity: 0;
+    transition-duration: .15s;
+  }
+}
+
 .tgbox__head {
   @include flex(row, center, flex-start, $space-2);
   flex: 0 0 auto;
   padding: $space-5 $space-5 $space-3;
+  position: relative;
+}
+
+// Окно «занято»: следующая страница грузится, текущая остаётся —
+// бегущая полоска под шапкой, щелчки не проходят.
+.tgbox.is-busy {
+  cursor: progress;
+
+  .tgbox__body,
+  .tgbox__foot {
+    pointer-events: none;
+  }
+
+  .tgbox__head::after {
+    animation: tgbox-busy 1s $ease infinite;
+    background: var(--c-accent);
+    border-radius: $radius-pill;
+    content: '';
+    height: 2px;
+    inset-block-end: 0;
+    inset-inline-start: 0;
+    position: absolute;
+    width: 30%;
+  }
+}
+
+@keyframes tgbox-busy {
+  from { translate: -100% 0; }
+  to { translate: 340% 0; }
 }
 
 .tgbox__back[hidden] {

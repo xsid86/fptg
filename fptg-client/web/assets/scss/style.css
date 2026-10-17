@@ -3991,7 +3991,7 @@ dialog[open].is-pop-up,
   right: 0;
   top: 0;
   transform: translateX(105%);
-  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   width: 360px;
   z-index: 6;
 }
@@ -4005,6 +4005,13 @@ dialog[open].is-pop-up,
   top: 8px;
 }
 
+.info-panel.is-busy {
+  cursor: progress;
+}
+.info-panel.is-busy .info-panel__body {
+  pointer-events: none;
+}
+
 .info-panel__body {
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -4015,6 +4022,7 @@ dialog[open].is-pop-up,
   gap: 16px;
   flex: 1 1 auto;
   padding: 24px 16px 16px;
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 @supports not selector(::-webkit-scrollbar) {
   .info-panel__body {
@@ -4037,6 +4045,10 @@ dialog[open].is-pop-up,
 }
 .info-panel__body::-webkit-scrollbar-thumb:hover {
   background-color: var(--c-text-faint);
+}
+.info-panel__body.is-leaving {
+  opacity: 0;
+  transition-duration: 0.15s;
 }
 
 .info-panel__hint {
@@ -12013,6 +12025,18 @@ span.picker__gif {
   backdrop-filter: blur(15px);
 }
 
+.tgbox__title,
+.tgbox__body,
+.tgbox__foot {
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tgbox.is-leaving .tgbox__title,
+.tgbox.is-leaving .tgbox__body,
+.tgbox.is-leaving .tgbox__foot {
+  opacity: 0;
+  transition-duration: 0.15s;
+}
+
 .tgbox__head {
   display: flex;
   flex-direction: row;
@@ -12021,8 +12045,36 @@ span.picker__gif {
   gap: 4px;
   flex: 0 0 auto;
   padding: 11px 11px 6px;
+  position: relative;
 }
 
+.tgbox.is-busy {
+  cursor: progress;
+}
+.tgbox.is-busy .tgbox__body,
+.tgbox.is-busy .tgbox__foot {
+  pointer-events: none;
+}
+.tgbox.is-busy .tgbox__head::after {
+  animation: tgbox-busy 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  background: var(--c-accent);
+  border-radius: 999px;
+  content: "";
+  height: 2px;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  position: absolute;
+  width: 30%;
+}
+
+@keyframes tgbox-busy {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 340% 0;
+  }
+}
 .tgbox__back[hidden] {
   display: none;
 }
@@ -13270,7 +13322,8 @@ span.picker__gif {
   padding: 8px;
 }
 :root[data-style=aurora] .sidebar,
-:root[data-style=aurora] .workspace {
+:root[data-style=aurora] .workspace,
+:root[data-style=aurora] .status-bar {
   border-radius: 16px;
   box-shadow: none;
 }

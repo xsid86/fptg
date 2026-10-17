@@ -201,8 +201,8 @@ function mainPage(chatId) {
     title: 'Manage',
     async render(body, box) {
       ctx = await load(chatId);
+      // Заголовок окна сменится вместе со страницей (tgbox, show).
       this.title = ctx.isChannel ? 'Manage channel' : 'Manage group';
-      box.dialog.querySelector('.tgbox__title').textContent = this.title;
       const canInfo = ctx.can('can_change_info');
       const rowCard = store.chats.find((c) => c.id === chatId) ?? { id: chatId, title: ctx.chat.title };
       photo = photoPicker(rowCard);

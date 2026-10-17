@@ -9,9 +9,16 @@ import { uploadRichFile } from './attach.js';
 // ui/manage.js). Шапка — «назад» (на вложенной странице), заголовок и
 // крестик; тело прокручивается; кнопки — внизу справа, как у Desktop.
 //
+// Переход между страницами — как между окнами: старая гаснет
+// (FADE_OUT_MS), новая проявляется (CSS, .tgbox.is-leaving); вместе —
+// меньше полсекунды. Перерисовка той же страницы (refresh) — без него.
+//
 // Страница — { title, render(body, box) -> узлы, buttons: [{ label,
 // run, primary, danger }] }. render зовётся при каждом показе (в том
 // числе по возвращении «назад») и может быть async.
+
+const FADE_OUT_MS = 150;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function openBox() {
   const stack = [];
@@ -41,18 +48,18 @@ export function openBox() {
     /** Новая страница поверх. */
     push(page) {
       stack.push(page);
-      return show();
+      return show(true);
     },
     /** Заменить текущую (шаг мастера без возврата). */
     replace(page) {
       stack.pop();
       stack.push(page);
-      return show();
+      return show(true);
     },
     pop() {
       if (stack.length > 1) {
         stack.pop();
-        show();
+        show(true);
       } else {
         dialog.close();
       }
@@ -67,24 +74,40 @@ export function openBox() {
     },
   };
 
-  async function show() {
+  let shown = false;
+
+  async function show(animate = false) {
     const my = ++seq;
     const page = stack[stack.length - 1];
-    title.textContent = page.title ?? '';
-    back.hidden = stack.length < 2;
-    clear(body).append(el('p', { class: 'tgbox__hint' }, 'Loading…'));
-    clear(foot);
+    // Первая страница — «Loading…», пока она готовится; дальше старая
+    // страница остаётся на месте (окно «занято»), пока новая не готова
+    // целиком — данные загружены, узлы построены — и только потом
+    // переход: старая гаснет, новая проявляется. Иначе окно менялось
+    // раньше, чем в нём появлялось содержимое, и переход дёргался.
+    if (!shown) {
+      title.textContent = page.title ?? '';
+      clear(body).append(el('p', { class: 'tgbox__hint' }, 'Loading…'));
+    } else {
+      dialog.classList.add('is-busy');
+    }
     let nodes;
     try {
       nodes = await page.render(body, box);
     } catch (error) {
-      if (my !== seq) return;
-      clear(body).append(el('p', { class: 'tgbox__error' }, error?.message || String(error)));
-      return;
+      nodes = el('p', { class: 'tgbox__error' }, error?.message || String(error));
     }
     if (my !== seq) return;
+    dialog.classList.remove('is-busy');
+    if (animate && shown) {
+      dialog.classList.add('is-leaving');
+      await wait(FADE_OUT_MS);
+      if (my !== seq) return;
+    }
+    title.textContent = page.title ?? '';
+    back.hidden = stack.length < 2;
     clear(body).append(...[nodes].flat().filter(Boolean));
     body.scrollTop = 0;
+    clear(foot);
     for (const b of page.buttons ?? []) {
       foot.append(el('button', {
         class: `btn tgbox__btn${b.primary ? ' is-primary' : ''}${b.danger ? ' is-danger' : ''}`,
@@ -101,6 +124,8 @@ export function openBox() {
         },
       }, b.label));
     }
+    shown = true;
+    dialog.classList.remove('is-leaving');
     // Первое поле — в фокус, как у Desktop.
     body.querySelector('input:not([type="checkbox"]):not([type="radio"]), textarea')?.focus();
   }

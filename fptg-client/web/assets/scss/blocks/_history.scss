@@ -331,7 +331,7 @@
   right: 0;
   top: 0;
   transform: translateX(105%);
-  transition: transform $dur-fast $ease;
+  transition: transform $dur-slow $ease;
   width: 360px;
   z-index: 6;
 
@@ -346,11 +346,28 @@
   top: $space-4;
 }
 
+// Панель «занята»: данные следующего вида грузятся, текущий остаётся.
+.info-panel.is-busy {
+  cursor: progress;
+
+  .info-panel__body {
+    pointer-events: none;
+  }
+}
+
 .info-panel__body {
   @include scroll-area;
   @include flex(column, stretch, flex-start, $space-6);
   flex: 1 1 auto;
   padding: $space-7 $space-6 $space-6;
+  // Переход между видами (ui/infopanel.js, viewTransition): старый
+  // гаснет, новый проявляется.
+  transition: opacity .2s $ease;
+
+  &.is-leaving {
+    opacity: 0;
+    transition-duration: .15s;
+  }
 }
 
 .info-panel__hint {

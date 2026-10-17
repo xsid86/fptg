@@ -343,6 +343,42 @@ let similarBoxes = new Map();
 let gifts = { kind: 'all', sortByPrice: false, items: [], next: '', total: 0, loading: false };
 
 /** Смена вида; шапке чата — какая сетка медиа открыта (подсветка кнопки). */
+// Переход между видами панели (сведения, медиа, подарки, похожие) —
+// как между окнами: сначала данные нового вида (prepare; старый вид
+// тем временем на месте, панель «занята»), потом старый гаснет
+// (VIEW_FADE_OUT_MS) и проявляется новый, уже с данными (apply). Иначе
+// вид менялся раньше, чем в нём появлялось содержимое, и переход
+// дёргался. Закрытая панель — сразу, загрузка — уже в открытой.
+const VIEW_FADE_OUT_MS = 150;
+let viewSwitch = 0;
+
+async function viewTransition(apply, prepare = null) {
+  if (!open || !body?.childNodes.length) {
+    apply(null);
+    return;
+  }
+  const my = ++viewSwitch;
+  let data = null;
+  if (prepare) {
+    panel.classList.add('is-busy');
+    try {
+      data = await prepare();
+    } catch {
+      data = null;
+    }
+    if (my !== viewSwitch) return;
+    panel.classList.remove('is-busy');
+  }
+  body.classList.add('is-leaving');
+  await new Promise((r) => setTimeout(r, VIEW_FADE_OUT_MS));
+  if (my !== viewSwitch) return;
+  apply(data);
+  body.classList.remove('is-leaving');
+}
+
+/** Назад к сведениям — с переходом. */
+const backToInfo = () => viewTransition(() => { setView('info'); render(); });
+
 function setView(next) {
   const was = view === 'media' ? media.filter : '';
   if (view === 'media' && next !== 'media') {
@@ -359,9 +395,20 @@ function setView(next) {
 // Похожие каналы, как у нативного клиента: список в панели; щелчок
 // открывает канал (openChatSimilarChat — Telegram учитывает выбор).
 function openSimilar() {
+  const chatId = info?.chatId ?? null;
+  viewTransition((pre) => openSimilarNow(chatId, pre),
+    () => hooks.call('chat.similar', { chatId }));
+}
+
+/** pre — уже загруженный ответ chat.similar (или null — загрузить). */
+function openSimilarNow(chatId, pre) {
   setView('similar');
-  similar = { chatId: info?.chatId ?? null, items: null, node: null };
+  similar = { chatId, items: null, node: null };
   if (!open) setOpen(true);
+  if (pre) {
+    applySimilar(pre);
+    return;
+  }
   renderSimilar();
   loadSimilar();
 }
@@ -376,6 +423,10 @@ async function loadSimilar() {
     answer = { items: [] };
   }
   if (view !== 'similar' || similar.chatId !== chatId) return;
+  applySimilar(answer);
+}
+
+function applySimilar(answer) {
   similar.items = answer.items ?? [];
   similar.node = null;
   renderSimilar();
@@ -407,7 +458,7 @@ function renderSimilar() {
   if (similar.node?.isConnected) return;
   const back = el('button', {
     class: 'btn info-panel__back', type: 'button',
-    onclick: () => { setView('info'); render(); },
+    onclick: backToInfo,
   }, icon('chevron-left'), info?.title || 'Back');
   const items = similar.items;
   const title = el('div', { class: 'info-panel__section-title' },
@@ -440,9 +491,24 @@ async function refreshSimilarAvatars() {
 }
 
 function openGifts() {
+  const chatId = info?.chatId;
+  viewTransition(openGiftsNow, () => hooks.call('gifts.list', {
+    chatId, kind: gifts.kind, sortByPrice: gifts.sortByPrice, offset: '',
+  }));
+}
+
+/** pre — уже загруженный ответ gifts.list (или null — загрузить). */
+function openGiftsNow(pre) {
   setView('gifts');
   gifts = { kind: gifts.kind, sortByPrice: gifts.sortByPrice, items: [], next: '', total: 0, loading: false };
   if (!open) setOpen(true);
+  if (pre) {
+    gifts.items = pre.gifts ?? [];
+    gifts.next = pre.nextOffset ?? '';
+    gifts.total = pre.total ?? gifts.items.length;
+    renderGifts();
+    return;
+  }
   loadGifts(true);
 }
 
@@ -549,7 +615,7 @@ function giftDetails(g) {
 function renderGifts() {
   const back = el('button', {
     class: 'btn info-panel__back', type: 'button',
-    onclick: () => { setView('info'); render(); },
+    onclick: backToInfo,
   }, icon('chevron-left'), info?.title || 'Back');
   const chips = el('div', { class: 'gift-filter' },
     ...GIFT_KINDS.map(([kind, label]) => el('button', {
@@ -642,7 +708,22 @@ function mediaKind() {
 }
 
 function openMedia(filter) {
+  const chatId = viewChatId();
+  viewTransition((pre) => openMediaNow(filter, pre),
+    () => hooks.call('media.list', { chatId, filter, from: 0 }));
+}
+
+/** pre — уже загруженная первая страница media.list (или null). */
+function openMediaNow(filter, pre) {
+  // Идущая загрузка прежнего вида сюда уже не допишет (loadMedia).
+  mediaSeq += 1;
   media = { filter, chatId: viewChatId(), items: [], next: 0, total: 0, loading: false, done: false };
+  if (pre) {
+    media.items = pre.items ?? [];
+    media.next = pre.nextFrom ?? 0;
+    media.total = pre.total ?? media.items.length;
+    media.done = !media.next || !media.items.length;
+  }
   mediaCurrent = null;
   setView('media');
   // Смена вида внутри медиа (Photos -> Music) view не меняет — шапке
@@ -650,7 +731,8 @@ function openMedia(filter) {
   emit('info:media-view', filter);
   if (!open) setOpen(true);
   renderMedia();
-  loadMedia(true);
+  if (pre) mediaMaybeMore();
+  else loadMedia(true);
 }
 
 async function loadMedia(fresh) {
@@ -932,7 +1014,7 @@ function mediaMaybeMore() {
 function renderMedia() {
   const back = el('button', {
     class: 'btn info-panel__back', type: 'button',
-    onclick: () => { setView('info'); render(); },
+    onclick: backToInfo,
   }, icon('chevron-left'), info?.chatId === media.chatId && info.title ? info.title : 'Back');
   const chips = el('div', { class: 'gift-filter' },
     ...MEDIA_KINDS.map(([kind, label]) => el('button', {
@@ -1159,9 +1241,11 @@ export function mountInfoPanel(box, options) {
   on('ui:open-media', (filter) => {
     if (store.activeChatId === null) return;
     if (open && view === 'media' && media.filter === filter && media.chatId === store.activeChatId) {
-      setView('info');
-      mediaParts = null;
-      render();
+      viewTransition(() => {
+        setView('info');
+        mediaParts = null;
+        render();
+      });
       return;
     }
     openMedia(filter);
