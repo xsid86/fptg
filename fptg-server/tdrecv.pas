@@ -106,7 +106,7 @@ end;
 { fpjson's \uXXXX decoding (jsonscanner.pp) has two confirmed bugs on
   this build, found by reading FPC 3.2.2's actual source after a real,
   reproducible corruption in the app (custom-emoji entity landing on
-  the wrong letters -- see docs/journal/ for the full trail):
+  the wrong letters -- a long trail of its own):
 
   1) A single \uXXXX escape is only UTF-8-encoded correctly when
      (joUTF8 in Options) or (DefaultSystemCodePage = CP_UTF8) --

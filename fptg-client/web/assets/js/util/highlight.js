@@ -2,7 +2,7 @@ import { el } from '../core/dom.js';
 
 // Syntax highlighting for code blocks, on the language TDLib already
 // tells us (textEntityTypePreCode carries it - see the entry of
-// 2026-09-23 in docs/journal/).
+// 2026-09-23 in the development log).
 //
 // PRISM, NOT highlight.js, AND FOR ONE REASON: highlight.js returns
 // its result as a string of HTML, which would mean innerHTML on text

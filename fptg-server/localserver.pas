@@ -1518,6 +1518,10 @@ begin
   Result := Trim(ParamValue('--web-dir='));
   if Result = '' then begin
     Result := ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_WEB_DIR;
+    { Не дерево исходников, а релизный архив: web рядом с exe. }
+    if not DirectoryExists(Result) then begin
+      Result := ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_WEB_DIR_RELEASE;
+    end;
   end;
   Result := ExpandFileName(Result);
 end;

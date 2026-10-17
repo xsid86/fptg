@@ -14,6 +14,7 @@ unit srvhost;
     stop              -> перестать принимать
     user.set (user, password) -> логин и пароль единственного пользователя
     signOut           -> завершить все сеансы
+    log.set (on)      -> вести сырой лог TDLib (tdlib_raw.log); в conf.dat
     traffic           -> трафик: telegram (TDLib <-> Telegram, все
                          аккаунты) и clients (сервер <-> окна и браузеры),
                          байты с запуска; скорость считает спросивший
@@ -85,7 +86,48 @@ function ParamValue(const APrefix: string): string;
 implementation
 
 uses
-  constants, tdcore, tdaccount, tdauth, localserver, webapi, srvauth, secureconfig;
+  constants, tdcore, tdaccount, tdauth, localserver, webapi, srvauth, secureconfig, tdjson;
+
+{ --tdlib-log у консольного: лог на этот запуск, без записи в conf.dat. }
+function RawLogFromCli: boolean;
+var
+  I: integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do begin
+    if ParamStr(I) = '--tdlib-log' then begin
+      Result := True;
+    end;
+  end;
+end;
+
+{ Сырой лог TDLib при запуске: галочка из conf.dat или --tdlib-log. }
+procedure PrepareRawLog;
+var
+  Ini: TSecureIni;
+  LogOn: boolean;
+begin
+  Ini := OpenConfig;
+  try
+    LogOn := Ini.ReadBool(LOG_CONFIG_SECTION, LOG_CONFIG_RAW, False);
+  finally
+    Ini.Free;
+  end;
+  SetRawLog(LogOn or RawLogFromCli);
+end;
+
+procedure SaveRawLog(AOn: boolean);
+var
+  Ini: TSecureIni;
+begin
+  Ini := OpenConfig;
+  try
+    Ini.WriteBool(LOG_CONFIG_SECTION, LOG_CONFIG_RAW, AOn);
+  finally
+    Ini.Free;
+  end;
+  SetRawLog(AOn or RawLogFromCli);
+end;
 
 function ParamValue(const APrefix: string): string;
 var
@@ -137,6 +179,7 @@ begin
   inherited Create;
   FKind := AKind;
   PrepareTls;
+  PrepareRawLog;
   FTrafficTimer := TTdTimer.Create(nil);
   FTrafficTimer.Interval := TRAFFIC_TICK_MS;
   FTrafficTimer.OnTimer := @TrafficTick;
@@ -353,6 +396,7 @@ begin
   Result.Add('keyFile', FKeyFile);
   Result.Add('certFromCli', FTlsFromCli);
   Result.Add('user', AuthUserName);
+  Result.Add('rawLog', RawLogOn);
 end;
 
 function TServerHost.Control(const ACmd: string; AArgs: TJSONObject): TJSONObject;
@@ -397,6 +441,8 @@ begin
     end else begin
       SetTls(Trim(AArgs.Get('certFile', '')), Trim(AArgs.Get('keyFile', '')));
     end;
+  end else if ACmd = 'log.set' then begin
+    SaveRawLog((AArgs <> nil) and AArgs.Get('on', False));
   end else if ACmd = 'traffic' then begin
     { Раз в секунду от окна — без всего состояния. }
     Result := TrafficJson;

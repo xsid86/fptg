@@ -35,6 +35,13 @@ function TdReceive(Timeout: double): utf8string;
 function TdExecute(const ARequest: utf8string): utf8string;
 procedure TdSend(AClientId: integer; const ARequest: utf8string);
 
+{ Сырой лог обмена с TDLib (tdlib_raw.log в папке данных сервера).
+  По умолчанию ВЫКЛЮЧЕН: в нём вся переписка открытым текстом. Включает
+  галочка «Keep TDLib log» в окне сервера (conf.dat) или --tdlib-log у
+  консольного (srvhost.PrepareRawLog). }
+procedure SetRawLog(AOn: boolean);
+function RawLogOn: boolean;
+
 implementation
 
 var
@@ -45,6 +52,31 @@ var
     file is recreated on every run (fmCreate), next to the executable. }
   GLogFile: TFileStream = nil;
   GLogLock: TCriticalSection = nil;
+  GLogOn: boolean = False;
+  { Файл уже создан в этом запуске: повторное включение дописывает,
+    а не стирает то, что было до выключения. }
+  GLogStarted: boolean = False;
+
+procedure SetRawLog(AOn: boolean);
+begin
+  if GLogLock = nil then begin
+    Exit;
+  end;
+  GLogLock.Enter;
+  try
+    GLogOn := AOn;
+    if not AOn then begin
+      FreeAndNil(GLogFile);
+    end;
+  finally
+    GLogLock.Leave;
+  end;
+end;
+
+function RawLogOn: boolean;
+begin
+  Result := GLogOn;
+end;
 
 procedure TdLogLine(const APrefix, ALine: utf8string);
 var
@@ -55,10 +87,20 @@ begin
   end;
   GLogLock.Enter;
   try
+    if not GLogOn then begin
+      Exit;
+    end;
     if GLogFile = nil then begin
       try
-        GLogFile := TFileStream.Create(
-          ServerDataDir + 'tdlib_raw.log', fmCreate or fmShareDenyWrite);
+        if GLogStarted and FileExists(ServerDataDir + 'tdlib_raw.log') then begin
+          GLogFile := TFileStream.Create(
+            ServerDataDir + 'tdlib_raw.log', fmOpenWrite or fmShareDenyWrite);
+          GLogFile.Seek(0, soEnd);
+        end else begin
+          GLogFile := TFileStream.Create(
+            ServerDataDir + 'tdlib_raw.log', fmCreate or fmShareDenyWrite);
+        end;
+        GLogStarted := True;
       except
         GLogFile := nil;
       end;

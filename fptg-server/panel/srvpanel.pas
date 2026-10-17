@@ -39,6 +39,7 @@ type
     btnCert: TButton;
     btnKey: TButton;
     btnTlsApply: TButton;
+    chkRawLog: TCheckBox;
     dlgPem: TOpenDialog;
     edtCert: TEdit;
     edtKey: TEdit;
@@ -75,6 +76,7 @@ type
     procedure btnCertClick(Sender: TObject);
     procedure btnKeyClick(Sender: TObject);
     procedure btnTlsApplyClick(Sender: TObject);
+    procedure chkRawLogChange(Sender: TObject);
     procedure edtTlsChange(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormCreate(Sender: TObject);
@@ -99,6 +101,8 @@ type
       пока не нажат Apply. FTlsFilling — поля заполняет сам ApplyStatus. }
     FTlsDirty: boolean;
     FTlsFilling: boolean;
+    { ApplyStatus ставит галочку лога — не отправлять это обратно. }
+    FLogFilling: boolean;
     procedure PickPem(AEdit: TEdit; const ATitle: string);
     function Exec(const ACmd: string; AArgs: TJSONObject; out AError: string): boolean;
     procedure Command(const ACmd: string; AArgs: TJSONObject);
@@ -294,6 +298,12 @@ begin
     end;
     btnUser.Enabled := True;
     btnSignOut.Enabled := True;
+    FLogFilling := True;
+    try
+      chkRawLog.Checked := S.Get('rawLog', False);
+    finally
+      FLogFilling := False;
+    end;
     trayIcon.Hint := Caption + ' - ' + lblStatus.Caption + ' ' + lblUrl.Caption;
   finally
     if Own then begin
@@ -617,6 +627,23 @@ begin
     end;
   finally
     A.Free;
+  end;
+end;
+
+{ «Keep TDLib log»: сырой лог обмена с TDLib — для разбора ошибок. }
+procedure TFormServerPanel.chkRawLogChange(Sender: TObject);
+var
+  Args: TJSONObject;
+begin
+  if FLogFilling then begin
+    Exit;
+  end;
+  Args := TJSONObject.Create;
+  try
+    Args.Add('on', chkRawLog.Checked);
+    Command('log.set', Args);
+  finally
+    Args.Free;
   end;
 end;
 

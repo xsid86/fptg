@@ -21,12 +21,14 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
+        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="fptg-client.lps"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
         <UsageCount Value="164"/>
+        <DefaultSyntaxHighlighter Value="XML"/>
       </Unit>
       <Unit>
         <Filename Value="fptg-client.res"/>
@@ -36,6 +38,7 @@
         <TopLine Value="-1"/>
         <CursorPos X="-1" Y="-1"/>
         <UsageCount Value="164"/>
+        <DefaultSyntaxHighlighter Value="None"/>
       </Unit>
       <Unit>
         <Filename Value="..\fptg-server\shared\constants.pas"/>

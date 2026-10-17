@@ -41,7 +41,7 @@ uses
   athreads,
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
-  Forms, Controls, Dialogs, SysUtils, fpjson,
+  Forms, Controls, Dialogs, SysUtils, fpjson, LCLIntf,
   { Общие с сервером модули — из fptg-server/shared (OtherUnitFiles
     проекта): окну видна только эта папка, и случайная зависимость от
     ядра TDLib не соберётся. Не через uses … in: тогда при компиляции
@@ -98,12 +98,13 @@ begin
     Окно показывает страницу из своих файлов; она входит на сервер
     (webui.pas, guiconn.pas, connect.html). }
   if not StartWebUi then begin
-    MessageDlg(APP_TITLE,
-      'The Microsoft Edge WebView2 Runtime is needed to show the interface.'
-      + LineEnding + LineEnding
-      + 'Install it from https://developer.microsoft.com/microsoft-edge/webview2/ '
-      + 'and start the program again.',
-      mtError, [mbOK], 0);
+    { Нет WebView2 Runtime — предложить его установщик (Microsoft). }
+    if MessageDlg(APP_TITLE,
+      WEBVIEW2_NEEDED_TEXT + LineEnding + LineEnding
+      + 'Download the installer now? Start the program again once it is installed.',
+      mtError, [mbYes, mbNo], 0) = mrYes then begin
+      OpenURL(WEBVIEW2_DOWNLOAD_URL);
+    end;
     Exit;
   end;
   SetWebUiPrimary(True);

@@ -10,7 +10,7 @@ unit constants;
   Константы окна (карточки на рабочем столе, окно мини-приложения,
   WebView2) — в fptg-client/guiconst.pas. Общие с окном (APP_TITLE,
   пределы настроек карточек) лежат здесь, пока программа одна
-  (TODO.md, «Разделение на сервер и GUI»).
+  (план «Разделение на сервер и GUI»).
 
   Константа не может ссылаться на объявленную ниже в том же блоке
   const, поэтому группы, от которых зависят другие, — выше. }
@@ -460,6 +460,9 @@ const
   TLS_SELF_SIGNED_DAYS = 3650;
   TLS_SELF_SIGNED_NAME = 'fptg';
   TLS_CONFIG_SECTION = 'tls';
+  { Сырой лог TDLib (tdjson.SetRawLog): галочка окна сервера, conf.dat. }
+  LOG_CONFIG_SECTION = 'log';
+  LOG_CONFIG_RAW = 'tdlib';
   TLS_CONFIG_CERT = 'cert';
   TLS_CONFIG_KEY = 'key';
   { Свой сертификат из окна сервера — ПУТИ к файлам PEM, не их текст:
@@ -512,6 +515,9 @@ const
     оттуда (и окну, и обычному браузеру). На другой машине — --web-dir.
     Показ страницы окном из своих файлов — TODO, шаг 3б. }
   LOCAL_SERVER_WEB_DIR = {$IFDEF WINDOWS}'..\fptg-client\web'{$ELSE}'../fptg-client/web'{$ENDIF};
+  { Релизный архив сервера: страница — папкой web рядом с exe
+    (tools/build_release.py); ищется, когда LOCAL_SERVER_WEB_DIR нет. }
+  LOCAL_SERVER_WEB_DIR_RELEASE = 'web';
   { 128 bits, from the OS CSPRNG. This is effectively a session key:
     anything on this machine that can reach the port can drive the
     account once it has the token. }

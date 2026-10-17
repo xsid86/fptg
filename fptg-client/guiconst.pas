@@ -20,6 +20,11 @@ const
     при старте (appid.pas), папка профиля WebView2 с ним переезжает в
     новую (webview2.pas). }
   APP_TITLE_LEGACY = 'TG Orchestrator';
+  { Установщик WebView2 Runtime (Evergreen Bootstrapper, Microsoft): на
+    Windows 11 он уже есть, на Windows 10 — бывает, что нет. }
+  WEBVIEW2_DOWNLOAD_URL = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
+  WEBVIEW2_NEEDED_TEXT = 'The Microsoft Edge WebView2 Runtime is needed to show the interface. '
+    + 'Windows 11 has it built in; on Windows 10 it may have to be installed.';
   { Папки данных в %LOCALAPPDATA%: нынешняя и прежняя. }
   APP_DATA_DIR = 'fptg';
   APP_DATA_DIR_LEGACY = 'tgorchestrator';

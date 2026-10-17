@@ -181,7 +181,7 @@ function TdApp: TTdCore;
 function TdChatList: TTdChats;
 { Not named TdMessages: that's the name of the tdmessages unit, and the
   reference would collide with it by identifier (Pascal is case-
-  insensitive) — the same pitfall as TdApp/tdcore, see ARCHITECTURE.md. }
+  insensitive) — the same pitfall as TdApp/tdcore. }
 function TdMsgList: TTdMessages;
 { Same unit-name pitfall (tdusers) as TdMsgList/tdmessages above —
   TdUsers would resolve to the unit, not the function. }
@@ -828,6 +828,8 @@ begin
   Result := FBaseDir + MANIFEST;
 end;
 
+{$I apikeys.inc}
+
 function TTdCore.LoadConfig: boolean;
 var
   Ini: TIniFile;
@@ -843,6 +845,13 @@ begin
     FDeviceModel := utf8string(Ini.ReadString('telegram', 'device_model', 'FPC Desktop'));
   finally
     Ini.Free;
+  end;
+
+  { Своих ключей в настройках нет — вшитые в сборку (apikeys.inc;
+    в публичной сборке их нет, и сервер попросит свои). }
+  if (FApiId = 0) and (BUILTIN_API_ID <> 0) then begin
+    FApiId := BUILTIN_API_ID;
+    FApiHash := BUILTIN_API_HASH;
   end;
 
   if FApiId = 0 then begin
@@ -862,7 +871,7 @@ begin
     two separate file opens in quick succession, and a transient lock
     on the second one (antivirus/indexer grabbing the file right after
     the first rewrite — the same class of one-off lock this project has
-    hit before on other files, see docs/journal/) surfaced as a scary
+    hit before on other files) surfaced as a scary
     "file is in use, Abort will kill the program" dialog the very first
     time this method ran, api_hash never making it to disk even though
     api_id already had. Same pattern SaveAccounts already uses, just

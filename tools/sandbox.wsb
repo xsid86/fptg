@@ -1,0 +1,19 @@
+<!-- Чистая Windows для проверки релиза (Windows Sandbox, Windows 10/11 Pro).
+     Открыть двойным щелчком. Папка dist\ проекта видна внутри на рабочем
+     столе, только для чтения: архивы распаковать оттуда в любую папку.
+     Сеть включена: сервер внутри песочницы доступен с этой машины по
+     адресу песочницы (ipconfig внутри), клиент внутри — подключается к
+     серверу на этой машине или на VPS по внешнему адресу. -->
+<Configuration>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>I:\Apps\fptelegram\dist</HostFolder>
+      <SandboxFolder>C:\Users\WDAGUtilityAccount\Desktop\dist</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <Networking>Enable</Networking>
+  <LogonCommand>
+    <Command>explorer.exe C:\Users\WDAGUtilityAccount\Desktop\dist</Command>
+  </LogonCommand>
+</Configuration>

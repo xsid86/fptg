@@ -332,7 +332,7 @@ begin
 end;
 
 { Путь — всем пользователям с этим файлом (см. «Один файл TDLib бывает у
-  нескольких чатов» в ARCHITECTURE.md — здесь то же правило). }
+  нескольких чатов» — здесь то же правило). }
 procedure TTdUsers.ApplyFile(AFile: TJSONObject);
 var
   FileId, I: integer;

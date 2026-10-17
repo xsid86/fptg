@@ -18,7 +18,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="101"/>
+      <BuildNr Value="111"/>
       <StringTable CompanyName="xsid86" InternalName="fptg-server" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
@@ -61,7 +61,7 @@
       <Filename Value="fptg-server"/>
     </Target>
     <SearchPaths>
-      <IncludeFiles Value="$(ProjOutDir)"/>
+      <IncludeFiles Value="$(ProjOutDir);..\fptg-server-premium;shared\keys"/>
       <OtherUnitFiles Value="shared;$PkgDir(laz_synapse)"/>
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>

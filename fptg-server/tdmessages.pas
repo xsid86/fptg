@@ -7464,6 +7464,12 @@ begin
           ForgetRowFiles(FAll.Data[Idx]);
           FAll.Data[Idx].Free;
           FAll.Delete(Idx);
+          { FRows держит освобождённый указатель до таймера (50 мс), а
+            messages.list, пришедший в это окно, сериализует FRows —
+            перестроить сразу (то же, что в ветке подгрузки ниже по
+            файлу). }
+          FDirty := True;
+          Rebuild(nil);
         end;
       end;
       { Same reasoning as updateNewMessage above — a message just sent
@@ -7510,7 +7516,12 @@ begin
               FAll.Delete(Idx);
             end;
           end;
-          Touch;
+          { Сразу, не таймером: до перестройки FRows держит указатели на
+            только что освобождённые строки, и messages.list, пришедший в
+            эти 50 мс, читал освобождённую память (Access violation при
+            многократном удалении сообщений, errors.log 2026-10-17). }
+          FDirty := True;
+          Rebuild(nil);
         end;
       end;
     end;

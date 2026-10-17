@@ -1,12 +1,12 @@
 object FormServerPanel: TFormServerPanel
   Left = 400
-  Height = 511
+  Height = 541
   Top = 200
   Width = 320
   BorderIcons = [biSystemMenu, biMinimize]
   BorderStyle = bsSingle
   Caption = 'fptg server'
-  ClientHeight = 511
+  ClientHeight = 541
   ClientWidth = 320
   Position = poScreenCenter
   ShowInTaskBar = stAlways
@@ -230,6 +230,18 @@ object FormServerPanel: TFormServerPanel
     Caption = 'Sign out'
     TabOrder = 6
     OnClick = btnSignOutClick
+  end
+  object chkRawLog: TCheckBox
+    Left = 12
+    Height = 19
+    Top = 461
+    Width = 296
+    Caption = 'Keep TDLib log'
+    Hint = 'Writes everything exchanged with Telegram, chats included, to tdlib_raw.log in the server data folder. For troubleshooting only.'
+    ParentShowHint = False
+    ShowHint = True
+    TabOrder = 10
+    OnChange = chkRawLogChange
   end
   object pnlTraffic: TPanel
     Left = 0

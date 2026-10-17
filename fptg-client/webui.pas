@@ -693,12 +693,13 @@ begin
     Exit;                  { one complaint per window, not one per retry }
   end;
   FFailed := True;
-  MessageDlg(APP_TITLE,
-    AMessage + LineEnding + LineEnding
-    + 'The Microsoft Edge WebView2 Runtime is needed to show the '
-    + 'interface in this window. Until it is installed, open the '
-    + 'web interface link the server prints in any browser instead.',
-    mtError, [mbOK], 0);
+  if MessageDlg(APP_TITLE,
+    AMessage + LineEnding + LineEnding + WEBVIEW2_NEEDED_TEXT + LineEnding + LineEnding
+    + 'Download the installer now? Until it is installed, the server’s web '
+    + 'address opens the same interface in any browser.',
+    mtError, [mbYes, mbNo], 0) = mrYes then begin
+    OpenURL(WEBVIEW2_DOWNLOAD_URL);
+  end;
   Close;
 end;
 

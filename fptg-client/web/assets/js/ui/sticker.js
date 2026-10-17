@@ -18,7 +18,7 @@ import { on } from '../core/bus.js';
 // use stock rlottie: vanilla Samsung rlottie was proved, with its own
 // official lottie2gif tool, to silently skip detail in real Telegram
 // stickers, which is why this project ports the Telegram X fork (see
-// the entry of 2026-09-05 in docs/journal/). lottie-web is a different
+// the development log, 2026-09-05). lottie-web is a different
 // implementation again - bodymovin's own, the reference one for the
 // format - so it is not the library that failed there, but it is also
 // not the one the native window draws with. If a sticker comes out

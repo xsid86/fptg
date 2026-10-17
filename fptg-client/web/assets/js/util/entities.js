@@ -17,7 +17,7 @@ import { copyText, copyNode } from './clipboard.js';
 // of the time. So: encode once, cut the bytes, decode each piece.
 //
 // This is the same class of bug the native side spent a whole session
-// on (see the "eaten text / wrong icon" entry in docs/journal/). Getting it
+// on (see the "eaten text / wrong icon" entry in the development log). Getting it
 // wrong is not subtle in its consequences, only in its appearance.
 
 const encoder = new TextEncoder();
