@@ -18,6 +18,7 @@ import {
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountSearch } from './ui/search.js';
 import { mountNewChat } from './ui/newchat.js';
+import { mountRecorder, cancelRecording } from './ui/recorder.js';
 import { mountPayments } from './ui/payments.js';
 import { mountTranslate } from './ui/translate.js';
 import { mountCalls } from './ui/call.js';
@@ -292,6 +293,16 @@ function wireActions() {
 
   // Stickers and GIFs are sent, not typed: the panel hands over a file
   // id and the server turns it into inputMessageSticker/Animation.
+  // Голосовое или кружок — записаны и загружены (ui/recorder.js).
+  on('ui:send-note', async (payload) => {
+    try {
+      await call('message.sendNote', payload);
+      await loadMessages();
+    } catch (err) {
+      report(err);
+    }
+  });
+
   on('ui:send-media', async (payload) => {
     try {
       await call('message.sendMedia', { ...payload, silent: isSilent() });
@@ -563,6 +574,10 @@ function wireSidebar() {
   mountSearch(qs('#chats-search'), qs('.sidebar'), qs('.sidebar__body'), {
     disabled: () => contactsOn,
   });
+  // Голосовые и кружки — кнопка справа от поля ввода (ui/recorder.js);
+  // другой чат — незаконченная запись пропадает.
+  mountRecorder(qs('#composer'), { canCompose, takeReply, isSilent, report });
+  on('store:active', cancelRecording);
   // «+» справа от вкладок: новая группа или канал (ui/newchat.js).
   mountNewChat(qs('.sidebar__head'), { call: (cmd, args) => call(cmd, args) });
   qs('#chats-search').addEventListener('input', (event) => {

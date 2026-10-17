@@ -288,6 +288,7 @@
 
   // Стикер и гифка без подписи — без карточки; карточка — у шапки.
   .message:has(.media--sticker),
+  .message:has(.media--round),
   .message:has(.media--gif):not(:has(b)) {
     background: none;
     border: none;
@@ -306,6 +307,7 @@
   }
 
   .message--outgoing:has(.media--sticker),
+  .message--outgoing:has(.media--round),
   .message--outgoing:has(.media--gif):not(:has(b)) {
     .message__head {
       background: #{accent(a("own-top"))};

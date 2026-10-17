@@ -104,7 +104,8 @@ export function renderMessage(msg) {
             'message',
             `accent-${msg.senderColor}`,
             msg.outgoing ? 'message--outgoing' : '',
-            msg.kind === 'sticker' ? 'message--sticker' : '',
+            // Кружок — как стикер: без подложки, только шапка.
+            msg.kind === 'sticker' || msg.media?.round ? 'message--sticker' : '',
         ].filter(Boolean).join(' '),
         dataset: {messageId: String(msg.id)},
     });
@@ -114,7 +115,7 @@ export function renderMessage(msg) {
     // comments button reading zero. On a sticker the button moves up
     // into the head, where there is room going spare, and only once
     // there is something to count.
-    const bare = msg.kind === 'sticker';
+    const bare = msg.kind === 'sticker' || !!msg.media?.round;
     card.append(renderHead(msg, bare && msg.comments > 0));
     if (msg.reply) card.append(renderReply(msg));
     if (msg.forward) card.append(renderForward(msg));
@@ -429,6 +430,7 @@ function renderMedia(msg, group) {
         case 'photo':
             return renderPhoto(msg, m, group);
         case 'video':
+            if (m.round) return renderVideoNote(msg, m);
             return group ? renderVideoCell(msg, m, group) : renderVideo(msg, m);
         case 'animation':
             return renderAnimation(msg, m);
@@ -628,6 +630,93 @@ function renderVideo(msg, m) {
     if (p) box.append(p);
     boxWrapper.append(box);
     return boxWrapper;
+}
+
+/**
+ * Видеосообщение («кружок»), как у Telegram Desktop: круг без пузыря, по
+ * умолчанию на паузе — кадр-превью, кнопка «играть» и длительность.
+ * Щелчок — играть со звуком, вокруг круга — кольцо прогресса (зазор
+ * 2px, толщина 3px, цвет акцента); ещё щелчок — пауза; доиграл — снова
+ * в начало, кольцо прячется.
+ */
+// Кольцо: круг 240 — по центру поля 250, радиус 120 + зазор 2 + пол-толщины.
+const ROUND_RING_BOX = 250;
+const ROUND_RING_R = 123.5;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function roundRing() {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'media-round__ring');
+    svg.setAttribute('viewBox', `0 0 ${ROUND_RING_BOX} ${ROUND_RING_BOX}`);
+    svg.setAttribute('aria-hidden', 'true');
+    const arc = document.createElementNS(SVG_NS, 'circle');
+    const c = ROUND_RING_BOX / 2;
+    arc.setAttribute('cx', String(c));
+    arc.setAttribute('cy', String(c));
+    arc.setAttribute('r', String(ROUND_RING_R));
+    // Длина окружности — 100: прогресс в процентах прямо в dasharray.
+    arc.setAttribute('pathLength', '100');
+    arc.setAttribute('stroke-dasharray', '0 100');
+    // Начало — сверху, по часовой.
+    arc.setAttribute('transform', `rotate(-90 ${c} ${c})`);
+    svg.append(arc);
+    return { svg, set: (part) => arc.setAttribute('stroke-dasharray', `${Math.max(0, Math.min(100, part * 100)).toFixed(2)} 100`) };
+}
+
+function renderVideoNote(msg, m) {
+    const box = el('div', {class: 'media media--round'});
+    const clip = el('div', {class: 'media-round__clip'});
+    box.append(clip);
+    const badge = m.duration
+        ? el('span', {class: 'media-round__badge', textContent: duration(m.duration)}) : null;
+    if (m.url) {
+        const player = el('video', {
+            class: 'media-round__video',
+            src: m.url,
+            poster: m.thumbUrl || '',
+            playsInline: true,
+            preload: 'metadata',
+        });
+        // Только освобождение файла вдали от экрана — сам не играет.
+        holdVideo(player, m.url);
+        clip.append(player);
+        const ring = roundRing();
+        const play = el('span', {class: 'media-round__play'}, icon('play'));
+        box.append(ring.svg, play);
+        box.classList.add('is-clickable');
+        box.addEventListener('click', () => {
+            if (player.paused) player.play().catch(() => {});
+            else player.pause();
+        });
+        player.addEventListener('play', () => box.classList.add('is-playing', 'is-started'));
+        player.addEventListener('pause', () => box.classList.remove('is-playing'));
+        player.addEventListener('timeupdate', () => {
+            const total = player.duration || m.duration || 0;
+            if (total) ring.set(player.currentTime / total);
+            if (badge) badge.textContent = duration(Math.max(0, Math.round(total - player.currentTime)));
+        });
+        player.addEventListener('ended', () => {
+            box.classList.remove('is-playing', 'is-started');
+            player.currentTime = 0;
+            ring.set(0);
+            if (badge) badge.textContent = duration(m.duration);
+        });
+        if (m.xfer) box.append(xferOverlay(msg, m));
+    } else {
+        const still = el('img', {
+            class: m.thumbUrl ? 'media-round__video' : 'media-round__video is-placeholder',
+            src: m.thumbUrl || '',
+            alt: '',
+            loading: 'lazy',
+        });
+        clip.append(still);
+        box.classList.add('is-pending');
+        box.append(overlay('download', () => ensure(msg, 'full'), m, msg));
+    }
+    if (badge) box.append(badge);
+    const p = progress(m);
+    if (p) box.append(p);
+    return box;
 }
 
 /**

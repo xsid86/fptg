@@ -242,6 +242,13 @@ function setBusy(on) {
   for (const btn of view.list.querySelectorAll('.attach__remove')) btn.disabled = on;
 }
 
+/** Файл на сервер без окна (голосовые и кружки, ui/recorder.js): id загрузки. */
+export async function uploadFile(file) {
+  const id = await upload(file, () => {});
+  xhr = null;
+  return id;
+}
+
 /** Один файл на сервер; resolve — id загрузки. */
 async function upload(file, onProgress) {
   const url = await uploadUrl(file.name);

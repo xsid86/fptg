@@ -279,7 +279,7 @@
     width: fit-content;
   }
 
-  .message:has(.media, .album, .link-preview, .poll):not(:has(.media--sticker)):not(:has(.media--gif):not(:has(b))) {
+  .message:has(.media, .album, .link-preview, .poll):not(:has(.media--sticker)):not(:has(.media--round)):not(:has(.media--gif):not(:has(b))) {
     width: $message-side-max;
   }
 
@@ -384,6 +384,7 @@ button.message__forward:hover {
 }
 
 .message:has(.media--sticker),
+.message:has(.media--round),
 .message:has(.media--gif):not(:has(b)) {
   background: none;
   border: none;

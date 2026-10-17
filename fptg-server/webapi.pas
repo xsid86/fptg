@@ -401,6 +401,7 @@ type
     function  CmdMessageSend(AArgs: TJSONObject): TJSONData;
     function  CmdMessageSendFiles(AArgs: TJSONObject): TJSONData;
     function  CmdMessageSendRich(AArgs: TJSONObject): TJSONData;
+    function  CmdMessageSendNote(AArgs: TJSONObject): TJSONData;
     function  CmdCancelTransfer(AArgs: TJSONObject): TJSONData;
     function  CmdPollVote(AArgs: TJSONObject): TJSONData;
     function  CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
@@ -1260,6 +1261,8 @@ begin
       Result.Add('url', string(FileUrl(ARow.VideoFileId, ARow.VideoLocalPath)));
       Result.Add('got', ARow.VideoDownloadedSize);
       Result.Add('total', ARow.VideoTotalSize);
+      { Кружок (messageVideoNote) — круглое видео, ui/message.js. }
+      Result.Add('round', ARow.VideoRound);
     end;
     mckAnimation: begin
       Result := TJSONObject.Create;
@@ -4013,6 +4016,10 @@ begin
     RequireMsgs.SendChatAction('chatActionUploadingVideo', True);
   end else if Action = 'document' then begin
     RequireMsgs.SendChatAction('chatActionUploadingDocument', True);
+  end else if Action = 'recordVoice' then begin
+    RequireMsgs.SendChatAction('chatActionRecordingVoiceNote', False);
+  end else if Action = 'recordVideo' then begin
+    RequireMsgs.SendChatAction('chatActionRecordingVideoNote', False);
   end else begin
     raise Exception.Create('unknown chat.typing action: ' + Action);
   end;
@@ -4316,6 +4323,74 @@ begin
     { As TEXT: a message id is a full Int64 and JSON numbers stop being
       exact at 2^53 - the same rule ids follow everywhere else here. }
     StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
+  Result := nil;
+end;
+
+{ message.sendNote (kind: voice | video, file, duration, waveform,
+  length, thumb, tw, th, silent, replyTo) — голосовое или видеосообщение,
+  записанное страницей (ui/recorder.js) и принятое POST /upload: file и
+  thumb — id загрузок. Поля — td_api.tl коммита d1085f9: inputVoiceNote
+  (OGG/Opus, waveform — 5 бит на отсчёт, base64), inputVideoNote (MPEG4
+  H.264, квадрат length <= 640, до 60 с). }
+function TWebApi.CmdMessageSendNote(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Content, Note, Local, Thumb: TJSONObject;
+  Path, ThumbPath: string;
+  Kind: string;
+begin
+  Msgs := RequireMsgs;
+  if Msgs.ChatId = 0 then begin
+    raise Exception.Create('no chat is open');
+  end;
+  Kind := AArgs.Get('kind', '');
+  Path := UploadFilePath(AArgs.Get('file', ''));
+  if Path = '' then begin
+    raise Exception.Create('uploaded file not found');
+  end;
+  Local := TJSONObject.Create;
+  Local.Add('@type', 'inputFileLocal');
+  Local.Add('path', Path);
+  Content := TJSONObject.Create;
+  try
+    Note := TJSONObject.Create;
+    if Kind = 'voice' then begin
+      Note.Add('@type', 'inputVoiceNote');
+      Note.Add('voice_note', Local);
+      Note.Add('duration', integer(AArgs.Get('duration', 0)));
+      Note.Add('waveform', AArgs.Get('waveform', ''));
+      Content.Add('@type', 'inputMessageVoiceNote');
+      Content.Add('voice_note', Note);
+      Content.Add('caption', TJSONNull.Create);
+    end else if Kind = 'video' then begin
+      Note.Add('@type', 'inputVideoNote');
+      Note.Add('video_note', Local);
+      ThumbPath := UploadFilePath(AArgs.Get('thumb', ''));
+      if ThumbPath <> '' then begin
+        Thumb := TJSONObject.Create;
+        Thumb.Add('@type', 'inputThumbnail');
+        Thumb.Add('thumbnail', TJSONObject.Create(['@type', 'inputFileLocal', 'path', ThumbPath]));
+        Thumb.Add('width', integer(AArgs.Get('tw', 0)));
+        Thumb.Add('height', integer(AArgs.Get('th', 0)));
+        Note.Add('thumbnail', Thumb);
+      end else begin
+        Note.Add('thumbnail', TJSONNull.Create);
+      end;
+      Note.Add('duration', integer(AArgs.Get('duration', 0)));
+      Note.Add('length', integer(AArgs.Get('length', 0)));
+      Content.Add('@type', 'inputMessageVideoNote');
+      Content.Add('video_note', Note);
+    end else begin
+      Note.Free;
+      Local.Free;
+      raise Exception.Create('message.sendNote needs kind voice or video');
+    end;
+    Content.Add('self_destruct_type', TJSONNull.Create);
+    Msgs.SendInputContent(utf8string(Content.AsJSON), AArgs.Get('silent', False),
+      StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
+  finally
+    Content.Free;
+  end;
   Result := nil;
 end;
 
@@ -11722,6 +11797,8 @@ begin
         Reply(AConnId, ReqId, CmdMessageSendFiles(Args));
       end else if Cmd = 'message.sendRich' then begin
         Reply(AConnId, ReqId, CmdMessageSendRich(Args));
+      end else if Cmd = 'message.sendNote' then begin
+        Reply(AConnId, ReqId, CmdMessageSendNote(Args));
       end else if Cmd = 'message.cancelTransfer' then begin
         Reply(AConnId, ReqId, CmdCancelTransfer(Args));
       end else if Cmd = 'poll.vote' then begin

@@ -1,0 +1,297 @@
+@use "../abstracts" as *;
+
+// Запись голосовых и кружков (ui/recorder.js), как у Telegram Desktop:
+// круглая кнопка справа от поля; пока держат — она растёт и пульсирует
+// в такт громкости (ступени is-level-N), над ней — замок; поле ввода
+// закрывает полоса записи (точка, время, подсказка); кружок — круглое
+// превью над полем.
+
+// Превью кружка встаёт над полем — от композера.
+.composer {
+  position: relative;
+}
+
+// Полоса записи закрывает поле ввода: его подсказка не просвечивает
+// (у полупрозрачных тем фон полосы — не сплошной).
+.composer.is-recording .composer__input {
+  visibility: hidden;
+}
+
+// «Вступить» вместо поля — записывать некуда.
+.composer--join .composer__record-box {
+  display: none;
+}
+
+.composer__record-box {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.composer__record {
+  @include flex(row, center, center);
+  @include size($composer-min);
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  position: relative;
+  touch-action: none;
+  transition: transform $dur-fast $ease, background $dur-base $ease, color $dur-base $ease;
+  user-select: none;
+  z-index: 3;
+
+  // Наведение — цветом чата, но не во время записи: там фон уже этого
+  // цвета, и значок пропал бы.
+  &:hover:not(.is-recording) {
+    @include chat-tint(color);
+  }
+
+  .composer.is-locked &:hover {
+    color: var(--c-accent-text);
+  }
+
+  &.is-recording,
+  .composer.is-locked & {
+    @include chat-tint(background);
+    color: var(--c-accent-text);
+    transform: scale(1.35);
+  }
+
+  // Громкость — кольцо вокруг кнопки.
+  &.is-recording::before {
+    @include chat-tint(background, 30%);
+    border-radius: 50%;
+    content: '';
+    inset: 0;
+    position: absolute;
+    transition: transform $dur-fast $ease;
+    z-index: -1;
+  }
+
+  @for $i from 0 through 5 {
+    &.is-level-#{$i}::before {
+      transform: scale(1 + $i * 0.12);
+    }
+  }
+}
+
+// Замок над кнопкой: «потяните вверх».
+.recorder__lock {
+  @include flex(column, center, center, 0);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: $radius-pill;
+  box-shadow: 0 2px 8px var(--c-shadow);
+  color: var(--c-text-dim);
+  inset-block-end: calc(100% + #{$space-6});
+  inset-inline-start: 50%;
+  padding: $space-2 $space-1;
+  position: absolute;
+  transform: translateX(-50%);
+
+  &[hidden] {
+    display: none;
+  }
+
+  .icon:last-child {
+    animation: recorder-up 1s $ease infinite;
+    transform: rotate(180deg);
+  }
+}
+
+@keyframes recorder-up {
+  50% { translate: 0 -3px; }
+}
+
+// Полоса записи — поверх поля ввода.
+.recorder {
+  @include flex(row, center, flex-start, $space-4);
+  background: var(--c-surface-2);
+  border-radius: $radius-md;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inset-inline-end: calc(#{$composer-min} + #{$space-3});
+  padding: 0 $space-4;
+  position: absolute;
+  z-index: 2;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.recorder__dot {
+  @include size(10px);
+  animation: recorder-blink 1s ease-in-out infinite;
+  background: var(--c-danger);
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+@keyframes recorder-blink {
+  50% { opacity: .2; }
+}
+
+.recorder__time {
+  flex: 0 0 auto;
+}
+
+.recorder__hint {
+  @include ellipsis;
+  color: var(--c-text-dim);
+  flex: 1 1 auto;
+  font-size: $fs-sm;
+  text-align: center;
+}
+
+.recorder__trash {
+  color: var(--c-danger);
+  flex: 0 0 auto;
+}
+
+.recorder__play {
+  @include chat-tint(color);
+  flex: 0 0 auto;
+}
+
+// Волна голосового при прослушивании: 50 столбиков, высота — ступенью.
+.recorder__wave {
+  @include flex(row, center, flex-start, 2px);
+  flex: 1 1 auto;
+  height: 24px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.recorder__bar {
+  @include chat-tint(background, 70%);
+  border-radius: 1px;
+  flex: 0 0 3px;
+  min-height: 2px;
+
+  @for $i from 0 through 31 {
+    &--#{$i} {
+      height: #{2 + $i * 0.7}px;
+    }
+  }
+}
+
+// Кружок: круглое превью над полем ввода, по центру.
+.recorder-video {
+  inset-block-end: calc(100% + #{$space-6});
+  inset-inline-start: 50%;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 5;
+
+  .composer.is-locked & {
+    pointer-events: auto;
+  }
+}
+
+.recorder-video__circle {
+  @include size(240px);
+  border: 3px solid var(--c-accent);
+  border-radius: 50%;
+  box-shadow: 0 1rem 3rem var(--c-shadow);
+  overflow: hidden;
+}
+
+.recorder-video__live {
+  @include size(100%);
+  display: block;
+  object-fit: cover;
+  // Живое превью — зеркалом, как у камер; записанное — как есть.
+  transform: scaleX(-1);
+
+  &.is-recorded {
+    transform: none;
+  }
+}
+
+// ------------------------------------------------- кружки в ленте
+// ui/message.js, renderVideoNote: круг без пузыря, по умолчанию на паузе
+// (кадр, кнопка «играть», длительность); играет — кольцо прогресса вокруг:
+// зазор 2px, толщина 3px, скруглённые концы, цвет акцента.
+.media--round {
+  @include size(240px);
+  position: relative;
+
+  &.is-clickable {
+    cursor: pointer;
+  }
+}
+
+.media-round__clip {
+  @include size(100%);
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.media-round__video {
+  @include size(100%);
+  display: block;
+  object-fit: cover;
+
+  &.is-placeholder {
+    background: var(--c-surface-2);
+  }
+}
+
+// Кольцо — за краем круга: 240 + 2 * (2 + 3) = 250.
+.media-round__ring {
+  @include size(250px);
+  fill: none;
+  inset: -5px;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  stroke: var(--c-accent);
+  stroke-linecap: round;
+  stroke-width: 3;
+  transition: opacity $dur-base $ease;
+
+  .media--round.is-started & {
+    opacity: 1;
+  }
+
+  circle {
+    transition: stroke-dasharray .25s linear;
+  }
+}
+
+.media-round__play {
+  @include flex(row, center, center);
+  @include size(56px);
+  background: color-mix(in srgb, #000 45%, transparent);
+  border-radius: 50%;
+  color: #fff;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  transition: opacity $dur-base $ease;
+
+  .icon {
+    @include size(26px);
+  }
+
+  .media--round.is-playing & {
+    opacity: 0;
+  }
+}
+
+.media-round__badge {
+  background: color-mix(in srgb, #000 55%, transparent);
+  border-radius: $radius-pill;
+  color: #fff;
+  font-size: $fs-sm;
+  inset-block-end: $space-6;
+  inset-inline-start: 50%;
+  padding: 1px $space-3;
+  position: absolute;
+  transform: translateX(-50%);
+}

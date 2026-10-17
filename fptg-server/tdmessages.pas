@@ -399,6 +399,10 @@ type
     VideoThumbDownloadRequested: boolean;
     VideoFileId:                 integer;
     VideoLocalPath:              utf8string;
+    { Видеосообщение («кружок», messageVideoNote): то же видео, только
+      квадратное и круглое на экране — поля Video* те же (сторона —
+      в VideoWidth/VideoHeight). }
+    VideoRound:                  boolean;
     VideoDownloadRequested:      boolean;
     { Download progress for the video file above — see the comment on
       PhotoDownloadedSize/PhotoTotalSize above, the same idea, same
@@ -1018,6 +1022,9 @@ type
       td_api.tl). ABlocksJson — готовый JSON-массив InputPageBlock. }
     procedure SendRichMessage(const ABlocksJson: utf8string; ASilent: boolean;
       AReplyTo: Int64 = 0);
+    { Готовое InputMessageContent (JSON) — в открытый чат. }
+    procedure SendInputContent(const AContentJson: utf8string; ASilent: boolean;
+      AReplyTo: Int64 = 0);
 
     { Готовый formattedText (сущности собрало поле ввода страницы) —
       отправка или, при AEditId <> 0, правка. }
@@ -1565,7 +1572,8 @@ begin
     Result := mckVoiceNote;
   end else if AType = 'messageDocument' then begin
     Result := mckFile;
-  end else if AType = 'messageVideo' then begin
+  end else if (AType = 'messageVideo') or (AType = 'messageVideoNote') then begin
+    { Кружок — видео (VideoRound), см. TMsgRow.VideoRound. }
     Result := mckVideo;
   end else if AType = 'messagePoll' then begin
     Result := mckPoll;
@@ -3933,15 +3941,26 @@ begin
   AThumbLocalPath := '';
   AFileId := 0;
   ALocalPath := '';
-  if (AContent = nil) or (AType <> 'messageVideo') then begin
+  if (AContent = nil) or ((AType <> 'messageVideo') and (AType <> 'messageVideoNote')) then begin
     Exit;
   end;
-  VideoObj := JGetObj(AContent, 'video');
+  { Кружок: content.video_note (videoNote: duration, length, thumbnail,
+    video — td_api.tl коммита d1085f9), сторона квадрата — length. }
+  if AType = 'messageVideoNote' then begin
+    VideoObj := JGetObj(AContent, 'video_note');
+  end else begin
+    VideoObj := JGetObj(AContent, 'video');
+  end;
   if VideoObj = nil then begin
     Exit;
   end;
-  AWidth := JGetInt(VideoObj, 'width');
-  AHeight := JGetInt(VideoObj, 'height');
+  if AType = 'messageVideoNote' then begin
+    AWidth := JGetInt(VideoObj, 'length');
+    AHeight := AWidth;
+  end else begin
+    AWidth := JGetInt(VideoObj, 'width');
+    AHeight := JGetInt(VideoObj, 'height');
+  end;
   ADuration := JGetInt(VideoObj, 'duration');
 
   ThumbObj := JGetObj(VideoObj, 'thumbnail');
@@ -4059,6 +4078,9 @@ begin
     if Inner <> nil then Result := JGetObj(Inner, 'voice');
   end else if AType = 'messageVideo' then begin
     Inner := JGetObj(AContent, 'video');
+    if Inner <> nil then Result := JGetObj(Inner, 'video');
+  end else if AType = 'messageVideoNote' then begin
+    Inner := JGetObj(AContent, 'video_note');
     if Inner <> nil then Result := JGetObj(Inner, 'video');
   end else if AType = 'messageAnimation' then begin
     Inner := JGetObj(AContent, 'animation');
@@ -4376,6 +4398,7 @@ begin
   ExtractVideoMeta(AContent, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
     R.VideoThumbFileId, R.VideoThumbWidth, R.VideoThumbHeight, R.VideoThumbLocalPath,
     R.VideoFileId, R.VideoLocalPath);
+  R.VideoRound := T = 'messageVideoNote';
   ExtractStickerMeta(AContent, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
   ExtractPollMeta(AContent, T, R.Poll);
@@ -4491,6 +4514,7 @@ begin
   ExtractVideoMeta(ANewContent, T, R.VideoWidth, R.VideoHeight, R.VideoDuration,
     R.VideoThumbFileId, R.VideoThumbWidth, R.VideoThumbHeight, R.VideoThumbLocalPath,
     R.VideoFileId, R.VideoLocalPath);
+  R.VideoRound := T = 'messageVideoNote';
   ExtractStickerMeta(ANewContent, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
   ExtractPollMeta(ANewContent, T, R.Poll);
@@ -5022,10 +5046,27 @@ end;
 
 procedure TTdMessages.SendRichMessage(const ABlocksJson: utf8string;
   ASilent: boolean; AReplyTo: Int64);
+begin
+  if ABlocksJson = '' then begin
+    Exit;
+  end;
+  { Ответ — само сообщение, как у текста; ошибка (нет Premium, лимиты
+    rich_message_*) — тем же путём в тост. }
+  SendInputContent('{"@type":"inputMessageRichMessage",' +
+    '"clear_draft":true,"message":{"@type":"inputRichMessage","is_rtl":false,' +
+    '"detect_automatic_blocks":true,"source":{"@type":"richMessageSourceBlocks",' +
+    '"blocks":' + ABlocksJson + '}}}', ASilent, AReplyTo);
+end;
+
+{ Любое готовое InputMessageContent (JSON) — sendMessage в открытый чат:
+  богатое сообщение, голосовое, видеосообщение. Ответ — само сообщение,
+  ошибка — в тост, как у текста. }
+procedure TTdMessages.SendInputContent(const AContentJson: utf8string;
+  ASilent: boolean; AReplyTo: Int64);
 var
   Body: utf8string;
 begin
-  if (FReq = nil) or (FChatId = 0) or (ABlocksJson = '') then begin
+  if (FReq = nil) or (FChatId = 0) or (AContentJson = '') then begin
     Exit;
   end;
   Body := '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart;
@@ -5038,12 +5079,7 @@ begin
       ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +
       utf8string(IntToStr(AReplyTo)) + '}';
   end;
-  Body := Body + ',"input_message_content":{"@type":"inputMessageRichMessage",' +
-    '"clear_draft":true,"message":{"@type":"inputRichMessage","is_rtl":false,' +
-    '"detect_automatic_blocks":true,"source":{"@type":"richMessageSourceBlocks",' +
-    '"blocks":' + ABlocksJson + '}}}';
-  { Ответ — само сообщение, как у текста; ошибка (нет Premium, лимиты
-    rich_message_*) — тем же путём в тост. }
+  Body := Body + ',"input_message_content":' + AContentJson;
   FReq.SendRequest('sendMessage', Body, @SendTextDone);
 end;
 

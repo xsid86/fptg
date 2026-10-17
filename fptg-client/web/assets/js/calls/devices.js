@@ -5,9 +5,14 @@
 // Android, Linux) значат другое или ничего. Хранилище может быть
 // недоступно — тогда просто устройства по умолчанию.
 //
-// Названия устройств браузер отдаёт только после разрешения на
-// микрофон/камеру, поэтому до первого звонка список может быть
-// безымянным («Microphone 1»).
+// Названия устройств и ПОЛНЫЙ список браузер отдаёт только после
+// захвата микрофона или камеры в этом сеансе окна: до того — по одному
+// безымянному устройству каждого вида («Speaker 1»), хотя у человека их
+// может быть десяток (живой случай: 5 входов и 7 выходов, видно было по
+// одному). Окно-хозяин разрешает своей странице микрофон без вопроса
+// (webview2.pas), но разрешение не сохраняется между запусками. Поэтому
+// открытая панель устройств сама один раз за сеанс открывает и сразу
+// закрывает микрофон (unlockNames, ~0.1 с), и список становится полным.
 
 import { emit } from '../core/bus.js';
 import { el } from '../core/dom.js';
@@ -122,6 +127,26 @@ export async function routeAudio(node) {
   }
 }
 
+// Микрофон уже открывали в этом сеансе ради списка — второй раз не надо.
+let unlockTried = false;
+
+/**
+ * Открыть и сразу закрыть микрофон — после этого браузер отдаёт все
+ * устройства с названиями. Звук, не камера: этого хватает и для камер
+ * (замерено), а индикатор камеры не мигает. true — получилось.
+ */
+async function unlockNames() {
+  if (unlockTried) return false;
+  unlockTried = true;
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    for (const t of s.getTracks()) t.stop();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Устройства по видам: { mic: [{id, label}], camera: [...], speaker: [...] }. */
 export async function listDevices() {
   const out = { mic: [], camera: [], speaker: [] };
@@ -175,11 +200,15 @@ function slider(kind, max, get) {
 const line = (label, ...controls) => el('label', { class: 'call-levels__row' },
   el('span', { class: 'call-levels__label' }, label), ...controls);
 
+const isNameless = (devs) => [...devs.mic, ...devs.camera, ...devs.speaker].length > 0
+  && [...devs.mic, ...devs.camera, ...devs.speaker].every((d) => /^(Microphone|Camera|Speaker) \d+$/.test(d.label));
+
 async function fill(box) {
-  const devs = await listDevices();
-  // Без разрешения на микрофон браузер не называет устройства.
-  const nameless = [...devs.mic, ...devs.camera].length > 0
-    && [...devs.mic, ...devs.camera].every((d) => /^(Microphone|Camera) \d+$/.test(d.label));
+  let devs = await listDevices();
+  // Без захвата в этом сеансе — неполный безымянный список: открытая
+  // панель открывает микрофон на миг сама (unlockNames).
+  if (isNameless(devs) && !box.hidden && await unlockNames()) devs = await listDevices();
+  const nameless = isNameless(devs);
   const rows = [
     line('Microphone', select('mic', devs)),
     line('Mic level', ...slider('mic', MIC_GAIN_MAX, micGain)),
@@ -191,11 +220,15 @@ async function fill(box) {
     rows.push(el('button', {
       class: 'btn call-levels__allow', type: 'button',
       onclick: async () => {
-        try {
-          const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-          for (const t of s.getTracks()) t.stop();
-        } catch {
-          // отказали — остаются безымянные
+        // По отдельности: камеры может не быть или она занята — тогда
+        // общий запрос падал целиком, и микрофон не открывался тоже.
+        for (const constraints of [{ audio: true }, { video: true }]) {
+          try {
+            const s = await navigator.mediaDevices.getUserMedia(constraints);
+            for (const t of s.getTracks()) t.stop();
+          } catch {
+            // нет или отказали — остаётся то, что есть
+          }
         }
         refreshAll();
       },
