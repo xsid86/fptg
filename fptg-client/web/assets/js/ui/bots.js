@@ -685,6 +685,12 @@ function buttonNode(msg, button, cls) {
     ? icon(button.kind === 'url' ? 'link' : 'dots', `${cls}-mark icon--sm`) : null);
 }
 
+/** Одна кнопка — для блоков богатого сообщения (ui/richmessage.js):
+ *  тот же вид и то же нажатие, что под сообщением. */
+export function inlineButtonNode(msg, button, cls) {
+  return buttonNode(msg, button, cls);
+}
+
 /** Инлайн-кнопки под сообщением — зовёт message.js. */
 export function renderInlineKeyboard(msg) {
   return el('div', { class: 'message__keyboard' },

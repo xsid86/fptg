@@ -204,12 +204,6 @@
     border-color: var(--c-accent);
   }
 
-  // На наведённой строке контакта чип остаётся своего цвета.
-  .contact-row:hover .chat-item__folder--none,
-  .contact-row:hover .chat-item__folder--none * {
-    color: var(--plain-chip-text);
-  }
-
   // ------------------------------------------------------- шапка чата
   .chat-header__title {
     color: var(--c-text);

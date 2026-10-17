@@ -9,6 +9,7 @@ import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 import {addRing, xferText, xferLeft} from '../util/xfer.js';
 import {peopleOnHover} from './people.js';
 import {renderInlineKeyboard} from './bots.js';
+import {renderRichMessage} from './richmessage.js';
 import {mapUrl, openMapPoint} from '../util/maps.js';
 import {fillAvatar} from '../util/avatar.js';
 import {copyText} from '../util/clipboard.js';
@@ -125,6 +126,8 @@ export function renderMessage(msg) {
     if (msg.kind === 'location' && msg.location) body.append(renderLocation(msg));
     if (msg.kind === 'contact' && msg.contact) body.append(renderContact(msg));
     if (msg.kind === 'call' && msg.call) body.append(renderCall(msg));
+    // Богатое сообщение — статья из блоков с кнопками (ui/richmessage.js).
+    if (msg.kind === 'rich' && msg.rich) body.append(renderRichMessage(msg));
     // Перевод чата включён и готов — он вместо текста (ui/translate.js).
     const tr = translationFor(msg);
     if (msg.text) body.append(renderRichText(tr ? tr.text : msg.text, tr ? tr.entities : (msg.entities ?? [])));
@@ -294,6 +297,10 @@ function renderHead(msg, withComments = false) {
     head.append(el('span', {class: 'message__time', textContent: clockTime(msg.date)}));
     if (msg.editDate) {
         head.append(el('span', {class: 'message__state', textContent: 'edited'}));
+    }
+    // Эфемерное содержимое бота — видно только этому пользователю.
+    if (msg.ephemeral) {
+        head.append(el('span', {class: 'message__state', textContent: 'only you can see this'}));
     }
     if (withComments) {
         head.append(el('span', {class: 'message__head-gap'}));

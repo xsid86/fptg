@@ -64,7 +64,8 @@ uses
   Classes, SysUtils, SyncObjs, tdtimer, base64, fgl, fpjson, jsonparser,
   constants, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcalls, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
-  autodownload, customemoji, tdstorage, tdsupergroups, tdattachbots, servicetext, tdaccount;
+  autodownload, customemoji, tdstorage, tdsupergroups, tdattachbots, servicetext, tdaccount,
+  appdirs;
 
 type
   { A request whose answer is not here yet.
@@ -223,6 +224,10 @@ type
     function  CmdVchatJoin(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure VchatJoinDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdVchatParticipants(AArgs: TJSONObject): TJSONData;
+    function  CmdFileEnsure(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure FileEnsureDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdRichFull(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure RichFullDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdStoryList(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure StoryListDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdStoryOpen(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
@@ -377,6 +382,7 @@ type
     function  CmdStorageCleanup: TJSONData;
     function  CmdMessageSend(AArgs: TJSONObject): TJSONData;
     function  CmdMessageSendFiles(AArgs: TJSONObject): TJSONData;
+    function  CmdMessageSendRich(AArgs: TJSONObject): TJSONData;
     function  CmdCancelTransfer(AArgs: TJSONObject): TJSONData;
     function  CmdPollVote(AArgs: TJSONObject): TJSONData;
     function  CmdMediaEnsure(AArgs: TJSONObject): TJSONData;
@@ -528,6 +534,58 @@ end;
   умолчанием строку НЕ берёт — Find(AName, jtNumber) в fpjson.pp — и молча
   отдаёт умолчание: уходил user_id 0 и «User not found» (галерея аватарок
   из панели информации). }
+{ Сбой команды, а не её отказ (отказ — обычный Exception с текстом для
+  человека): access violation, выход за границы и т.п. Пишется в
+  SERVER_ERROR_LOG — команда, аргументы, класс, текст и адреса стека
+  (имён и строк в них нет: сборка без отладочной информации, но по
+  команде и аргументам сбой можно повторить). }
+procedure LogCommandCrash(const ACmd: utf8string; AArgs: TJSONObject; E: Exception);
+var
+  Path, Line, ArgsText: string;
+  F: TextFile;
+  I: integer;
+  Frames: PCodePointer;
+  SR: TSearchRec;
+begin
+  try
+    Path := IncludeTrailingPathDelimiter(ServerDataDir) + SERVER_ERROR_LOG;
+    if FindFirst(Path, faAnyFile, SR) = 0 then begin
+      try
+        if SR.Size > SERVER_ERROR_LOG_MAX then begin
+          DeleteFile(Path);
+        end;
+      finally
+        FindClose(SR);
+      end;
+    end;
+    ArgsText := '';
+    if AArgs <> nil then begin
+      ArgsText := Copy(AArgs.AsJSON, 1, SERVER_ERROR_LOG_ARGS);
+    end;
+    AssignFile(F, Path);
+    if FileExists(Path) then begin
+      Append(F);
+    end else begin
+      Rewrite(F);
+    end;
+    try
+      Line := FormatDateTime('yyyy-mm-dd hh:nn:ss', Now) + ' ' + string(ACmd) + ' ' +
+        E.ClassName + ': ' + E.Message;
+      WriteLn(F, Line);
+      WriteLn(F, '  args: ', ArgsText);
+      WriteLn(F, '  at ', BackTraceStrFunc(ExceptAddr));
+      Frames := ExceptFrames;
+      for I := 0 to ExceptFrameCount - 1 do begin
+        WriteLn(F, '     ', BackTraceStrFunc(Frames[I]));
+      end;
+    finally
+      CloseFile(F);
+    end;
+  except
+    { Журнал не должен ронять ответ на команду. }
+  end;
+end;
+
 function ArgId(AArgs: TJSONObject; const AName: string): Int64;
 var
   D: TJSONData;
@@ -866,6 +924,7 @@ begin
     mekBlockQuote:    Result := 'quote';
     mekMention:       Result := 'mention';
     mekMentionName:   Result := 'mentionName';
+    mekSpoiler:       Result := 'spoiler';
   else
     Result := '';
   end;
@@ -1329,13 +1388,285 @@ begin
   end;
 end;
 
+{ Одна кнопка (inlineKeyboardButton, keyboardButton или inlineButton
+  богатого сообщения) -> JSON страницы: text, style, emoji, kind и поля
+  своего вида. AText — подпись: у inlineButton она RichText, и её
+  плоский текст собирает вызывающий. }
+function ButtonToJson(Btn: TJSONObject; const AText: utf8string): TJSONObject;
+var
+  BType, O, Sub: TJSONObject;
+  T: utf8string;
+begin
+  BType := JGetObj(Btn, 'type');
+  T := JGetStr(BType, '@type');
+  O := TJSONObject.Create;
+  O.Add('text', string(AText));
+  { Цвет кнопки: style — buttonStylePrimary/Danger/Success/Link
+    (td_api.tl коммита d1085f9, и у keyboardButton, и у
+    inlineKeyboardButton); живой лог: Default 89, Danger 1. Странице —
+    хвост имени типа, '' для Default. }
+  O.Add('style', string(ButtonStyleStr(JGetStr(JGetObj(Btn, 'style'), '@type'))));
+  { Кастомный эмодзи перед текстом: id строкой, '' — нет. }
+  if JGetInt64(Btn, 'icon_custom_emoji_id') <> 0 then begin
+    O.Add('emoji', string(IntToStr(JGetInt64(Btn, 'icon_custom_emoji_id'))));
+  end else begin
+    O.Add('emoji', '');
+  end;
+  if T = 'inlineKeyboardButtonTypeUrl' then begin
+    O.Add('kind', 'url');
+    O.Add('url', string(JGetStr(BType, 'url')));
+  end else if T = 'inlineKeyboardButtonTypeLoginUrl' then begin
+    { Вход на сайт через Telegram: getLoginUrlInfo по id кнопки. }
+    O.Add('kind', 'login');
+    O.Add('url', string(JGetStr(BType, 'url')));
+    O.Add('buttonId', JGetInt64(BType, 'id'));
+  end else if T = 'inlineKeyboardButtonTypeCallbackWithPassword' then begin
+    O.Add('kind', 'callbackPassword');
+    O.Add('data', string(JGetStr(BType, 'data')));
+  end else if T = 'inlineKeyboardButtonTypeCallbackGame' then begin
+    O.Add('kind', 'game');
+  end else if T = 'inlineKeyboardButtonTypeBuy' then begin
+    O.Add('kind', 'buy');
+  end else if T = 'inlineKeyboardButtonTypeDisabled' then begin
+    O.Add('kind', 'disabled');
+  end else if T = 'keyboardButtonTypeRequestLocation' then begin
+    O.Add('kind', 'requestLocation');
+  end else if T = 'keyboardButtonTypeRequestPoll' then begin
+    O.Add('kind', 'requestPoll');
+    O.Add('forceRegular', JGetBool(BType, 'force_regular'));
+    O.Add('forceQuiz', JGetBool(BType, 'force_quiz'));
+  end else if T = 'keyboardButtonTypeRequestManagedBot' then begin
+    O.Add('kind', 'requestManagedBot');
+    O.Add('buttonId', JGetInt(BType, 'id'));
+    O.Add('name', string(JGetStr(BType, 'suggested_name')));
+    O.Add('username', string(JGetStr(BType, 'suggested_username')));
+  end else if (T = 'inlineKeyboardButtonTypeWebApp') or (T = 'keyboardButtonTypeWebApp') then begin
+    O.Add('kind', 'webapp');
+    O.Add('url', string(JGetStr(BType, 'url')));
+  end else if T = 'inlineKeyboardButtonTypeCallback' then begin
+    O.Add('kind', 'callback');
+    O.Add('data', string(JGetStr(BType, 'data')));
+  end else if T = 'inlineKeyboardButtonTypeUser' then begin
+    O.Add('kind', 'user');
+    O.Add('userId', string(IntToStr(JGetInt64(BType, 'user_id'))));
+  end else if T = 'inlineKeyboardButtonTypeSwitchInline' then begin
+    { «@бот запрос» — в этот чат (targetChatCurrent) или в выбранный
+      (targetChatChosen, с разрешёнными видами чатов). Ссылка
+      (targetChatInternalLink) — пока нет. }
+    O.Add('kind', 'switchInline');
+    O.Add('query', string(JGetStr(BType, 'query')));
+    Sub := JGetObj(BType, 'target_chat');
+    if JGetStr(Sub, '@type') = 'targetChatCurrent' then begin
+      O.Add('target', 'current');
+    end else if JGetStr(Sub, '@type') = 'targetChatChosen' then begin
+      O.Add('target', 'chosen');
+      Sub := JGetObj(Sub, 'types');
+      O.Add('users', JGetBool(Sub, 'allow_user_chats'));
+      O.Add('bots', JGetBool(Sub, 'allow_bot_chats'));
+      O.Add('groups', JGetBool(Sub, 'allow_group_chats'));
+      O.Add('channels', JGetBool(Sub, 'allow_channel_chats'));
+    end else begin
+      O.Strings['kind'] := 'unsupported';
+    end;
+  end else if T = 'inlineKeyboardButtonTypeCopyText' then begin
+    O.Add('kind', 'copy');
+    O.Add('copy', string(JGetStr(BType, 'text')));
+  end else if T = 'keyboardButtonTypeText' then begin
+    O.Add('kind', 'text');
+  end else if T = 'keyboardButtonTypeRequestUsers' then begin
+    { Кого можно выбрать: max_quantity (0 — один), и ограничение на
+      ботов: restrict_user_is_bot + user_is_bot. Премиум-ограничение
+      страница не проверит — его проверит Telegram и откажет. }
+    O.Add('kind', 'requestUsers');
+    O.Add('buttonId', JGetInt(BType, 'id'));
+    O.Add('max', JGetInt(BType, 'max_quantity'));
+    if JGetBool(BType, 'restrict_user_is_bot') then begin
+      O.Add('bots', JGetBool(BType, 'user_is_bot'));
+    end;
+  end else if T = 'keyboardButtonTypeRequestChat' then begin
+    O.Add('kind', 'requestChat');
+    O.Add('buttonId', JGetInt(BType, 'id'));
+    O.Add('channel', JGetBool(BType, 'chat_is_channel'));
+  end else if T = 'keyboardButtonTypeRequestPhoneNumber' then begin
+    O.Add('kind', 'requestPhone');
+  end else begin
+    O.Add('kind', 'unsupported');
+  end;
+  Result := O;
+end;
+
+{ ---------------- богатые сообщения (messageRichMessage) ----------------
+
+  Страница рисует блоки сама (ui/richmessage.js) по структуре TDLib —
+  pageBlock*, richText* (td_api.tl). Сервер отдаёт её почти как есть,
+  с двумя заменами на копии:
+  - файл (@type file) -> id, size, url: адрес может выдать только сервер
+    (FileUrl), скачанного ещё нет — url '' и странице file.ensure по id;
+  - кнопка (@type inlineButton) -> тот же JSON, что у кнопок клавиатуры
+    (ButtonToJson) с @type inlineButton: нажатие идёт через тот же
+    обработчик (callback, ссылка, мини-приложение). }
+
+{ RichText -> плоский текст (подпись кнопки). }
+function RichPlainText(ANode: TJSONData): utf8string;
+var
+  O: TJSONObject;
+  T: utf8string;
+  Arr: TJSONArray;
+  I: integer;
+begin
+  Result := '';
+  if not (ANode is TJSONObject) then begin
+    Exit;
+  end;
+  O := TJSONObject(ANode);
+  T := JGetStr(O, '@type');
+  if T = 'richTextPlain' then begin
+    Result := JGetStr(O, 'text');
+  end else if T = 'richTextCustomEmoji' then begin
+    Result := JGetStr(O, 'alternative_text');
+  end else if T = 'richTextMathematicalExpression' then begin
+    Result := JGetStr(O, 'expression');
+  end else if T = 'richTexts' then begin
+    Arr := JGetArr(O, 'texts');
+    if Arr <> nil then begin
+      for I := 0 to Arr.Count - 1 do begin
+        Result := Result + RichPlainText(Arr.Items[I]);
+      end;
+    end;
+  end else if O.Find('text') <> nil then begin
+    Result := RichPlainText(O.Find('text'));
+  end;
+end;
+
+{ Копия узла с заменами (см. выше). }
+function RichFix(D: TJSONData): TJSONData;
+var
+  O, Src, Local: TJSONObject;
+  Arr: TJSONArray;
+  I: integer;
+  T: utf8string;
+begin
+  if D is TJSONArray then begin
+    Arr := TJSONArray.Create;
+    for I := 0 to TJSONArray(D).Count - 1 do begin
+      Arr.Add(RichFix(TJSONArray(D).Items[I]));
+    end;
+    Exit(Arr);
+  end;
+  if not (D is TJSONObject) then begin
+    Exit(D.Clone);
+  end;
+  Src := TJSONObject(D);
+  T := JGetStr(Src, '@type');
+  if T = 'file' then begin
+    O := TJSONObject.Create;
+    O.Add('@type', 'file');
+    O.Add('id', JGetInt(Src, 'id'));
+    O.Add('size', JGetInt64(Src, 'size'));
+    Local := JGetObj(Src, 'local');
+    if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+      O.Add('url', string(FileUrl(JGetInt(Src, 'id'), JGetStr(Local, 'path'))));
+    end else begin
+      O.Add('url', '');
+    end;
+    Exit(O);
+  end;
+  if T = 'inlineButton' then begin
+    O := ButtonToJson(Src, RichPlainText(Src.Find('text')));
+    O.Add('@type', 'inlineButton');
+    Exit(O);
+  end;
+  O := TJSONObject.Create;
+  for I := 0 to Src.Count - 1 do begin
+    O.Add(Src.Names[I], RichFix(Src.Items[I]));
+  end;
+  Result := O;
+end;
+
+{ Блоки богатого сообщения от страницы -> копия для TDLib: файл,
+  загруженный через POST /upload, страница помечает
+  объектом inputFileUpload с полем id (путь на диске она не знает) —
+  здесь он становится inputFileLocal. Неизвестный id — ошибка всей
+  отправки, как в message.sendFiles. Временные копии подчищает старт
+  сервера (uploads/). }
+function RichInputFix(D: TJSONData): TJSONData;
+var
+  O, Src: TJSONObject;
+  Arr: TJSONArray;
+  I: integer;
+  Path: string;
+begin
+  if D is TJSONArray then begin
+    Arr := TJSONArray.Create;
+    try
+      for I := 0 to TJSONArray(D).Count - 1 do begin
+        Arr.Add(RichInputFix(TJSONArray(D).Items[I]));
+      end;
+    except
+      Arr.Free;
+      raise;
+    end;
+    Exit(Arr);
+  end;
+  if not (D is TJSONObject) then begin
+    Exit(D.Clone);
+  end;
+  Src := TJSONObject(D);
+  if JGetStr(Src, '@type') = 'inputFileUpload' then begin
+    Path := UploadFilePath(Src.Get('id', ''));
+    if Path = '' then begin
+      raise Exception.Create('uploaded file not found');
+    end;
+    O := TJSONObject.Create;
+    O.Add('@type', 'inputFileLocal');
+    O.Add('path', Path);
+    Exit(O);
+  end;
+  O := TJSONObject.Create;
+  try
+    for I := 0 to Src.Count - 1 do begin
+      O.Add(Src.Names[I], RichInputFix(Src.Items[I]));
+    end;
+  except
+    O.Free;
+    raise;
+  end;
+  Result := O;
+end;
+
+{ Сырое содержимое -> richMessage для страницы, или nil — не богатое. }
+function RichMessageJson(const ARaw: utf8string): TJSONObject;
+var
+  Data: TJSONData;
+  Msg: TJSONObject;
+begin
+  Result := nil;
+  if (ARaw = '') or (Pos('"messageRichMessage"', string(ARaw)) = 0) then begin
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(ARaw));
+  except
+    Exit;
+  end;
+  try
+    if (Data is TJSONObject) and (JGetStr(TJSONObject(Data), '@type') = 'messageRichMessage') then begin
+      Msg := JGetObj(TJSONObject(Data), 'message');
+      if Msg <> nil then begin
+        Result := TJSONObject(RichFix(Msg));
+      end;
+    end;
+  finally
+    Data.Free;
+  end;
+end;
+
 function KeyboardRowsJson(ARows: TJSONArray): TJSONArray;
 var
   I, J: integer;
   Row: TJSONArray;
-  Btn, BType, O, Sub: TJSONObject;
+  Btn, O: TJSONObject;
   OutRow: TJSONArray;
-  T: utf8string;
 begin
   Result := TJSONArray.Create;
   if ARows = nil then begin
@@ -1352,101 +1683,7 @@ begin
         Continue;
       end;
       Btn := TJSONObject(Row.Items[J]);
-      BType := JGetObj(Btn, 'type');
-      T := JGetStr(BType, '@type');
-      O := TJSONObject.Create;
-      O.Add('text', string(JGetStr(Btn, 'text')));
-      { Цвет кнопки: style — buttonStylePrimary/Danger/Success/Link
-        (td_api.tl коммита d1085f9, и у keyboardButton, и у
-        inlineKeyboardButton); живой лог: Default 89, Danger 1. Странице —
-        хвост имени типа, '' для Default. }
-      O.Add('style', string(ButtonStyleStr(JGetStr(JGetObj(Btn, 'style'), '@type'))));
-      { Кастомный эмодзи перед текстом: id строкой, '' — нет. }
-      if JGetInt64(Btn, 'icon_custom_emoji_id') <> 0 then begin
-        O.Add('emoji', string(IntToStr(JGetInt64(Btn, 'icon_custom_emoji_id'))));
-      end else begin
-        O.Add('emoji', '');
-      end;
-      if T = 'inlineKeyboardButtonTypeUrl' then begin
-        O.Add('kind', 'url');
-        O.Add('url', string(JGetStr(BType, 'url')));
-      end else if T = 'inlineKeyboardButtonTypeLoginUrl' then begin
-        { Вход на сайт через Telegram: getLoginUrlInfo по id кнопки. }
-        O.Add('kind', 'login');
-        O.Add('url', string(JGetStr(BType, 'url')));
-        O.Add('buttonId', JGetInt64(BType, 'id'));
-      end else if T = 'inlineKeyboardButtonTypeCallbackWithPassword' then begin
-        O.Add('kind', 'callbackPassword');
-        O.Add('data', string(JGetStr(BType, 'data')));
-      end else if T = 'inlineKeyboardButtonTypeCallbackGame' then begin
-        O.Add('kind', 'game');
-      end else if T = 'inlineKeyboardButtonTypeBuy' then begin
-        O.Add('kind', 'buy');
-      end else if T = 'inlineKeyboardButtonTypeDisabled' then begin
-        O.Add('kind', 'disabled');
-      end else if T = 'keyboardButtonTypeRequestLocation' then begin
-        O.Add('kind', 'requestLocation');
-      end else if T = 'keyboardButtonTypeRequestPoll' then begin
-        O.Add('kind', 'requestPoll');
-        O.Add('forceRegular', JGetBool(BType, 'force_regular'));
-        O.Add('forceQuiz', JGetBool(BType, 'force_quiz'));
-      end else if T = 'keyboardButtonTypeRequestManagedBot' then begin
-        O.Add('kind', 'requestManagedBot');
-        O.Add('buttonId', JGetInt(BType, 'id'));
-        O.Add('name', string(JGetStr(BType, 'suggested_name')));
-        O.Add('username', string(JGetStr(BType, 'suggested_username')));
-      end else if (T = 'inlineKeyboardButtonTypeWebApp') or (T = 'keyboardButtonTypeWebApp') then begin
-        O.Add('kind', 'webapp');
-        O.Add('url', string(JGetStr(BType, 'url')));
-      end else if T = 'inlineKeyboardButtonTypeCallback' then begin
-        O.Add('kind', 'callback');
-        O.Add('data', string(JGetStr(BType, 'data')));
-      end else if T = 'inlineKeyboardButtonTypeUser' then begin
-        O.Add('kind', 'user');
-        O.Add('userId', string(IntToStr(JGetInt64(BType, 'user_id'))));
-      end else if T = 'inlineKeyboardButtonTypeSwitchInline' then begin
-        { «@бот запрос» — в этот чат (targetChatCurrent) или в выбранный
-          (targetChatChosen, с разрешёнными видами чатов). Ссылка
-          (targetChatInternalLink) — пока нет. }
-        O.Add('kind', 'switchInline');
-        O.Add('query', string(JGetStr(BType, 'query')));
-        Sub := JGetObj(BType, 'target_chat');
-        if JGetStr(Sub, '@type') = 'targetChatCurrent' then begin
-          O.Add('target', 'current');
-        end else if JGetStr(Sub, '@type') = 'targetChatChosen' then begin
-          O.Add('target', 'chosen');
-          Sub := JGetObj(Sub, 'types');
-          O.Add('users', JGetBool(Sub, 'allow_user_chats'));
-          O.Add('bots', JGetBool(Sub, 'allow_bot_chats'));
-          O.Add('groups', JGetBool(Sub, 'allow_group_chats'));
-          O.Add('channels', JGetBool(Sub, 'allow_channel_chats'));
-        end else begin
-          O.Strings['kind'] := 'unsupported';
-        end;
-      end else if T = 'inlineKeyboardButtonTypeCopyText' then begin
-        O.Add('kind', 'copy');
-        O.Add('copy', string(JGetStr(BType, 'text')));
-      end else if T = 'keyboardButtonTypeText' then begin
-        O.Add('kind', 'text');
-      end else if T = 'keyboardButtonTypeRequestUsers' then begin
-        { Кого можно выбрать: max_quantity (0 — один), и ограничение на
-          ботов: restrict_user_is_bot + user_is_bot. Премиум-ограничение
-          страница не проверит — его проверит Telegram и откажет. }
-        O.Add('kind', 'requestUsers');
-        O.Add('buttonId', JGetInt(BType, 'id'));
-        O.Add('max', JGetInt(BType, 'max_quantity'));
-        if JGetBool(BType, 'restrict_user_is_bot') then begin
-          O.Add('bots', JGetBool(BType, 'user_is_bot'));
-        end;
-      end else if T = 'keyboardButtonTypeRequestChat' then begin
-        O.Add('kind', 'requestChat');
-        O.Add('buttonId', JGetInt(BType, 'id'));
-        O.Add('channel', JGetBool(BType, 'chat_is_channel'));
-      end else if T = 'keyboardButtonTypeRequestPhoneNumber' then begin
-        O.Add('kind', 'requestPhone');
-      end else begin
-        O.Add('kind', 'unsupported');
-      end;
+      O := ButtonToJson(Btn, JGetStr(Btn, 'text'));
       OutRow.Add(O);
     end;
     Result.Add(OutRow);
@@ -1770,7 +2007,18 @@ begin
     Result.Add('albumId', '');
   end;
   Result.Add('kind',     string(ContentKindStr(ARow.Kind)));
+  { Эфемерное содержимое (видно только этому пользователю) — странице для
+    подписи «Only you can see this message». }
+  Result.Add('ephemeral', ARow.HasEphemeral);
+  { Богатое сообщение (статья из блоков, с кнопками) — ui/richmessage.js. }
   if ARow.Kind = mckOther then begin
+    Loc := RichMessageJson(ARow.ContentRaw);
+    if Loc <> nil then begin
+      Result.Strings['kind'] := 'rich';
+      Result.Add('rich', Loc);
+    end;
+  end;
+  if (ARow.Kind = mckOther) and (Result.Get('kind', '') <> 'rich') then begin
     Loc := LocationJson(ARow.ContentRaw);
     if Loc <> nil then begin
       Result.Strings['kind'] := 'location';
@@ -3945,6 +4193,35 @@ begin
   Result := nil;
 end;
 
+{ text + entities (textEntity TDLib, смещения в UTF-16 — как их считает
+  JS) -> formattedText. Сущности страница строит сама (ui/editor.js);
+  здесь — только тип узла: чужие поля TDLib всё равно отвергнет. }
+function FormattedFromArgs(AArgs: TJSONObject): utf8string;
+var
+  F: TJSONObject;
+  Src, Arr: TJSONArray;
+  Item: TJSONData;
+  I: integer;
+begin
+  Src := TJSONArray(AArgs.Find('entities', jtArray));
+  F := TJSONObject.Create;
+  try
+    F.Add('@type', 'formattedText');
+    F.Add('text', AArgs.Get('text', ''));
+    Arr := TJSONArray.Create;
+    F.Add('entities', Arr);
+    for I := 0 to Src.Count - 1 do begin
+      Item := Src.Items[I];
+      if (Item is TJSONObject) and (JGetStr(TJSONObject(Item), '@type') = 'textEntity') then begin
+        Arr.Add(Item.Clone);
+      end;
+    end;
+    Result := utf8string(F.AsJSON);
+  finally
+    F.Free;
+  end;
+end;
+
 function TWebApi.CmdMessageSend(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -3961,11 +4238,46 @@ begin
   if Trim(Text) = '' then begin
     raise Exception.Create('empty message');
   end;
+  { Сущности от поля ввода (ui/editor.js) — разбирать нечего. }
+  if AArgs.Find('entities', jtArray) <> nil then begin
+    Msgs.SendFormattedJson(FormattedFromArgs(AArgs), AArgs.Get('silent', False),
+      StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
+    Exit(nil);
+  end;
   Msgs.SendFormattedText(Text, AArgs.Get('html', False),
     AArgs.Get('silent', False),
     { As TEXT: a message id is a full Int64 and JSON numbers stop being
       exact at 2^53 - the same rule ids follow everywhere else here. }
     StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
+  Result := nil;
+end;
+
+{ message.sendRich (blocks, silent, replyTo): богатое сообщение —
+  блоки InputPageBlock собирает страница (util/richcompose.js). }
+function TWebApi.CmdMessageSendRich(AArgs: TJSONObject): TJSONData;
+var
+  Msgs: TTdMessages;
+  Arr: TJSONArray;
+  Fixed: TJSONData;
+begin
+  Msgs := RequireMsgs;
+  if Msgs.ChatId = 0 then begin
+    raise Exception.Create('no chat is open');
+  end;
+  if AArgs = nil then begin
+    raise Exception.Create('message.sendRich needs blocks');
+  end;
+  Arr := TJSONArray(AArgs.Find('blocks', jtArray));
+  if (Arr = nil) or (Arr.Count = 0) then begin
+    raise Exception.Create('empty message');
+  end;
+  Fixed := RichInputFix(Arr);
+  try
+    Msgs.SendRichMessage(utf8string(Fixed.AsJSON), AArgs.Get('silent', False),
+      StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
+  finally
+    Fixed.Free;
+  end;
   Result := nil;
 end;
 
@@ -9375,6 +9687,72 @@ begin
     nil, 0);
 end;
 
+{ file.ensure (fileId): файл по id — скачать (downloadFile synchronous)
+  и вернуть адрес. Для файлов внутри богатых сообщений: их там много на
+  сообщение, а media.ensure качает одно — по виду сообщения. }
+function TWebApi.CmdFileEnsure(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Id: integer;
+begin
+  Result := True;
+  Id := integer(AArgs.Get('fileId', 0));
+  if Id <= 0 then begin
+    raise Exception.Create('file.ensure needs a fileId');
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  RequireMsgs.Request('downloadFile', '"file_id":' + utf8string(IntToStr(Id))
+    + ',"priority":16,"offset":0,"limit":0,"synchronous":true', @FileEnsureDone, Slot);
+end;
+
+procedure TWebApi.FileEnsureDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res, Local: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('url', '');
+  Local := JGetObj(AResp.Obj, 'local');
+  if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
+    Res.Strings['url'] := string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
+  end;
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
+{ rich.full (id): богатое сообщение пришло не целиком (richMessage.is_full
+  false) — getFullRichMessage в открытом чате -> rich, как в сообщении. }
+function TWebApi.CmdRichFull(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Msgs: TTdMessages;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  Msgs.Request('getFullRichMessage', '"chat_id":' + utf8string(IntToStr(Msgs.ChatId))
+    + ',"message_id":' + utf8string(IntToStr(ArgId(AArgs, 'id'))), @RichFullDone, Slot);
+end;
+
+procedure TWebApi.RichFullDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Res: TJSONObject;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Res := TJSONObject.Create;
+  Res.Add('rich', RichFix(AResp.Obj));
+  Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
+  ReleaseDeferred(Slot);
+end;
+
 { Истории (ui/stories.js).
 
   story.list (chatId): getChatActiveStories -> stories: массив (id,
@@ -10480,6 +10858,10 @@ begin
   if (Id = 0) or (Trim(Text) = '') then begin
     raise Exception.Create('message.edit needs a message id and text');
   end;
+  if AArgs.Find('entities', jtArray) <> nil then begin
+    RequireMsgs.SendFormattedJson(FormattedFromArgs(AArgs), False, 0, Id);
+    Exit(nil);
+  end;
   RequireMsgs.EditFormattedText(Id, Text, AArgs.Get('html', False));
   Result := nil;
 end;
@@ -10626,6 +11008,8 @@ begin
         Reply(AConnId, ReqId, CmdMessageSend(Args));
       end else if Cmd = 'message.sendFiles' then begin
         Reply(AConnId, ReqId, CmdMessageSendFiles(Args));
+      end else if Cmd = 'message.sendRich' then begin
+        Reply(AConnId, ReqId, CmdMessageSendRich(Args));
       end else if Cmd = 'message.cancelTransfer' then begin
         Reply(AConnId, ReqId, CmdCancelTransfer(Args));
       end else if Cmd = 'poll.vote' then begin
@@ -10744,6 +11128,10 @@ begin
         CmdVchatJoin(AConnId, ReqId, Args);
       end else if Cmd = 'vchat.participants' then begin
         Reply(AConnId, ReqId, CmdVchatParticipants(Args));
+      end else if Cmd = 'file.ensure' then begin
+        CmdFileEnsure(AConnId, ReqId, Args);
+      end else if Cmd = 'rich.full' then begin
+        CmdRichFull(AConnId, ReqId, Args);
       end else if Cmd = 'story.list' then begin
         CmdStoryList(AConnId, ReqId, Args);
       end else if Cmd = 'story.open' then begin
@@ -10824,7 +11212,14 @@ begin
       end;
     except
       on E: Exception do begin
-        Fail(AConnId, ReqId, utf8string(E.Message));
+        if E.ClassType = Exception then begin
+          Fail(AConnId, ReqId, utf8string(E.Message));
+        end else begin
+          { Сбой, не отказ: в журнал и с именем команды — по одному
+            «Access violation» в тосте не понять, что упало. }
+          LogCommandCrash(Cmd, Args, E);
+          Fail(AConnId, ReqId, Cmd + ': ' + utf8string(E.Message));
+        end;
       end;
     end;
   finally

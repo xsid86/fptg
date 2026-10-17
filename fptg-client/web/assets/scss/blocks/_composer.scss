@@ -82,7 +82,7 @@
   padding: $space-3 $space-4;
   container: composer / inline-size;
 
-  &:not(.composer--join):has(textarea[disabled]) {
+  &:not(.composer--join):has(.composer__input[disabled]) {
     display: none;
   }
 }
@@ -180,28 +180,98 @@
   }
 }
 
+// Поле ввода — <fptg-editor> (ui/editor.js), contenteditable: растёт
+// с содержимым до $composer-max, дальше прокрутка. Переводы строк —
+// текстом и <br>, поэтому pre-wrap.
 .composer__input {
   background: var(--c-surface-2);
   border: 1px solid transparent;
   border-radius: $radius-md;
-  field-sizing: content;
-  // Grows with its content without a line of JavaScript. Chromium 123+,
-  // which is what this UI runs in; anywhere else the box simply stays
-  // at min-height and scrolls, which is a fine degradation.
+  cursor: text;
+  display: block;
   flex: 1 1 auto;
   font-size: $fs-base;
   line-height: $lh-base;
   max-height: $composer-max;
   min-height: $composer-min;
   outline-offset: 0 !important;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
   padding: $space-3 $space-4;
   @include scrollbar(6px);
   @include focus-ring;
-  resize: none;
+  white-space: pre-wrap;
   width: 100%;
 
-  &::placeholder {
+  &:empty::before {
     color: var(--c-text-faint);
+    content: attr(data-placeholder);
+    pointer-events: none;
+  }
+
+  &[disabled] {
+    cursor: default;
+  }
+
+  // Оформление — так, как оно выйдет в сообщении.
+  code,
+  .ed-pre {
+    font-family: $font-mono;
+    font-size: $fs-sm;
+  }
+
+  code {
+    @include chat-tint(background, 14%);
+    border-radius: $radius-sm;
+    padding: 0 $space-1;
+  }
+
+  .ed-pre,
+  .ed-quote {
+    border-radius: $radius-sm;
+    display: block;
+    padding: $space-1 $space-3;
+  }
+
+  .ed-pre {
+    @include chat-tint(background, 14%);
+  }
+
+  .ed-quote {
+    border-inline-start: 3px solid;
+    @include chat-tint(border-inline-start-color);
+    @include chat-tint(background, 8%);
+  }
+
+  .ed-spoiler {
+    background: color-mix(in srgb, var(--c-text-dim) 35%, transparent);
+    border-radius: $radius-sm;
+  }
+
+  .ed-link,
+  .ed-mention {
+    @include chat-tint(color);
+    cursor: text;
+    text-decoration: underline;
+  }
+
+  .ed-mention {
+    text-decoration: none;
+  }
+
+  // Кастомный эмодзи — картинкой размером с букву; целиком, как символ.
+  .ed-emoji {
+    display: inline-block;
+    height: 1.25em;
+    line-height: 1;
+    user-select: all;
+    vertical-align: -0.25em;
+    width: 1.25em;
+
+    > .emoji {
+      height: 100%;
+      width: 100%;
+    }
   }
 }
 
@@ -279,4 +349,21 @@
 
 .composer__banner-cancel {
   flex: 0 0 auto;
+}
+
+// Кнопки разметки: основной ряд и под ним — ряд блоков (Heading, List,
+// Table…), он только в режиме Rich.
+.composer__group--format {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.composer__format-row {
+  @include flex(row, center, flex-start, $space-1);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.composer:not(.composer--rich) .composer__format-row--rich {
+  display: none;
 }

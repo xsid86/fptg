@@ -279,6 +279,9 @@ const
   { Сколько последних говоривших показывать на плашке трансляции
     (webapi.SpeakersJson). }
   VCHAT_BAR_SPEAKERS = 3;
+  { Сколько символов текста богатого сообщения собирать на превью в
+    списке чатов (tdchats.MessagePreview). }
+  CHAT_PREVIEW_RICH_CHARS = 200;
 
   { ================= tdmessages.pas ================= }
 
@@ -424,6 +427,11 @@ const
   APP_DATA_ROOT = 'fptg';
   APP_DATA_SERVER = 'server';
   APP_DATA_CLIENT = 'client';
+  { Журнал сбоев команд страницы (webapi.LogCommandCrash) — в папке
+    данных сервера; больше SERVER_ERROR_LOG_MAX — начинается заново. }
+  SERVER_ERROR_LOG = 'errors.log';
+  SERVER_ERROR_LOG_MAX = 1024 * 1024;
+  SERVER_ERROR_LOG_ARGS = 600;
   INSTANCE_LOCK_EXT = '.lock';
   INSTANCE_INFO_EXT = '.instance';
   INSTANCE_KEY_BYTES = 32;

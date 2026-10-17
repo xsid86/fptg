@@ -9,10 +9,8 @@ import { markPopDirection } from '../util/pop.js';
 // мышью — кликом.
 //
 // Вставляется то, что Telegram поймёт: «@username » — упоминание он
-// распознаёт сам; человек без username — ссылкой tg://user?id= в
-// разметке поля (MarkdownV2 или HTML), сервер пропускает её как есть
-// (EscapeMarkdownV2/EscapeHtml в tdmessages.pas), и выходит
-// textEntityTypeMentionName.
+// распознаёт сам; человек без username — его имя с сущностью
+// mentionName (ui/editor.js -> textEntityTypeMentionName).
 //
 // Список — popover в верхнем слое, привязанный к полю через anchor
 // positioning (как меню): у карточки композера своя рамка, и абсолютный
@@ -115,25 +113,12 @@ function move(delta) {
   render();
 }
 
-/** То, что встанет в поле вместо «@запрос». */
-function insertion(item) {
-  if (item.username) return `@${item.username} `;
-  // Квадратные скобки сломали бы ссылку MarkdownV2, а сервер ищет её
-  // по первой «]»; HTML-текст экранирует сервер сам.
-  const name = (item.name || 'User').replace(/[[\]]/g, '');
-  const id = String(item.userId).replace(/\D/g, '');
-  return opts.isHtml?.()
-    ? `<a href="tg://user?id=${id}">${name}</a> `
-    : `[${name}](tg://user?id=${id}) `;
-}
-
 function choose(item) {
   if (!token) return;
-  const text = insertion(item);
   const { start, end } = token;
-  input.value = input.value.slice(0, start) + text + input.value.slice(end);
-  const caret = start + text.length;
-  input.setSelectionRange(caret, caret);
+  const id = String(item.userId).replace(/\D/g, '');
+  if (item.username) input.replaceRange(start, end, `@${item.username} `);
+  else input.insertMention(start, end, item.name || 'User', id);
   input.focus();
   close();
 }
@@ -154,10 +139,11 @@ function onKey(event) {
 }
 
 /**
- * options: { enabled(): можно ли писать в чат, isHtml(): режим разметки }
+ * editor — поле ввода (ui/editor.js); options: { enabled(): можно ли
+ * писать в чат }
  */
-export function mountMentions(textarea, options) {
-  input = textarea;
+export function mountMentions(editor, options) {
+  input = editor;
   opts = options ?? {};
   pop = el('div', { class: 'mention-pop', popover: 'manual', role: 'listbox' });
   document.body.append(pop);

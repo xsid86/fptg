@@ -13,7 +13,7 @@ import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory, invalidateHistory } from './ui/history.js';
 import {
   mountComposer, insertAtCaret, insertCustomEmoji, isSilent, replyTo, editMessage,
-  htmlMode, canCompose, takeReply, customEmojiMarkup,
+  htmlMode, canCompose, takeReply, customEmojiMarkup, richAttach,
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountPayments } from './ui/payments.js';
@@ -272,6 +272,16 @@ function wireActions() {
   on('ui:send', async (payload) => {
     try {
       await call('message.send', payload);
+      await loadMessages();
+    } catch (err) {
+      report(err);
+    }
+  });
+
+  // Богатое сообщение — блоки уже собраны полем ввода (util/richcompose.js).
+  on('ui:send-rich', async (payload) => {
+    try {
+      await call('message.sendRich', payload);
       await loadMessages();
     } catch (err) {
       report(err);
@@ -663,6 +673,7 @@ async function boot() {
     isSilent,
     takeReply,
     customEmojiMarkup,
+    richAttach,
   });
 
   wireSidebar();

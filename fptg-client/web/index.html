@@ -123,8 +123,9 @@
         </div>
 
         <div class="composer__row">
-          <textarea class="composer__input" rows="1"
-                    placeholder="Pick a chat to start writing"></textarea>
+          <!-- ui/editor.js: shows the result, not markup. -->
+          <fptg-editor class="composer__input"
+                       placeholder="Pick a chat to start writing"></fptg-editor>
         </div>
 
         <!-- Everything that is not the text itself, in one row under the
@@ -133,26 +134,46 @@
              gets too narrow for both - see blocks/_composer.scss. -->
         <div class="composer__bar">
           <div class="composer__group composer__group--format">
-            <button class="btn composer__format" type="button" title="Bold"
-                    data-fmt="bold" disabled>Bold</button>
-            <button class="btn composer__format" type="button" title="Italic"
-                    data-fmt="italic" disabled>Italic</button>
-            <button class="btn composer__format" type="button" title="Underline"
-                    data-fmt="underline" disabled>Underline</button>
-            <button class="btn composer__format" type="button" title="Strikethrough"
-                    data-fmt="strike" disabled>Strike</button>
-            <button class="btn composer__format" type="button" title="Monospace"
-                    data-fmt="mono" disabled>Mono</button>
-            <button class="btn composer__format" type="button" title="Code block"
-                    data-fmt="code" disabled>Code</button>
-            <button class="btn composer__format" type="button" title="Spoiler"
-                    data-fmt="spoiler" disabled>Spoiler</button>
-            <button class="btn composer__format" type="button" title="Quote"
-                    data-fmt="quote" disabled>Quote</button>
-            <button class="btn composer__format" type="button" title="Link"
-                    data-fmt="link" disabled>Link</button>
-            <button class="btn composer__format" type="button" title="Strip formatting"
-                    data-fmt="clear" disabled>Clear</button>
+            <div class="composer__format-row">
+              <button class="btn composer__format" type="button" title="Bold"
+                      data-fmt="bold" disabled>Bold</button>
+              <button class="btn composer__format" type="button" title="Italic"
+                      data-fmt="italic" disabled>Italic</button>
+              <button class="btn composer__format" type="button" title="Underline"
+                      data-fmt="underline" disabled>Underline</button>
+              <button class="btn composer__format" type="button" title="Strikethrough"
+                      data-fmt="strike" disabled>Strike</button>
+              <button class="btn composer__format" type="button" title="Monospace"
+                      data-fmt="mono" disabled>Mono</button>
+              <button class="btn composer__format" type="button" title="Code block"
+                      data-fmt="code" disabled>Code</button>
+              <button class="btn composer__format" type="button" title="Spoiler"
+                      data-fmt="spoiler" disabled>Spoiler</button>
+              <button class="btn composer__format" type="button" title="Quote"
+                      data-fmt="quote" disabled>Quote</button>
+              <button class="btn composer__format" type="button" title="Link"
+                      data-fmt="link" disabled>Link</button>
+              <button class="btn composer__format" type="button" title="Strip formatting"
+                      data-fmt="clear" disabled>Clear</button>
+            </div>
+            <!-- Only in a rich message (Rich toggle): blocks, not spans,
+                 on a row of their own. Syntax - util/richcompose.js. -->
+            <div class="composer__format-row composer__format-row--rich">
+              <button class="btn composer__format" type="button"
+                      title="Heading (# … ######)" data-fmt="heading" disabled>Heading</button>
+              <button class="btn composer__format" type="button"
+                      title="List (- item, 1. item, - [ ] task)" data-fmt="list" disabled>List</button>
+              <button class="btn composer__format" type="button"
+                      title="Table" data-fmt="table" disabled>Table</button>
+              <button class="btn composer__format" type="button"
+                      title="Collapsible block (+++ Title … +++)" data-fmt="details" disabled>Details</button>
+              <button class="btn composer__format" type="button"
+                      title="Button ([[Text|https://…]] or [[Text|copy:text]])" data-fmt="button" disabled>Button</button>
+              <button class="btn composer__format" type="button"
+                      title="Divider (---)" data-fmt="divider" disabled>Divider</button>
+              <button class="btn composer__format" type="button"
+                      title="Photo or video at the cursor (or paste, drop, paperclip)" data-fmt="media" disabled>Media</button>
+            </div>
           </div>
 
           <div class="composer__group composer__group--actions">
@@ -175,8 +196,8 @@
               <span class="u-sr-only">Emoji, stickers and GIFs</span>
             </button>
 
-            <label class="btn btn--toggle" title="Write in HTML instead of MarkdownV2">
-              <input type="checkbox" id="composer-html"> HTML
+            <label class="btn btn--toggle" title="Rich message: headings, lists, tables, collapsible blocks and buttons (Telegram Premium)">
+              <input type="checkbox" id="composer-rich"> Rich
             </label>
             <label class="btn btn--toggle" title="Send without a notification">
               <input type="checkbox" id="composer-silent"> Silent

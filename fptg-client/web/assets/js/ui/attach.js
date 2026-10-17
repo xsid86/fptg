@@ -260,6 +260,35 @@ async function upload(file, onProgress) {
   });
 }
 
+/**
+ * Файл для богатого сообщения (режим Rich в поле ввода): загрузка без
+ * окна. kind — вид блока (photo, video, gif, audio, file), info —
+ * сведения о видео (как у message.sendFiles) или null. Загрузки идут по
+ * одной: upload держит одну xhr на модуль.
+ */
+export async function uploadRichFile(file, mode) {
+  let kind = 'file';
+  if (mode === 'document') kind = 'file';
+  else if (mode === 'audio') kind = 'audio';
+  else if (file.type === 'image/gif') kind = 'gif';
+  else if (isPhoto(file)) kind = 'photo';
+  else if (isVideoFile(file)) kind = 'video';
+  else if (/^audio\//.test(file.type)) kind = 'audio';
+  let info = null;
+  if (kind === 'video') {
+    const probe = await videoInfo(file);
+    if (probe) {
+      info = { duration: probe.duration, w: probe.w, h: probe.h, tw: probe.tw, th: probe.th };
+      if (probe.blob) {
+        info.thumb = await upload(new File([probe.blob], 'thumb.jpg', { type: 'image/jpeg' }), () => {});
+      }
+    }
+  }
+  const id = await upload(file, () => {});
+  xhr = null;
+  return { id, kind, info };
+}
+
 // Сведения о видео для inputVideo: без них TDLib ставит 320x320 и
 // длительность 0 (живой лог), и превью выходит квадратным, без кадра.
 // Браузер сам читает метаданные из файла; кадр — на холст и в JPEG, его
@@ -494,6 +523,9 @@ export function mountAttach(layerNode, zoneNode, dropArea, options) {
   // mode — от меню скрепки (ui/attachmenu.js): media | document | audio.
   on('ui:attach', ({ files: list, mode }) => {
     if (!hooks.canCompose()) return;
+    // Режим Rich: файл встаёт строкой в текст, между блоками
+    // (ui/composer.js) — и из меню скрепки тоже, с его видом.
+    if (hooks.richAttach?.(list, mode)) return;
     // Скрепка и вставка: фото и видео по умолчанию «сжатыми» — видео
     // уходит видео-сообщением, как у нативного клиента; переключатель в
     // окне возвращает отправку файлом.

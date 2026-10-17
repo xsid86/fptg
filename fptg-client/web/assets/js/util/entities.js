@@ -173,6 +173,18 @@ function appendInline(target, bytes, from, to, entities) {
   }
 }
 
+function revealSpoiler(event) {
+  const span = event.currentTarget;
+  if (span.classList.contains('is-revealed')) return;
+  // Первый щелчок только открывает — ссылку внутри не нажимает.
+  event.preventDefault();
+  event.stopPropagation();
+  const scope = span.closest('.message') ?? span.parentElement;
+  for (const part of scope.querySelectorAll(`.spoiler[data-spoiler="${span.dataset.spoiler}"]`)) {
+    part.classList.add('is-revealed');
+  }
+}
+
 function wrap(piece, covering, from, to) {
   // A custom emoji REPLACES its text rather than decorating it: the
   // characters underneath are the plain-emoji fallback Telegram sends
@@ -196,6 +208,17 @@ function wrap(piece, covering, from, to) {
   for (const e of covering) {
     const tag = INLINE_TAG[e.kind];
     if (tag) node = el(tag, {}, node);
+  }
+
+  // Спойлер: скрыт до щелчка; кусков у одной сущности может быть
+  // несколько (её режут другие сущности) — открываются все вместе.
+  const spoiler = covering.find((e) => e.kind === 'spoiler');
+  if (spoiler) {
+    node = el('span', {
+      class: 'spoiler',
+      dataset: { spoiler: String(spoiler.start) },
+      onclick: revealSpoiler,
+    }, node);
   }
 
   const link = covering.find((e) => e.kind === 'url' || e.kind === 'textUrl');
@@ -240,7 +263,7 @@ function wrap(piece, covering, from, to) {
  * telegram link is rendered as an unclickable span instead of being
  * guessed at.
  */
-function safeHref(raw) {
+export function safeHref(raw) {
   const value = String(raw ?? '').trim();
   if (/^(https?:|tg:|mailto:)/i.test(value)) return value;
   if (/^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(value)) return `https://${value}`;

@@ -1,0 +1,308 @@
+@use "../abstracts" as *;
+
+// Богатое сообщение (ui/richmessage.js): статья из блоков внутри
+// карточки сообщения — заголовки, абзацы, списки, цитаты, таблицы,
+// медиа, раскрывающиеся блоки и строки кнопок. Отступы — вертикальным
+// ритмом между блоками; медиа — во всю ширину карточки.
+.rich {
+  @include flex(column, stretch, flex-start, $space-4);
+  min-width: 0;
+
+  &.is-rtl {
+    direction: rtl;
+  }
+}
+
+.rich__title {
+  font-size: 1.5em;
+  font-weight: $fw-bold;
+  margin: 0;
+}
+
+.rich__header {
+  font-size: 1.3em;
+  font-weight: $fw-bold;
+  margin: 0;
+}
+
+.rich__subheader,
+.rich__heading {
+  font-size: 1.1em;
+  font-weight: $fw-bold;
+  margin: 0;
+}
+
+.rich__subtitle,
+.rich__kicker,
+.rich__byline,
+.rich__footer {
+  color: var(--c-text-dim);
+  margin: 0;
+}
+
+.rich__kicker {
+  font-size: $fs-sm;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.rich__p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rich__thinking {
+  color: var(--c-text-dim);
+  font-style: italic;
+  margin: 0;
+}
+
+.rich__pre {
+  background: color-mix(in srgb, var(--c-bg) 60%, transparent);
+  border-radius: $radius-sm;
+  margin: 0;
+  overflow-x: auto;
+  padding: $space-4;
+  white-space: pre;
+}
+
+.rich__math {
+  font-family: monospace;
+}
+
+.rich__hr {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 60%, transparent);
+  margin: 0;
+  width: 100%;
+}
+
+.rich__list {
+  @include flex(column, stretch, flex-start, $space-2);
+  margin: 0;
+  padding-inline-start: $space-4;
+}
+
+.rich__li {
+  list-style: none;
+}
+
+.rich__li-label {
+  margin-inline-end: $space-2;
+}
+
+.rich__li-body {
+  display: inline;
+
+  > .rich__p {
+    display: inline;
+  }
+}
+
+.rich__quote {
+  border-inline-start: 3px solid;
+  @include chat-tint(border-inline-start-color);
+  margin: 0;
+  padding: $space-2 $space-5;
+
+  &.is-collapsed {
+    @include line-clamp(3);
+    cursor: pointer;
+  }
+}
+
+.rich__quote--pull {
+  font-style: italic;
+  text-align: center;
+}
+
+.rich__credit {
+  color: var(--c-text-dim);
+  display: block;
+  font-size: $fs-sm;
+  margin-top: $space-2;
+}
+
+.rich__figure {
+  @include flex(column, stretch, flex-start, $space-2);
+  margin: 0;
+}
+
+.rich__photo,
+.rich__video {
+  border-radius: $radius-sm;
+  display: block;
+  max-height: 480px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.rich__caption {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.rich__collage {
+  display: grid;
+  align-items: start;
+  gap: $space-2;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+
+  .rich__photo {
+    aspect-ratio: 1;
+    object-fit: cover;
+  }
+}
+
+.rich__file {
+  @include flex(column, flex-start, center, $space-1);
+  @include chat-tint(background, 12%);
+  border: 0;
+  border-radius: $radius-sm;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-3 $space-4;
+  text-align: start;
+}
+
+.rich__file-name {
+  font-weight: $fw-bold;
+}
+
+.rich__file-sub {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.rich__table-wrap {
+  overflow-x: auto;
+}
+
+.rich__table {
+  border-collapse: collapse;
+  width: 100%;
+
+  th,
+  td {
+    padding: $space-2 $space-3;
+    text-align: start;
+    vertical-align: top;
+
+    &.is-center { text-align: center; }
+    &.is-right { text-align: end; }
+  }
+
+  th {
+    font-weight: $fw-bold;
+  }
+
+  &.is-bordered th,
+  &.is-bordered td {
+    border: 1px solid color-mix(in srgb, var(--c-border) 60%, transparent);
+  }
+
+  &.is-striped tr:nth-child(even) {
+    background: color-mix(in srgb, var(--c-text) 5%, transparent);
+  }
+
+  &.is-compact th,
+  &.is-compact td {
+    padding: $space-1 $space-2;
+  }
+}
+
+// Раскрывающийся блок: высота содержимого плавно от 0 до auto
+// (::details-content + interpolate-size, Chromium 131+), стрелка
+// поворачивается. Закрытие — тот же переход назад: content-visibility
+// с allow-discrete держит содержимое видимым, пока высота едет к 0.
+.rich__details {
+  @include chat-tint(background, 8%);
+  border-radius: $radius-sm;
+  interpolate-size: allow-keywords;
+  padding: $space-3 $space-4;
+
+  &::details-content {
+    block-size: 0;
+    opacity: 0;
+    overflow: clip;
+    transition: block-size $dur-slow $ease, opacity $dur-slow $ease,
+      content-visibility $dur-slow allow-discrete;
+  }
+
+  &[open]::details-content {
+    block-size: auto;
+    opacity: 1;
+  }
+
+  > :not(summary) {
+    margin-top: $space-3;
+  }
+}
+
+.rich__summary {
+  cursor: pointer;
+  font-weight: $fw-bold;
+  list-style: none;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &::before {
+    content: '▸';
+    display: inline-block;
+    margin-inline-end: $space-2;
+    transition: transform $dur-slow $ease;
+  }
+
+  .rich__details[open] > &::before {
+    transform: rotate(90deg);
+  }
+}
+
+// Строка кнопок — те же кнопки, что под сообщением (.message__kb-btn).
+.rich__buttons {
+  @include flex(row, stretch, flex-start, $space-2);
+  flex-wrap: wrap;
+
+  &.is-center { justify-content: center; }
+  &.is-right { justify-content: flex-end; }
+
+  > .message__kb-btn {
+    flex: 1 1 auto;
+  }
+}
+
+.rich__inline-btn {
+  @include chat-tint(background, 20%);
+  border: 0;
+  border-radius: $radius-pill;
+  color: var(--c-text);
+  cursor: pointer;
+  display: inline-flex;
+  gap: $space-1;
+  padding: 0 $space-3;
+  vertical-align: baseline;
+}
+
+.rich__spoiler {
+  background: var(--c-text-dim);
+  border-radius: 2px;
+  color: transparent;
+  cursor: pointer;
+
+  &.is-open {
+    background: none;
+    color: inherit;
+  }
+}
+
+.rich__more {
+  @include chat-tint(color);
+  align-self: flex-start;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-weight: $fw-bold;
+  padding: 0;
+}

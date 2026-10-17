@@ -798,6 +798,38 @@ begin
   end;
 end;
 
+{ Плоский текст богатого сообщения (messageRichMessage) — все
+  richTextPlain по порядку, блоки через пробел, пока не наберётся на
+  строку превью. }
+procedure CollectRichText(D: TJSONData; var AText: utf8string);
+var
+  O: TJSONObject;
+  I: integer;
+begin
+  if Length(AText) >= CHAT_PREVIEW_RICH_CHARS then begin
+    Exit;
+  end;
+  if D is TJSONArray then begin
+    for I := 0 to TJSONArray(D).Count - 1 do begin
+      CollectRichText(TJSONArray(D).Items[I], AText);
+    end;
+  end else if D is TJSONObject then begin
+    O := TJSONObject(D);
+    if JGetStr(O, '@type') = 'richTextPlain' then begin
+      AText := AText + JGetStr(O, 'text');
+      Exit;
+    end;
+    { Новый блок — с пробела, чтобы абзацы не слипались. }
+    if (Copy(JGetStr(O, '@type'), 1, 9) = 'pageBlock') and (AText <> '')
+      and (AText[Length(AText)] <> ' ') then begin
+      AText := AText + ' ';
+    end;
+    for I := 0 to O.Count - 1 do begin
+      CollectRichText(O.Items[I], AText);
+    end;
+  end;
+end;
+
 function MessagePreview(AContent: TJSONObject; out AGlyphs: TPreviewGlyphArray): utf8string;
 var
   T, Cap: utf8string;
@@ -853,6 +885,12 @@ begin
     Result := 'Poll';
   end else if T = 'messageCall' then begin
     Result := 'Call';
+  end else if T = 'messageRichMessage' then begin
+    CollectRichText(JGetObj(AContent, 'message'), Result);
+    Result := utf8string(Trim(string(Result)));
+    if Result = '' then begin
+      Result := 'Message';
+    end;
   end else begin
     { Сервисное (создание группы, вход, закреп…) — тем же текстом, что
       строка в истории, но без имени: «Pinned a message». Совсем

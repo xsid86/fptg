@@ -55,7 +55,7 @@ type
 
   TMsgEntityKind = (mekNone, mekBold, mekItalic, mekUrl, mekTextUrl,
     mekCode, mekPre, mekStrikethrough, mekUnderline, mekCustomEmoji,
-    mekBlockQuote, mekMention, mekMentionName);
+    mekBlockQuote, mekMention, mekMentionName, mekSpoiler);
 
   { A styled/link range within TMsgRow.PlainText.
     ByteStart/ByteLen are BYTE offsets into PlainText (utf8string), not
@@ -185,6 +185,14 @@ type
       сообщением или клавиатура над полем ввода. Разбирает мост
       (webapi.pas, KeyboardRowsJson); '' — кнопок нет. }
     ReplyMarkupRaw:  utf8string;
+    { Эфемерное содержимое (message.ephemeral_content, Bot API 10.2):
+      видно только этому пользователю и показывается ВМЕСТО обычного —
+      ContentRaw/ReplyMarkupRaw тогда его, а обычное ждёт здесь, чтобы
+      вернуться, когда эфемерное снимут (updateMessageEphemeralContent с
+      null). }
+    HasEphemeral:    boolean;
+    NormalContentRaw: utf8string;
+    NormalMarkupRaw: utf8string;
     PlainText:       utf8string;
     Entities:        TMsgEntityArray;
     Delivery:        TMsgDeliveryState;
@@ -771,6 +779,7 @@ type
       передачи. Общий для ApplyMessage и DetachedRow. }
     procedure FillContent(R: TMsgRow; AContent: TJSONObject);
     procedure ApplyContentUpdate(AChatId, AMessageId: Int64; ANewContent: TJSONObject);
+    procedure ApplyEphemeralUpdate(AChatId, AMessageId: Int64; AEphemeral: TJSONObject);
     procedure ExtractFormatted(AContent: TJSONObject; const AType: utf8string;
       out APlainText: utf8string; out AEntities: TMsgEntityArray);
     { AInteractionInfo is the whole message.interaction_info object (may
@@ -1003,6 +1012,17 @@ type
       far side of it, see ParseEntitiesDone. }
     procedure SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean;
       ASilent: boolean; AReplyTo: Int64 = 0);
+
+    { Богатое сообщение (inputMessageRichMessage, источник —
+      richMessageSourceBlocks: Markdown/HTML-источники только для ботов,
+      td_api.tl). ABlocksJson — готовый JSON-массив InputPageBlock. }
+    procedure SendRichMessage(const ABlocksJson: utf8string; ASilent: boolean;
+      AReplyTo: Int64 = 0);
+
+    { Готовый formattedText (сущности собрало поле ввода страницы) —
+      отправка или, при AEditId <> 0, правка. }
+    procedure SendFormattedJson(const AFormatted: utf8string; ASilent: boolean;
+      AReplyTo: Int64 = 0; AEditId: Int64 = 0);
 
     { Файлы с диска (inputFileLocal) — то, что страница загрузила через
       POST /upload. AAsPhoto: сжатыми фото (inputMessagePhoto), иначе
@@ -1582,6 +1602,8 @@ begin
     Result := mekStrikethrough;
   end else if AType = 'textEntityTypeUnderline' then begin
     Result := mekUnderline;
+  end else if AType = 'textEntityTypeSpoiler' then begin
+    Result := mekSpoiler;
   end else if AType = 'textEntityTypeCustomEmoji' then begin
     Result := mekCustomEmoji;
   end else if AType = 'textEntityTypeMention' then begin
@@ -4165,7 +4187,7 @@ var
   R: TMsgRow;
   Id, MsgChatId: Int64;
   T: utf8string;
-  ContentObj, SenderObj, FwdObj, OriginObj, ReplyObj: TJSONObject;
+  ContentObj, SenderObj, FwdObj, OriginObj, ReplyObj, Eph: TJSONObject;
   SenderType, St, OriginType: utf8string;
   NewContentRaw: utf8string;
   WasNew: boolean;
@@ -4281,6 +4303,23 @@ begin
   ExtractReplyInfo(JGetObj(AMsg, 'interaction_info'), R);
 
   ContentObj := JGetObj(AMsg, 'content');
+  { Эфемерное — вместо обычного (см. TMsgRow.HasEphemeral). }
+  R.NormalMarkupRaw := R.ReplyMarkupRaw;
+  if ContentObj <> nil then begin
+    R.NormalContentRaw := utf8string(ContentObj.AsJSON);
+  end else begin
+    R.NormalContentRaw := '';
+  end;
+  Eph := JGetObj(AMsg, 'ephemeral_content');
+  R.HasEphemeral := (Eph <> nil) and (JGetObj(Eph, 'content') <> nil);
+  if R.HasEphemeral then begin
+    ContentObj := JGetObj(Eph, 'content');
+    if JGetObj(Eph, 'reply_markup') <> nil then begin
+      R.ReplyMarkupRaw := utf8string(JGetObj(Eph, 'reply_markup').AsJSON);
+    end else begin
+      R.ReplyMarkupRaw := '';
+    end;
+  end;
   if ContentObj <> nil then begin
     T := JGetStr(ContentObj, '@type');
     NewContentRaw := utf8string(ContentObj.AsJSON);
@@ -4373,6 +4412,54 @@ begin
   Result.VideoThumbDownloadRequested := True;
   Result.VideoDownloadRequested := True;
   Result.StickerDownloadRequested := True;
+end;
+
+{ updateMessageEphemeralContent: новое эфемерное — вместо обычного;
+  null — вернуть обычное (запомненное в ApplyMessage). }
+procedure TTdMessages.ApplyEphemeralUpdate(AChatId, AMessageId: Int64;
+  AEphemeral: TJSONObject);
+var
+  R: TMsgRow;
+  Data: TJSONData;
+begin
+  if AChatId <> FChatId then begin
+    Exit;
+  end;
+  R := Lookup(AMessageId);
+  if R = nil then begin
+    Exit;
+  end;
+  if (AEphemeral <> nil) and (JGetObj(AEphemeral, 'content') <> nil) then begin
+    R.HasEphemeral := True;
+    if JGetObj(AEphemeral, 'reply_markup') <> nil then begin
+      R.ReplyMarkupRaw := utf8string(JGetObj(AEphemeral, 'reply_markup').AsJSON);
+    end else begin
+      R.ReplyMarkupRaw := '';
+    end;
+    ApplyContentUpdate(AChatId, AMessageId, JGetObj(AEphemeral, 'content'));
+    Exit;
+  end;
+  if not R.HasEphemeral then begin
+    Exit;
+  end;
+  R.HasEphemeral := False;
+  R.ReplyMarkupRaw := R.NormalMarkupRaw;
+  if R.NormalContentRaw = '' then begin
+    Touch;
+    Exit;
+  end;
+  try
+    Data := GetJSON(string(R.NormalContentRaw));
+  except
+    Exit;
+  end;
+  try
+    if Data is TJSONObject then begin
+      ApplyContentUpdate(AChatId, AMessageId, TJSONObject(Data));
+    end;
+  finally
+    Data.Free;
+  end;
 end;
 
 procedure TTdMessages.ApplyContentUpdate(AChatId, AMessageId: Int64;
@@ -4931,6 +5018,33 @@ begin
     one's message. }
   FReq.SendRequest('parseTextEntities', Body, @ParseEntitiesDone,
     TakeSendSlot(ASilent, AReplyTo, 0));
+end;
+
+procedure TTdMessages.SendRichMessage(const ABlocksJson: utf8string;
+  ASilent: boolean; AReplyTo: Int64);
+var
+  Body: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (ABlocksJson = '') then begin
+    Exit;
+  end;
+  Body := '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart;
+  if ASilent then begin
+    Body := Body +
+      ',"options":{"@type":"messageSendOptions","disable_notification":true}';
+  end;
+  if AReplyTo <> 0 then begin
+    Body := Body +
+      ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +
+      utf8string(IntToStr(AReplyTo)) + '}';
+  end;
+  Body := Body + ',"input_message_content":{"@type":"inputMessageRichMessage",' +
+    '"clear_draft":true,"message":{"@type":"inputRichMessage","is_rtl":false,' +
+    '"detect_automatic_blocks":true,"source":{"@type":"richMessageSourceBlocks",' +
+    '"blocks":' + ABlocksJson + '}}}';
+  { Ответ — само сообщение, как у текста; ошибка (нет Premium, лимиты
+    rich_message_*) — тем же путём в тост. }
+  FReq.SendRequest('sendMessage', Body, @SendTextDone);
 end;
 
 { ---------------- files from the page ---------------- }
@@ -5556,40 +5670,52 @@ begin
     if EntitiesArr <> nil then begin
       Clean.Add('entities', EntitiesArr.Clone as TJSONArray);
     end;
-    Body := '"chat_id":' + utf8string(IntToStr(FChatId));
-    { Everything decided before the parse, carried here on the
-      request's Tag as an index into FSends (see TPendingSend). }
-    if Edit <> 0 then begin
-      Body := Body + ',"message_id":' + utf8string(IntToStr(Edit));
-    end else begin
-      { In a comment thread a new message has to name the thread, or it
-        lands loose in the discussion group instead of under the post.
-        An EDIT never does: it already belongs where it is. }
-      Body := Body + TopicPart;
-      if Silent then begin
-        { Only sent when it is actually on: everything omitted from
-          messageSendOptions defaults to false/absent anyway, so a
-          normal send stays byte-for-byte the request it has always
-          been. }
-        Body := Body +
-          ',"options":{"@type":"messageSendOptions","disable_notification":true}';
-      end;
-      if ReplyTo <> 0 then begin
-        Body := Body +
-          ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +
-          utf8string(IntToStr(ReplyTo)) + '}';
-      end;
-    end;
-    Body := Body +
-            ',"input_message_content":{"@type":"inputMessageText","text":' +
-            utf8string(Clean.AsJSON) + '}';
+    Body := utf8string(Clean.AsJSON);
   finally
     Clean.Free;
   end;
+  SendFormattedJson(Body, Silent, ReplyTo, Edit);
+end;
+
+{ Готовый formattedText (JSON) -> sendMessage или editMessageText
+  (AEditId <> 0). Общий конец для двух путей: текст с разметкой после
+  parseTextEntities и текст с сущностями, которые собрало поле ввода
+  страницы (ui/editor.js) — тогда разбора нет вовсе. }
+procedure TTdMessages.SendFormattedJson(const AFormatted: utf8string;
+  ASilent: boolean; AReplyTo, AEditId: Int64);
+var
+  Body: utf8string;
+begin
+  if (FReq = nil) or (FChatId = 0) or (AFormatted = '') then begin
+    Exit;
+  end;
+  Body := '"chat_id":' + utf8string(IntToStr(FChatId));
+  if AEditId <> 0 then begin
+    Body := Body + ',"message_id":' + utf8string(IntToStr(AEditId));
+  end else begin
+    { In a comment thread a new message has to name the thread, or it
+      lands loose in the discussion group instead of under the post.
+      An EDIT never does: it already belongs where it is. }
+    Body := Body + TopicPart;
+    if ASilent then begin
+      { Only sent when it is actually on: everything omitted from
+        messageSendOptions defaults to false/absent anyway. }
+      Body := Body +
+        ',"options":{"@type":"messageSendOptions","disable_notification":true}';
+    end;
+    if AReplyTo <> 0 then begin
+      Body := Body +
+        ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +
+        utf8string(IntToStr(AReplyTo)) + '}';
+    end;
+  end;
+  Body := Body +
+          ',"input_message_content":{"@type":"inputMessageText","text":' +
+          AFormatted + '}';
 
   { Same final step as SendText: the response is the message object
     itself, new or edited, no separate temporary id needed. }
-  if Edit <> 0 then begin
+  if AEditId <> 0 then begin
     FReq.SendRequest('editMessageText', Body, @EditTextDone);
   end else begin
     FReq.SendRequest('sendMessage', Body, @SendTextDone);
@@ -7182,8 +7308,20 @@ begin
         ApplyMessage(JGetObj(Obj, 'message'));
       end;
     end else if T = 'updateMessageContent' then begin
-      ApplyContentUpdate(JGetInt64(Obj, 'chat_id'), JGetInt64(Obj, 'message_id'),
-        JGetObj(Obj, 'new_content'));
+      { Пока показано эфемерное, обычное только запоминается. }
+      R := nil;
+      if JGetInt64(Obj, 'chat_id') = FChatId then begin
+        R := Lookup(JGetInt64(Obj, 'message_id'));
+      end;
+      if (R <> nil) and R.HasEphemeral and (JGetObj(Obj, 'new_content') <> nil) then begin
+        R.NormalContentRaw := utf8string(JGetObj(Obj, 'new_content').AsJSON);
+      end else begin
+        ApplyContentUpdate(JGetInt64(Obj, 'chat_id'), JGetInt64(Obj, 'message_id'),
+          JGetObj(Obj, 'new_content'));
+      end;
+    end else if T = 'updateMessageEphemeralContent' then begin
+      ApplyEphemeralUpdate(JGetInt64(Obj, 'chat_id'), JGetInt64(Obj, 'message_id'),
+        JGetObj(Obj, 'ephemeral_content'));
     end else if T = 'updateFile' then begin
       ApplyAudioFile(JGetObj(Obj, 'file'));
       ApplyAudioCoverFile(JGetObj(Obj, 'file'));
@@ -7212,9 +7350,13 @@ begin
           { Боты меняют кнопки правкой (td_api.tl: updateMessageEdited
             несёт reply_markup). }
           if JGetObj(Obj, 'reply_markup') <> nil then begin
-            R.ReplyMarkupRaw := utf8string(JGetObj(Obj, 'reply_markup').AsJSON);
+            R.NormalMarkupRaw := utf8string(JGetObj(Obj, 'reply_markup').AsJSON);
           end else begin
-            R.ReplyMarkupRaw := '';
+            R.NormalMarkupRaw := '';
+          end;
+          { Пока показано эфемерное, у него свои кнопки. }
+          if not R.HasEphemeral then begin
+            R.ReplyMarkupRaw := R.NormalMarkupRaw;
           end;
           Touch;
         end;

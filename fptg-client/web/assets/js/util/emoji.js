@@ -49,6 +49,9 @@ export function setCustomEmoji(dict) {
         known.set(key, info);
         fresh = true;
     }
+    // Тем, кто показывает эмодзи вне сообщений (поле ввода, ui/editor.js),
+    // — что пора заменить запасной символ картинкой.
+    if (fresh) document.dispatchEvent(new CustomEvent('custom-emoji:ready'));
     return fresh;
 }
 

@@ -121,10 +121,8 @@ const toned = (item) => (tone > 0 && item.t ? item.t[tone - 1] : item.e);
  * character - it has no character to be.
  *
  * Для реакции — ответ на вопрос «какой эмодзи?». В композере — вставка
- * разметкой сущности (composer.insertCustomEmoji): поле — простой
- * textarea, и кастомный эмодзи в нём выглядит как ![👍](tg://emoji?id=…),
- * так же, как жирный выглядит звёздочками. Серверный экранировщик
- * пропускает эту форму, а не превращает её в литеральную пунктуацию.
+ * сущностью (composer.insertCustomEmoji): поле (ui/editor.js) рисует его
+ * картинкой и отправляет textEntityTypeCustomEmoji.
  * Панель при этом остаётся открытой, как и для обычных эмодзи.
  */
 function pickCustom(item) {
@@ -135,7 +133,8 @@ function pickCustom(item) {
     answer({ customEmojiId: item.id, emoji: item.emoji });
     return;
   }
-  hooks.insertCustom?.(item.id, item.emoji);
+  // С адресом файла: поле ввода нарисует эмодзи картинкой сразу.
+  hooks.insertCustom?.(item.id, item.emoji, item);
 }
 
 const customCell = (item) => el('button', {

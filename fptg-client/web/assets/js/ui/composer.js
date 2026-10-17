@@ -4,19 +4,18 @@ import { store, onActiveChat, openThread, chatJoin } from '../core/store.js';
 import { mountMentions, closeMentions } from './mentions.js';
 import { call } from '../core/net.js';
 import { noteTyping, stopAction } from './sendaction.js';
+import { composeRich } from '../util/richcompose.js';
+import { toTdEntities, fromMessageEntities } from './editor.js';
+import { setCustomEmoji } from '../util/emoji.js';
+import { uploadRichFile } from './attach.js';
 
-// The message box, and the same formatting toolbar msginput.pas has.
+// The message box and its formatting toolbar.
 //
-// It can be the same toolbar because it is the same mechanism, not a
-// lookalike: the buttons wrap the selection in Telegram's own
-// MarkdownV2 (or HTML) syntax, and the server hands the whole thing to
-// parseTextEntities on the way out. Nothing here knows what an entity
-// is - that is the point, and it is why the two windows cannot drift
-// in what they produce.
-//
-// Not WYSIWYG, for the same reason the native one is not: making bold
-// text look bold while typing needs a real editor with its own entity
-// tree, and this is a plain textarea.
+// The box is ui/editor.js: it shows the result, not markup - bold is
+// bold, a custom emoji is its picture - and hands over text plus
+// entities, which go to TDLib as a formattedText with nothing left to
+// parse. The toolbar buttons and the Telegram Desktop shortcuts
+// (**bold**, __italic__, ...) both go through it.
 
 let box = null;
 let input = null;
@@ -27,7 +26,7 @@ let inThread = false;
 let lastJoin = 'null';
 let emojiBtn = null;
 let attachBtn = null;
-let htmlBox = null;
+let richBox = null;
 let silentBox = null;
 let banner = null;
 let canSend = false;
@@ -39,37 +38,21 @@ let canSend = false;
 // would be sent to the wrong place.
 let pending = null;
 
-// open/close pairs, per syntax. Checked against core.telegram.org's
-// Bot API formatting page rather than remembered: MarkdownV2 bold is a
-// SINGLE asterisk, which is the easy one to get wrong.
-const MARKUP = {
-  markdown: {
-    bold: ['*', '*'],
-    italic: ['_', '_'],
-    underline: ['__', '__'],
-    strike: ['~', '~'],
-    mono: ['`', '`'],
-    code: ['```\n', '\n```'],
-    spoiler: ['||', '||'],
-  },
-  html: {
-    bold: ['<b>', '</b>'],
-    italic: ['<i>', '</i>'],
-    underline: ['<u>', '</u>'],
-    strike: ['<s>', '</s>'],
-    mono: ['<code>', '</code>'],
-    code: ['<pre>', '</pre>'],
-    spoiler: ['<tg-spoiler>', '</tg-spoiler>'],
-  },
-};
+// Богатое сообщение (Rich): блоки по началу строк (util/richcompose.js),
+// строчное оформление и эмодзи — сущности поля.
+const isRich = () => Boolean(richBox?.checked);
 
-const isHtml = () => Boolean(htmlBox?.checked);
+// Кнопка панели -> вид сущности поля (ui/editor.js).
+const FORMAT_KIND = {
+  bold: 'bold', italic: 'italic', underline: 'underline', strike: 'strike',
+  mono: 'code', code: 'pre', spoiler: 'spoiler', quote: 'quote', clear: 'clear',
+};
 
 /** The Silent toggle, for anything sent from outside this module. */
 export const isSilent = () => Boolean(silentBox?.checked);
 
-/** Режим разметки (HTML или MarkdownV2) — для подписи к файлам. */
-export const htmlMode = () => isHtml();
+/** Подпись к файлам (окно отправки) пишется в MarkdownV2. */
+export const htmlMode = () => false;
 
 /**
  * Можно ли сейчас что-то отправить в открытый чат — для отправки
@@ -116,7 +99,7 @@ export function cancelPending() {
   drawBanner();
   // An abandoned edit takes its text with it: leaving the old message
   // sitting in the box would be the next thing sent by accident.
-  if (wasEdit) input.value = '';
+  if (wasEdit) input.clear();
   input.focus();
 }
 
@@ -129,20 +112,14 @@ export function replyTo(msg) {
 }
 
 /**
- * Rewrites a message.
- *
- * The box is filled with the message's PLAIN text, and that is what
- * will be sent: any bold, link or code the original carried is not
- * reconstructed, so saving turns it into what is on screen. That is
- * the honest behaviour for a plain textarea - what is shown is what
- * goes - but it does mean an edit can flatten formatting. Rebuilding
- * MarkdownV2 out of the entities is the fix, and it is a job of its
- * own (see TODO.md).
+ * Rewrites a message: the box gets its text WITH its formatting (the
+ * entities, converted from the byte offsets the page receives).
  */
 export function editMessage(msg) {
   if (!canSend) return;
   pending = { mode: 'edit', msg, chatId: store.activeChatId };
-  input.value = msg.text ?? '';
+  const text = msg.text ?? '';
+  input.setFormatted({ text, entities: fromMessageEntities(text, msg.entities) });
   drawBanner();
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
@@ -235,157 +212,190 @@ function updateEnabled(chat) {
     }
   } else if (!chat) input.placeholder = 'Pick a chat to start writing';
   else if (!canSend) input.placeholder = 'You cannot write in this chat';
+  else if (isRich()) input.placeholder = 'Write a rich message: # heading, - list, | table |, [[Button|https://…]]';
   else input.placeholder = 'Write a message';
 }
 
 // ------------------------------------------------------- formatting
-function wrapSelection(open, close) {
-  const start = input.selectionStart;
-  const end = input.selectionEnd;
-  const value = input.value;
-  const chosen = value.slice(start, end);
-
-  input.value = value.slice(0, start) + open + chosen + close + value.slice(end);
-  if (chosen) {
-    // Leave the result selected, so a second button can be applied on
-    // top of the first without re-selecting by hand.
-    input.setSelectionRange(start, start + open.length + chosen.length + close.length);
-  } else {
-    // Nothing selected: put the caret between the markers, ready to
-    // type the formatted text straight away.
-    input.setSelectionRange(start + open.length, start + open.length);
-  }
-  input.focus();
-}
-
-/**
- * Drops text in at the caret, replacing whatever is selected - what the
- * emoji panel needs, and the only way into this box from outside.
- *
- * Note what it does NOT do: escape anything. An emoji carries no
- * MarkdownV2 meaning, and neither does any other character this is used
- * for today. The day something with meaning is inserted here, escaping
- * belongs at that call site, not in this function.
- */
+/** Текст у курсора, вместо выделенного (панель эмодзи и т.п.). */
 export function insertAtCaret(text) {
   if (!canSend || !text) return;
-  const start = input.selectionStart;
-  const end = input.selectionEnd;
-  input.value = input.value.slice(0, start) + text + input.value.slice(end);
-  const caret = start + text.length;
-  input.setSelectionRange(caret, caret);
+  input.insertText(text);
   input.focus();
 }
 
 /**
- * Кастомный эмодзи — это сущность, а не символ, поэтому в поле он
- * попадает своей разметкой, как жирный или ссылка: textarea здесь не
- * WYSIWYG. Синтаксис по core.telegram.org/bots/api; внутри — обычный
- * эмодзи, его увидят клиенты, которые кастомный не покажут (без него
- * разметка недействительна). Серверные EscapeMarkdownV2/EscapeHtml
- * пропускают ровно эту форму: id из одних цифр.
+ * Кастомный эмодзи — картинкой в поле, сущностью в сообщении. file —
+ * ячейка панели ({ format, url }): её адрес становится известен полю
+ * (util/emoji.js), иначе оно показало бы запасной символ.
  */
-export function insertCustomEmoji(id, emoji) {
-  const markup = customEmojiMarkup(id, emoji);
-  if (markup) insertAtCaret(markup);
+export function insertCustomEmoji(id, emoji, file) {
+  if (!canSend || !/^\d+$/.test(String(id)) || !emoji) return;
+  if (file?.url) setCustomEmoji({ [String(id)]: { format: file.format, url: file.url } });
+  input.insertCustomEmoji(id, emoji);
+  input.focus();
 }
 
-/** Разметка кастомного эмодзи по текущему режиму, или '' для негодных id. */
+/**
+ * Разметка кастомного эмодзи для подписи в окне отправки файлов (там
+ * простое поле с MarkdownV2), или '' для негодных id.
+ */
 export function customEmojiMarkup(id, emoji) {
   if (!/^\d+$/.test(String(id)) || !emoji) return '';
-  return isHtml()
-    ? `<tg-emoji emoji-id="${id}">${emoji}</tg-emoji>`
-    : `![${emoji}](tg://emoji?id=${id})`;
+  return `![${emoji}](tg://emoji?id=${id})`;
 }
 
-function quoteSelection() {
-  const start = input.selectionStart;
-  const end = input.selectionEnd;
-  const value = input.value;
-  const chosen = value.slice(start, end) || '';
-
-  let replacement;
-  if (isHtml()) {
-    replacement = `<blockquote>${chosen}</blockquote>`;
-  } else {
-    // MarkdownV2 wants a '>' on EVERY line of the quote, not one pair
-    // around the block.
-    replacement = chosen
-      ? chosen.split('\n').map((line) => `>${line}`).join('\n')
-      : '>';
-  }
-  input.value = value.slice(0, start) + replacement + value.slice(end);
-  input.setSelectionRange(start, start + replacement.length);
-  input.focus();
-}
-
+/** Ссылка на выделенное (кнопка Link, Ctrl+K); пустой адрес — снять. */
 function linkSelection() {
-  const start = input.selectionStart;
-  const end = input.selectionEnd;
-  const value = input.value;
-  let text = value.slice(start, end);
-  if (!text) {
-    text = window.prompt('Link text') ?? '';
-    if (!text) return;
-  }
-  const url = window.prompt('Link target (https://...)') ?? '';
-  if (!url) return;
-
-  const replacement = isHtml()
-    ? `<a href="${url}">${text}</a>`
-    : `[${text}](${url})`;
-  input.value = value.slice(0, start) + replacement + value.slice(end);
-  input.setSelectionRange(start, start + replacement.length);
+  if (input.selectionStart === input.selectionEnd) return;
+  const url = window.prompt('Link target (https://...), empty to remove') ?? null;
+  if (url === null) return;
+  input.toggle('textUrl', { url: url.trim() });
   input.focus();
 }
+
+// ------------------------------------------- блоки богатого сообщения
+/** Префикс каждой строке выделения (или текущей строке). */
+function prefixLines(prefix) {
+  const value = input.value;
+  const a = input.selectionStart;
+  const b = input.selectionEnd;
+  const start = value.lastIndexOf('\n', a - 1) + 1;
+  const starts = [start];
+  for (let i = value.indexOf('\n', start); i >= 0 && i < b; i = value.indexOf('\n', i + 1)) starts.push(i + 1);
+  // С конца: так смещения ещё не тронутых строк остаются верными.
+  for (const at of starts.reverse()) input.replaceRange(at, at, prefix);
+  input.setSelectionRange(a + prefix.length, b + prefix.length * starts.length);
+  input.focus();
+}
+
+/** Блок с новой строки: до и после — перевод строки, если его нет. */
+function insertBlock(text, selectFrom = 0, selectLen = 0) {
+  const value = input.value;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  const before = start > 0 && value[start - 1] !== '\n' ? '\n' : '';
+  const after = end < value.length && value[end] !== '\n' ? '\n' : '';
+  input.replaceRange(start, end, before + text + after);
+  const from = start + before.length + selectFrom;
+  input.setSelectionRange(from, from + selectLen);
+  input.focus();
+}
+
+function richFormat(kind) {
+  const chosen = input.value.slice(input.selectionStart, input.selectionEnd);
+  switch (kind) {
+    case 'heading': return prefixLines('## ');
+    case 'list': return prefixLines('- ');
+    case 'divider': return insertBlock('---', 3);
+    case 'media': {
+      // Тот же выбор файлов, что у скрепки, только фото и видео; ответ
+      // приходит в richAttach (ui/attach.js).
+      const picker = qs('#composer-files', box);
+      if (!picker) return undefined;
+      picker.accept = 'image/*,video/*';
+      picker.click();
+      return undefined;
+    }
+    case 'table': {
+      const t = '| Column | Column |\n|---|---|\n| Cell | Cell |';
+      return insertBlock(t, 2, 6);
+    }
+    case 'details': {
+      const title = 'Title';
+      return insertBlock('+++ ' + title + '\n' + (chosen || 'Hidden text') + '\n+++', 4, title.length);
+    }
+    case 'button': {
+      const label = chosen || 'Button';
+      const url = 'https://';
+      // Курсор — сразу за «https://»: подпись уже есть.
+      return insertBlock('[[' + label + '|' + url + ']]', 3 + label.length + url.length, 0);
+    }
+    default: return undefined;
+  }
+}
+
+// Файлы богатого сообщения: строка «![](вид:id)» в тексте, сведения о
+// видео — здесь, по id загрузки (их ждёт composeRich).
+const richMedia = new Map();
+let richQueue = Promise.resolve();
+let richSeq = 0;
 
 /**
- * Best effort, not a parser - the same honest limitation the native
- * "Clear" button carries: a literal asterisk somebody typed as an
- * asterisk is indistinguishable from one that opens bold, and it goes
- * too.
+ * Файлы в режиме Rich — строкой у курсора, а не через окно отправки
+ * (зовёт ui/attach.js). false — режим не тот, пусть решает окно.
  */
-function clearSelection() {
-  const start = input.selectionStart;
-  const end = input.selectionEnd;
-  const value = input.value;
-  let chosen = value.slice(start, end);
-  if (!chosen) return;
+export function richAttach(files, mode) {
+  if (!isRich() || !canSend || !files.length) return false;
+  // Все строки разом (подряд — коллаж); курсор — в подпись первой.
+  const marks = files.map(() => {
+    richSeq += 1;
+    return `(uploading:${richSeq})`;
+  });
+  insertBlock(marks.map((mark) => `![]${mark}`).join('\n'), 2, 0);
+  files.forEach((file, n) => {
+    const mark = marks[n];
+    // По одной (uploadRichFile), в порядке вставки.
+    richQueue = richQueue.then(async () => {
+      try {
+        const { id, kind, info } = await uploadRichFile(file, mode);
+        if (info) richMedia.set(id, info);
+        replaceInInput(mark, `(${kind}:${id})`);
+      } catch (err) {
+        const line = input.value.split('\n').find((l) => l.includes(mark));
+        if (line !== undefined) replaceInInput(input.value.includes(`${line}\n`) ? `${line}\n` : line, '');
+        emit('ui:error', `${file.name}: ${err.message}`);
+      }
+    });
+  });
+  return true;
+}
 
-  if (isHtml()) {
-    chosen = chosen.replace(/<[^>]+>/g, '');
-  } else {
-    chosen = chosen
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/^>/gm, '')
-      .replace(/[*_~`|]/g, '');
-  }
-  input.value = value.slice(0, start) + chosen + value.slice(end);
-  input.setSelectionRange(start, start + chosen.length);
-  input.focus();
+/** Замена куска текста поля без сброса курсора (догрузился файл). */
+function replaceInInput(from, to) {
+  const at = input.value.indexOf(from);
+  if (at < 0) return;
+  input.replaceRange(at, at + from.length, to, [], { keepCaret: true });
 }
 
 function applyFormat(kind) {
-  if (kind === 'quote') return quoteSelection();
   if (kind === 'link') return linkSelection();
-  if (kind === 'clear') return clearSelection();
-  const pair = MARKUP[isHtml() ? 'html' : 'markdown'][kind];
-  if (pair) wrapSelection(pair[0], pair[1]);
+  if (isRich() && ['heading', 'list', 'divider', 'table', 'details', 'button', 'media'].includes(kind)) {
+    return richFormat(kind);
+  }
+  if (FORMAT_KIND[kind]) {
+    input.toggle(FORMAT_KIND[kind]);
+    input.focus();
+  }
   return undefined;
 }
 
 // ------------------------------------------------------------- send
 function send() {
   if (!canSend) return;
-  const text = input.value;
-  if (!text.trim()) return;
+  const doc = input.getFormatted();
+  if (!doc.text.trim()) return;
 
   if (pending?.mode === 'edit') {
-    emit('ui:edit', { id: String(pending.msg.id), text, html: isHtml() });
+    emit('ui:edit', { id: String(pending.msg.id), text: doc.text, entities: toTdEntities(doc.entities) });
+  } else if (isRich()) {
+    let blocks;
+    try {
+      blocks = composeRich(doc, (id) => richMedia.get(id) ?? null);
+    } catch (err) {
+      emit('ui:error', err.message);
+      return;
+    }
+    if (!blocks.length) return;
+    emit('ui:send-rich', {
+      blocks,
+      silent: Boolean(silentBox?.checked),
+      replyTo: pending?.mode === 'reply' ? String(pending.msg.id) : '',
+    });
   } else {
     emit('ui:send', {
-      text,
-      html: isHtml(),
+      text: doc.text,
+      entities: toTdEntities(doc.entities),
       silent: Boolean(silentBox?.checked),
       replyTo: pending?.mode === 'reply' ? String(pending.msg.id) : '',
     });
@@ -393,7 +403,7 @@ function send() {
   pending = null;
   drawBanner();
   closeMentions();
-  input.value = '';
+  input.clear();
   stopAction();
   input.focus();
 }
@@ -417,20 +427,33 @@ export function mountComposer(node) {
   // Скрепка: обычный выбор файлов. Картинки по умолчанию уходят сжатыми,
   // как у нативного клиента; переключается в диалоге.
   const picker = qs('#composer-files', box);
-  attachBtn?.addEventListener('click', () => picker?.click());
+  // Фильтр мог остаться от кнопки Media (только фото и видео).
+  attachBtn?.addEventListener('click', () => {
+    if (!picker) return;
+    picker.accept = '';
+    picker.click();
+  });
   picker?.addEventListener('change', () => {
     const files = [...picker.files];
     // Сброс — иначе тот же файл, выбранный снова, не даст change.
     picker.value = '';
     if (files.length) emit('ui:attach', { files });
   });
-  htmlBox = qs('#composer-html', box);
+  richBox = qs('#composer-rich', box);
   silentBox = qs('#composer-silent', box);
+  // Rich: свой ряд кнопок панели (blocks/_composer.scss).
+  richBox?.addEventListener('change', () => {
+    box.classList.toggle('composer--rich', isRich());
+    updateEnabled(store.activeChat);
+    input.focus();
+  });
   banner = qs('.composer__banner', box);
 
   // Подсказка «@имя» (ui/mentions.js). До обработчика Enter ниже не
   // важно: она слушает в фазе перехвата.
-  mountMentions(input, { enabled: () => canSend, isHtml });
+  mountMentions(input, { enabled: () => canSend });
+  // Ctrl+K в поле — та же ссылка, что у кнопки Link.
+  input.addEventListener('editor:link', linkSelection);
   sendBtn.addEventListener('click', send);
   // «Печатает» собеседнику (ui/sendaction.js). Не при правке своего
   // сообщения — там ничего нового не пишут, официальные клиенты молчат.

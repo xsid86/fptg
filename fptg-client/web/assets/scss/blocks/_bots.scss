@@ -117,6 +117,13 @@
   min-height: $space-6;
 }
 
+// У кнопки со значком — место под него с обеих сторон: текст остаётся
+// по центру и не уходит под значок в узкой кнопке.
+.message__kb-btn:has(.message__kb-btn-mark),
+.composer__kb-btn:has(.composer__kb-btn-mark) {
+  padding-inline: $space-7;
+}
+
 // Ссылка или Mini App — значок у правого края, по вертикали посередине.
 .message__kb-btn-mark,
 .composer__kb-btn-mark {

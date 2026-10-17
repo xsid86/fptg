@@ -18,7 +18,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <AutoIncrementBuild Value="True"/>
-      <BuildNr Value="70"/>
+      <BuildNr Value="81"/>
       <StringTable CompanyName="xsid86" InternalName="fptg-server" LegalCopyright="xsid86"/>
     </VersionInfo>
     <BuildModes>
