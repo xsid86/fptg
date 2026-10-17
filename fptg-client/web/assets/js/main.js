@@ -17,6 +17,7 @@ import {
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountSearch } from './ui/search.js';
+import { mountNewChat } from './ui/newchat.js';
 import { mountPayments } from './ui/payments.js';
 import { mountTranslate } from './ui/translate.js';
 import { mountCalls } from './ui/call.js';
@@ -562,6 +563,8 @@ function wireSidebar() {
   mountSearch(qs('#chats-search'), qs('.sidebar'), qs('.sidebar__body'), {
     disabled: () => contactsOn,
   });
+  // «+» справа от вкладок: новая группа или канал (ui/newchat.js).
+  mountNewChat(qs('.sidebar__head'), { call: (cmd, args) => call(cmd, args) });
   qs('#chats-search').addEventListener('input', (event) => {
     if (contactsOn) setChatFilter(event.target.value);
   });

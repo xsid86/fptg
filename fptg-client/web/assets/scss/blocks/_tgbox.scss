@@ -1,0 +1,412 @@
+@use "../abstracts" as *;
+
+// Окно в духе «боксов» Telegram Desktop (ui/tgbox.js): создание группы и
+// канала, управление ими. Шапка — «назад», заголовок, крестик; тело
+// прокручивается; кнопки — внизу справа, текстовые, как у Desktop.
+.tgbox {
+  @include flex(column, stretch, flex-start);
+  background: var(--c-surface);
+  border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  border-radius: $radius-lg;
+  box-shadow: 0 3rem 4rem var(--c-shadow);
+  color: var(--c-text);
+  max-height: min(640px, calc(100vh - #{2 * $space-7}));
+  max-width: calc(100vw - #{2 * $space-6});
+  padding: 0;
+  width: 400px;
+
+  &:not([open]) {
+    display: none;
+  }
+
+  &::backdrop {
+    background: color-mix(in srgb, var(--c-bg) 45%, transparent);
+    backdrop-filter: blur(15px);
+  }
+}
+
+.tgbox__head {
+  @include flex(row, center, flex-start, $space-2);
+  flex: 0 0 auto;
+  padding: $space-5 $space-5 $space-3;
+}
+
+.tgbox__back[hidden] {
+  display: none;
+}
+
+.tgbox__title {
+  @include ellipsis;
+  flex: 1 1 auto;
+  font-size: $fs-md;
+  font-weight: $fw-bold;
+  margin: 0;
+  min-width: 0;
+}
+
+.tgbox__body {
+  @include flex(column, stretch, flex-start, $space-2);
+  outline: none;
+  @include scroll-area;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: $space-2 $space-5 $space-4;
+}
+
+.tgbox__foot {
+  @include flex(row, center, flex-end, $space-2);
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+  flex: 0 0 auto;
+  padding: $space-3 $space-5;
+
+  &:empty {
+    display: none;
+  }
+}
+
+// Кнопки — текстовые, акцентным цветом, как у Desktop.
+.tgbox__btn {
+  background: none;
+  border: 0;
+  border-radius: $radius-md;
+  color: var(--c-accent);
+  cursor: pointer;
+  font-weight: $fw-bold;
+  padding: $space-3 $space-4;
+  text-transform: uppercase;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--c-accent) 12%, transparent);
+  }
+
+  &.is-danger {
+    color: var(--c-danger);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: .5;
+  }
+}
+
+.tgbox__hint,
+.tgbox__note {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+  margin: 0;
+}
+
+.tgbox__note.is-ok {
+  color: var(--c-accent);
+}
+
+.tgbox__error {
+  color: var(--c-danger);
+  margin: 0;
+}
+
+.tgbox__section {
+  @include chat-tint(color);
+  font-size: $fs-sm;
+  font-weight: $fw-bold;
+  margin-top: $space-4;
+}
+
+// Фото и название — в одну строку, как у Desktop.
+.tgbox__info {
+  @include flex(row, center, flex-start, $space-5);
+  padding: $space-2 0;
+}
+
+.tgbox__info-fields {
+  @include flex(column, stretch, flex-start, $space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tgbox__photo-btn {
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  flex: 0 0 auto;
+  padding: 0;
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.tgbox__photo {
+  @include chat-tint(background);
+  @include size(72px);
+  color: var(--c-accent-text);
+
+  .icon {
+    @include size(28px);
+  }
+}
+
+// Поле: линия снизу, как у Desktop.
+.tgbox__field {
+  @include flex(row, baseline, flex-start, 0);
+  border-bottom: 1px solid var(--c-border);
+  padding: $space-2 0;
+
+  &:focus-within {
+    @include chat-tint(border-bottom-color);
+  }
+}
+
+.tgbox__prefix {
+  color: var(--c-text-dim);
+}
+
+.tgbox__input {
+  background: none;
+  border: 0;
+  color: var(--c-text);
+  flex: 1 1 auto;
+  font: inherit;
+  min-width: 0;
+  outline: none;
+  padding: 0;
+  resize: vertical;
+  width: 100%;
+}
+
+.tgbox__rows {
+  @include flex(column, stretch, flex-start);
+  margin: $space-3 (-$space-5) 0;
+
+  // Переключатель среди строк — с тем же отступом, что строки.
+  > .tgbox__toggle {
+    padding-inline: $space-5;
+  }
+}
+
+// Строка-переход: значок, подпись, значение справа.
+.tgbox__row {
+  @include flex(row, center, flex-start, $space-5);
+  background: none;
+  border: 0;
+  color: var(--c-text);
+  cursor: pointer;
+  font: inherit;
+  padding: $space-4 $space-5;
+  text-align: start;
+  width: 100%;
+
+  .icon {
+    color: var(--c-text-dim);
+    flex: 0 0 auto;
+  }
+
+  &:hover {
+    @include chat-tint(background, 8%);
+  }
+
+  &.is-danger,
+  &.is-danger .icon {
+    color: var(--c-danger);
+  }
+}
+
+.tgbox__row-pad {
+  flex: 0 0 auto;
+  width: 0;
+}
+
+.tgbox__row-label {
+  @include ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tgbox__row-value {
+  @include chat-tint(color);
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+}
+
+.tgbox__row-sub {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+
+  &.is-online {
+    @include chat-tint(color);
+  }
+}
+
+.tgbox__toggle-text {
+  @include flex(column, stretch, center, $space-1);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+// Переключатель: подпись слева, тумблер справа.
+.tgbox__toggle,
+.tgbox__radio {
+  @include flex(row, center, flex-start, $space-4);
+  cursor: pointer;
+  padding: $space-3 0;
+
+  &.is-disabled {
+    cursor: default;
+    opacity: .55;
+  }
+}
+
+.tgbox__switch {
+  appearance: none;
+  background: color-mix(in srgb, var(--c-text-dim) 40%, transparent);
+  border-radius: $radius-pill;
+  cursor: inherit;
+  flex: 0 0 auto;
+  height: 16px;
+  margin: 0;
+  position: relative;
+  transition: background $dur-base $ease;
+  width: 30px;
+
+  &::after {
+    background: var(--c-surface);
+    border-radius: 50%;
+    content: '';
+    height: 12px;
+    inset-block-start: 2px;
+    inset-inline-start: 2px;
+    position: absolute;
+    transition: transform $dur-base $ease;
+    width: 12px;
+  }
+
+  &:checked {
+    @include chat-tint(background);
+
+    &::after {
+      transform: translateX(14px);
+    }
+  }
+}
+
+.tgbox__radio input,
+.tgbox__check {
+  @include chat-tint(accent-color);
+  flex: 0 0 auto;
+}
+
+.tgbox__radios {
+  @include flex(column, stretch, flex-start);
+}
+
+// «Send media» раскрывается списком видов.
+.tgbox__expand {
+  background: none;
+  border: 0;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  font-size: $fs-lg;
+  line-height: 1;
+  padding: 0 $space-2;
+  transition: transform $dur-base $ease;
+
+  &.is-open {
+    transform: rotate(90deg);
+  }
+}
+
+.tgbox__sub {
+  padding-inline-start: $space-6;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.tgbox__chips {
+  @include flex(row, center, flex-start, $space-2);
+  flex-wrap: wrap;
+}
+
+.tgbox__chip {
+  background: color-mix(in srgb, var(--c-text) 8%, transparent);
+  border: 0;
+  border-radius: $radius-pill;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-2 $space-4;
+
+  &.is-active {
+    @include chat-tint(background);
+    color: var(--c-accent-text);
+  }
+}
+
+// Люди и чаты строками.
+.tgbox__list {
+  @include flex(column, stretch, flex-start);
+  margin: 0 (-$space-5);
+}
+
+.tgbox__peer {
+  @include flex(row, center, flex-start, $space-4);
+  background: none;
+  border: 0;
+  color: var(--c-text);
+  cursor: pointer;
+  font: inherit;
+  padding: $space-2 $space-5;
+  text-align: start;
+  width: 100%;
+
+  &:hover:not(:disabled) {
+    @include chat-tint(background, 8%);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.tgbox__avatar {
+  @include size(40px);
+  flex: 0 0 auto;
+}
+
+.tgbox__search {
+  @include flex(row, center, flex-start, $space-4);
+
+  .tgbox__field {
+    flex: 1 1 auto;
+  }
+}
+
+.tgbox__counter {
+  color: var(--c-text-dim);
+  flex: 0 0 auto;
+  font-size: $fs-sm;
+}
+
+.tgbox__link {
+  @include chat-tint(background, 10%);
+  border-radius: $radius-md;
+  overflow-wrap: anywhere;
+  padding: $space-3 $space-4;
+}
+
+.tgbox__link-actions {
+  @include flex(row, center, flex-start, $space-2);
+}
+
+// «+» над списком чатов: та же круглая кнопка, что «наверх» у списков,
+// только на своём месте в шапке, справа.
+.sidebar__new {
+  @include scroll-jump;
+  margin-inline-start: auto;
+  position: static;
+}

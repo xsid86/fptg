@@ -12,6 +12,7 @@ import { stickerNode } from './message.js';
 import { duration, listTime, initial, fileSize, dateLabel } from '../util/format.js';
 import { updateFloatDate } from '../util/floatdate.js';
 import { userIdNode } from './userid.js';
+import { openManage } from './manage.js';
 
 // Панель информации о чате — человек, бот, группа или канал. Открывается
 // кнопкой «i» в правом верхнем углу истории и выезжает справа поверх неё
@@ -217,6 +218,11 @@ async function editContact(i) {
 /** Действия по виду чата — и внизу панели, и в меню «More». */
 function actions(i) {
   const list = [];
+  // Владелец или администратор — управление, как «Manage» у Desktop.
+  if ((i.kind === 'group' || i.kind === 'channel') && i.canManage) {
+    list.push([i.kind === 'channel' ? 'Manage channel' : 'Manage group',
+      () => openManage(i.chatId, { call: hooks.call })]);
+  }
   if (i.kind === 'user') {
     list.push(['Share contact', () => shareContact(i)]);
     list.push([i.isContact ? 'Edit contact' : 'Add to contacts', () => editContact(i)]);

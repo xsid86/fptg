@@ -202,6 +202,10 @@ type
     function  CmdSearchRecent(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure SearchNext(ASlot: PtrInt);
     procedure SearchStepDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdAdmin(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+    procedure AdminNext(ASlot: PtrInt);
+    procedure AdminStepDone(Sender: TObject; const AResp: TTdResponse);
+    function  CmdUsersCards(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     procedure InfoSimilarDone(Sender: TObject; const AResp: TTdResponse);
     function  CmdChatSimilar(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
     function  CmdChatSimilarOpened(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
@@ -8238,6 +8242,189 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
+{ создание групп и каналов, управление ими (ui/newchat.js, manage.js) }
+{ ------------------------------------------------------------------ }
+
+{ Экраны управления повторяют Telegram Desktop и читают поля TDLib сами
+  (td_api.tl коммита d1085f9), поэтому сервер здесь тонкий: admin
+  (steps: key, method, params) выполняет шаги по очереди и отдаёт ответы
+  TDLib как есть, под их ключами. Только методы из списка ниже — чтение
+  и правка групп и каналов; файл (фото группы) страница передаёт
+  inputFileUpload с id загрузки (RichInputFix). Ошибка шага — ошибка всей
+  команды: это правки, и молча пропущенная хуже явной. }
+const
+  ADMIN_METHODS: array[0..38] of string = (
+    'getChat', 'getSupergroup', 'getSupergroupFullInfo', 'getBasicGroup',
+    'getBasicGroupFullInfo', 'getSupergroupMembers', 'searchChatMembers',
+    'getChatMember', 'getChatAdministrators', 'getChatInviteLinks',
+    'getChatInviteLinkCounts', 'getChatInviteLinkMembers', 'getChatEventLog',
+    'checkChatUsername', 'getChatJoinRequests',
+    'createNewBasicGroupChat', 'createNewSupergroupChat', 'setChatTitle',
+    'setChatDescription', 'setChatPhoto', 'setChatPermissions',
+    'setChatSlowModeDelay', 'setChatMemberStatus', 'banChatMember',
+    'addChatMembers', 'setSupergroupUsername', 'toggleSupergroupIsAllHistoryAvailable',
+    'toggleSupergroupSignMessages', 'toggleChatHasProtectedContent',
+    'replacePrimaryChatInviteLink', 'createChatInviteLink', 'editChatInviteLink',
+    'revokeChatInviteLink', 'deleteRevokedChatInviteLink', 'deleteChat',
+    'upgradeBasicGroupChatToSupergroupChat', 'processChatJoinRequest',
+    'toggleSupergroupJoinByRequest', 'setChatMemberTag');
+
+function AdminAllowed(const AMethod: string): boolean;
+var
+  I: integer;
+begin
+  Result := False;
+  for I := 0 to High(ADMIN_METHODS) do begin
+    if ADMIN_METHODS[I] = AMethod then begin
+      Exit(True);
+    end;
+  end;
+end;
+
+{ Ответ TDLib без служебных полей запроса. }
+function AdminClean(AObj: TJSONObject): TJSONObject;
+var
+  I: integer;
+begin
+  Result := TJSONObject(AObj.Clone);
+  for I := Result.Count - 1 downto 0 do begin
+    if (Result.Names[I] = '@extra') or (Result.Names[I] = '@client_id') then begin
+      Result.Delete(I);
+    end;
+  end;
+end;
+
+function TWebApi.CmdAdmin(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Held, Step, Src: TJSONObject;
+  Steps, Plan: TJSONArray;
+  Fixed: TJSONData;
+  Body: string;
+  I: integer;
+begin
+  Result := True;
+  RequireMsgs;
+  Steps := TJSONArray(AArgs.Find('steps', jtArray));
+  if (Steps = nil) or (Steps.Count = 0) then begin
+    raise Exception.Create('admin needs steps');
+  end;
+  Held := TJSONObject.Create;
+  try
+    Plan := TJSONArray.Create;
+    Held.Add('plan', Plan);
+    Held.Add('i', 0);
+    Held.Add('out', TJSONObject.Create);
+    for I := 0 to Steps.Count - 1 do begin
+      if not (Steps.Items[I] is TJSONObject) then begin
+        raise Exception.Create('admin: bad step');
+      end;
+      Src := TJSONObject(Steps.Items[I]);
+      if not AdminAllowed(Src.Get('method', '')) then begin
+        raise Exception.Create('admin: method not allowed: ' + Src.Get('method', ''));
+      end;
+      Body := '';
+      if Src.Find('params', jtObject) <> nil then begin
+        Fixed := RichInputFix(Src.Find('params', jtObject));
+        try
+          Body := Trim(Fixed.AsJSON);
+        finally
+          Fixed.Free;
+        end;
+        { Объект без внешних скобок — тело запроса (tdreq.SendRequest). }
+        Body := Trim(Copy(Body, 2, Length(Body) - 2));
+      end;
+      Step := TJSONObject.Create;
+      Step.Add('key', Src.Get('key', IntToStr(I)));
+      Step.Add('method', Src.Get('method', ''));
+      Step.Add('params', Body);
+      Plan.Add(Step);
+    end;
+  except
+    Held.Free;
+    raise;
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := Held;
+  AdminNext(Slot);
+end;
+
+procedure TWebApi.AdminNext(ASlot: PtrInt);
+var
+  Held, Step: TJSONObject;
+  Plan: TJSONArray;
+  I: integer;
+begin
+  Held := FDeferred[ASlot].Held;
+  Plan := TJSONArray(Held.Find('plan', jtArray));
+  I := Held.Get('i', 0);
+  if I >= Plan.Count then begin
+    Reply(FDeferred[ASlot].ConnId, FDeferred[ASlot].ReqId,
+      TJSONObject(Held.Find('out', jtObject).Clone));
+    ReleaseDeferred(ASlot);
+    Exit;
+  end;
+  Step := Plan.Objects[I];
+  RequireMsgs.Request(utf8string(Step.Get('method', '')), utf8string(Step.Get('params', '')),
+    @AdminStepDone, ASlot);
+end;
+
+procedure TWebApi.AdminStepDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Slot: PtrInt;
+  Held, Step: TJSONObject;
+  I: integer;
+begin
+  if not AccountSlot(AResp, Slot) then begin
+    Exit;
+  end;
+  Held := FDeferred[Slot].Held;
+  I := Held.Get('i', 0);
+  Step := TJSONArray(Held.Find('plan', jtArray)).Objects[I];
+  TJSONObject(Held.Find('out', jtObject)).Add(Step.Get('key', ''), AdminClean(AResp.Obj));
+  Held.Integers['i'] := I + 1;
+  AdminNext(Slot);
+end;
+
+{ users.cards (ids) — карточки людей для списков управления: те же, что
+  у контактов (ContactUserDone: имя, аватарка, статус «в сети»). }
+function TWebApi.CmdUsersCards(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
+var
+  Slot: PtrInt;
+  Arr: TJSONArray;
+  Msgs: TTdMessages;
+  I, N: integer;
+  Id: Int64;
+begin
+  Result := True;
+  Msgs := RequireMsgs;
+  Arr := TJSONArray(AArgs.Find('ids', jtArray));
+  N := 0;
+  if Arr <> nil then begin
+    N := Arr.Count;
+  end;
+  Slot := TakeDeferred(AConnId, AReqId, 0);
+  FDeferred[Slot].Held := TJSONObject.Create;
+  FDeferred[Slot].Held.Add('items', TJSONArray.Create);
+  FDeferred[Slot].Held.Add('replyKey', 'items');
+  if N = 0 then begin
+    Reply(AConnId, AReqId, TJSONObject(GetJSON('{"items":[]}')));
+    ReleaseDeferred(Slot);
+    Exit;
+  end;
+  FDeferred[Slot].Held.Add('left', N);
+  for I := 0 to N - 1 do begin
+    Id := 0;
+    if Arr.Items[I].JSONType = jtNumber then begin
+      Id := Arr.Items[I].AsInt64;
+    end else if Arr.Items[I].JSONType = jtString then begin
+      Id := StrToInt64Def(Arr.Items[I].AsString, 0);
+    end;
+    Msgs.Request('getUser', '"user_id":' + utf8string(IntToStr(Id)), @ContactUserDone, Slot);
+  end;
+end;
+
+{ ------------------------------------------------------------------ }
 { приветствие в пустом личном чате                                   }
 { ------------------------------------------------------------------ }
 
@@ -8600,6 +8787,10 @@ begin
         or (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusAdministrator')
         or (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusMember'));
     end;
+    { Управлять (ui/manage.js) — владелец или администратор. }
+    Res.Add('isCreator', JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusCreator');
+    Res.Add('canManage', (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusCreator')
+      or (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusAdministrator'));
     User := JGetStr(JGetObj(AResp.Obj, 'usernames'), 'editable_username');
     if User <> '' then begin
       Res.Add('username', string(User));
@@ -11625,6 +11816,10 @@ begin
         CmdSearchHome(AConnId, ReqId, Args);
       end else if Cmd = 'search.query' then begin
         CmdSearchQuery(AConnId, ReqId, Args);
+      end else if Cmd = 'admin' then begin
+        CmdAdmin(AConnId, ReqId, Args);
+      end else if Cmd = 'users.cards' then begin
+        CmdUsersCards(AConnId, ReqId, Args);
       end else if Cmd = 'chat.similar' then begin
         CmdChatSimilar(AConnId, ReqId, Args);
       end else if Cmd = 'chat.similarOpened' then begin

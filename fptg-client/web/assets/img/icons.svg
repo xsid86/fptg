@@ -953,6 +953,39 @@
        id="path52" />
   </g>
   <g
+     id="i-plus"
+     transform="translate(176,304)"
+     fill="none"
+     stroke="currentColor"
+     stroke-width="2"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <rect
+       data-cell="box"
+       x="0"
+       y="0"
+       width="24"
+       height="24"
+       rx="2"
+       fill="none"
+       stroke="#c9d2de"
+       stroke-width="0.5"
+       id="rect-plus" />
+    <text
+       data-guide="label"
+       x="12"
+       y="32"
+       font-family="sans-serif"
+       font-size="5"
+       text-anchor="middle"
+       fill="#8b95a6"
+       stroke="none"
+       id="text-plus">plus</text>
+    <path
+       d="M12 5v14M5 12h14"
+       id="path-plus" />
+  </g>
+  <g
      id="i-dots"
      transform="translate(296,112)"
      fill="none"
