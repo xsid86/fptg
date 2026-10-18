@@ -2,23 +2,24 @@ unit constants;
 
 {$mode objfpc}{$H+}
 
-{ Именованные константы сервера (fptg-server) по темам. Модуль
-  ничего не подключает — он на дне графа зависимостей, и "uses
-  constants" не даёт цикла ни из какого модуля. LCL тут тоже нет:
-  сервер собирается консольной программой.
+{ Named constants of the server (fptg-server), grouped by topic. The
+  unit uses nothing — it sits at the bottom of the dependency graph, so
+  "uses constants" never creates a cycle from any unit. No LCL here
+  either: the server builds as a console program.
 
-  Константы окна (карточки на рабочем столе, окно мини-приложения,
-  WebView2) — в fptg-client/guiconst.pas. Общие с окном (APP_TITLE,
-  пределы настроек карточек) лежат здесь, пока программа одна
-  (план «Разделение на сервер и GUI»).
+  Constants of the window (desktop cards, the mini app window,
+  WebView2) live in fptg-client/guiconst.pas. Those shared with the
+  window (APP_TITLE, the limits of the card settings) live here, from
+  the time there was a single program (the "split into server and GUI"
+  plan).
 
-  Константа не может ссылаться на объявленную ниже в том же блоке
-  const, поэтому группы, от которых зависят другие, — выше. }
+  A constant cannot refer to one declared further down in the same
+  const block, so the groups others depend on come first. }
 
 interface
 
 type
-  { Цвет в раскладке LCL-ного TColor ($00BBGGRR), но без Graphics. }
+  { A colour in the layout of the LCL TColor ($00BBGGRR), without Graphics. }
   TTdColor = type LongInt;
 
 const
@@ -249,43 +250,42 @@ const
 
   SHUTDOWN_TIMEOUT = 5000;
   MANIFEST = 'accounts.ini';
-  { Настройки — один зашифрованный файл рядом с exe (secureconfig.pas),
-    одно имя у обеих программ: у сервера в нём аккаунты, api_id и
-    токен, у окна — подключение к серверу. config.ini и MANIFEST —
-    прежние открытые файлы сервера, их содержимое переезжает внутрь
-    при первом запуске. }
+  { Settings — one encrypted file (secureconfig.pas), the same name for
+    both programs: the server keeps its accounts, api_id and token in it,
+    the window its connection to the server. config.ini and MANIFEST are
+    the server's former plain files; their contents move inside on the
+    first start. }
   SECURE_CONFIG_FILE = 'conf.dat';
   SECURE_CONFIG_MAGIC = 'FPTS';
   SECURE_CONFIG_VERSION = 1;
-  { Дополнительная энтропия DPAPI — строка программы: блоб ключа
-    раскрывается только вместе с ней (и только у того же пользователя
-    Windows). }
+  { Extra DPAPI entropy — the program's string: the key blob opens only
+    together with it (and only for the same Windows user). }
   SECURE_CONFIG_ENTROPY = 'fptg/settings/v1';
-  { Секция списка аккаунтов (бывшая [general] из accounts.ini). }
+  { Section of the account list (the former [general] of accounts.ini). }
   SECURE_CONFIG_ACCOUNTS_SECTION = 'accounts';
-  { Файл, который не расшифровался (чужой пользователь, другая машина,
-    повреждение), откладывается с этим суффиксом, а не стирается. }
+  { A file that did not decrypt (another user, another machine,
+    corruption) is set aside with this suffix rather than erased. }
   SECURE_CONFIG_BAD_SUFFIX = '.unreadable';
   LEGACY_CONFIG_FILE = 'config.ini';
 
   { ================= tdjson.pas ================= }
 
   TDJSON_LIB = 'tdjson.dll';
-  { Собственный лог TDLib (в stderr): только ошибки. По умолчанию он
-    подробный и пишет тексты сообщений — у окна stderr никуда не ведёт,
-    а консольный сервер выводил бы туда переписку. Что TDLib прислала,
-    и так видно в tdlib_raw.log. }
+  { TDLib's own log (to stderr): errors only. By default it is verbose
+    and writes message texts — the window's stderr goes nowhere, but the
+    console server would print the correspondence there. What TDLib sent
+    is visible in tdlib_raw.log anyway. }
   TDLIB_LOG_VERBOSITY = 1;
-  { Сколько последних говоривших показывать на плашке трансляции
+  { How many of the latest speakers the live stream bar shows
     (webapi.SpeakersJson). }
   VCHAT_BAR_SPEAKERS = 3;
-  { Глобальный поиск (webapi, ui/search.js): частые — лентой, списки и
-    сообщения — сколько отдавать за раз. }
+  { Global search (webapi, ui/search.js): frequent chats as a strip, how
+    many lists and messages to return at a time. }
   SEARCH_TOP_LIMIT = 30;
   SEARCH_LIST_LIMIT = 50;
   SEARCH_MESSAGES_LIMIT = 30;
-  { Сколько символов текста богатого сообщения собирать на превью в
-    списке чатов (tdchats.MessagePreview). }
+  { How many characters of a rich message to collect for the preview in
+    the chat list (tdchats.MessagePreview). }
   CHAT_PREVIEW_RICH_CHARS = 200;
 
   { ================= tdmessages.pas ================= }
@@ -327,56 +327,60 @@ const
     pages in it says the history is longer than it is. }
   TRIM_AT = FILL_TARGET * 2;
   TRIM_KEEP = FILL_TARGET;
-  { Повторы прыжка к сообщению, если цели в ответе не оказалось. Первый
-    getChatHistory по чату, которого нет в локальной базе, отдаёт то,
-    что лежит локально, — живой лог: 1 сообщение (total_count 1),
-    СТАРШЕ цели; повтор того же запроса уже вернул 34 с целью. }
+  { Retries of a jump to a message when the target is not in the
+    answer. The first getChatHistory for a chat missing from the local
+    database returns what is stored locally — live log: 1 message
+    (total_count 1), OLDER than the target; a repeat of the same request
+    returned 34 including the target. }
   JUMP_RETRY_MAX = 3;
-  { Картинка карты геопозиции в сообщении (getMapThumbnailFile): размер
-    до scale — по ширине пузыря медиа, scale 2 — для чёткости на HiDPI. }
-  { Сервисы карт, где открывается точка геопозиции (util/maps.js на
-    странице знает их адреса и названия). Пусто в config.ini —
-    спрашивать каждый раз. }
+  { Map picture of a location in a message (getMapThumbnailFile): size
+    before scale — the width of the media bubble, scale 2 — sharp on HiDPI. }
+  { Map services a location point opens in (util/maps.js on the page
+    knows their addresses and names). Empty in config.ini — ask every
+    time. }
   MAPS_PROVIDERS: array[0..6] of string = ('google', 'yandex', 'osm', 'bing',
     'apple', '2gis', 'here');
   MAP_THUMB_WIDTH = 360;
   MAP_THUMB_HEIGHT = 200;
   MAP_THUMB_SCALE = 2;
   MAP_THUMB_ZOOM = 16;
-  { Предел длины «о себе», если getOption("bio_length_max") не ответил:
-    70 без Premium, 140 с ним (живой лог: 140 у Premium-аккаунта). }
+  { Limit of the bio length when getOption("bio_length_max") gave no
+    answer: 70 without Premium, 140 with it (live log: 140 for a Premium
+    account). }
   ACCOUNT_BIO_MAX_DEFAULT = 70;
-  { Сколько своих аватарок показывает галерея (getUserProfilePhotos
-    отдаёт до 100 за раз; каждое качается синхронно перед ответом). }
+  { How many of one's own profile photos the gallery shows
+    (getUserProfilePhotos returns up to 100 at a time; each one is
+    downloaded synchronously before the answer). }
   ACCOUNT_PHOTOS_MAX = 30;
-  { Сколько участников группы показывает панель информации
-    (getSupergroupMembers, последние). }
+  { How many group members the info panel shows (getSupergroupMembers,
+    recent). }
   INFO_MEMBERS_MAX = 200;
-  { Подарков за один запрос getReceivedGifts (не больше 100 по td_api.tl). }
+  { Gifts per getReceivedGifts request (no more than 100 per td_api.tl). }
   GIFTS_PAGE = 60;
-  { Сетка фото и видео в панели информации (media.list): сообщений за
-    один запрос searchChatMessages (не больше 100 по td_api.tl) и
-    сторона, с которой размер фото уже годится в превью плитки —
-    первый photoSize не меньше этого по длинной стороне (тип «m»). }
+  { The photo and video grid in the info panel (media.list): messages
+    per searchChatMessages request (no more than 100 per td_api.tl) and
+    the side from which a photo size is good enough for a tile preview —
+    the first photoSize at least this long on its longer side (type "m"). }
   MEDIA_GRID_PAGE = 60;
-  { Сколько id временных (pending) сообщений, уже заменённых через
-    updateMessageSendSucceeded, помнит модель истории — чтобы опоздавший
-    ответ sendMessage не вернул такое сообщение обратно (TTdMessages.
-    FReplaced). Хватает с запасом: это отправки одного открытого чата. }
+  { How many ids of temporary (pending) messages already replaced through
+    updateMessageSendSucceeded the history model remembers — so that a
+    late sendMessage answer does not bring such a message back (TTdMessages.
+    FReplaced). Plenty: these are the sends of one open chat. }
   REPLACED_IDS_MAX = 256;
-  { Временный пароль для оплаты сохранённой картой (createTemporaryPassword
-    valid_for; td_api.tl: от 60 до 86400 секунд). }
+  { Temporary password for paying with a saved card (createTemporaryPassword
+    valid_for; td_api.tl: 60 to 86400 seconds). }
   PAYMENT_TMP_PASSWORD_SEC = 1800;
-  { Подсказка упоминаний в поле ввода (mention.search): сколько людей
-    просить у searchChatMembers / searchContacts. }
+  { Mention suggestions in the input field (mention.search): how many
+    people to ask searchChatMembers / searchContacts for. }
   MENTION_SUGGEST_LIMIT = 20;
-  { Аватарка аккаунта в переключателе (accounts.list) уходит data-URI
-    прямо из файла small-фото: id файлов у каждого клиента TDLib свои, а
-    /media/<id> — одна таблица на всех, и аватарка неактивного аккаунта
-    могла бы занять id чужого файла. Больше этого — только minithumbnail. }
+  { The account avatar in the switcher (accounts.list) goes out as a
+    data URI straight from the small photo file: file ids are per TDLib
+    client, while /media/<id> is one table for all of them, and the avatar
+    of an inactive account could take the id of somebody else's file.
+    Larger than this — the minithumbnail only. }
   ACCOUNT_AVATAR_MAX_BYTES = 65536;
   MEDIA_GRID_THUMB_SIDE = 320;
-  { То же для картинки строки ссылки — она мелкая (тип «s»). }
+  { The same for the picture of a link row — it is small (type "s"). }
   MEDIA_LINK_THUMB_SIDE = 100;
 
   { ================= tdrecv.pas ================= }
@@ -400,40 +404,39 @@ const
   { The HTTP+WebSocket server that serves the web UI; --server-port=N
     on the command line overrides this default. }
   LOCAL_SERVER_PORT = 7654;
-  { Адрес привязки по умолчанию — только эта машина (--bind меняет). }
+  { Default bind address — this machine only (--bind changes it). }
   LOCAL_SERVER_BIND = '127.0.0.1';
-  { ================= окно сервера (panel/srvpanel.pas) ================= }
+  { ================= server window (panel/srvpanel.pas) ================= }
 
-  { Раскладка окна — в panel/srvpanel.lfm (дизайнер Lazarus). Выход: сколько ждать, пока TDLib закроет клиентов (TTdCore сам
-    ограничивает ожидание SHUTDOWN_TIMEOUT; это — запас сверху). }
+  { The window layout is in panel/srvpanel.lfm (Lazarus designer). Quit: how long to wait for TDLib to close its clients (TTdCore itself
+    caps the wait at SHUTDOWN_TIMEOUT; this is the margin on top). }
   PANEL_QUIT_GIVEUP_MS = SHUTDOWN_TIMEOUT + 2000;
-  { Порт, заданный в окне, — в conf.dat сервера. }
+  { The port set in the window — in the server's conf.dat. }
   SERVER_CONFIG_SECTION = 'server';
   SERVER_CONFIG_PORT = 'port';
 
-  { ================= единственный экземпляр (instance.pas) ================= }
+  { ================= single instance (instance.pas) ================= }
 
-  { ИМЯ.lock — блокировка экземпляра, ИМЯ.instance — порт и ключ канала
-    управления. Оба сервера (консольный и с окном) — один экземпляр:
-    данные общие. }
+  { NAME.lock — the instance lock, NAME.instance — the port and key of
+    the control channel. Both servers (console and windowed) are one
+    instance: the data is shared. }
   INSTANCE_SERVER = 'server';
   INSTANCE_CLIENT = 'client';
-  { Сервер — один на всю машину, под каким бы пользователем ОС ни
-    запускался (публичная версия, 2026-10-16): поверх блокировки папки —
-    общая для ОС. Windows — именованный мьютекс в глобальном
-    пространстве имён (виден из всех сеансов), Unix — flock на файле в
-    /tmp (доступен всем пользователям). }
+  { One server per machine, whichever OS user starts it (public
+    version, 2026-10-16): on top of the folder lock — an OS-wide one.
+    Windows — a named mutex in the global namespace (visible from every
+    session), Unix — flock on a file in /tmp (open to every user). }
   INSTANCE_MACHINE_MUTEX = 'Global\fptg-server';
   INSTANCE_MACHINE_LOCK_FILE = '/tmp/fptg-server.lock';
 
-  { ================= папки данных (appdirs.pas) ================= }
+  { ================= data folders (appdirs.pas) ================= }
 
-  { %LOCALAPPDATA%\fptg\<программа> (Unix: ~/.local/share/fptg/...). }
+  { %LOCALAPPDATA%\fptg\<program> (Unix: ~/.local/share/fptg/...). }
   APP_DATA_ROOT = 'fptg';
   APP_DATA_SERVER = 'server';
   APP_DATA_CLIENT = 'client';
-  { Журнал сбоев команд страницы (webapi.LogCommandCrash) — в папке
-    данных сервера; больше SERVER_ERROR_LOG_MAX — начинается заново. }
+  { Crash log of page commands (webapi.LogCommandCrash) — in the server's
+    data folder; past SERVER_ERROR_LOG_MAX it starts over. }
   SERVER_ERROR_LOG = 'errors.log';
   SERVER_ERROR_LOG_MAX = 1024 * 1024;
   SERVER_ERROR_LOG_ARGS = 600;
@@ -442,81 +445,83 @@ const
   INSTANCE_KEY_BYTES = 32;
   INSTANCE_IO_TIMEOUT_MS = 5000;
   INSTANCE_MAX_LINE = 65536;
-  { Только что запущенный экземпляр мог ещё не записать .instance. }
+  { A just started instance may not have written .instance yet. }
   INSTANCE_INFO_WAIT_TRIES = 30;
   INSTANCE_INFO_WAIT_MS = 100;
-  { Пульт к чужому серверу: как часто спрашивать его состояние. }
+  { Remote control of another server: how often to ask for its state. }
   PANEL_REMOTE_POLL_MS = 2000;
-  { Статистика трафика (srvhost): тик сервера — события traffic
-    страницам и опрос getNetworkStatistics; окно сервера спрашивает с
-    тем же шагом. }
+  { Traffic statistics (srvhost): the server tick — traffic events to
+    the pages and a getNetworkStatistics poll; the server window asks at
+    the same step. }
   TRAFFIC_TICK_MS = 1000;
 
   { ================= TLS (tlscert.pas) ================= }
 
-  { Свой самоподписанный сертификат: RSA 2048, 10 лет (окно запоминает
-    отпечаток — сертификат не должен меняться сам), хранится в conf.dat. }
+  { Our own self-signed certificate: RSA 2048, 10 years (the window
+    remembers the fingerprint — the certificate must not change by
+    itself), kept in conf.dat. }
   TLS_RSA_BITS = 2048;
   TLS_SELF_SIGNED_DAYS = 3650;
   TLS_SELF_SIGNED_NAME = 'fptg';
   TLS_CONFIG_SECTION = 'tls';
-  { Сырой лог TDLib (tdjson.SetRawLog): галочка окна сервера, conf.dat. }
+  { Raw TDLib log (tdjson.SetRawLog): the server window's checkbox, conf.dat. }
   LOG_CONFIG_SECTION = 'log';
   LOG_CONFIG_RAW = 'tdlib';
   TLS_CONFIG_CERT = 'cert';
   TLS_CONFIG_KEY = 'key';
-  { Свой сертификат из окна сервера — ПУТИ к файлам PEM, не их текст:
-    так Synapse берёт всю цепочку (SslCtxUseCertificateChainFile), а
-    продлённый certbot'ом файл подхватывается без правок. Ключи
-    командной строки --cert/--key главнее. }
+  { A certificate of one's own from the server window — PATHS to PEM
+    files, not their text: this way Synapse takes the whole chain
+    (SslCtxUseCertificateChainFile), and a file renewed by certbot is
+    picked up without changes. The --cert/--key command line keys win. }
   TLS_CONFIG_CERT_FILE = 'cert_file';
   TLS_CONFIG_KEY_FILE = 'key_file';
 
-  { ================= вход (srvauth.pas) ================= }
+  { ================= sign-in (srvauth.pas) ================= }
 
-  { Пароли — PBKDF2-HMAC-SHA256 (sha256u.pas): итерации, соль, хеш. }
+  { Passwords — PBKDF2-HMAC-SHA256 (sha256u.pas): iterations, salt, hash. }
   AUTH_PBKDF2_ITERATIONS = 100000;
   AUTH_SALT_BYTES = 16;
   AUTH_HASH_BYTES = 32;
-  { Секрет подписи JWT (HS256) и refresh-токены — случайные байты. }
+  { JWT signing secret (HS256) and refresh tokens — random bytes. }
   AUTH_JWT_KEY_BYTES = 32;
   AUTH_REFRESH_BYTES = 32;
-  { Короткий JWT для запросов (веб-сокет, загрузки) — час; страница
-    продлевает его сама. Медиа-JWT — без срока, живёт, пока жив сеанс:
-    адреса картинок висят в странице часами. }
+  { A short JWT for requests (web socket, uploads) — an hour; the page
+    renews it itself. The media JWT has no expiry and lives as long as
+    the session: picture addresses stay in the page for hours. }
   AUTH_ACCESS_TTL_SEC = 3600;
-  { Сеанс (refresh-токен), которым не пользовались столько дней, гаснет. }
+  { A session (refresh token) unused for this many days expires. }
   AUTH_SESSION_IDLE_DAYS = 90;
-  { Перебор паролей: столько неудач с одного адреса за окно — и адрес
-    ждёт. Плюс сам PBKDF2 (~0.1 с на попытку). }
+  { Password guessing: this many failures from one address within the
+    window — and the address waits. Plus PBKDF2 itself (~0.1 s a try). }
   AUTH_FAIL_LIMIT = 5;
   AUTH_FAIL_WINDOW_SEC = 600;
   AUTH_LOCK_SEC = 60;
-  { Тело запроса /api/… — маленький JSON. }
+  { Body of an /api/… request — a small JSON. }
   AUTH_MAX_BODY = 8192;
   AUTH_CONFIG_SECTION = 'auth';
   AUTH_CONFIG_JWT_KEY = 'jwtkey';
   AUTH_USERS_SECTION = 'users';
   AUTH_SESSIONS_SECTION = 'sessions';
-  { Пути API входа (localserver.pas). }
+  { Paths of the sign-in API (localserver.pas). }
   API_LOGIN_PATH = '/api/login';
   API_REFRESH_PATH = '/api/refresh';
   API_LOGOUT_PATH = '/api/logout';
-  { Origin страницы в окне fptg: окно показывает её из своих
-    файлов под этим именем (WebView2, виртуальный хост). Сервер пускает
-    её запросы (CORS, веб-сокет), как свои. .example — зарезервированный
-    домен (RFC 2606): настоящего сайта с таким именем быть не может. }
+  { Origin of the page in the fptg window: the window shows it from its
+    own files under this name (WebView2, virtual host). The server lets
+    its requests through (CORS, web socket) as its own. .example is a
+    reserved domain (RFC 2606): no real site can have this name. }
   WEB_APP_HOST = 'fptg.example';
   WEB_APP_ORIGIN = 'https://' + WEB_APP_HOST;
   { Static files are served out of this directory next to the exe
     (never out of the project or the TDLib cache — see MapPath, which
     additionally refuses anything that escapes it). }
-  { Страница — часть морды (fptg-client/web); сервер раздаёт её
-    оттуда (и окну, и обычному браузеру). На другой машине — --web-dir.
-    Показ страницы окном из своих файлов — TODO, шаг 3б. }
+  { The page is part of the client (fptg-client/web); the server serves
+    it from there (to the window and to an ordinary browser alike). On
+    another machine — --web-dir. }
   LOCAL_SERVER_WEB_DIR = {$IFDEF WINDOWS}'..\fptg-client\web'{$ELSE}'../fptg-client/web'{$ENDIF};
-  { Релизный архив сервера: страница — папкой web рядом с exe
-    (tools/build_release.py); ищется, когда LOCAL_SERVER_WEB_DIR нет. }
+  { The server's release archive: the page is the web folder next to the
+    exe (tools/build_release.py); looked for when LOCAL_SERVER_WEB_DIR is
+    not there. }
   LOCAL_SERVER_WEB_DIR_RELEASE = 'web';
   { 128 bits, from the OS CSPRNG. This is effectively a session key:
     anything on this machine that can reach the port can drive the
@@ -537,8 +542,8 @@ const
     application exit. }
   LOCAL_SERVER_STOP_WAIT_MS = 2000;
 
-  { Код закрытия веб-сокета «сеанс погашен» (диапазон 4000-4999 — для
-    приложений, RFC 6455): страница уходит на вход, а не переподключается. }
+  { Web socket close code "session revoked" (range 4000-4999 is for
+    applications, RFC 6455): the page goes to sign-in instead of reconnecting. }
   LOCAL_SERVER_WS_CLOSE_SESSION_ENDED = 4001;
   { Same idea as the accept poll, for the WebSocket read loop. }
   LOCAL_SERVER_WS_POLL_MS = 200;
@@ -553,40 +558,42 @@ const
     such a connection sits in the read loop forever holding a thread. }
   LOCAL_SERVER_WS_PING_MS = 20000;
 
-  { Приём файлов со страницы (POST /upload, localserver.pas) для
-    отправки в чат. Каждый файл ложится в свой подкаталог со случайным
-    id — под СВОИМ именем, потому что TDLib берёт имя документа из
-    пути inputFileLocal. Каталог рядом с exe и чистится при каждом
-    старте сервера: отправленные файлы удаляет модель по
-    updateMessageSendSucceeded, а остаются только брошенные.
-    Потолок — 4 ГБ, предел Telegram для Premium; без Premium TDLib
-    откажет сам и скажет почему. }
+  { Files received from the page (POST /upload, localserver.pas) for
+    sending to a chat. Each file goes into its own subfolder with a
+    random id — under its OWN name, because TDLib takes a document's name
+    from the inputFileLocal path. The folder is cleaned on every server
+    start: sent files are removed by the model on
+    updateMessageSendSucceeded, so only abandoned ones remain.
+    The ceiling is 4 GB, Telegram's limit for Premium; without Premium
+    TDLib refuses by itself and says why. }
   LOCAL_SERVER_UPLOAD_PATH = '/upload';
   LOCAL_SERVER_UPLOAD_DIR = 'uploads';
   LOCAL_SERVER_UPLOAD_MAX = Int64(4) * 1024 * 1024 * 1024;
   LOCAL_SERVER_UPLOAD_CHUNK = 65536;
-  { Имя файла в пути — без того, что Windows в имени не допускает, и
-    не длиннее этого (запас под путь к каталогу до MAX_PATH). }
+  { A file name in a path — without what Windows does not allow in a
+    name, and no longer than this (room for the folder path up to
+    MAX_PATH). }
   LOCAL_SERVER_UPLOAD_NAME_MAX = 120;
 
-  { sendMessageAlbum группирует 2..10 сообщений (td_api.tl). Больше
-    файлов уходит несколькими альбомами подряд. }
+  { sendMessageAlbum groups 2..10 messages (td_api.tl). More files go
+    out as several albums in a row. }
   SEND_ALBUM_MAX = 10;
-  { Размер шрифта (высота строки в пикселях при 96 dpi) — настройка,
-    отдельно у заголовка и у текста. Обе строки вместе центрируются по
-    высоте карточки; при 24+24 они ещё помещаются в DESKNOTIFY_HEIGHT. }
+  { Font size (line height in pixels at 96 dpi) — a setting, separate
+    for the title and the text. Both lines together are centred on the
+    card's height; at 24+24 they still fit in DESKNOTIFY_HEIGHT. }
   DESKNOTIFY_FONT_MIN = 10;
   DESKNOTIFY_FONT_MAX = 24;
   DESKNOTIFY_TITLE_FONT_DEFAULT = 17;
   DESKNOTIFY_TEXT_FONT_DEFAULT = 17;
-  { Сколько карточек одновременно — настройка; больше — старшие уходят. }
+  { How many cards at once — a setting; beyond it the oldest go. }
   DESKNOTIFY_LIMIT_MIN = 1;
   DESKNOTIFY_LIMIT_MAX = 5;
   DESKNOTIFY_LIMIT_DEFAULT = 4;
-  { Углы экрана: коды для config.ini и страницы. Первая буква — верх или
-    низ, вторая — лево или право; desknotify.pas разбирает их так же. }
+  { Screen corners: codes for config.ini and the page. The first letter
+    is top or bottom, the second left or right; desknotify.pas reads them
+    the same way. }
   DESKNOTIFY_CORNERS: array[0..3] of string = ('tl', 'tr', 'bl', 'br');
-  DESKNOTIFY_CORNER_DEFAULT = 3;   { правый нижний, как у Telegram Desktop }
+  DESKNOTIFY_CORNER_DEFAULT = 3;   { bottom right, as in Telegram Desktop }
   MINIAPP_APP_NAME = 'fptg';
 
   { A SAFETY NET, not the delivery path (webapi.pas). A socket thread
@@ -599,36 +606,36 @@ const
     remove once things depend on it. }
   WEBAPI_FALLBACK_TICK_MS = 200;
 
-  { Рекламные сообщения (webapi.pas, ads.*). Ответ getChatSponsoredMessages
-    живёт столько на чат (core.telegram.org/api/sponsored-messages:
-    «cache for 5 minutes»): каждое открытие канала спрашивает, но
-    Telegram — не чаще. Приоритет докачки медиа рекламы — как у
-    приветственного стикера: показывать её можно только скачанной. }
+  { Sponsored messages (webapi.pas, ads.*). The getChatSponsoredMessages
+    answer lives this long per chat (core.telegram.org/api/sponsored-messages:
+    "cache for 5 minutes"): every opening of a channel asks, but Telegram
+    is asked no more often. Download priority of the ad's media — the same
+    as the greeting sticker's: it may only be shown once downloaded. }
   SPONSORED_CACHE_MS = 5 * 60 * 1000;
   SPONSORED_DOWNLOAD_PRIORITY = 32;
 
-  { Звонки (tdcalls.pas). Версия протокола tgcalls — только 10.0.0
-    (InstanceV2ReferenceImpl): сигналинг там — обычные SDP offer/answer
-    и ICE-кандидаты в JSON, которые браузерный RTCPeerConnection даёт
-    как есть. 11.0.0 добавляет поверх SCTP-обёртку сигналинга — её у
-    страницы нет, поэтому не предлагается. Сервер выбирает лучшую общую
-    версию из списков обеих сторон (core.telegram.org/api/calls).
-    Слои — как у tgcalls: Meta::MaxLayer() = 92, минимальный 65. }
+  { Calls (tdcalls.pas). tgcalls protocol version — only 10.0.0
+    (InstanceV2ReferenceImpl): its signalling is plain SDP offer/answer
+    and ICE candidates in JSON, which the browser's RTCPeerConnection
+    gives as is. 11.0.0 adds an SCTP signalling wrapper on top — the page
+    has none, so it is not offered. The server picks the best common
+    version from both sides' lists (core.telegram.org/api/calls).
+    Layers — as in tgcalls: Meta::MaxLayer() = 92, minimum 65. }
   CALL_LIBRARY_VERSIONS: array[0..0] of utf8string = ('10.0.0');
   CALL_MIN_LAYER = 65;
   CALL_MAX_LAYER = 92;
-  { Сколько участников видеочата просить за раз (loadGroupCallParticipants):
-    остальные приходят обновлениями по мере того, как говорят. }
+  { How many video chat participants to ask for at once
+    (loadGroupCallParticipants): the rest arrive as updates as they speak. }
   VCHAT_LOAD_PARTICIPANTS = 100;
-  { Цитата на сообщение, которого больше нет (getMessage ответил
-    ошибкой) — как у официальных клиентов. }
+  { A quote of a message that is gone (getMessage answered with an
+    error) — as in the official clients. }
   REPLY_DELETED_TEXT = 'Deleted message';
 
-  { Обновления TDLib, у которых нет метода-«геттера», а настройкам
-    (ui/settings.js) нужно их последнее значение: быстрая реакция,
-    папки (включены ли теги), баланс звёзд, список быстрых реакций.
-    Аккаунт хранит последнее пришедшее каждого типа (tdaccount,
-    KeptUpdate), страница читает командой td.kept. }
+  { TDLib updates that have no "getter" method, while the settings
+    (ui/settings.js) need their latest value: quick reaction, folders
+    (whether tags are on), Stars balance, the list of quick reactions.
+    The account keeps the latest one of each type (tdaccount,
+    KeptUpdate), the page reads it with the td.kept command. }
   KEPT_UPDATE_TYPES: array[0..5] of string = (
     'updateDefaultReactionType', 'updateChatFolders', 'updateOwnedStarCount',
     'updateActiveEmojiReactions', 'updateQuickReplyShortcuts', 'updateSavedMessagesTopicCount');

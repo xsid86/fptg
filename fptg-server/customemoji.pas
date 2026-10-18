@@ -1,21 +1,21 @@
 unit customemoji;
 
-{ Custom (Telegram Premium) emoji — реестр от custom_emoji_id к файлу
-  стикера: file id, формат, путь на диске и было ли уже попрошено
-  скачивание.
+{ Custom (Telegram Premium) emoji — a registry from custom_emoji_id to the
+  sticker file: file id, format, path on disk and whether a download has
+  been asked for already.
 
-  tdmessages.pas и tdchats.pas ведут сторону TDLib
-  (getCustomEmojiStickers, затем обычные downloadFile/updateFile) и
-  зовут Set* по мере прихода данных; webapi.pas отдаёт странице адрес
-  /media/ и формат, а рисует эмодзи сама страница.
+  tdmessages.pas and tdchats.pas run the TDLib side
+  (getCustomEmojiStickers, then the ordinary downloadFile/updateFile) and
+  call Set* as the data arrives; webapi.pas gives the page the /media/
+  address and the format, and the page draws the emoji itself.
 
-  Раньше здесь же жили растры и живые декодеры (TLottiePlayer,
-  TAnimationPlayer) для нативной истории и списка чатов; с нативными
-  окнами (2026-10-05) они ушли — остался один реестр.
+  Bitmaps and live decoders (TLottiePlayer, TAnimationPlayer) for the
+  native history and chat list used to live here too; they went with the
+  native windows (2026-10-05) — the registry alone is left.
 
-  Формат — свой enum, а не tdmessages.TStickerFormat: tdmessages уже
-  зависит от этого юнита, обратная ссылка ради одного типа была бы
-  циклом. }
+  The format is its own enum, not tdmessages.TStickerFormat: tdmessages
+  already depends on this unit, and a reference back for the sake of one
+  type would be a cycle. }
 
 {$mode objfpc}{$H+}
 

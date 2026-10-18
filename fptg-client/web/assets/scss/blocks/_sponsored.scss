@@ -1,9 +1,10 @@
 @use "../abstracts" as *;
 
-// Официальная реклама Telegram (ui/sponsored.js): карточка после постов
-// канала и полоса «Ad» над полем ввода в чате с ботом. Цвет — акцент
-// рекламы (accent_color_id -> класс .accent-*), как у сообщений: тот же
-// язык, но с подписью Ad / Recommended, чтобы с постом не спутать.
+// Official Telegram ads (ui/sponsored.js): a card after a channel's posts
+// and an "Ad" bar above the input field in a chat with a bot. The colour —
+// the ad's accent (accent_color_id -> the .accent-* class), as for
+// messages: the same language, but with an Ad / Recommended label so it is
+// not confused with a post.
 .ad,
 .ad-bar {
   --ad-color: var(--accent-color, var(--c-accent));
@@ -101,12 +102,12 @@
   }
 }
 
-// Адрес внешней ссылки в вопросе «Open this link?» — длинный, без пробелов.
+// The external link's address in the "Open this link?" question — long, without spaces.
 .ad-link {
   overflow-wrap: anywhere;
 }
 
-// Варианты жалобы (reportSponsoredResultOptionRequired) — столбиком.
+// Report options (reportSponsoredResultOptionRequired) — as a column.
 .ad-report {
   @include flex(column, stretch, flex-start, $space-1);
 }

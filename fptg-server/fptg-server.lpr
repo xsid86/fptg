@@ -2,35 +2,37 @@ program fptg_server;
 
 {$mode objfpc}{$H+}
 
-{ Сервер fptg: ядро TDLib, мост для страницы и HTTPS/WebSocket-
-  сервер. Консольная программа без LCL — собирается и под Linux (для VPS
-  и службы); то же с окном — fptg-server-gui. Окно клиента
-  (fptg-client.exe, fptg-client) подключается к серверу по адресу и
-  порту и входит логином и паролем.
+{ The fptg server: the TDLib core, the bridge for the page and the
+  HTTPS/WebSocket server. A console program without LCL — it builds under
+  Linux too (for a VPS and a service); the same with a window is
+  fptg-server-gui. The client window (fptg-client.exe, fptg-client)
+  connects to the server by address and port and signs in with a login
+  and password.
 
-  Один экземпляр на папку данных (instance.pas, общий с
-  fptg-server-gui): второй запуск не стартует, а команды
-  пользователя передаёт работающему серверу.
+  One instance per data folder (instance.pas, shared with
+  fptg-server-gui): a second start does not start, but passes the user
+  commands on to the running server.
 
-  Параметры:
-    --server-port=N     порт (по умолчанию — выбранный в окне сервера
-                        или LOCAL_SERVER_PORT);
-    --bind=АДРЕС        где слушать (по умолчанию 127.0.0.1 — только эта
-                        машина; 0.0.0.0 — все сети);
-    --web-dir=ПУТЬ      папка страницы (по умолчанию ../fptg-client/web);
-    --cert=ФАЙЛ --key=ФАЙЛ  свой сертификат TLS (PEM), иначе свой
-                        самоподписанный;
-    --set-user=ЛОГИН    логин и пароль пользователя (спросит пароль) и
-                        выйти. Пользователь у сервера один: другой
-                        логин заменяет прежний, и его сеансы гаснут;
-    --sign-out          завершить все сеансы (все окна и браузеры
-                        войдут заново) и выйти;
-    --tdlib-log         вести сырой лог TDLib (tdlib_raw.log) в этом
-                        запуске. По умолчанию выключен: в нём вся
-                        переписка открытым текстом. }
+  Parameters:
+    --server-port=N     port (by default the one chosen in the server
+                        window, or LOCAL_SERVER_PORT);
+    --bind=ADDRESS      where to listen (by default 127.0.0.1 — this
+                        machine only; 0.0.0.0 — all networks);
+    --web-dir=PATH      the page folder (by default ../fptg-client/web);
+    --cert=FILE --key=FILE  one's own TLS certificate (PEM), otherwise our
+                        own self-signed one;
+    --set-user=LOGIN    the user's login and password (asks for the
+                        password) and exit. The server has one user: another
+                        login replaces the previous one, and its sessions
+                        end;
+    --sign-out          end all sessions (all windows and browsers sign in
+                        again) and exit;
+    --tdlib-log         keep the raw TDLib log (tdlib_raw.log) for this
+                        run. Off by default: it holds all the
+                        correspondence in plain text. }
 
 uses
-  { Менеджер памяти — первым, раньше любого выделения. }
+  { The memory manager — first, before any allocation. }
   cmem,
   {$IFDEF UNIX}
   cthreads,
@@ -39,8 +41,8 @@ uses
   constants, tdtimer, localserver, srvloop, srvauth, srvconsole, srvhost, instance,
   appdirs, secureconfig;
 
-{ Ресурсы проекта (fptg-server.res, его пишет сборка): в них
-  VERSIONINFO, которую tdaccount.AppVersionString отдаёт TDLib. }
+{ The project's resources (fptg-server.res, written by the build): they hold
+  the VERSIONINFO that tdaccount.AppVersionString gives TDLib. }
 {$R *.res}
 
 function HasParam(const AName: string): boolean;
@@ -55,15 +57,16 @@ begin
   end;
 end;
 
-{ Данные сервера — в профиле пользователя (appdirs.pas), не рядом с exe. }
+{ The server's data lives in the user profile (appdirs.pas), not next to the exe. }
 function DataDir: string;
 begin
   Result := ServerDataDir;
 end;
 
-{ Пароль дважды, с подтверждением. '' — человек передумал или не совпало.
-  Без консоли (скрипт развёртывания) — первая строка стандартного ввода;
-  конвейер PowerShell 5.1 приписывает BOM UTF-8 и может оставить #13. }
+{ The password twice, with confirmation. '' — the person changed their
+  mind or it did not match. Without a console (a deployment script) — the
+  first line of standard input; a PowerShell 5.1 pipeline prepends a UTF-8
+  BOM and may leave a #13. }
 function AskNewPassword(const AUser: string): string;
 var
   A, B: string;
@@ -93,8 +96,9 @@ begin
   Result := A;
 end;
 
-{ Команда пользователя из параметров, как команда управления (srvhost):
-  ACmd и аргументы. False — команды нет; ACmd = '' — человек передумал. }
+{ The user command from the parameters, as a control command (srvhost):
+  ACmd and arguments. False — no command; ACmd = '' — the person changed
+  their mind. }
 function UserCommand(out ACmd: string; out AArgs: TJSONObject): boolean;
 var
   UserName, Pwd: string;
@@ -136,8 +140,8 @@ begin
   end;
 end;
 
-{ Сервер уже запущен (здесь или с окном): команду пользователя — ему,
-  иначе — сказать и выйти. }
+{ The server is already running (here or with a window): the user command
+  goes to it, otherwise say so and exit. }
 procedure ServeSecondCopy;
 var
   Cmd, Err: string;
@@ -175,9 +179,9 @@ begin
 end;
 
 type
-  { Состояние, поменявшееся командой из окна-пульта или второго запуска,
-    — строкой в консоли: иначе на экране так и висит «running», хотя
-    подключения уже не принимаются. }
+  { A state changed by a command from the remote window or a second start
+    — as a line in the console: otherwise "running" stays on screen even
+    though connections are no longer accepted. }
   TConsoleNotes = class
     Host: TServerHost;
     WasRunning: boolean;
@@ -198,7 +202,7 @@ begin
   end;
 end;
 
-{ Без пользователя войти некому. За консолью — завести его сразу. }
+{ Without a user nobody can sign in. At the console — set one up right away. }
 procedure EnsureUser;
 var
   UserName, Pwd: string;
@@ -230,10 +234,10 @@ var
   Args: TJSONObject;
 
 begin
-  { Без этого неявные преобразования строк идут через системную кодовую
-    страницу и теряют не-латиницу. }
+  { Without this, implicit string conversions go through the system code
+    page and lose non-Latin characters. }
   DefaultSystemCodePage := CP_UTF8;
-  { conf.dat — тоже в папке данных; до первого чтения (AuthLoad). }
+  { conf.dat is in the data folder too; before the first read (AuthLoad). }
   SecureConfigSetDir(DataDir);
 
   if not AcquireInstance(DataDir, INSTANCE_SERVER) then begin
@@ -269,8 +273,8 @@ begin
     ExitCode := 1;
     Exit;
   end;
-  { Канал управления: окно сервера при запуске станет пультом к этому
-    серверу, второй запуск передаст сюда команды пользователя. }
+  { The control channel: the server window, when started, becomes a remote
+    control for this server, a second start passes the user commands here. }
   Notes := TConsoleNotes.Create;
   Notes.Host := Host;
   Notes.WasRunning := True;
@@ -280,9 +284,10 @@ begin
   WriteLn(APP_TITLE, ' server');
   WriteLn;
   EnsureUser;
-  { Адрес и порт сюда не выводятся: их видно и копируют в окне сервера
-    (fptg-server-gui), а консоль бывает на виду у кого угодно. Отпечаток
-    — не секрет: им сверяют сертификат при первом входе окна клиента. }
+  { The address and port are not printed here: they are visible and copied
+    in the server window (fptg-server-gui), and a console can be in view of
+    anyone. The fingerprint is no secret: the client window checks the
+    certificate against it on its first sign-in. }
   if Host.CertFile = '' then begin
     WriteLn('Certificate (self-signed), SHA-256 fingerprint:');
   end else begin
@@ -296,7 +301,7 @@ begin
   end;
   WriteLn;
   if ConsoleInteractive then begin
-    { Данные подключения не должны оставаться на экране. }
+    { Connection details must not stay on screen. }
     WriteLn('Press Enter to hide these details. Press Ctrl+C to stop.');
     ClearConsoleOnEnter(APP_TITLE + ' server is running. Press Ctrl+C to stop.');
   end else begin
@@ -307,7 +312,7 @@ begin
 
   WriteLn('Stopping...');
   ReleaseInstance;
-  { Это выход, а не «стоп из окна» — без строки о нём. }
+  { This is quitting, not a "stop from the window" — no line about it. }
   Host.OnChanged := nil;
   Host.Stop;
   ShutdownCore;

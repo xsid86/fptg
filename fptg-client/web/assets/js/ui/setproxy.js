@@ -3,9 +3,9 @@ import { icon } from '../util/icons.js';
 import { openBox, section, note, linkRow, radioGroup, textField } from './tgbox.js';
 import { one, saving } from './setkit.js';
 
-// «Connection type» (Advanced у Telegram Desktop): прокси, через
-// которые сервер fptg ходит в Telegram. Список, включить один или
-// «без прокси», проверить отклик, добавить и удалить — getProxies,
+// "Connection type" (Advanced in Telegram Desktop): the proxies the fptg
+// server uses to reach Telegram. The list, enabling one or "no proxy",
+// checking the response, adding and removing — getProxies,
 // enableProxy, disableProxy, pingProxy, addProxy, removeProxy (TDLib).
 
 const TYPES = [

@@ -2,14 +2,15 @@ unit tdattachbots;
 
 {$mode objfpc}{$H+}
 
-{ Боты меню вложений («Кошелёк» = @wallet и подобные): пункты меню
-  скрепки после встроенных. Список целиком приходит обновлением
-  updateAttachmentMenuBots (td_api.tl коммита d1085f9: attachmentMenuBot —
-  bot_user_id, supports_*_chats, show_in_attachment_menu, name, ...);
-  метода «получить список» нет, поэтому модель держит последний. Открывается
-  бот как Mini App — openWebApp с пустым url (так велит td_api.tl для
-  бота из меню вложений). Значки (default_icon) не качаются: в меню
-  общий значок бота. }
+{ Attachment menu bots ("Wallet" = @wallet and the like): paperclip menu
+  items after the built-in ones. The whole list arrives as an
+  updateAttachmentMenuBots update (td_api.tl at commit d1085f9:
+  attachmentMenuBot — bot_user_id, supports_*_chats,
+  show_in_attachment_menu, name, ...); there is no "get the list" method,
+  so the model keeps the latest. A bot opens as a Mini App — openWebApp
+  with an empty url (as td_api.tl prescribes for an attachment menu bot).
+  Icons (default_icon) are not downloaded: the menu uses the common bot
+  icon. }
 
 interface
 
@@ -99,7 +100,7 @@ begin
       Continue;
     end;
     B := TJSONObject(Arr.Items[I]);
-    { Только те, что пользователь держит в меню вложений. }
+    { Only those the user keeps in the attachment menu. }
     if not (JGetBool(B, 'is_added') and JGetBool(B, 'show_in_attachment_menu')) then begin
       Continue;
     end;
@@ -124,7 +125,7 @@ end;
 
 procedure TTdAttachBots.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  { Ошибки авторизации этой модели не касаются. }
+  { Authorization errors do not concern this model. }
 end;
 
 end.

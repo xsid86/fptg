@@ -3,16 +3,17 @@ unit sha256u;
 {$mode objfpc}{$H+}
 {$Q-}{$R-}
 
-{ SHA-256, HMAC-SHA256 и PBKDF2-HMAC-SHA256 (FIPS 180-4, RFC 2104,
-  RFC 8018) на чистом Pascal.
+{ SHA-256, HMAC-SHA256 and PBKDF2-HMAC-SHA256 (FIPS 180-4, RFC 2104,
+  RFC 8018) in plain Pascal.
 
-  Своё, а не из библиотек: в FPC 3.2.2 SHA-256 нет (hash/hmac.pp — только
-  MD5 и SHA1), а OpenSSL есть только у сервера — окну (fptg-client)
-  этот модуль нужен для отпечатка сертификата сервера, без лишних DLL.
-  Общий у двух программ, как constants и secureconfig.
+  Our own rather than from libraries: FPC 3.2.2 has no SHA-256
+  (hash/hmac.pp — MD5 and SHA1 only), and only the server has OpenSSL —
+  the window (fptg-client) needs this unit for the server certificate's
+  fingerprint, without extra DLLs. Shared by the two programs, like
+  constants and secureconfig.
 
-  Проверено эталонными векторами FIPS 180-4, RFC 4231 и RFC 7914
-  (PBKDF2-HMAC-SHA256) — см. журнал 2026-10-07. }
+  Checked against the reference vectors of FIPS 180-4, RFC 4231 and RFC
+  7914 (PBKDF2-HMAC-SHA256). }
 
 interface
 
@@ -27,11 +28,11 @@ function HmacSha256(const AKey, AData: RawByteString): TSha256Digest;
 function Pbkdf2Sha256(const APassword, ASalt: RawByteString; AIterations: integer;
   ALength: integer): RawByteString;
 
-{ Дайджест строкой байтов. }
+{ The digest as a byte string. }
 function DigestBytes(const ADigest: TSha256Digest): RawByteString;
-{ 'AB:CD:…' — как отпечатки сертификатов показывают браузеры. }
+{ 'AB:CD:…' — the way browsers show certificate fingerprints. }
 function DigestColonHex(const ADigest: TSha256Digest): string;
-{ Сравнение за постоянное время (секреты, подписи). }
+{ Constant-time comparison (secrets, signatures). }
 function SameBytes(const A, B: RawByteString): boolean;
 
 implementation
@@ -95,7 +96,7 @@ begin
   H[4] := $510e527f; H[5] := $9b05688c; H[6] := $1f83d9ab; H[7] := $5be0cd19;
   Len := Length(AData);
   BitLen := Len * 8;
-  { Дополнение: 0x80, нули до 56 по модулю 64, длина в битах (big-endian). }
+  { Padding: 0x80, zeros up to 56 modulo 64, the length in bits (big-endian). }
   Pad := 64 - integer((Len + 9) mod 64);
   if Pad = 64 then begin
     Pad := 0;

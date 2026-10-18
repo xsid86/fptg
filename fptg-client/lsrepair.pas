@@ -2,32 +2,33 @@ unit lsrepair;
 
 {$mode objfpc}{$H+}
 
-{ Самовосстановление localStorage профиля WebView2 окна (тема, акцент,
-  показ трафика, запомненные выборы страницы).
+{ Self-repair of the window's WebView2 profile localStorage (theme, accent,
+  traffic display, the page's remembered choices).
 
-  ГРАБЛЯ (2026-10-11, живой профиль): в журнале leveldb хранилища
-  (Local Storage\leveldb\NNNNNN.log) после оборванной сессии осталась дыра
-  из нулевых байт. Нулевой заголовок записи (crc 0, длина 0, тип 0) для
-  leveldb — «дальше пусто»: при восстановлении он отбрасывает весь
-  остаток блока. А Chromium открывает базу с повторным использованием
-  журнала («Reusing old log» в LOG) и дописывает ПОСЛЕ дыры — так что
-  всё записанное в следующих сессиях при каждом запуске терялось:
-  страница читала значение до дыры.
+  A PITFALL (2026-10-11, a live profile): in the storage's leveldb journal
+  (Local Storage\leveldb\NNNNNN.log) a hole of zero bytes was left after a
+  broken-off session. A zero record header (crc 0, length 0, type 0) means
+  "empty from here" to leveldb: on recovery it drops the whole rest of the
+  block. And Chromium opens the database reusing the journal ("Reusing old
+  log" in LOG) and appends AFTER the hole — so everything written in the
+  following sessions was lost on every start: the page read the value
+  from before the hole.
 
-  Здесь — до создания окружения WebView2, пока файлы не заняты: журнал с
-  такой дырой, за которой есть данные (их leveldb всё равно не прочтёт),
-  откладывается в *.bad; без журнала leveldb открывает базу по MANIFEST и
-  таблицам и начинает новый журнал. Теряется только то, что лежало в
-  журнале до дыры, — его и так уже нельзя было изменить.
+  Here — before the WebView2 environment is created, while the files are
+  free: a journal with such a hole and data after it (leveldb would not
+  read it anyway) is set aside as *.bad; without a journal leveldb opens
+  the database from MANIFEST and the tables and starts a new journal.
+  Only what lay in the journal before the hole is lost — and that could no
+  longer be changed anyway.
 
-  Формат журнала — leveldb doc/log_format.md: блоки по 32 КБ, запись —
-  заголовок 7 байт (crc32c 4, длина 2, тип 1) и данные; хвост блока
-  короче 7 байт — нули без заголовка. }
+  The journal format — leveldb doc/log_format.md: 32 KB blocks, a record is
+  a 7-byte header (crc32c 4, length 2, type 1) and data; a block's tail
+  shorter than 7 bytes is zeros without a header. }
 
 interface
 
-{ AProfileDir — папка пользовательских данных WebView2 (та, что отдаётся
-  CreateCoreWebView2EnvironmentWithOptions). True — что-то отложено. }
+{ AProfileDir — the WebView2 user data folder (the one passed to
+  CreateCoreWebView2EnvironmentWithOptions). True — something was set aside. }
 function RepairLocalStorage(const AProfileDir: string): boolean;
 
 implementation
@@ -35,7 +36,7 @@ implementation
 uses
   Classes, SysUtils, guiconst;
 
-{ Есть ли в журнале нулевой заголовок, за которым ещё что-то записано. }
+{ Whether the journal has a zero header followed by something else written. }
 function HasDeadGap(const AData: RawByteString): boolean;
 var
   Pos, Left, Len, I: integer;
@@ -50,11 +51,11 @@ begin
       Inc(Pos, Left);
       Continue;
     end;
-    { Строки 1-based: байт Pos — AData[Pos + 1]. }
+    { Strings are 1-based: byte Pos is AData[Pos + 1]. }
     Len := Ord(AData[Pos + 5]) or (Ord(AData[Pos + 6]) shl 8);
     if (Len = 0) and (AData[Pos + 7] = #0) and (AData[Pos + 1] = #0) and (AData[Pos + 2] = #0)
        and (AData[Pos + 3] = #0) and (AData[Pos + 4] = #0) then begin
-      { Нулевой заголовок. Конец журнала — если дальше одни нули. }
+      { A zero header. The end of the journal — if only zeros follow. }
       for I := Pos + 1 to Size do begin
         if AData[I] <> #0 then begin
           Exit(True);
@@ -84,7 +85,7 @@ begin
       F.Free;
     end;
   except
-    { Занят (окружение уже запущено) или нет доступа — не трогаем. }
+    { Busy (the environment is running already) or no access — leave it alone. }
   end;
 end;
 

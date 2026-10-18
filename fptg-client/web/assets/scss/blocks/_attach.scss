@@ -1,21 +1,21 @@
 @use "../abstracts" as *;
 
-// Отправка файлов (ui/attach.js): зоны перетаскивания над открытым
-// чатом и диалог со списком файлов и подписью.
+// Sending files (ui/attach.js): drop zones over the open chat and a dialog
+// with the file list and a caption.
 
 // ------------------------------------------------------------ dropzone
-// Поверх всей рабочей области — шапки, истории и композера, — как у
-// нативного клиента. `hidden` прописан явно: свой display перебил бы
-// правило UA для атрибута.
+// Over the whole workspace — the header, the history and the composer — as
+// in the native client. `hidden` is spelled out explicitly: our own display
+// would override the UA rule for the attribute.
 .dropzone {
   @include flex(column, stretch, stretch, $space-4);
   background: color-mix(in srgb, var(--c-bg) 70%, transparent);
   inset: 0;
   padding: $space-6;
   position: absolute;
-  // Выше шапки чата: она в том же контексте наложения (.workspace создаёт
-  // его своим backdrop-filter) и стоит на z-index 1000 — с $z-overlay
-  // верх верхней зоны прятался под ней.
+  // Above the chat header: it is in the same stacking context (.workspace
+  // creates it with its backdrop-filter) and stands at z-index 1000 — with
+  // $z-overlay the top of the upper zone hid under it.
   z-index: 1001;
 
   &[hidden] {
@@ -34,9 +34,9 @@
   text-align: center;
   @include transition;
 
-  // Дети не ловят события перетаскивания: иначе каждый переход курсора
-  // через заголовок давал бы лишние dragenter/dragleave, а зона под
-  // курсором определялась бы по тексту, а не по зоне.
+  // Children do not catch drag events: otherwise every cursor crossing of
+  // the title would give extra dragenter/dragleave, and the zone under the
+  // cursor would be determined by the text, not the zone.
   * {
     pointer-events: none;
   }
@@ -66,8 +66,8 @@
 }
 
 // --------------------------------------------------------------- dialog
-// Слой, а не модальный <dialog>: панель эмодзи для подписи — popover на
-// <body>, и модальный диалог сделал бы её инертной.
+// A layer, not a modal <dialog>: the emoji panel for the caption is a
+// popover on <body>, and a modal dialog would make it inert.
 .attach-layer {
   @include flex(row, center, center);
   background: color-mix(in srgb, var(--c-bg) 45%, transparent);
@@ -120,7 +120,7 @@
   object-fit: cover;
 }
 
-// Не картинка — значок файла на круге акцента, как у документа в истории.
+// Not a picture — a file icon on an accent circle, like a document in the history.
 .attach__thumb--file {
   @include flex(row, center, center);
   background: var(--c-accent);
@@ -209,7 +209,7 @@
   overflow: hidden;
 }
 
-// Ширина — классом лестницы .w-* (base/_widths.scss), не style.
+// The width — by a class of the .w-* ladder (base/_widths.scss), not style.
 .attach__bar-fill {
   background: var(--c-accent);
   display: block;
@@ -242,9 +242,9 @@
   flex: 1 1 auto;
 }
 
-// ------------------------------------------------------------ меню скрепки
-// ui/attachmenu.js: всплывает над скрепкой при наведении. Точка отсчёта —
-// обёртка вокруг кнопки (позиция классами, не style).
+// ------------------------------------------------------------ paperclip menu
+// ui/attachmenu.js: pops up above the paperclip on hover. The reference
+// point is a wrapper around the button (position by classes, not style).
 .attach-menu__anchor {
   display: inline-flex;
   position: relative;

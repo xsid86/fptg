@@ -34,12 +34,12 @@ unit localserver;
   learned the token from using it. The page itself (static files) is
   public: there is nothing secret in it.
 
-  Всегда TLS (tlscert.pas): свой самоподписанный сертификат или
-  --cert/--key. Вход — логин и пароль (POST /api/login), дальше JWT
-  (srvauth.pas). Страница в окне fptg приходит с другого адреса
-  (WEB_APP_ORIGIN, файлы окна), поэтому сервер отвечает ей CORS и
-  пускает её веб-сокет. Слушает по умолчанию только 127.0.0.1; --bind
-  открывает сеть. }
+  Always TLS (tlscert.pas): our own self-signed certificate or
+  --cert/--key. Sign-in — login and password (POST /api/login), then JWT
+  (srvauth.pas). The page in the fptg window comes from another address
+  (WEB_APP_ORIGIN, the window's files), so the server answers it with CORS
+  and lets its web socket in. By default it listens on 127.0.0.1 only;
+  --bind opens the network. }
 
 interface
 
@@ -72,16 +72,17 @@ type
     FPath:     string;
     FQuery:    string;
     FHeaders:  TStringList;
-    { Сеанс (sid JWT), которым открыт веб-сокет; FEnded — сеанс погашен,
-      сокет закрывается кодом LOCAL_SERVER_WS_CLOSE_SESSION_ENDED. Ставит
-      другой поток, читает цикл сокета. }
+    { The session (JWT sid) that opened the web socket; FEnded — the
+      session is revoked, the socket closes with
+      LOCAL_SERVER_WS_CLOSE_SESSION_ENDED. Set by another thread, read by
+      the socket loop. }
     FSid:      string;
     FEnded:    boolean;
-    { Сколько байт сокета уже учтено (HarvestTraffic). }
+    { How many bytes of the socket have been counted (HarvestTraffic). }
     FCountedSent, FCountedRecv: Int64;
-    { Заголовок Content-Disposition (с CRLF) для ServeFileFrom: /media/
-      с ?save=имя отдаётся вложением — браузер и окно его сохраняют, а не
-      показывают сами. '' — как обычно. }
+    { The Content-Disposition header (with CRLF) for ServeFileFrom: /media/
+      with ?save=name is served as an attachment — the browser and the
+      window save it rather than show it themselves. '' — as usual. }
     FDisposition: string;
     procedure HarvestTraffic;
     function  ReadExact(ABuf: PByte; ALen: integer): boolean;
@@ -147,12 +148,12 @@ type
   fptg-client.lpr. }
 function ConfiguredServerPort: word;
 
-{ Адрес, на котором слушать: LOCAL_SERVER_BIND (только эта машина), если
-  --bind=АДРЕС не сказал иного. 0.0.0.0 — все сети машины (сервер на
-  VPS): тогда защищает только токен, и идёт он открытым HTTP. }
+{ The address to listen on: LOCAL_SERVER_BIND (this machine only) unless
+  --bind=ADDRESS says otherwise. 0.0.0.0 — all of the machine's networks
+  (a server on a VPS): then only the token protects it. }
 function ConfiguredBindAddress: string;
 
-{ Папка страницы: --web-dir=ПУТЬ или LOCAL_SERVER_WEB_DIR рядом с exe. }
+{ The page folder: --web-dir=PATH or LOCAL_SERVER_WEB_DIR next to the exe. }
 function ConfiguredWebDir: string;
 
 { Binds and starts. False means the port was taken or the socket could
@@ -161,20 +162,20 @@ function StartLocalServer(APort: word; const ABindAddr: string; const ATls: TSer
   const AWebDir: string): boolean;
 procedure StopLocalServer;
 
-{ Адрес страницы сервера (https), пусто, когда не запущен. }
+{ The server page's address (https), empty when it is not running. }
 function LocalServerUrl: string;
 
-{ Адрес, по которому к серверу обращаться с этой машины: адрес
-  привязки, а для 0.0.0.0 — 127.0.0.1. }
+{ The address to reach the server at from this machine: the bind address,
+  and 127.0.0.1 for 0.0.0.0. }
 function LocalServerHost: string;
 
-{ Путь к файлу, принятому через POST /upload, по его id — или '', если
-  id не того вида или такого файла нет. Страница присылает обратно
-  только id: путь на диске она не видит и подсунуть свой не может. }
+{ The path of a file received through POST /upload by its id — or '' if
+  the id is malformed or there is no such file. The page sends back only
+  the id: it cannot see the path on disk and cannot slip in its own. }
 function UploadFilePath(const AId: string): string;
 
-{ Имя, под которым принятый файл ляжет на диск. В интерфейсе ради
-  проверки отдельной программой — как EscapeMarkdownV2 в tdmessages. }
+{ The name a received file is stored on disk under. In the interface so a
+  separate program can test it — like EscapeMarkdownV2 in tdmessages. }
 function SafeUploadName(const AName: string): string;
 
 { Installed by webapi.pas. While nil, a text frame is simply echoed —
@@ -187,20 +188,21 @@ procedure SetWebMessageHandler(AHandler: TWebMessageEvent);
 function WebSendTo(AConnId: Int64; const AText: utf8string): boolean;
 procedure WebBroadcast(const AText: utf8string);
 
-{ Трафик сервера с клиентами (окна и браузеры) с запуска процесса:
-  полезная нагрузка TLS (Synapse считает расшифрованные байты;
-  рукопожатие не в счёт). ASent — отдано клиентам, ARecv — получено. }
+{ The server's traffic with clients (windows and browsers) since the
+  process started: the TLS payload (Synapse counts decrypted bytes; the
+  handshake is not counted). ASent — sent to clients, ARecv — received. }
 procedure LocalTraffic(out ASent, ARecv: Int64);
-{ Каждому веб-сокету — трафик его сеанса входа (событие traffic: sent,
-  recv — со стороны сервера). Раз в секунду, из главного потока
+{ To every web socket — the traffic of its sign-in session (the traffic
+  event: sent, recv — from the server's side). Once a second, from the main
+  thread
   (srvhost). }
 procedure PushSessionTraffic;
 
 implementation
 
 uses
-  { ssl_openssl3 подключает OpenSSL 3 к Synapse (SSLImplementation) при
-    загрузке модуля. }
+  { ssl_openssl3 plugs OpenSSL 3 into Synapse (SSLImplementation) when the
+    unit loads. }
   ssl_openssl3, fpjson, jsonparser, srvauth, appdirs;
 
 {$IFDEF WINDOWS}
@@ -223,7 +225,7 @@ var
   GConnsLock:   SyncObjs.TCriticalSection = nil;
   GNextConnId:  Int64 = 0;
   GOnMessage:   TWebMessageEvent = nil;
-  { Трафик с клиентами: весь и по сеансам входа (sid -> TTrafficCell). }
+  { Traffic with clients: total and per sign-in session (sid -> TTrafficCell). }
   GTrafficLock: SyncObjs.TCriticalSection = nil;
   GTrafficSent: Int64 = 0;
   GTrafficRecv: Int64 = 0;
@@ -273,8 +275,8 @@ begin
   Result := ServerDataDir + LOCAL_SERVER_UPLOAD_DIR + PathDelim;
 end;
 
-{ id загрузки — ровно то, что выдаёт NewToken: 32 строчные hex-цифры.
-  Всё другое отвергается до того, как станет частью пути. }
+{ An upload id is exactly what NewToken produces: 32 lower-case hex digits.
+  Anything else is rejected before it becomes part of a path. }
 function IsUploadId(const AId: string): boolean;
 var
   I: integer;
@@ -291,11 +293,11 @@ begin
   end;
 end;
 
-{ Имя, под которым файл ляжет на диск и уйдёт в Telegram. Только
-  последняя часть пути, без символов, запрещённых Windows, без хвостовых
-  точек и пробелов, не длиннее LOCAL_SERVER_UPLOAD_NAME_MAX байт (обрезка
-  по границе символа UTF-8, расширение сохраняется), и не одно из
-  зарезервированных имён устройств. }
+{ The name a file is stored on disk and sent to Telegram under. Only the
+  last part of the path, without characters Windows forbids, without
+  trailing dots and spaces, no longer than LOCAL_SERVER_UPLOAD_NAME_MAX
+  bytes (cut at a UTF-8 character boundary, the extension kept), and not
+  one of the reserved device names. }
 function SafeUploadName(const AName: string): string;
 const
   RESERVED: array[0..21] of string = ('CON', 'PRN', 'AUX', 'NUL',
@@ -333,8 +335,8 @@ begin
     end;
     Base := Copy(Result, 1, Length(Result) - Length(Ext));
     Cut := LOCAL_SERVER_UPLOAD_NAME_MAX - Length(Ext);
-    { Не резать посреди многобайтового символа: байты продолжения
-      UTF-8 имеют вид 10xxxxxx. }
+    { Do not cut in the middle of a multi-byte character: UTF-8
+      continuation bytes look like 10xxxxxx. }
     while (Cut > 0) and ((Ord(Base[Cut + 1]) and $C0) = $80) do begin
       Dec(Cut);
     end;
@@ -350,7 +352,7 @@ begin
   end;
 end;
 
-{ Удаляет каталог загрузки целиком (в нём один файл). }
+{ Deletes an upload's folder entirely (it holds one file). }
 procedure RemoveUploadDir(const ADir: string);
 var
   SR: TSearchRec;
@@ -369,8 +371,8 @@ begin
   RemoveDir(ADir);
 end;
 
-{ Брошенные загрузки прошлых запусков. Только каталоги с именем-id:
-  чужое в этой папке не трогается. }
+{ Abandoned uploads of previous runs. Only folders named with an id:
+  anything else in this folder is left alone. }
 procedure ClearUploads;
 var
   SR: TSearchRec;
@@ -551,11 +553,12 @@ begin
   inherited Destroy;
 end;
 
-{ Неучтённые байты сокета — в общий счёт и в счёт сеанса. Только из
-  потока соединения: счётчики Synapse растут и от отправок главного
-  потока (SendText), но читать Int64 на x64 безопасно, а учтённое
-  хранится здесь же. Байты до того, как стал известен сеанс (TLS,
-  заголовки запроса), уходят в его счёт при первом сборе после. }
+{ Bytes of the socket not counted yet — into the total and into the
+  session's count. Only from the connection thread: Synapse's counters grow
+  from the main thread's sends too (SendText), but reading an Int64 on x64
+  is safe, and what has been counted is kept right here. Bytes before the
+  session is known (TLS, request headers) go to its count on the first
+  harvest after. }
 procedure TServerConn.HarvestTraffic;
 var
   S, R: Int64;
@@ -689,9 +692,9 @@ begin
 end;
 
 
-{ JWT запроса: ?t= (веб-сокет и <img> заголовков не умеют) или
-  Authorization: Bearer. AMedia — адрес /media/ (принимает и
-  медиа-токен, srvauth). }
+{ The request's JWT: ?t= (the web socket and <img> cannot send headers) or
+  Authorization: Bearer. AMedia — a /media/ address (accepts the media
+  token too, srvauth). }
 function TServerConn.TokenOk(AMedia: boolean): boolean;
 var
   T: string;
@@ -705,14 +708,14 @@ begin
   end else begin
     Result := (T <> '') and AuthCheck(T, ascApi);
   end;
-  { Чей это запрос — для счёта трафика по сеансам. }
+  { Whose request this is — for counting traffic per session. }
   if Result and (FSid = '') then begin
     FSid := AuthSessionId(T);
   end;
 end;
 
-{ CORS — только своим: странице окна (WEB_APP_ORIGIN) и странице с
-  самого сервера. Чужая страница ответа не прочтёт. }
+{ CORS — only for our own: the window's page (WEB_APP_ORIGIN) and the page
+  from the server itself. A foreign page will not read the answer. }
 function TServerConn.CorsHeaders: string;
 var
   O: string;
@@ -724,8 +727,9 @@ begin
   end;
 end;
 
-{ Предварительный запрос браузера (POST с JSON, загрузка, Authorization).
-  Private-Network — для Chromium: страница окна «снаружи» обращается к
+{ The browser's preflight request (POST with JSON, an upload,
+  Authorization). Private-Network — for Chromium: the window's page
+  reaches "from outside" to
   127.0.0.1. }
 procedure TServerConn.ServeOptions;
 var
@@ -751,8 +755,8 @@ begin
     + 'Connection: close' + CRLF + CRLF + AJson);
 end;
 
-{ POST /api/login | /api/refresh | /api/logout — JSON туда и обратно
-  (srvauth.pas). Без токена: это и есть способ его получить. }
+{ POST /api/login | /api/refresh | /api/logout — JSON both ways
+  (srvauth.pas). Without a token: this is the way to get one. }
 procedure TServerConn.ServeApi;
 var
   Len: Int64;
@@ -800,7 +804,7 @@ begin
         R.Add('media', Media);
         R.Add('user', User);
         R.Add('expires', Expires);
-        { Срок — и длительностью: часы у страницы могут идти иначе. }
+        { The lifetime — as a duration too: the page's clock may run differently. }
         R.Add('ttl', AUTH_ACCESS_TTL_SEC);
         SendJson(200, 'OK', R.AsJSON);
       end else begin
@@ -833,10 +837,11 @@ begin
   Result := (O = WEB_APP_ORIGIN)
          or (O = 'https://127.0.0.1:' + IntToStr(FOwner.Port))
          or (O = 'https://localhost:' + IntToStr(FOwner.Port));
-  { Сервер слушает не только петлю (--bind): страницу открыли по адресу
-    машины, и её Origin — этот адрес, то есть Host запроса. Чужую
-    страницу, подменившую себе DNS на наш адрес, это пропустит — её
-    остановит токен: cookie у неё нет, а самого токена она не знает. }
+  { The server listens not only on loopback (--bind): the page was opened
+    by the machine's address, and its Origin is that address, i.e. the
+    request's Host. A foreign page that pointed its DNS at our address gets
+    through this — the token stops it: it has no cookie and does not know
+    the token itself. }
   if (not Result) and (FOwner.BindAddr <> LOCAL_SERVER_BIND) then begin
     Result := O = 'https://' + LowerCase(HeaderValue('host'));
   end;
@@ -874,16 +879,16 @@ begin
   Result := True;
 end;
 
-{ POST /upload?name=<имя>: тело запроса потоком в
-  uploads/<id>/<имя>, в ответ — id (text/plain).
+{ POST /upload?name=<name>: the request body streamed into
+  uploads/<id>/<name>, the id in reply (text/plain).
 
-  Origin проверяется и здесь, а не только на WebSocket: POST из чужой
-  вкладки браузер отправит вместе с нашей cookie, и без этой проверки
-  любая страница могла бы класть файлы на диск. Content-Length
-  обязателен — fetch и XMLHttpRequest с телом-файлом его всегда шлют,
-  а без длины нельзя ни заранее отказать в слишком большом, ни понять,
-  что тело пришло целиком. Оборванное тело стирается вместе с
-  каталогом, и ответа на него нет: соединения уже нет. }
+  The Origin is checked here too, not only on the WebSocket: a POST from a
+  foreign browser tab would be sent with our cookie, and without this check
+  any page could put files on disk. Content-Length is required — fetch and
+  XMLHttpRequest with a file body always send it, and without a length one
+  can neither refuse a too large one in advance nor tell that the body
+  arrived whole. A broken-off body is erased together with its folder, and
+  there is no answer to it: the connection is gone. }
 procedure TServerConn.ServeUpload;
 var
   Len, Left: Int64;
@@ -987,9 +992,9 @@ end;
   Note what this does NOT do: ask the model anything. This runs on a
   socket thread, and the model is the main thread's. The lookup is a
   lock-protected integer-to-path map and nothing more. }
-{ Content-Disposition: attachment с именем файла: filename* — UTF-8 в
-  процентах (RFC 6266/5987), filename — ASCII на запас. Имя — через
-  SafeUploadName: ни пути, ни зарезервированных имён Windows. }
+{ Content-Disposition: attachment with the file name: filename* — UTF-8 in
+  percent encoding (RFC 6266/5987), filename — ASCII as a fallback. The
+  name goes through SafeUploadName: no paths, no reserved Windows names. }
 function AttachmentHeader(const AName: string): string;
 const
   HEX = '0123456789ABCDEF';
@@ -1036,7 +1041,7 @@ begin
     SendSimple(404, 'Not Found', 'not downloaded');
     Exit;
   end;
-  { save=* — имя файла на диске (у фото и видео своего имени нет). }
+  { save=* — the file's name on disk (photos and videos have no name of their own). }
   if QueryParam('save') = '*' then begin
     FDisposition := AttachmentHeader(ExtractFileName(Fn));
   end else if QueryParam('save') <> '' then begin
@@ -1301,8 +1306,9 @@ begin
     end;
   end;
   if FEnded then begin
-    { Сеанс погашен (выход, удаление пользователя, «выйти всем»):
-      странице — сразу на вход, а не переподключаться. }
+    { The session is revoked (sign-out, user removed, "sign out
+      everywhere"): the page goes straight to sign-in rather than
+      reconnecting. }
     WsSend(wsoClose, WsCloseCode(LOCAL_SERVER_WS_CLOSE_SESSION_ENDED));
   end;
 
@@ -1344,8 +1350,8 @@ var
 begin
   try
     try
-      { TLS — до первого байта запроса. Не TLS-клиент (http:// на этот
-        порт) сюда не пройдёт. }
+      { TLS — before the first byte of the request. A non-TLS client
+        (http:// on this port) does not get past here. }
       if FOwner.Tls.CertFile <> '' then begin
         FSock.SSL.CertificateFile := FOwner.Tls.CertFile;
         FSock.SSL.PrivateKeyFile := FOwner.Tls.KeyFile;
@@ -1383,9 +1389,9 @@ begin
         Exit;
       end;
       { Deliberately bland and identical for "no token" and "wrong token"
-        — there is nothing to be gained by telling a caller which. Сама
-        страница (статические файлы) — без токена: в ней нет секретов, и
-        без неё не войти. }
+        — there is nothing to be gained by telling a caller which. The
+        page itself (static files) needs no token: there are no secrets in
+        it, and without it one cannot sign in. }
       IsWebSocketRequest(IsWs);
       if IsWs then begin
         if TokenOk(False) then begin
@@ -1415,7 +1421,7 @@ begin
     try
       HarvestTraffic;
     except
-      { счёт трафика не повод уронить поток }
+      { traffic counting is no reason to bring the thread down }
     end;
     FSock.CloseSocket;
   end;
@@ -1437,8 +1443,9 @@ begin
 
   FListener := TTCPBlockSocket.Create;
   FListener.CreateSocket;
-  { По умолчанию 127.0.0.1, не 0.0.0.0: из сети сервер не виден, что бы
-    ни случилось с токеном. Другое — только явно, --bind. }
+  { 127.0.0.1 by default, not 0.0.0.0: the server is not visible from the
+    network whatever happens to the token. Anything else — only
+    explicitly, --bind. }
   FListener.Bind(FBindAddr, IntToStr(FPort));
   FBound := FListener.LastError = 0;
   if FBound then begin
@@ -1518,7 +1525,7 @@ begin
   Result := Trim(ParamValue('--web-dir='));
   if Result = '' then begin
     Result := ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_WEB_DIR;
-    { Не дерево исходников, а релизный архив: web рядом с exe. }
+    { Not the source tree but a release archive: web next to the exe. }
     if not DirectoryExists(Result) then begin
       Result := ExtractFilePath(ParamStr(0)) + LOCAL_SERVER_WEB_DIR_RELEASE;
     end;
@@ -1531,8 +1538,8 @@ begin
   GOnMessage := AHandler;
 end;
 
-{ Сеансы погашены (srvauth): их веб-сокеты закрыть. ASids = nil — все.
-  Цикл сокета замечает флаг за LOCAL_SERVER_WS_POLL_MS. }
+{ Sessions revoked (srvauth): close their web sockets. ASids = nil — all.
+  The socket loop notices the flag within LOCAL_SERVER_WS_POLL_MS. }
 procedure EndSessionSockets(ASids: TStrings);
 var
   I: integer;
@@ -1615,8 +1622,8 @@ begin
   if GConnsLock = nil then begin
     Exit;
   end;
-  { Порядок замков: реестр, потом трафик — HarvestTraffic берёт только
-    второй. }
+  { Lock order: the registry, then traffic — HarvestTraffic takes only the
+    second. }
   GConnsLock.Enter;
   try
     for I := 0 to GConns.Count - 1 do begin
@@ -1679,7 +1686,7 @@ begin
     Exit;
   end;
   GServer.Start;
-  { До первой загрузки этого запуска: всё, что там лежит, — брошенное. }
+  { Before this run's first upload: whatever lies there is abandoned. }
   ClearUploads;
   Result := True;
 end;

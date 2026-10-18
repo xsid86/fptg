@@ -7,15 +7,15 @@ import {
 } from './setkit.js';
 import { peerCards, peerLine, chatPicker, chatKind } from './setpeers.js';
 
-// «Privacy and security» — как у Telegram Desktop: безопасность
-// (чёрный список, сеансы, облачный пароль, автоудаление), приватность
-// (кто видит номер, время захода, фото…; у каждого правила — исключения
-// «всегда» и «никогда»), сайты, частые контакты, удаление аккаунта.
+// "Privacy and security" — as in Telegram Desktop: security (the block
+// list, sessions, the cloud password, auto-delete), privacy (who sees the
+// number, last seen, the photo…; every rule has "always" and "never"
+// exceptions), websites, frequent contacts, deleting the account.
 //
-// Всё — TDLib напрямую (admin; td_api.tl коммита d1085f9) и при каждом
-// открытии раздела заново: меняется и с телефона.
+// Everything is TDLib directly (admin; td_api.tl of commit d1085f9) and anew
+// on every opening of the section: it changes from the phone too.
 
-// Правила приватности в порядке Desktop. who — вопрос в окне правила.
+// Privacy rules in Desktop's order. who — the question in the rule's window.
 const RULES = [
   { setting: 'userPrivacySettingShowPhoneNumber', label: 'Phone number', who: 'Who can see my phone number',
     about: 'Users who have your number saved in their contacts will also see it on Telegram.' },
@@ -54,7 +54,7 @@ const BASES = [
 ];
 const BASE_LABEL = Object.fromEntries(BASES.map((b) => [b.value, b.label]));
 
-// Автоудаление по умолчанию и срок неактивности аккаунта — как у Desktop.
+// The default auto-delete and the account inactivity period — as in Desktop.
 const DAY = 86400;
 const AUTO_DELETE = [0, DAY, 7 * DAY, 31 * DAY];
 const ACCOUNT_TTL = [30, 90, 180, 365, 548, 730];
@@ -65,9 +65,9 @@ const ttlLabel = (days) => {
   return days === 7 ? '1 week' : `${days} days`;
 };
 
-// ------------------------------------------------------------ правила
+// ------------------------------------------------------------ rules
 
-/** Правила TDLib -> { base, allowUsers, allowChats, denyUsers, denyChats, premium, bots }. */
+/** TDLib rules -> { base, allowUsers, allowChats, denyUsers, denyChats, premium, bots }. */
 export function parseRules(rules) {
   const r = { base: 'nobody', allowUsers: [], allowChats: [], denyUsers: [], denyChats: [], premium: false, bots: false, botsDeny: false };
   let based = false;
@@ -89,7 +89,7 @@ export function parseRules(rules) {
   return r;
 }
 
-/** Обратно в userPrivacySettingRules: исключения, потом основное. */
+/** Back into userPrivacySettingRules: the exceptions, then the main one. */
 function buildRules(r) {
   const rules = [];
   const ids = (a) => a.map(Number);
@@ -117,7 +117,7 @@ function buildRules(r) {
 const allowCount = (r) => r.allowUsers.length + r.allowChats.length;
 const denyCount = (r) => r.denyUsers.length + r.denyChats.length;
 
-/** «My contacts (−2, +3)» — как подпись правила у Desktop. */
+/** "My contacts (−2, +3)" — like the rule's label in Desktop. */
 function summary(r) {
   const parts = [];
   if (r.base !== 'nobody' && denyCount(r)) parts.push(`−${denyCount(r)}`);
@@ -129,9 +129,9 @@ const setting = (type) => ({ '@type': type });
 const getRules = (type) => one('getUserPrivacySettingRules', { setting: setting(type) });
 const setRules = (type, r) => one('setUserPrivacySettingRules', { setting: setting(type), rules: buildRules(r) });
 
-// ------------------------------------------------------- исключения
+// ------------------------------------------------------- exceptions
 
-/** Страница исключений: список с «Remove» и «Add users or groups». */
+/** The exceptions page: a list with "Remove" and "Add users or groups". */
 function exceptionsPage(title, users, chats, { onlyUsers = false } = {}) {
   return {
     title,
@@ -186,7 +186,7 @@ function pickPage(users, chats, onlyUsers) {
   };
 }
 
-// ------------------------------------------------------ окно правила
+// ------------------------------------------------------ the rule's window
 
 function rulePage(def, rules, extra = {}) {
   const draft = structuredClone(rules[def.setting]);
@@ -201,7 +201,7 @@ function rulePage(def, rules, extra = {}) {
         radioGroup(name, BASES, draft.base, (v) => { draft.base = v; box.refresh(); }).node,
         note(def.about),
       ];
-      // Номер скрыт — кто найдёт по номеру (Desktop: под основным выбором).
+      // The number is hidden — who can find me by number (Desktop: under the main choice).
       if (sub && extra.sub.when(draft)) {
         nodes.push(section(extra.sub.who),
           radioGroup(`${name}-sub`, extra.sub.options, sub.base, (v) => { sub.base = v; }).node);
@@ -308,7 +308,7 @@ function openMessages(state) {
   });
 }
 
-// ----------------------------------------------------- чёрный список
+// ----------------------------------------------------- block list
 
 function openBlocked() {
   const box = openBox();
@@ -372,7 +372,7 @@ function blockPickPage(exclude) {
   };
 }
 
-// --------------------------------------------------------- сеансы
+// --------------------------------------------------------- sessions
 
 function sessionTitle(s) {
   return `${s.application_name} ${s.application_version}`.trim();
@@ -464,7 +464,7 @@ function openSessions() {
   });
 }
 
-// ---------------------------------------------------------- сайты
+// ---------------------------------------------------------- websites
 
 function openWebsites() {
   openBox().push({
@@ -503,7 +503,7 @@ function openWebsites() {
   });
 }
 
-// ------------------------------------------------------ облачный пароль
+// ------------------------------------------------------ cloud password
 
 function openPassword(state) {
   const has = state.has_password;
@@ -588,7 +588,7 @@ function passwordOffPage() {
   };
 }
 
-// ------------------------------------------- выбор из списка (таймеры)
+// ------------------------------------------- choice from a list (timers)
 
 function openChoice({ title, about, options, value, save }) {
   let chosen = String(value);
@@ -613,7 +613,7 @@ function openChoice({ title, about, options, value, save }) {
   });
 }
 
-// ----------------------------------------------------------- раздел
+// ----------------------------------------------------------- section
 
 async function loadState() {
   const soft = (p) => p.catch(() => null);

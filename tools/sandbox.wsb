@@ -1,9 +1,9 @@
-<!-- Чистая Windows для проверки релиза (Windows Sandbox, Windows 10/11 Pro).
-     Открыть двойным щелчком. Папка dist\ проекта видна внутри на рабочем
-     столе, только для чтения: архивы распаковать оттуда в любую папку.
-     Сеть включена: сервер внутри песочницы доступен с этой машины по
-     адресу песочницы (ipconfig внутри), клиент внутри — подключается к
-     серверу на этой машине или на VPS по внешнему адресу. -->
+<!-- A clean Windows for checking a release (Windows Sandbox, Windows 10/11 Pro).
+     Open with a double click. The project's dist\ folder is visible inside on
+     the desktop, read-only: unpack the archives from there into any folder.
+     Networking is on: a server inside the sandbox is reachable from this
+     machine at the sandbox's address (ipconfig inside), a client inside
+     connects to a server on this machine or on a VPS at its external address. -->
 <Configuration>
   <MappedFolders>
     <MappedFolder>

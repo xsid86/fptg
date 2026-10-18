@@ -7,16 +7,17 @@ unit webui;
   design: the whole client area belongs to a native child window owned
   by the WebView2 runtime, and no LCL control ever sits on it.
 
-  Окно — отдельная программа от сервера (fptg-server) и о TDLib не
-  знает ничего. Страница — из своих файлов окна (папка web как сайт
-  https://WEB_APP_HOST/, WebView2 SetVirtualHostNameToFolderMapping), к
-  серверу она ходит сама: вход логином и паролем (connect.html), дальше
-  JWT (core/session.js). Окно хранит адрес, refresh-токен сеанса и
-  отпечаток сертификата сервера (conf.dat, guiconn.pas) и решает о
-  самоподписанном сертификате: пускает, только если отпечаток тот, которому
-  человек доверился. Всё прочее, что окну нужно от сервера, — через
-  страницу (ui/shell.js): настройки, карточки на рабочем столе,
-  мини-приложения, окошко звонка. }
+  The window is a program separate from the server (fptg-server) and
+  knows nothing about TDLib. The page comes from the window's own files
+  (the web folder as the site https://WEB_APP_HOST/, WebView2
+  SetVirtualHostNameToFolderMapping), and it reaches the server itself:
+  sign-in with a login and password (connect.html), then JWT
+  (core/session.js). The window keeps the address, the session's refresh
+  token and the server certificate's fingerprint (conf.dat, guiconn.pas)
+  and decides about a self-signed certificate: it lets it through only if
+  the fingerprint is the one the person trusted. Everything else the
+  window needs from the server goes through the page (ui/shell.js):
+  settings, desktop cards, mini apps, the call pop-up. }
 
 {$mode objfpc}{$H+}
 
@@ -47,12 +48,12 @@ type
     { A real quit, as opposed to the close button with close-to-tray
       on. Set by the tray's Exit and nothing else. }
     FQuitting: boolean;
-    { Настройка сервера (Settings → General), её присылает страница. }
+    { The server's setting (Settings → General), the page sends it. }
     FCloseToTray: boolean;
-    { Сохранённое подключение (conf.dat). }
+    { The saved connection (conf.dat). }
     FAddr: TServerAddress;
-    { Сертификат, о котором последний раз спросили человека, и тот, которому
-      он доверился в окне ввода, — до входа он ещё не сохранён. }
+    { The certificate the person was last asked about, and the one they
+      trusted in the input window — before sign-in it is not saved yet. }
     FAskedOrigin, FAskedPrint: string;
     FTrustOrigin, FTrustPrint: string;
 
@@ -86,15 +87,15 @@ type
     destructor Destroy; override;
     procedure Resize; override;
     procedure Open(const AUrl: utf8string);
-    { По сохранённому сеансу — сразу приложение, без него — окно входа. }
+    { With a saved session — straight to the app, without one — the sign-in window. }
     procedure ConnectSaved;
-    { Пустить ли самоподписанный сертификат сервера (и в окошке звонка). }
+    { Whether to let the server's self-signed certificate through (in the call pop-up too). }
     function CertificateTrusted(const AUri, APem: utf8string): boolean;
     { Builds the tray icon. Called once, by SetWebUiPrimary. }
     procedure SetupTray;
-    { Показать окно и вывести вперёд — как двойной клик по трею. }
+    { Show the window and bring it to the front — like a double click on the tray. }
     procedure Reveal;
-    { Команда второго запуска (instance.pas): show — показать окно. }
+    { A command from a second start (instance.pas): show — show the window. }
     function InstanceCommand(const ACmd: string; AArgs: TJSONObject): TJSONObject;
     { Is the user actually looking at this window? Visible is not
       enough - a window behind three others is as unseen as a hidden
@@ -106,8 +107,8 @@ type
     property FullScreen: boolean read FFullScreen;
   end;
 
-{ Создаёт окно и подключается к серверу (сохранённое подключение или
-  окно ввода). False — нет WebView2: что сказать, решает вызывающий. }
+{ Creates the window and connects to the server (the saved connection or
+  the input window). False — no WebView2: the caller decides what to say. }
 function StartWebUi: boolean;
 
 { True while the web window is the one the user is looking at. False
@@ -115,21 +116,21 @@ function StartWebUi: boolean;
   else - the cases where a notification belongs to the system rather
   than to the page. }
 function WebUiIsShowing: boolean;
-{ Показывает веб-окно и выводит его вперёд (клик по уведомлению на
-  рабочем столе, desknotify.pas). }
+{ Shows the web window and brings it to the front (a click on a desktop
+  notification, desknotify.pas). }
 procedure WebUiReveal;
 
-{ Главное веб-окно или nil — владелец окон поверх него (мини-приложения,
-  miniapp.pas), чтобы те держались над ним и не выходили на панель задач. }
+{ The main web window or nil — the owner of windows above it (mini apps,
+  miniapp.pas), so they stay above it and do not get onto the taskbar. }
 function WebUiForm: TForm;
 
-{ Сообщение главной странице (chrome.webview, событие message): нажатие
-  на окошке звонка, запрос мини-приложения, клик по карточке. }
+{ A message to the main page (chrome.webview, the message event): a press
+  on the call pop-up, a mini app request, a click on a card. }
 procedure WebUiPostJson(const AJson: utf8string);
-{ Решение о сертификате сервера — для других окон WebView2 (окошко
-  звонка грузит аватарку с сервера). }
+{ The decision about the server certificate — for other WebView2 windows
+  (the call pop-up loads the avatar from the server). }
 function WebUiCertificateTrusted(const AUri, APem: utf8string): boolean;
-{ Папка страницы окна (web рядом с exe). }
+{ The window's page folder (web next to the exe). }
 function WebUiFolder: string;
 
 { Says that this window IS the application rather than a second view
@@ -200,25 +201,25 @@ begin
   Width := 1200;
   Height := 800;
   Position := poScreenCenter;
-  { На панели задач — всегда. Окно создаётся через CreateNew, а не
-    Application.CreateForm, и главной формой приложения не становится;
-    при MainFormOnTaskbar = True и stDefault LCL делает такое окно
-    подчинённым скрытому AppHandle (TWin32WSCustomForm.CreateHandle,
-    win32wsforms.pp), а подчинённые окна Windows на панель задач не
-    выводит. stAlways оставляет его самостоятельным.
-    ДО первого обращения к Handle: здесь свойство только запоминается
-    и попадает в параметры создания окна, а поменянное потом оно
-    перепрятывает окно, к которому уже привязан WebView2. }
+  { On the taskbar — always. The window is created through CreateNew, not
+    Application.CreateForm, and does not become the application's main
+    form; with MainFormOnTaskbar = True and stDefault LCL makes such a
+    window a child of the hidden AppHandle (TWin32WSCustomForm.CreateHandle,
+    win32wsforms.pp), and Windows does not put owned windows on the
+    taskbar. stAlways keeps it independent. BEFORE the first access to
+    Handle: here the property is only remembered and goes into the window's
+    creation parameters, while changed later it re-creates the window the
+    WebView2 is already attached to. }
   ShowInTaskBar := stAlways;
   { The runtime needs a window to attach to, and Handle is what creates
     one - reading it here rather than letting it happen later keeps the
     order explicit. }
   FView := TWebView2.Create(Handle);
-  { Рамка в цвет темы — сразу, по запомненному: страница пришлёт свои
-    цвета только после загрузки. }
+  { The frame in the theme colour — right away, from what was remembered:
+    the page sends its colours only after loading. }
   FrameAttach(Handle);
-  { Страница — из своих файлов: https://WEB_APP_HOST/ (до первой
-    навигации). }
+  { The page — from our own files: https://WEB_APP_HOST/ (before the first
+    navigation). }
   FView.MapVirtualHost(WEB_APP_HOST, utf8string(WebUiFolder));
   FView.OnCertificateError := @ViewCertificateError;
   FView.OnExternalUri := @ViewExternalUri;
@@ -231,7 +232,7 @@ begin
   DeskNotifyOnClick := @CardClick;
 end;
 
-{ data:…;base64,XXXX -> байты; всё прочее — пусто. }
+{ data:…;base64,XXXX -> bytes; anything else — empty. }
 function DataUriBytes(const AUri: string): RawByteString;
 var
   P: integer;
@@ -255,10 +256,10 @@ begin
   end;
 end;
 
-{ Просьбы страницы к оболочке (chrome.webview.postMessage, JSON-строка).
-  Протокол — ui/shell.js; окно входа — connect.js. Решает
-  страница, оболочка только исполняет — на другой платформе это делает
-  своя оболочка. }
+{ The page's requests to the shell (chrome.webview.postMessage, a JSON
+  string). The protocol — ui/shell.js; the sign-in window — connect.js.
+  The page decides, the shell only carries it out — on another platform
+  its own shell does it. }
 procedure TFormWebUi.ViewMessage(Sender: TObject; const AText: UnicodeString);
 var
   Data: TJSONData;
@@ -290,21 +291,22 @@ begin
       CallPopupHide;
     end;
   end else if T = 'trustCert' then begin
-    { Только тот сертификат, о котором окно само спросило. }
+    { Only the certificate the window itself asked about. }
     if (O.Get('origin', '') = FAskedOrigin) and (O.Get('fingerprint', '') = FAskedPrint)
        and (FAskedPrint <> '') then begin
       FTrustOrigin := FAskedOrigin;
       FTrustPrint := FAskedPrint;
     end;
   end else if T = 'session' then begin
-    { Вход удался (connect.js): запомнить и открыть приложение. }
+    { Sign-in succeeded (connect.js): remember it and open the app. }
     Origin := LowerCase(ServerOrigin(FAddr));
     FAddr.Host := O.Get('host', '');
     FAddr.Port := O.Get('port', 0);
     FAddr.User := O.Get('user', '');
     FAddr.Refresh := O.Get('refresh', '');
-    { Отпечаток: которому доверились сейчас; сервер тот же — прежний;
-      другой сервер без вопроса о сертификате (подписан центром) — нет. }
+    { The fingerprint: the one trusted just now; the same server — the
+      previous one; another server without a certificate question (signed
+      by an authority) — none. }
     if LowerCase(ServerOrigin(FAddr)) = FTrustOrigin then begin
       FAddr.Fingerprint := FTrustPrint;
     end else if LowerCase(ServerOrigin(FAddr)) <> Origin then begin
@@ -313,8 +315,8 @@ begin
     SaveServerAddress(FAddr);
     ShowApp;
   end else if T = 'signedOut' then begin
-    { Сеанс кончился (выход, или сервер его не знает): refresh забыть,
-      адрес и отпечаток — оставить. }
+    { The session ended (sign-out, or the server does not know it): forget
+      the refresh token, keep the address and the fingerprint. }
     FAddr.Refresh := '';
     SaveServerAddress(FAddr);
     ShowConnectPage(O.Get('error', ''));
@@ -336,7 +338,7 @@ begin
   end else if T = 'notifySample' then begin
     ShowDeskNotifySamples(APP_TITLE, DESKNOTIFY_SAMPLE_TEXT);
   end else if T = 'miniapp' then begin
-    { theme переходит во владение окна мини-приложения. }
+    { theme passes into the ownership of the mini app window. }
     if O.Find('theme') is TJSONObject then begin
       Res := TJSONObject(O.Find('theme').Clone);
     end else begin
@@ -354,8 +356,8 @@ begin
   end;
 end;
 
-{ Клик по карточке на рабочем столе: окно вперёд, чат открывает
-  страница (выбор чата живёт в ней). 0 — образец из настроек. }
+{ A click on a desktop card: the window comes forward, the page opens the
+  chat (choosing a chat lives there). 0 — a sample from the settings. }
 procedure TFormWebUi.CardClick(AChatId: Int64);
 var
   O: TJSONObject;
@@ -379,7 +381,7 @@ begin
   FView.PostJson(utf8string(O.AsJSON));
 end;
 
-{ Окно входа — с тем, куда входили, и с причиной, почему не вышло. }
+{ The sign-in window — with where we signed in to, and why it failed. }
 procedure TFormWebUi.ShowConnectPage(const AError: string);
 var
   Url: string;
@@ -394,9 +396,9 @@ begin
   FView.Navigate(utf8string(Url));
 end;
 
-{ Приложение: адрес сервера — параметром, refresh-токен — во фрагменте
-  (#): фрагмент не уходит ни в один запрос, страница забирает его и
-  стирает из адреса (core/session.js). }
+{ The app: the server address as a parameter, the refresh token in the
+  fragment (#): the fragment goes into no request, the page takes it and
+  erases it from the address (core/session.js). }
 procedure TFormWebUi.ShowApp;
 begin
   FView.Navigate(utf8string(WEB_APP_ORIGIN + '/index.html?server='
@@ -416,7 +418,7 @@ begin
   end;
 end;
 
-{ PEM -> DER (первый блок). }
+{ PEM -> DER (the first block). }
 function PemDer(const APem: string): RawByteString;
 var
   A, B: integer;
@@ -435,7 +437,7 @@ begin
     #13, '', [rfReplaceAll]), #10, '', [rfReplaceAll]));
 end;
 
-{ https://адрес:порт из полного адреса запроса. }
+{ https://address:port from a full request address. }
 function UriOrigin(const AUri: string): string;
 var
   P, Q: integer;
@@ -466,9 +468,9 @@ begin
   end;
 end;
 
-{ Самоподписанный сертификат сервера. Знакомый — пустить; незнакомый
-  (или сменившийся!) — отказать и спросить человека в окне входа: он
-  сверит отпечаток с тем, что напечатал сервер. }
+{ The server's self-signed certificate. A known one — let it through; an
+  unknown (or changed!) one — refuse and ask the person in the sign-in
+  window: they compare the fingerprint with the one the server printed. }
 procedure TFormWebUi.ViewCertificateError(Sender: TObject; const AUri, APem: utf8string;
   var AAllow: boolean);
 var
@@ -483,8 +485,8 @@ begin
     O.Add('t', 'certificate');
     O.Add('origin', FAskedOrigin);
     O.Add('fingerprint', FAskedPrint);
-    { Этому серверу уже доверяли с другим отпечатком — сертификат
-      сменился: страница предупредит громче. }
+    { This server was trusted before with another fingerprint — the
+      certificate changed: the page warns louder. }
     O.Add('changed', (FAskedOrigin = LowerCase(ServerOrigin(FAddr)))
       and (FAddr.Fingerprint <> ''));
     PostToPage(O);
@@ -499,7 +501,7 @@ begin
   ShowConnectPage('');
 end;
 
-{ Выход: страница сообщит серверу и вернёт signedOut. }
+{ Sign-out: the page tells the server and returns signedOut. }
 procedure TFormWebUi.TraySignOutClick(Sender: TObject);
 var
   O: TJSONObject;
@@ -646,12 +648,12 @@ begin
   OpenURL(AUri);
 end;
 
-{ Окна загрузок WebView2 нет ни у одной загрузки (webview2.pas). Файл из
-  сообщения — /media/…?save=имя&open=1 (ui/message.js) — молча
-  скачивается и открывается системным приложением: иначе PDF и подобное
-  открывались внутри окна, и из него не было пути назад. Всё прочее
-  («Save as…», медиа, файлы мини-приложений) — через системный диалог
-  «Сохранить как»: dmSave, режим по умолчанию. }
+{ No download ever gets the WebView2 downloads window (webview2.pas). A
+  file from a message — /media/…?save=name&open=1 (ui/message.js) — is
+  downloaded silently and opened with the system app: otherwise PDFs and
+  the like opened inside the window, with no way back. Everything else
+  ("Save as…", media, mini app files) — through the system "Save as"
+  dialog: dmSave, the default mode. }
 procedure TFormWebUi.ViewDownloadStart(Sender: TObject; const AUri: utf8string;
   var AMode: TWebView2DownloadMode);
 var
@@ -704,8 +706,8 @@ begin
 end;
 
 
-{ Может ли окно закрыться. TDLib — у сервера, закрывать тут нечего:
-  сервер живёт своей жизнью и после окна. }
+{ Whether the window may close. TDLib is with the server, there is nothing
+  to close here: the server lives its own life after the window too. }
 function TFormWebUi.CloseQuery: boolean;
 begin
   Result := inherited CloseQuery;
@@ -713,8 +715,8 @@ begin
     Exit;
   end;
   { The close button with close-to-tray on: out of sight, still
-    running. Quit from the tray is what actually ends it. Значение —
-    последнее, что прислала страница (настройки меняются на ходу). }
+    running. Quit from the tray is what actually ends it. The value is the
+    latest the page sent (the settings change on the fly). }
   if (not FQuitting) and (FTray <> nil) and FCloseToTray then begin
     Result := False;
     Hide;

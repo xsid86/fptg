@@ -2,10 +2,10 @@ import { el } from '../core/dom.js';
 import { copyText } from '../util/clipboard.js';
 import { notice } from './notices.js';
 
-// Telegram ID человека строкой под именем — в строках участников
-// (инфопанель) и контактов (список Contacts). Клик копирует. Стоит
-// внутри строки, которая сама по клику открывает контакт, поэтому клик
-// и клавиши дальше не всплывают.
+// A person's Telegram ID as a line under the name — in member rows (the
+// info panel) and contacts (the Contacts list). A click copies. It sits
+// inside a row that opens the contact on a click itself, so clicks and
+// keys do not bubble further.
 
 function copy(event, id) {
   event.stopPropagation();

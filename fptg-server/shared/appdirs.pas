@@ -2,28 +2,27 @@ unit appdirs;
 
 {$mode objfpc}{$H+}
 
-{ Папки данных программ — в профиле пользователя, не рядом с exe
-  (2026-10-16): программа ставится и в Program Files, куда не пишут, а
-  данные каждого пользователя Windows — его сеансы Telegram — должны
-  быть закрыты от других пользователей той же машины. Профиль закрыт
-  правами самой ОС; общая папка (ProgramData) — нет: её подпапки по
-  умолчанию читают все.
+{ The programs' data folders — in the user profile, not next to the exe
+  (2026-10-16): the program can be installed into Program Files, which is
+  not writable, and the data of each Windows user — their Telegram
+  sessions — must be closed to other users of the same machine. The
+  profile is closed by the OS's own permissions; a shared folder
+  (ProgramData) is not: its subfolders are readable by everyone by default.
 
-  Windows: %LOCALAPPDATA%\fptg\<программа>\ — Local, а не Roaming: в
-  Roaming лежит то, что синхронизируется при перемещаемых профилях, а
-  tdlib\ — это гигабайты. Unix: $XDG_DATA_HOME/fptg/<программа>/ или
-  ~/.local/share/fptg/<программа>/.
+  Windows: %LOCALAPPDATA%\fptg\<program>\ — Local, not Roaming: Roaming
+  holds what synchronises with roaming profiles, and tdlib\ is gigabytes.
+  Unix: $XDG_DATA_HOME/fptg/<program>/ or ~/.local/share/fptg/<program>/.
 
-  Не нашлось профиля (нет переменных окружения — служба без профиля) —
-  папка программы, как было раньше. }
+  No profile found (no environment variables — a service without a
+  profile) — the program folder, as before. }
 
 interface
 
-{ Сервер: tdlib/, conf.dat, uploads/, tdlib_raw.log, блокировка и канал
-  управления (instance.pas). С разделителем на конце, создана. }
+{ Server: tdlib/, conf.dat, uploads/, tdlib_raw.log, the lock and the
+  control channel (instance.pas). With a trailing separator, created. }
 function ServerDataDir: string;
 
-{ Окно клиента: conf.dat, блокировка и канал управления. }
+{ The client window: conf.dat, the lock and the control channel. }
 function ClientDataDir: string;
 
 implementation

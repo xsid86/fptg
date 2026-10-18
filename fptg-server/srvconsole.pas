@@ -2,22 +2,22 @@ unit srvconsole;
 
 {$mode objfpc}{$H+}
 
-{ Консоль сервера: имя пользователя и пароль (без эха) — для
-  --set-user и для пользователя при первом запуске; очистка
-  экрана, чтобы данные подключения не оставались на виду. }
+{ The server console: user name and password (without echo) — for
+  --set-user and for the user on the first start; clearing the screen so
+  connection details do not stay in view. }
 
 interface
 
-{ Сидит ли за программой человек: стандартный ввод — консоль, а не
-  файл, канал или служба. }
+{ Whether a person sits at the program: standard input is a console, not
+  a file, a pipe or a service. }
 function ConsoleInteractive: boolean;
 function ReadLineVisible(const APrompt: string): string;
-{ Пароль: набираемое не показывается. }
+{ A password: what is typed is not shown. }
 function ReadLineSecret(const APrompt: string): string;
-{ Стереть экран вместе с прокруткой назад. }
+{ Clear the screen together with the scrollback. }
 procedure ClearConsole;
-{ По Enter стереть экран и оставить ALine. Ждёт в своём потоке —
-  главный поток крутит цикл событий сервера и вставать не должен. }
+{ On Enter clear the screen and leave ALine. Waits on its own thread — the
+  main thread runs the server's event loop and must not stop. }
 procedure ClearConsoleOnEnter(const ALine: string);
 
 implementation
@@ -31,10 +31,10 @@ uses
   Classes, SysUtils, srvloop;
 
 const
-  { ESC[2J — экран, ESC[3J — прокрутка назад, ESC[H — курсор в угол.
-    Понимают терминалы Unix и Windows Terminal; старая консоль Windows —
-    после ENABLE_VIRTUAL_TERMINAL_PROCESSING, а на случай отказа ниже ещё
-    и чистка буфера через API консоли. }
+  { ESC[2J — the screen, ESC[3J — the scrollback, ESC[H — the cursor to the
+    corner. Unix terminals and Windows Terminal understand them; the old
+    Windows console — after ENABLE_VIRTUAL_TERMINAL_PROCESSING, and in case
+    that fails, the buffer is also cleared through the console API below. }
   CLEAR_SEQUENCE = #27'[2J'#27'[3J'#27'[H';
 
 type
@@ -96,9 +96,9 @@ var
   S: string;
 begin
   ReadLn(S);
-  { Ctrl+C тоже прерывает ReadLn: тогда идёт остановка, и стирать её
-    сообщения незачем. Обработчик Ctrl+C ставит флаг в своём потоке —
-    дать ему мгновение. }
+  { Ctrl+C interrupts ReadLn too: then a stop is under way, and there is
+    no point erasing its messages. The Ctrl+C handler sets a flag on its
+    own thread — give it a moment. }
   Sleep(200);
   if StopRequested then begin
     Exit;
@@ -113,8 +113,8 @@ var
 begin
   T := TEnterWaiter.Create(True);
   T.FLine := ALine;
-  { Не ждём его при выходе: по Ctrl+C он так и висит в ReadLn, процесс
-    закрывается и без него. }
+  { Not waited for on exit: on Ctrl+C it hangs in ReadLn, and the process
+    closes without it. }
   T.FreeOnTerminate := True;
   T.Start;
 end;

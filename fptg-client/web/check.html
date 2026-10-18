@@ -6,22 +6,22 @@
 <title>fptg - transport check</title>
 <link rel="stylesheet" href="assets/scss/style.css">
 <script>
-  // Тема — как в index.html: выбор (data-theme) до первой отрисовки, иначе
-  // страница всегда в теме Windows, а не в выбранной в приложении.
+  // The theme — as in index.html: the choice (data-theme) before the first
+  // paint, otherwise the page is always in the Windows theme, not the one chosen in the app.
   try {
     var t = localStorage.getItem('theme');
     // dark | light | dark-plain | light-plain | dark-aurora (ui/theme.js):
-    // схема — в data-theme, у простых и Aurora ещё data-style (plain | aurora).
-    // Нет выбора — Aurora (DEFAULT_THEME там же).
+    // the scheme — in data-theme, the plain ones and Aurora also have data-style (plain | aurora).
+    // No choice — Aurora (DEFAULT_THEME there too).
     if (!/^(dark|light)(-plain|-aurora)?$/.test(t || '')) { t = 'dark-aurora'; }
     document.documentElement.dataset.theme = t.indexOf('dark') === 0 ? 'dark' : 'light';
     var s = /-(plain|aurora)$/.exec(t);
     if (s) { document.documentElement.dataset.style = s[1]; }
-    // Акцент (Settings → General, ui/theme.js): ключ из $app-accents.
+    // The accent (Settings → General, ui/theme.js): a key from $app-accents.
     var a = localStorage.getItem('accent');
     if (/^[a-z]+$/.test(a || '')) { document.documentElement.dataset.accent = a; }
   } catch (e) {
-    // Хранилище закрыто — тема по умолчанию, Aurora.
+    // The storage is closed — the default theme, Aurora.
     document.documentElement.dataset.theme = 'dark';
     document.documentElement.dataset.style = 'aurora';
   }
@@ -29,15 +29,15 @@
 </head>
 <body class="page-check">
 <script>
-  // Итоговая тема на <body> (data-scheme) — по ней фон страницы, как у
-  // приложения (см. index.html).
+  // The resulting theme on <body> (data-scheme) — the page background goes by
+  // it, as in the app (see index.html).
   (function () {
     var t = null;
     try { t = localStorage.getItem('theme'); } catch (e) { /* blocked */ }
     if (/^(dark|light)(-plain|-aurora)?$/.test(t || '')) {
       t = t.indexOf('dark') === 0 ? 'dark' : 'light';
     } else {
-      t = 'dark';                 // по умолчанию — Aurora, она тёмная
+      t = 'dark';                 // the default is Aurora, and it is dark
     }
     document.body.dataset.scheme = t;
   })();

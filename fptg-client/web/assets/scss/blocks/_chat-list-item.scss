@@ -127,13 +127,14 @@
   padding: $space-3;
 }
 
-// Значок идущего видеочата / трансляции (ui/chat-list.js): кружок у
-// правого нижнего края аватарки с тремя «пляшущими» полосками.
-// Вырез в аватарке под значком: SVG-маска во весь элемент — квадрат с
-// круглой дыркой (fill-rule evenodd), координаты в процентах от аватарки
-// (viewBox 0..100, preserveAspectRatio none). Растягивается вместе с
-// аватаркой, и вырез с ней. Каймы вокруг значка нет — фон чата виден
-// в вырезе, какой бы он ни был.
+// The badge of a running video chat / live stream (ui/chat-list.js): a
+// circle at the avatar's bottom right edge with three "dancing" bars.
+// The cut-out in the avatar under the badge: an SVG mask over the whole
+// element — a square with a round hole (fill-rule evenodd), coordinates in
+// percent of the avatar (viewBox 0..100, preserveAspectRatio none). It
+// stretches together with the avatar, and the cut-out with it. There is no
+// edging around the badge — the chat background shows in the cut-out,
+// whatever it is.
 $-live-r: math.div($live-badge-share, 2) + $live-badge-gap;
 $-live-hole: "M0 0H100V100H0Z M#{$live-badge-center - $-live-r} #{$live-badge-center}a#{$-live-r} #{$-live-r} 0 1 0 #{2 * $-live-r} 0a#{$-live-r} #{$-live-r} 0 1 0 #{-2 * $-live-r} 0Z";
 $-live-mask: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath fill-rule='evenodd' d='#{$-live-hole}'/%3E%3C/svg%3E";
@@ -142,7 +143,7 @@ $-live-mask: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewB
   flex: 0 0 auto;
   position: relative;
 
-  // Аватарка (или аватарка с кольцом историй) — с вырезом.
+  // The avatar (or the avatar with a story ring) — with the cut-out.
   > :first-child {
     mask-image: url($-live-mask);
     mask-repeat: no-repeat;
@@ -161,7 +162,7 @@ $-live-mask: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewB
   top: percentage(math.div($live-badge-center - math.div($live-badge-share, 2), 100));
   width: percentage(math.div($live-badge-share, 100));
 
-  // Полоски — в долях значка: масштабируются вместе с ним.
+  // The bars — in shares of the badge: they scale together with it.
   i {
     animation: live-bar-dance 1s ease-in-out infinite;
     background: #ffffff;
@@ -293,8 +294,8 @@ $-live-mask: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewB
   padding: 0;
   @include transition;
 
-  // Наведение — цвет контакта (цветные темы); простые темы и Aurora
-  // перекрывают акцентом (themes/).
+  // Hover — the contact's colour (colour themes); the plain themes and
+  // Aurora override it with the accent (themes/).
   &:hover,
   &:active,
   &:focus {

@@ -23,15 +23,16 @@ const LIFE_MS = 6000;
 
 let stack = null;
 let clearAll = null;
-// Карточка -> её таймер: сколько ей ещё жить и с какого момента идёт
-// отсчёт. Отсчёт идёт ТОЛЬКО пока окно в фокусе: карточка, пришедшая,
-// пока человек был в другой программе, иначе исчезла бы раньше, чем на
-// неё посмотрели. Наведённая (pinned) не закрывается сама вовсе.
+// Card -> its timer: how long it has left to live and since when the
+// countdown runs. The countdown runs ONLY while the window is focused: a
+// card that arrived while the person was in another program would
+// otherwise vanish before they looked at it. A hovered one (pinned) does
+// not close by itself at all.
 const life = new Map();
 
 export function mountToasts(node) {
   stack = node;
-  // Над карточками, той же ширины; видна, только пока есть что скрывать.
+  // Above the cards, of the same width; visible only while there is something to hide.
   clearAll = el('button', {
     class: 'toast-stack__clear',
     type: 'button',
@@ -78,9 +79,9 @@ function syncClearAll() {
 
 function arrived(data) {
   if (!stack || !data) return;
-  // В нашем окне WebView2 уведомления рисует оболочка — карточками на
-  // рабочем столе, как Telegram Desktop (ui/shell.js -> desknotify.pas).
-  // Свои карточки остаются странице, открытой в обычном браузере.
+  // In our WebView2 window the shell draws the notifications — as desktop
+  // cards, like Telegram Desktop (ui/shell.js -> desknotify.pas). Our own
+  // cards stay for a page opened in an ordinary browser.
   if (window.chrome?.webview) return;
   // Nobody is looking at this page: the window is minimised, or it is
   // another tab - a card queued up here would only be

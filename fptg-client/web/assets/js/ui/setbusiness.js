@@ -6,14 +6,14 @@ import {
 } from './setkit.js';
 import { peerCards, peerLine, chatPicker } from './setpeers.js';
 
-// «Telegram Business» — как у Telegram Desktop: адрес, часы работы,
-// быстрые ответы, приветствие, автоответ «нет на месте», чат-боты, ссылки
-// на чат, приветственная страница (Intro). Без Premium всё неактивно.
+// "Telegram Business" — as in Telegram Desktop: the location, opening
+// hours, quick replies, the greeting, the "away" auto-reply, chatbots, chat
+// links, the intro page (Intro). Without Premium everything is inactive.
 //
-// Приветствие и автоответ — это быстрые ответы с зарезервированными
-// именами hello и away (так их хранит Telegram): текст правится тем же
-// редактором, что и быстрые ответы. Шорткатов TDLib не отдаёт методом —
-// только load* и обновления; сервер их хранит (td.kept, «тип:id»).
+// The greeting and the auto-reply are quick replies with the reserved
+// names hello and away (that is how Telegram keeps them): the text is edited
+// with the same editor as quick replies. TDLib gives no method for
+// shortcuts — only load* and updates; the server keeps them (td.kept, "type:id").
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const GREETING = 'hello';
@@ -32,7 +32,7 @@ const textContent = (text) => ({
   '@type': 'inputMessageText', text: formatted(text), link_preview_options: null, clear_draft: false,
 });
 
-/** Подпись содержимого одной строкой. */
+/** The content's caption as one line. */
 function contentText(c) {
   if (!c) return '';
   const text = c.text?.text ?? c.caption?.text ?? '';
@@ -45,12 +45,12 @@ function contentText(c) {
   return text || kind || 'Message';
 }
 
-// ---------------------------------------------------------- шорткаты
+// ---------------------------------------------------------- shortcuts
 
-/** Все шорткаты: Map имя -> { id, name, first_message, message_count }. */
+/** All shortcuts: Map name -> { id, name, first_message, message_count }. */
 async function loadShortcuts() {
   await one('loadQuickReplyShortcuts');
-  // Обновления TDLib приходят раньше ответа; запас — на их разбор сервером.
+  // TDLib updates come before the answer; the margin is for the server to process them.
   await wait(150);
   const k = await kept(['updateQuickReplyShortcuts', 'updateQuickReplyShortcut:']);
   const order = k.updateQuickReplyShortcuts?.shortcut_ids ?? [];
@@ -93,8 +93,8 @@ function messagePage(shortcut, msg) {
 }
 
 /**
- * Сообщения шортката: список с «Edit» и «Delete», «Add a message».
- * name — имя шортката (новый появится с первым сообщением).
+ * A shortcut's messages: a list with "Edit" and "Delete", "Add a message".
+ * name — the shortcut's name (a new one appears with its first message).
  */
 function shortcutPage(name, { title, about, quick = false } = {}) {
   return {
@@ -210,7 +210,7 @@ function openQuickReplies() {
   });
 }
 
-// --------------------------------------------------------- получатели
+// --------------------------------------------------------- recipients
 
 const RECIPIENT_TYPES = [
   ['select_existing_chats', 'Existing chats'],
@@ -244,7 +244,7 @@ function recipientsSummary(r) {
   return parts.join(', ') || 'None';
 }
 
-/** Раздел «Recipients»: все, кроме…, или только выбранные. */
+/** The "Recipients" section: everyone except…, or only the chosen ones. */
 function recipientsNodes(r, box, word) {
   return [
     section('Recipients'),
@@ -299,7 +299,7 @@ function pickChatsPage(r) {
   };
 }
 
-// ---------------------------------------------- приветствие, автоответ
+// ---------------------------------------------- greeting, auto-reply
 
 async function messageRow(name, box, label) {
   const shortcut = (await loadShortcuts()).get(name);
@@ -432,7 +432,7 @@ function openAway(info) {
   });
 }
 
-// ----------------------------------------------------------- чат-боты
+// ----------------------------------------------------------- chatbots
 
 const BOT_RIGHTS = [
   ['can_reply', 'Reply to messages'],
@@ -511,7 +511,7 @@ async function openChatbots() {
   });
 }
 
-// ------------------------------------------------------- ссылки на чат
+// ------------------------------------------------------- chat links
 
 function linkPage(link) {
   const title = textField('Link name (optional)', link?.title ?? '', { max: 32 });
@@ -571,7 +571,7 @@ function openChatLinks() {
   });
 }
 
-// ------------------------------------------------- адрес, часы, Intro
+// ------------------------------------------------- location, hours, Intro
 
 function openLocation(info) {
   const address = textField('Enter address', info?.location?.address ?? '', { multiline: true, max: 96 });
@@ -612,7 +612,7 @@ async function openHours(info) {
   }
   const hours = info?.opening_hours;
   const zone = hours?.time_zone_id || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  // По дню — первый интервал (как у Desktop по умолчанию: одна смена).
+  // Per day — the first interval (as Desktop's default: one shift).
   const days = DAYS.map((name, d) => {
     const iv = (hours?.opening_hours ?? []).find((x) => Math.floor(x.start_minute / 1440) === d);
     return { name, open: !!iv, from: iv ? hhmm(iv.start_minute % 1440) : '09:00', to: iv ? hhmm(iv.end_minute - d * 1440) : '18:00' };
@@ -654,7 +654,7 @@ async function openHours(info) {
             if (!d.open) return null;
             const start = minutes(d.from);
             let end = minutes(d.to);
-            if (end <= start) end += 1440;   // до полуночи и дальше
+            if (end <= start) end += 1440;   // until midnight and past it
             return { '@type': 'businessOpeningHoursInterval', start_minute: i * 1440 + start, end_minute: i * 1440 + end };
           }).filter(Boolean);
           await one('setBusinessOpeningHours', {
@@ -698,7 +698,7 @@ function openIntro(info) {
   });
 }
 
-// ----------------------------------------------------------- раздел
+// ----------------------------------------------------------- section
 
 export async function renderBusiness() {
   let info = null;

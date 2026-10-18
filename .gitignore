@@ -1,6 +1,6 @@
-# Настройки и аккаунты — зашифрованный файл (secureconfig.pas) и его
-# временная/отложенная копии; config.ini/accounts.ini — прежние открытые.
-# У обеих программ (сервер — аккаунты, окно — подключение).
+# Settings and accounts — the encrypted file (secureconfig.pas) and its
+# temporary/deferred copies; config.ini/accounts.ini — the former plain ones.
+# For both programs (the server — accounts, the window — the connection).
 conf.dat
 conf.dat.tmp
 conf.dat.unreadable
@@ -13,7 +13,7 @@ uploads/
 fptg-client/web/.idea/
 fptg-client/web/assets/scss/*.css.map
 
-# Единственный экземпляр (instance.pas): блокировка и порт/ключ канала.
+# The single instance (instance.pas): the lock and the channel's port/key.
 *.lock
 *.instance
 
@@ -29,9 +29,12 @@ lib/
 # Lazarus/lazbuild backups of edited project files.
 backup/
 
-# Платная многопользовательская часть сервера — закрытая, в публичный
-# репозиторий не попадает (свой приватный репозиторий).
+# The paid multi-user part of the server — closed, it does not go into the
+# public repository (a private repository of its own).
 fptg-server-premium/
 
-# Релизные архивы (tools/build_release.py).
+# Release archives (tools/build_release.py).
 dist/
+
+# The project website lives outside this repository.
+website/

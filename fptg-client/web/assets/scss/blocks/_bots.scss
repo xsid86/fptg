@@ -1,9 +1,9 @@
 @use "../abstracts" as *;
 
-// Кнопки ботов (ui/bots.js): инлайн под сообщением, клавиатура над
-// полем ввода, кнопка Menu с командами.
+// Bot buttons (ui/bots.js): inline under a message, the keyboard above the
+// input field, the Menu button with commands.
 
-// ---------------------------------------------------- под сообщением
+// ---------------------------------------------------- under a message
 .message__keyboard {
   @include flex(column, stretch, flex-start, $space-1);
   padding: $space-2 $space-3 $space-3;
@@ -41,8 +41,8 @@
   min-width: 0;
 }
 
-// Цвет, заданный ботом (buttonStyle* в TDLib): «primary» — тёмно-синий,
-// «danger» — красный, «success» — зелёный; «link» — просто ссылка.
+// The colour set by the bot (buttonStyle* in TDLib): "primary" — dark blue,
+// "danger" — red, "success" — green; "link" — just a link.
 .message__kb-btn,
 .composer__kb-btn {
   &.is-style-primary { --kb-style-color: #{$button-style-primary}; }
@@ -72,21 +72,21 @@
   }
 }
 
-// Кастомный эмодзи перед текстом (icon_custom_emoji_id).
+// A custom emoji before the text (icon_custom_emoji_id).
 .message__kb-btn-emoji,
 .composer__kb-btn-emoji {
   @include size(18px);
   flex: 0 0 auto;
 }
 
-// Неактивная кнопка (inlineKeyboardButtonTypeDisabled).
+// An inactive button (inlineKeyboardButtonTypeDisabled).
 .message__kb-btn:disabled,
 .composer__kb-btn:disabled {
   cursor: default;
   opacity: 0.5;
 }
 
-// Формы окон кнопок: опрос, пароль, вход, управляемый бот.
+// Forms of the button windows: a poll, a password, a sign-in, a managed bot.
 .bots__form {
   @include flex(column, stretch, flex-start, $space-4);
   margin: $space-4 0;
@@ -117,14 +117,14 @@
   min-height: $space-6;
 }
 
-// У кнопки со значком — место под него с обеих сторон: текст остаётся
-// по центру и не уходит под значок в узкой кнопке.
+// A button with an icon has room for it on both sides: the text stays
+// centred and does not run under the icon in a narrow button.
 .message__kb-btn:has(.message__kb-btn-mark),
 .composer__kb-btn:has(.composer__kb-btn-mark) {
   padding-inline: $space-7;
 }
 
-// Ссылка или Mini App — значок у правого края, по вертикали посередине.
+// A link or Mini App — an icon at the right edge, vertically centred.
 .message__kb-btn-mark,
 .composer__kb-btn-mark {
   color: var(--c-text-faint);
@@ -134,7 +134,7 @@
   transform: translateY(-50%);
 }
 
-// ------------------------------------------------- над полем ввода
+// ------------------------------------------------- above the input field
 .composer__keyboard {
   @include flex(column, stretch, flex-start, $space-1);
   @include scroll-area;
@@ -153,7 +153,7 @@
   color: var(--c-accent);
 }
 
-// Menu — как у нативного клиента: залитая кнопка с текстом.
+// Menu — as in the native client: a filled button with text.
 .composer__menu {
   background: var(--c-accent);
   border-radius: $radius-pill;
@@ -174,15 +174,15 @@
   display: none;
 }
 
-// Текст ответа бота в окне show_alert — обычного цвета, с переносами.
+// The text of a bot's answer in the show_alert window — of the ordinary colour, with wrapping.
 .confirm__note--plain {
   color: var(--c-text);
   white-space: pre-line;
 }
 
-// ---------------------------------------------- выбор для кнопок-запросов
-// «Выбрать получателя подарка» и т.п. — окно подтверждения со списком
-// своих чатов.
+// ---------------------------------------------- choice for request buttons
+// "Choose a gift recipient" and the like — a confirmation window with a
+// list of own chats.
 .share {
   max-height: calc(100vh - #{2 * $space-6});
   width: 360px;
@@ -233,7 +233,7 @@
 }
 
 // ------------------------------------------------------- inline mode
-// Результаты «@бот запрос» над полем ввода.
+// "@bot query" results above the input field.
 .composer__inline {
   @include flex(column, stretch, flex-start, $space-1);
   @include scroll-area;

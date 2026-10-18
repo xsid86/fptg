@@ -1,7 +1,7 @@
 @use "../abstracts" as *;
 
-// Telegram ID под именем в строках участников и контактов (ui/userid.js):
-// мелко и тихо, по клику копируется.
+// The Telegram ID under the name in member and contact rows (ui/userid.js):
+// small and quiet, copied on a click.
 .user-id {
   @include focus-ring;
   align-self: flex-start;

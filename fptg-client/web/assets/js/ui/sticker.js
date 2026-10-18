@@ -142,28 +142,27 @@ on('store:messages', sweep);
 on('store:chats', sweep);
 
 /**
- * Рисует ОДИН кадр .tgs на `canvas` и сразу уничтожает плеер: от
- * анимации остаются только пиксели холста.
+ * Draws ONE frame of a .tgs onto `canvas` and destroys the player at once:
+ * only the canvas pixels remain of the animation.
  *
- * Для сеток, где ячеек сотня, а смотрят на одну: панель эмодзи держала
- * по живому SVG-плееру на ячейку, и один анимированный набор кастомных
- * эмодзи стоил процессу WebView2 около 2 ГБ (статичный — копейки,
- * измерено пользователем в диспетчере задач). Холст размером с ячейку
- * — это килобайты.
+ * For grids with a hundred cells where one is looked at: the emoji panel
+ * held a live SVG player per cell, and one animated set of custom emoji
+ * cost the WebView2 process about 2 GB (a static one — pennies, measured by
+ * the user in the task manager). A canvas the size of a cell is kilobytes.
  *
- * Canvas-рендерер, а не SVG: у него изъян с градиентами (см. выше), но
- * на размере буквы он не виден — по той же причине им рисуются значки.
- * Плеер рисует в ПЕРЕДАННЫЙ контекст без контейнера: размер тогда
- * берётся из самого холста (CanvasRendererBase.updateContainerSize), а
- * destroy() без контейнера пиксели не стирает. dpr при переданном
- * контексте по умолчанию 1 — поэтому он передаётся явно, иначе на
- * HiDPI кадр мылится.
+ * The canvas renderer, not SVG: it has a flaw with gradients (see above),
+ * but at the size of a letter it does not show — for the same reason icons
+ * are drawn with it. The player draws into the PASSED context without a
+ * container: the size is then taken from the canvas itself
+ * (CanvasRendererBase.updateContainerSize), and destroy() without a
+ * container does not erase the pixels. dpr with a passed context defaults
+ * to 1 — so it is passed explicitly, otherwise the frame is blurry on HiDPI.
  */
 export async function stillSticker(canvas, url, size) {
     try {
         const [lottie, data] = await Promise.all([loadEngine(), animationData(url)]);
-        // Холст может быть и не в документе — черновик, который потом
-        // перегоняется в картинку (см. makeStill в picker.js).
+        // The canvas may be outside the document too — a scratch one that is
+        // later converted into a picture (see makeStill in picker.js).
         canvas.width = size;
         canvas.height = size;
         const anim = lottie.loadAnimation({
@@ -190,16 +189,16 @@ export async function stillSticker(canvas, url, size) {
 }
 
 /**
- * Один кадр .tgs как КАРТИНКА: адрес data:image/svg+xml для <img>, или
- * null. Плеер уничтожается сразу — от стикера остаётся одна картинка.
+ * One .tgs frame as a PICTURE: a data:image/svg+xml address for <img>, or
+ * null. The player is destroyed at once — one picture remains of the sticker.
  *
- * Для стикеров, а не эмодзи: на размере плитки изъян canvas-рендерера
- * с градиентами виден (см. playSticker), поэтому кадр строит
- * SVG-рендерер — в ОТЦЕПЛЕННЫЙ контейнер, — и его <svg> сериализуется.
- * Градиенты, маски и клипы ссылаются на id внутри того же <svg>,
- * поэтому самостоятельный документ рисуется так же, как живой плеер.
- * viewBoxOnly: в корень не пишутся ни размеры, ни инлайн-стили, и
- * картинка вписывается в плитку по viewBox.
+ * For stickers, not emoji: at tile size the canvas renderer's flaw with
+ * gradients shows (see playSticker), so the frame is built by the SVG
+ * renderer — into a DETACHED container — and its <svg> is serialized.
+ * Gradients, masks and clips refer to ids inside the same <svg>, so the
+ * standalone document draws just like the live player. viewBoxOnly: neither
+ * sizes nor inline styles are written into the root, and the picture fits
+ * the tile by its viewBox.
  */
 export async function stillSvg(url) {
     try {
@@ -228,11 +227,11 @@ export async function stillSvg(url) {
 }
 
 /**
- * Уничтожает плееры внутри `root` сразу, не дожидаясь sweep().
+ * Destroys the players inside `root` at once, without waiting for sweep().
  *
- * sweep() срабатывает по событиям истории и списка или перед следующим
- * плеером — а панель эмодзи выбрасывает целый набор разом, и сотня
- * отцепленных плееров с SVG-деревьями жила до случайного повода.
+ * sweep() fires on history and list events or before the next player — and
+ * the emoji panel throws away a whole set at once, and a hundred detached
+ * players with SVG trees lived until a chance occasion.
  */
 export function stopStickers(root) {
     if (!root) return;
@@ -247,9 +246,9 @@ export function stopStickers(root) {
  * an empty frame.
  */
 /**
- * Сменить, как играют уже показанные стикеры внутри root (Battery and
- * animation, Chat settings): loop — по кругу, иначе раз за показ; still —
- * стоят первым кадром до щелчка. Значки (badge) не трогает.
+ * Change how stickers already shown inside root play (Battery and
+ * animation, Chat settings): loop — in a loop, otherwise once per showing;
+ * still — they stay on the first frame until a click. Badges are left alone.
  */
 export function restyleStickers(root, { loop, still }) {
     for (const [node, anim] of live) {
@@ -261,8 +260,8 @@ export function restyleStickers(root, { loop, still }) {
             observer().unobserve(node);
             anim.goToAndStop(0, true);
         } else {
-            // Заново под наблюдение: первый же отклик (на экране) и
-            // запустит его по новым правилам.
+            // Under observation anew: the very first response (on screen)
+            // starts it by the new rules.
             observer().unobserve(node);
             observer().observe(node);
         }
@@ -351,8 +350,8 @@ export async function playSticker(node, url, opts = {}) {
             // thing this must not do.
             anim.goToAndStop(0, true);
         } else if (opts.still) {
-            // «Animated stickers» выключены (util/prefs.js): лицо стоит,
-            // играет только по щелчку — наблюдатель не нужен.
+            // "Animated stickers" are off (util/prefs.js): the face stays
+            // still, plays only on a click — no observer is needed.
         } else {
             observer().observe(node);
         }

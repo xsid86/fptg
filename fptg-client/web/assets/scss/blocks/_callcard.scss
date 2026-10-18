@@ -1,10 +1,10 @@
 @use "../abstracts" as *;
 
-// Карточка входящего звонка (callcard.html, js/callcard.js) — целая
-// страница в окошке поверх всех окон (callpopup.pas: ширина
-// DESKNOTIFY_WIDTH x CALLPOPUP_HEIGHT = 320 x 164). Сверху аватарка, имя и «Incoming
-// call», снизу две круглые кнопки — зелёная «принять», красная
-// «отклонить» — со значками из спрайта и подписями под ними.
+// The incoming call card (callcard.html, js/callcard.js) — a whole page in
+// a small window on top of all windows (callpopup.pas: the size
+// DESKNOTIFY_WIDTH x CALLPOPUP_HEIGHT = 320 x 164). On top — the avatar, the
+// name and "Incoming call", at the bottom two round buttons — a green
+// "accept", a red "decline" — with icons from the sprite and labels under them.
 $callcard-avatar: 48px;
 $callcard-btn: 44px;
 

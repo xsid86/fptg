@@ -1,25 +1,25 @@
-// Видеочат (групповой звонок чата) поверх WebRTC браузера.
+// A video chat (a chat's group call) on top of the browser's WebRTC.
 //
-// Сервер звонка — SFU Telegram, ICE-lite. TDLib только передаёт
-// описания: joinVideoChat(join_parameters.payload) -> join_payload.
-// Остальное — здесь, по описанию tgcalls (GroupJoinPayloadInternal,
+// The call server is Telegram's SFU, ICE-lite. TDLib only passes the
+// descriptions: joinVideoChat(join_parameters.payload) -> join_payload.
+// The rest is here, per the tgcalls description (GroupJoinPayloadInternal,
 // GroupInstanceReferenceImpl):
 //
-//  1. Свой offer: микрофон, видео (пока камера выключена — чёрный кадр,
-//     чтобы SSRC видео были известны серверу с самого входа), канал
-//     данных. Из него в join-payload уходят ufrag, pwd, отпечаток DTLS,
-//     SSRC звука и группы SSRC видео:
+//  1. Our own offer: the microphone, video (while the camera is off — a
+//     black frame, so the video SSRCs are known to the server from joining),
+//     a data channel. From it ufrag, pwd, the DTLS fingerprint, the audio
+//     SSRC and the video SSRC groups go into the join payload:
 //       {ufrag, pwd, fingerprints:[{hash, setup, fingerprint}],
 //        ssrc, "ssrc-groups":[{semantics, sources}]}
-//  2. Ответ сервера (transport: ufrag, pwd, fingerprints, candidates;
-//     video/audio: payload-types, rtp-hdrexts) превращается в удалённый
-//     answer на наш offer.
-//  3. Участники (TDLib: audio_source_id, video_info.source_groups,
-//     endpoint_id) — удалённый offer, где каждому чужому потоку своя
-//     m-строка (sendonly, с его SSRC), mid по порядку с 3; ответ на него
-//     создаёт браузер. Строки не удаляются — ушедшие становятся inactive.
-//  4. Чьё видео присылать — сообщение ReceiverVideoConstraints по
-//     каналу данных (colibriClass).
+//  2. The server's answer (transport: ufrag, pwd, fingerprints, candidates;
+//     video/audio: payload-types, rtp-hdrexts) turns into the remote answer
+//     to our offer.
+//  3. Participants (TDLib: audio_source_id, video_info.source_groups,
+//     endpoint_id) — a remote offer where every foreign stream has its own
+//     m-line (sendonly, with its SSRC), mid in order from 3; the browser
+//     creates the answer to it. Lines are not removed — those who left become inactive.
+//  4. Whose video to send — the ReceiverVideoConstraints message over the
+//     data channel (colibriClass).
 
 import { micConstraints, cameraConstraints, openMic } from './devices.js';
 
@@ -56,7 +56,7 @@ function sections(sdp) {
 
 const attr = (sec, name) => sec.lines.find((l) => l.startsWith(`a=${name}:`))?.slice(name.length + 3) ?? '';
 
-/** Что нужно из своего offer: транспорт, mids, SSRC, свои кодеки звука. */
+/** What is needed from our own offer: transport, mids, SSRCs, our audio codecs. */
 export function parseLocal(sdp) {
   const secs = sections(sdp);
   const res = { mids: [], audioSsrc: 0, videoGroups: [], audioPT: [], audioExt: [] };
@@ -108,7 +108,7 @@ function fmtpParams(sec, pt) {
 const signed32 = (v) => v | 0;
 const unsigned32 = (v) => v >>> 0;
 
-/** join-payload для joinVideoChat. */
+/** The join payload for joinVideoChat. */
 export function joinPayload(local) {
   const p = {
     ufrag: local.ufrag,
@@ -144,15 +144,15 @@ function candidateLine(c) {
 }
 
 /**
- * Удалённое описание целиком. answer — ответ на наш первый offer
- * (только наши m-строки); offer — с m-строками участников.
+ * The whole remote description. answer — the answer to our first offer
+ * (only our m-lines); offer — with the participants' m-lines.
  */
 export function buildRemote(conf, type) {
   const t = conf.transport;
   const fp = t.fingerprints?.[0] ?? {};
-  // Роль DTLS не меняется между переговорами: в answer — что сказал
-  // сервер (если сказал active/passive, иначе passive), в последующих
-  // offer — та же.
+  // The DTLS role does not change between negotiations: in the answer — what
+  // the server said (if it said active/passive, otherwise passive), in later
+  // offers — the same.
   const setup = fp.setup === 'active' || fp.setup === 'passive' ? fp.setup : 'passive';
   const transport = [
     `a=ice-ufrag:${t.ufrag}`,
@@ -227,7 +227,7 @@ export function buildRemote(conf, type) {
   return `${[...head, ...out].join('\r\n')}\r\n`;
 }
 
-// ------------------------------------------------------------ сессия
+// ------------------------------------------------------------ session
 function blackTrack() {
   const cv = document.createElement('canvas');
   cv.width = 16;
@@ -236,7 +236,7 @@ function blackTrack() {
   g.fillStyle = '#000';
   g.fillRect(0, 0, 16, 16);
   const stream = cv.captureStream(BLACK_FPS);
-  // Без перерисовки captureStream не отдаёт кадров вовсе.
+  // Without redrawing captureStream gives no frames at all.
   const tick = setInterval(() => g.fillRect(0, 0, 16, 16), 1000 / BLACK_FPS);
   const track = stream.getVideoTracks()[0];
   track.addEventListener('ended', () => clearInterval(tick));
@@ -244,8 +244,8 @@ function blackTrack() {
 }
 
 /**
- * Сессия видеочата.
- *   join(payload) -> Promise<ответ сервера (строка)> — vchat.join;
+ * A video chat session.
+ *   join(payload) -> Promise<the server's answer (a string)> — vchat.join;
  *   on: track({key, kind, stream}), untrack({key, kind}), log.
  */
 export class GroupSession {
@@ -307,7 +307,7 @@ export class GroupSession {
     this.schedule();
   }
 
-  /** Участники звонка (полный список от страницы). */
+  /** The call's participants (the full list from the page). */
   setParticipants(list) {
     this.wanted.clear();
     for (const p of list) {
@@ -354,7 +354,7 @@ export class GroupSession {
     }
     for (const [id, w] of this.wanted) {
       if (this.remote.some((r) => !r.removed && `${r.key}|${r.kind}` === id)) continue;
-      // Свободную (ушедшего) строку того же вида — переиспользовать.
+      // A free (left participant's) line of the same kind — reuse it.
       const free = this.remote.find((r) => r.removed && r.kind === w.kind);
       if (free) {
         Object.assign(free, { key: w.key, groups: w.groups, endpoint: w.endpoint, removed: false });
@@ -423,8 +423,8 @@ export class GroupSession {
     if (this.closed) return;
     this.closed = true;
     clearTimeout(this.timer);
-    try { this.dc?.close(); } catch { /* закрыт */ }
-    try { this.pc?.close(); } catch { /* закрыт */ }
+    try { this.dc?.close(); } catch { /* closed */ }
+    try { this.pc?.close(); } catch { /* closed */ }
     for (const t of [...(this.mic?.getTracks() ?? []), ...(this.cam?.getTracks() ?? [])]) t.stop();
     this.black?.stop();
   }

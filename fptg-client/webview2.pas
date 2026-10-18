@@ -65,8 +65,8 @@ type
   end;
 
   { --- ICoreWebView2WebMessageReceivedEventArgs: slots 0..2 ---
-    Для мини-приложений (miniapp.pas): страница шлёт
-    chrome.webview.postMessage, хост читает строку. Порядок и GUID — из
+    For mini apps (miniapp.pas): the page sends chrome.webview.postMessage,
+    the host reads a string. Order and GUID — from
     WebView2.h SDK 1.0.4191.47 (0f99a40c-...). }
   ICoreWebView2WebMessageReceivedEventArgs = interface(IUnknown)
     ['{0F99A40C-E962-4207-9E92-E3D542EFF849}']
@@ -76,9 +76,8 @@ type
   end;
 
   { --- ICoreWebView2PermissionRequestedEventArgs: slots 0..5 ---
-    Порядок и GUID — WebView2.h SDK 1.0.4191.47 (973ae2ef-...). Без
-    обработчика PermissionRequested навигатор геопозиции на странице
-    получал отказ. }
+    Order and GUID — WebView2.h SDK 1.0.4191.47 (973ae2ef-...). Without a
+    PermissionRequested handler the page's geolocation got a refusal. }
   ICoreWebView2PermissionRequestedEventArgs = interface(IUnknown)
     ['{973AE2EF-FF18-4894-8FB2-3C758F046810}']
     function get_Uri(out value: PWideChar): HRESULT; stdcall;                  { 0 }
@@ -101,9 +100,9 @@ type
       args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT; stdcall;
   end;
 
-  { AddScriptToExecuteOnDocumentCreated отвечает асинхронно; навигация
-    ждёт этого ответа, иначе первый документ мог бы открыться без
-    скрипта. GUID b99369f3-... из того же заголовка. }
+  { AddScriptToExecuteOnDocumentCreated answers asynchronously; navigation
+    waits for that answer, otherwise the first document could open without
+    the script. GUID b99369f3-... from the same header. }
   ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler = interface(IUnknown)
     ['{B99369F3-9B11-47B5-BC6F-8E7895FCEA17}']
     function Invoke(errorCode: HRESULT; AId: PWideChar): HRESULT; stdcall;
@@ -157,11 +156,11 @@ type
     function Invoke(sender: ICoreWebView2; args: IUnknown): HRESULT; stdcall;
   end;
 
-  { --- ICoreWebView2: slots 0..57, need 0, 2, 41, 49 and 51. Все 58 —
-    обязательно: на этом интерфейсе стоят ICoreWebView2_3/_14, и
-    недостающий хвост сдвигал их методы (живой случай 2026-10-07:
-    SetVirtualHostNameToFolderMapping попадал в remove_DOMContentLoaded
-    и честно отвечал S_OK). --- }
+  { --- ICoreWebView2: slots 0..57, need 0, 2, 41, 49 and 51. All 58 are
+    required: ICoreWebView2_3/_14 stand on this interface, and a missing
+    tail shifted their methods (a live case on 2026-10-07:
+    SetVirtualHostNameToFolderMapping landed in remove_DOMContentLoaded and
+    honestly answered S_OK). --- }
   ICoreWebView2 = interface(IUnknown)
     ['{76ECEACB-0462-4D94-AC83-423A6793775E}']
     function get_Settings(out settings: ICoreWebView2Settings): HRESULT; stdcall; { 0 }
@@ -290,8 +289,8 @@ type
       createdController: ICoreWebView2Controller): HRESULT; stdcall;
   end;
 
-  { --- ICoreWebView2_3: папка как виртуальный сайт. Слоты 58..64 —
-    ICoreWebView2_2 (7 методов), дальше _3. Порядок и GUID — WebView2.h
+  { --- ICoreWebView2_3: a folder as a virtual site. Slots 58..64 —
+    ICoreWebView2_2 (7 methods), then _3. Order and GUID — WebView2.h
     SDK 1.0.4191.47. --- }
   ICoreWebView2_3 = interface(ICoreWebView2)
     ['{A0D6DF20-3B92-416D-AA0C-437A9C727857}']
@@ -310,7 +309,7 @@ type
     function ClearVirtualHostNameToFolderMapping(hostName: PWideChar): HRESULT; stdcall; { 69 slot only }
   end;
 
-  { --- Ошибка сертификата сервера (ICoreWebView2_14). --- }
+  { --- The server certificate error (ICoreWebView2_14). --- }
   ICoreWebView2Certificate = interface(IUnknown)
     ['{C5FB2FCE-1CAC-4AEE-9C79-5ED0362EAAE0}']
     function get_Subject(a: Pointer): HRESULT; stdcall;                         { 0 slot only }
@@ -339,8 +338,8 @@ type
       args: ICoreWebView2ServerCertificateErrorDetectedEventArgs): HRESULT; stdcall;
   end;
 
-  { Слоты 58..102 — ICoreWebView2_2.._13 (по WebView2.h: 7, 5, 4, 2, 1, 1,
-    7, 9, 2, 3, 3, 1 методов), дальше _14. Нужен только 103. }
+  { Slots 58..102 — ICoreWebView2_2.._13 (per WebView2.h: 7, 5, 4, 2, 1, 1,
+    7, 9, 2, 3, 3, 1 methods), then _14. Only 103 is needed. }
   ICoreWebView2_14 = interface(ICoreWebView2)
     ['{6DAA4F10-4A90-4753-8898-77C5DF534165}']
     function Slot58: HRESULT; stdcall;  { 58  _2, slot only }
@@ -395,9 +394,9 @@ type
     function ClearServerCertificateErrorActions(a: Pointer): HRESULT; stdcall;   { 105 slot only }
   end;
 
-  { --- Загрузки (ICoreWebView2_4.add_DownloadStarting). Порядок методов
-    и GUID — WebView2.h SDK 1.0.4191.47 (снято скриптом, 2026-10-11).
-    Объявлен префикс vtable до последнего нужного слота. --- }
+  { --- Downloads (ICoreWebView2_4.add_DownloadStarting). The method order
+    and GUID — WebView2.h SDK 1.0.4191.47 (taken by a script, 2026-10-11).
+    The vtable prefix is declared up to the last slot needed. --- }
   ICoreWebView2DownloadOperation = interface;
 
   ICoreWebView2StateChangedEventHandler = interface(IUnknown)
@@ -424,8 +423,8 @@ type
     function get_State(out state: integer): HRESULT; stdcall;                   { 13 }
   end;
 
-  { Отсрочка события: рантайм ждёт Complete, прежде чем читать
-    выставленное в аргументах (WebView2.h, тот же SDK). }
+  { An event deferral: the runtime waits for Complete before reading what
+    was set in the arguments (WebView2.h, the same SDK). }
   ICoreWebView2Deferral = interface(IUnknown)
     ['{C10E7F7B-B585-46F0-A623-8BEFBF3E4EE0}']
     function Complete: HRESULT; stdcall;                                        { 0 }
@@ -449,7 +448,7 @@ type
       args: ICoreWebView2DownloadStartingEventArgs): HRESULT; stdcall;
   end;
 
-  { Слоты 58..69 — _2 и _3 (объявлены в ICoreWebView2_3), дальше _4. }
+  { Slots 58..69 — _2 and _3 (declared in ICoreWebView2_3), then _4. }
   ICoreWebView2_4 = interface(ICoreWebView2_3)
     ['{20D02D59-6DF2-42DC-BD06-F98A694B1302}']
     function add_FrameCreated(a, b: Pointer): HRESULT; stdcall;                 { 70 slot only }
@@ -466,22 +465,22 @@ type
   TWebView2KeyEvent = procedure(Sender: TObject; AVirtualKey: word;
     var AHandled: boolean) of object;
   TWebView2StateEvent = procedure(Sender: TObject; AActive: boolean) of object;
-  { Сертификат сервера не прошёл проверку: AAllow — пустить (и до конца
-    сеанса браузера больше не спрашивать об этом сервере). }
+  { The server certificate failed the check: AAllow — let it through (and
+    do not ask about this server again until the browser session ends). }
   TWebView2CertEvent = procedure(Sender: TObject; const AUri, APem: utf8string;
     var AAllow: boolean) of object;
-  { Что делать с загрузкой. Окна загрузок WebView2 нет НИКОГДА — любая
-    загрузка забирается (put_Handled):
-      dmSave — системный диалог «Сохранить как»; отказ в нём отменяет
-               загрузку, и OnDownloadDone о ней не придёт;
-      dmOpen — молча в папку загрузок по умолчанию, по окончании —
-               OnDownloadDone (хозяин открывает файл сам). }
+  { What to do with a download. The WebView2 downloads window NEVER shows —
+    every download is taken over (put_Handled):
+      dmSave — the system "Save as" dialog; a refusal in it cancels the
+               download, and OnDownloadDone does not come for it;
+      dmOpen — silently into the default downloads folder, when done —
+               OnDownloadDone (the host opens the file itself). }
   TWebView2DownloadMode = (dmSave, dmOpen);
-  { Началась загрузка: AMode — что с ней делать (по умолчанию dmSave).
-    Без обработчика — dmSave: так и в окнах мини-приложений и звонка. }
+  { A download started: AMode — what to do with it (dmSave by default).
+    Without a handler — dmSave: so in the mini app and call windows too. }
   TWebView2DownloadStartEvent = procedure(Sender: TObject; const AUri: utf8string;
     var AMode: TWebView2DownloadMode) of object;
-  { Загрузка кончилась: APath — куда легла; AOk — целиком. }
+  { A download finished: APath — where it went; AOk — whole. }
   TWebView2DownloadDoneEvent = procedure(Sender: TObject; const APath: utf8string;
     AOk: boolean; AMode: TWebView2DownloadMode) of object;
 
@@ -510,8 +509,8 @@ type
     FOnCertificateError: TWebView2CertEvent;
     FOnDownloadStart: TWebView2DownloadStartEvent;
     FOnDownloadDone: TWebView2DownloadDoneEvent;
-    { Диалоги сохранения, ещё стоящие в очереди (TDownloadAsk): при
-      разрушении им говорится, что хозяина больше нет. }
+    { Save dialogs still in the queue (TDownloadAsk): on destruction they
+      are told there is no owner any more. }
     FAsks: TFPList;
     procedure EnvironmentReady(AResult: HRESULT; AEnv: ICoreWebView2Environment);
     procedure ControllerReady(AResult: HRESULT; ACtrl: ICoreWebView2Controller);
@@ -542,8 +541,8 @@ type
       browser - a stranger's link must never open inside a shell with
       no address bar. }
     property OnExternalUri: TWebView2NavigateEvent read FOnExternalUri write FOnExternalUri;
-    { Загрузки (см. TWebView2DownloadMode). Подписка на них ставится
-      всегда, в ControllerReady. }
+    { Downloads (see TWebView2DownloadMode). The subscription to them is
+      always set, in ControllerReady. }
     property OnDownloadStart: TWebView2DownloadStartEvent read FOnDownloadStart write FOnDownloadStart;
     property OnDownloadDone: TWebView2DownloadDoneEvent read FOnDownloadDone write FOnDownloadDone;
     { The runtime is missing or refused to start. Reported rather than
@@ -556,21 +555,21 @@ type
       already sized the element to the view; whether the WINDOW follows
       is the host's decision. }
     property OnFullScreenElement: TWebView2StateEvent read FOnFullScreenElement write FOnFullScreenElement;
-    { Скрипт, который ставится в каждый документ ДО его собственных
-      скриптов (AddScriptToExecuteOnDocumentCreated). Задавать сразу
-      после Create: навигация ждёт, пока он встанет. }
+    { A script put into every document BEFORE its own scripts
+      (AddScriptToExecuteOnDocumentCreated). Set right after Create:
+      navigation waits until it is in place. }
     property StartupScript: UnicodeString read FStartupScript write FStartupScript;
-    { Строка из chrome.webview.postMessage страницы. }
+    { A string from the page's chrome.webview.postMessage. }
     property OnWebMessage: TWebView2TextEvent read FOnWebMessage write FOnWebMessage;
-    { Папка как сайт https://ИМЯ/ (SetVirtualHostNameToFolderMapping):
-      страница окна грузится из своих файлов. Задавать сразу после
-      Create, как StartupScript. }
+    { A folder as the site https://NAME/ (SetVirtualHostNameToFolderMapping):
+      the window's page loads from its own files. Set right after Create,
+      like StartupScript. }
     procedure MapVirtualHost(const AHost, AFolder: utf8string);
-    { Ошибка сертификата сервера (самоподписанный): решает хозяин. Без
-      обработчика — как в браузере, запрос отменяется. }
+    { A server certificate error (self-signed): the host decides. Without a
+      handler — as in a browser, the request is cancelled. }
     property OnCertificateError: TWebView2CertEvent read FOnCertificateError write FOnCertificateError;
-    { Сообщение странице (chrome.webview, событие message, e.data — уже
-      разобранный JSON). }
+    { A message to the page (chrome.webview, the message event, e.data is
+      already parsed JSON). }
     procedure PostJson(const AJson: utf8string);
     procedure Reload;
   end;
@@ -586,10 +585,10 @@ uses
 
 const
   WEBVIEW2_LOADER = 'WebView2Loader.dll';
-  { Загрузчик грузится вручную (LoadLibrary, рядом с exe), а не
-    статически (external): нет DLL — программа всё равно стартует и
-    говорит, чего не хватает (WebView2Available), а не падает до
-    первой строки с системной ошибкой загрузки. }
+  { The loader is loaded by hand (LoadLibrary, next to the exe), not
+    statically (external): no DLL — the program still starts and says what
+    is missing (WebView2Available), rather than failing before its first
+    line with a system load error. }
 
   { COREWEBVIEW2_KEY_EVENT_KIND and COREWEBVIEW2_MOVE_FOCUS_REASON,
     only the members this unit reads. Values from the header. }
@@ -608,11 +607,12 @@ var
   GLoader: HMODULE = 0;
   GCreateEnv: TCreateEnvFn = nil;
   GVersion: TVersionFn = nil;
-  { Проверка журнала localStorage (lsrepair) — уже была в этом запуске. }
+  { The localStorage journal check (lsrepair) — already done in this run. }
   GStorageChecked: boolean = False;
 
-{ Загрузчик один раз на процесс. Нет его нигде — исключение: так и
-  раньше отвечали «WebView2 недоступен» (WebView2Available, Create). }
+{ The loader once per process. Not found anywhere — an exception: that is
+  how "WebView2 is unavailable" was answered before too
+  (WebView2Available, Create). }
 procedure EnsureLoader;
 var
   Dir: string;
@@ -730,9 +730,9 @@ type
       args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT; stdcall;
   end;
 
-  { Геопозиция — только своей странице с локального сервера (http на
-    127.0.0.1 / localhost): мини-приложения (https) получают то, что
-    решит рантайм по умолчанию. Прочие разрешения не трогаем. }
+  { Geolocation — only for our own page from the local server (http on
+    127.0.0.1 / localhost): mini apps (https) get whatever the runtime
+    decides by default. Other permissions are left alone. }
   TPermissionHandler = class(TInterfacedObject,
     ICoreWebView2PermissionRequestedEventHandler)
   public
@@ -769,11 +769,12 @@ type
     function Invoke(sender: ICoreWebView2DownloadOperation; args: IUnknown): HRESULT; stdcall;
   end;
 
-  { Вопрос «куда сохранить» — ВНЕ обработчика события: модальный диалог
-    внутри вызова из рантайма — вложенный цикл сообщений посреди его
-    кода. Обработчик берёт отсрочку и ставит этот объект в очередь
-    главного потока (TThread.ForceQueue); ответ — в аргументы, потом
-    Complete. Держит аргументы и операцию живыми до ответа. }
+  { The "where to save" question — OUTSIDE the event handler: a modal
+    dialog inside a call from the runtime is a nested message loop in the
+    middle of its code. The handler takes a deferral and queues this object
+    on the main thread (TThread.ForceQueue); the answer goes into the
+    arguments, then Complete. It keeps the arguments and the operation
+    alive until the answer. }
   TDownloadAsk = class
   public
     Owner: TWebView2;
@@ -793,12 +794,12 @@ type
     function Invoke(sender: ICoreWebView2; args: IUnknown): HRESULT; stdcall;
   end;
 
-{ COREWEBVIEW2_DOWNLOAD_STATE (WebView2.h): 0 идёт, 1 прервана, 2 готова. }
+{ COREWEBVIEW2_DOWNLOAD_STATE (WebView2.h): 0 in progress, 1 interrupted, 2 completed. }
 const
   DOWNLOAD_STATE_IN_PROGRESS = 0;
   DOWNLOAD_STATE_COMPLETED = 2;
 
-{ Строку из рантайма — в UnicodeString, освободив её (CoTaskMemFree). }
+{ A string from the runtime — into a UnicodeString, freeing it (CoTaskMemFree). }
 function TakeComString(P: PWideChar): UnicodeString;
 begin
   Result := '';
@@ -834,14 +835,14 @@ begin
   P := nil;
   Op.get_Uri(P);
   Mode := FOwner.DownloadMode(TakeComString(P));
-  { Окна загрузок WebView2 нет ни у одной загрузки. }
+  { No download gets the WebView2 downloads window. }
   args.put_Handled(True);
   if Mode = dmOpen then begin
-    { Путь — по умолчанию (папка загрузок, имя без затирания). }
+    { The path — the default one (the downloads folder, a name without overwriting). }
     Op.add_StateChanged(TDownloadStateHandler.Create(FOwner, dmOpen), Token);
     Exit;
   end;
-  { Сохранение — сначала спросить куда. }
+  { Saving — first ask where. }
   Ask := TDownloadAsk.Create;
   Ask.Owner := FOwner;
   Ask.Args := args;
@@ -869,8 +870,8 @@ begin
     if Path = '' then begin
       Args.put_Cancel(True);
     end else begin
-      { Файл уже есть — человек согласился его заменить в диалоге; рантайм
-        по такому пути перезаписывает. }
+      { The file exists already — the person agreed to replace it in the
+        dialog; the runtime overwrites at such a path. }
       Args.put_ResultFilePath(PWideChar(Path));
       Op.add_StateChanged(TDownloadStateHandler.Create(Owner, dmSave), Token);
     end;
@@ -925,10 +926,10 @@ begin
     Exit;
   end;
   P := nil;
-  { Только строки: мост шлёт JSON строкой. Не-строка — не наше. }
+  { Strings only: the bridge sends JSON as a string. A non-string is not ours. }
   if Succeeded(args.TryGetWebMessageAsString(P)) and (P <> nil) then begin
     S := UnicodeString(P);
-    { Строку выделил рантайм — освобождать вызывающему. }
+    { The runtime allocated the string — the caller frees it. }
     CoTaskMemFree(P);
     FOwner.WebMessage(S);
   end;
@@ -942,10 +943,10 @@ var
   Uri: UnicodeString;
 begin
   Result := S_OK;
-  { Геопозиция — для «отправить место»; микрофон и камера — для звонков
-    (WebRTC на странице) и голосовых. Только своей странице — из файлов
-    окна, WEB_APP_ORIGIN; чужим (мини-приложения) — решение рантайма по
-    умолчанию. }
+  { Geolocation — for "send location"; microphone and camera — for calls
+    (WebRTC on the page) and voice messages. Only for our own page — from
+    the window's files, WEB_APP_ORIGIN; foreign ones (mini apps) — the
+    runtime's default decision. }
   if (args = nil) or Failed(args.get_PermissionKind(Kind))
      or ((Kind <> WEBVIEW2_PERMISSION_KIND_GEOLOCATION)
          and (Kind <> WEBVIEW2_PERMISSION_KIND_MICROPHONE)
@@ -1155,9 +1156,9 @@ begin
   { Its own profile folder beside the app's other data rather than
     somewhere under the user's Edge profile: this is a separate browser
     instance and should not inherit or disturb anything. }
-  { Прежнее название проекта — прежняя папка: переезжает целиком, чтобы
-    не потерять localStorage страницы (тема, запомненные выборы). Только
-    если новой ещё нет. }
+  { The project's former name — the former folder: it moves whole, so the
+    page's localStorage (theme, remembered choices) is not lost. Only if
+    the new one does not exist yet. }
   if (not DirectoryExists(GetEnvironmentVariable('LOCALAPPDATA') + '\' + APP_DATA_DIR))
      and DirectoryExists(GetEnvironmentVariable('LOCALAPPDATA') + '\' + APP_DATA_DIR_LEGACY) then begin
     RenameFile(GetEnvironmentVariable('LOCALAPPDATA') + '\' + APP_DATA_DIR_LEGACY,
@@ -1166,9 +1167,9 @@ begin
   DataDir := UnicodeString(GetEnvironmentVariable('LOCALAPPDATA'))
     + '\' + UnicodeString(APP_DATA_DIR) + '\webview2';
 
-  { Журнал localStorage с дырой после оборванной сессии — до того, как
-    окружение займёт файлы (lsrepair.pas). Один раз за запуск: окна,
-    открытые позже, делят тот же уже работающий профиль. }
+  { A localStorage journal with a hole after a broken-off session — before
+    the environment takes the files (lsrepair.pas). Once per run: windows
+    opened later share the same profile already running. }
   if not GStorageChecked then begin
     GStorageChecked := True;
     RepairLocalStorage(string(DataDir));
@@ -1193,7 +1194,7 @@ destructor TWebView2.Destroy;
 var
   I: integer;
 begin
-  { Диалог, ещё не показанный, — без хозяина: загрузка отменится. }
+  { A dialog not shown yet — without an owner: the download is cancelled. }
   for I := 0 to FAsks.Count - 1 do begin
     TDownloadAsk(FAsks[I]).Owner := nil;
   end;
@@ -1280,8 +1281,8 @@ begin
   FController.put_Bounds(R);
   FController.put_IsVisible(True);
 
-  { Стартовый скрипт — до навигации: ждём его ответа, и только потом
-    идём на адрес (StartupScriptAdded). Без скрипта — как раньше. }
+  { The startup script — before navigation: wait for its answer, and only
+    then go to the address (StartupScriptAdded). Without a script — as before. }
   if FStartupScript <> '' then begin
     FWebView.AddScriptToExecuteOnDocumentCreated(PWideChar(FStartupScript),
       TScriptAddedHandler.Create(Self));
@@ -1356,13 +1357,13 @@ begin
   end;
 end;
 
-{ Папка, куда сохраняли в последний раз, — до конца работы программы;
-  в первый раз — папка, которую предложил рантайм (загрузки человека). }
+{ The folder saved to last time — until the program exits; the first time —
+  the folder the runtime suggested (the person's downloads). }
 var
   GLastSaveDir: UnicodeString = '';
 
-{ Системный «Сохранить как» (comdlg32, вид Проводника). '' — отказ.
-  Фильтр — по расширению предложенного имени, плюс «все файлы». }
+{ The system "Save as" (comdlg32, the Explorer style). '' — refusal. The
+  filter — by the suggested name's extension, plus "all files". }
 function TWebView2.AskSavePath(const ASuggested: UnicodeString): UnicodeString;
 var
   Ofn: TOpenFileNameW;
@@ -1393,8 +1394,8 @@ begin
     Move(PWideChar(Name)^, Buf[0], Length(Name) * SizeOf(WideChar));
   end;
 
-  { Владелец — окно верхнего уровня: пока диалог открыт, оно недоступно,
-    как у любого модального окна. }
+  { The owner is the top-level window: while the dialog is open, it is
+    unavailable, as with any modal window. }
   Owner := GetAncestor(FHost, GA_ROOT);
   if Owner = 0 then begin
     Owner := FHost;

@@ -2,24 +2,25 @@ unit tdtimer;
 
 {$mode objfpc}{$H+}
 
-{ Таймер сервера без LCL — замена TTimer (ExtCtrls).
+{ The server's timer without LCL — a replacement for TTimer (ExtCtrls).
 
-  Повторяет поведение TCustomTimer (lcl/customtimer.pas), на которое
-  опирается код ядра:
-  - по умолчанию Enabled = True, Interval = 1000;
-  - тикает, только когда Enabled, Interval > 0 и задан OnTimer;
-  - смена Interval или OnTimer у включённого таймера, как и включение,
-    отсчитывает интервал заново; повторное Enabled := True у уже
-    включённого — нет;
-  - OnTimer вызывается в ГЛАВНОМ потоке, исключение из него не роняет
-    программу.
+  It repeats the behaviour of TCustomTimer (lcl/customtimer.pas) the core's
+  code relies on:
+  - Enabled = True, Interval = 1000 by default;
+  - it ticks only when Enabled, Interval > 0 and OnTimer is set;
+  - changing Interval or OnTimer of an enabled timer, like enabling it,
+    starts the interval anew; setting Enabled := True on an already
+    enabled one does not;
+  - OnTimer is called on the MAIN thread, an exception from it does not
+    bring the program down.
 
-  Устройство: один фоновый поток спит до ближайшего срока и ставит
-  разбор сработавших в очередь главного потока (TThread.Queue). Её
-  разбирает CheckSynchronize: в окне — цикл сообщений LCL (он сам
-  ставит WakeMainThread), в консольном сервере — свой цикл
-  (srvloop.pas). Список таймеров и их сроки трогает только главный
-  поток; поток-планировщик видит лишь ближайший срок под замком. }
+  How it works: one background thread sleeps until the nearest due time
+  and queues the processing of the timers that fired on the main thread
+  (TThread.Queue). CheckSynchronize drains it: in the window — the LCL
+  message loop (it sets WakeMainThread itself), in the console server —
+  our own loop (srvloop.pas). Only the main thread touches the timer list
+  and their due times; the scheduler thread sees only the nearest due time
+  under a lock. }
 
 interface
 
@@ -49,9 +50,9 @@ type
   TTdTimerError = procedure(E: Exception);
 
 var
-  { Куда деть исключение из OnTimer. По умолчанию — в stderr, если он
-    есть (консоль); у окна его нет, там исключение просто глотается,
-    как глотал бы его диалог HandleException, только молча. }
+  { Where an exception from OnTimer goes. By default — to stderr if there
+    is one (the console); the window has none, there the exception is
+    simply swallowed, as the HandleException dialog would, only silently. }
   TdTimerError: TTdTimerError = nil;
 
 implementation
@@ -69,8 +70,8 @@ var
   GLock: TCriticalSection = nil;
   GWake: TEventObject = nil;
   GTicker: TTicker = nil;
-  { Под GLock: ближайший срок (0 — ни одного взведённого таймера) и
-    признак, что Fire уже стоит в очереди и ещё не начался. }
+  { Under GLock: the nearest due time (0 — no armed timer) and the flag
+    that Fire is already queued and has not started yet. }
   GNextDue: QWord = 0;
   GFirePending: boolean = False;
 
@@ -83,7 +84,7 @@ begin
   end;
 end;
 
-{ Только главный поток. }
+{ Main thread only. }
 procedure Reschedule;
 var
   I: integer;
@@ -129,7 +130,7 @@ begin
     finally
       GLock.Leave;
     end;
-    { Пока Fire в очереди, сроки пересчитает он сам и разбудит. }
+    { While Fire is queued, it recomputes the due times itself and wakes us. }
     if (Next = 0) or Pending then begin
       Wait := INFINITE;
     end else begin
@@ -141,8 +142,8 @@ begin
         finally
           GLock.Leave;
         end;
-        { Метод своего потока: при уничтожении потока невыполненная
-          запись снимается из очереди (TThread.Destroy). }
+        { A method of our own thread: when the thread is destroyed an
+          unexecuted entry is removed from the queue (TThread.Destroy). }
         Queue(@Fire);
         Continue;
       end;
@@ -153,10 +154,10 @@ begin
   end;
 end;
 
-{ Главный поток. После каждого вызова — поиск с начала: обработчик
-  волен включать, выключать и освобождать любые таймеры, включая
-  свой. Сработавший получает новый срок ДО вызова, поэтому за один
-  проход дважды не сработает. }
+{ Main thread. After every call — searching from the start: the handler
+  may enable, disable and free any timers, its own included. A timer that
+  fired gets its new due time BEFORE the call, so it cannot fire twice in
+  one pass. }
 procedure TTicker.Fire;
 var
   I: integer;

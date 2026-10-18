@@ -89,13 +89,14 @@ function remember(char) {
 }
 
 /**
- * Отпускает всё тяжёлое внутри `root`: Lottie-плееры, видео (декодер и
- * буферы — только через снятие src и load()) и наблюдение offscreen.
+ * Releases everything heavy inside `root`: Lottie players, videos (the
+ * decoder and buffers — only by removing src and load()) and offscreen
+ * observation.
  *
- * ВЫЗЫВАТЬ ДО clear(): после него узлы уже не внутри root, и найти их
- * будет нечем. Именно так панель и текла — clear() отцеплял узлы, а
- * плееры и видео жили дальше: несколько переключений наборов кастомных
- * эмодзи дали 2.6 ГБ у процесса WebView2.
+ * CALL BEFORE clear(): after it the nodes are no longer inside root, and
+ * there is nothing to find them by. That is exactly how the panel leaked —
+ * clear() detached the nodes, while players and videos lived on: a few
+ * switches between custom emoji sets gave 2.6 GB in the WebView2 process.
  */
 function releaseMedia(root) {
   if (!root) return;
@@ -120,10 +121,10 @@ const toned = (item) => (tone > 0 && item.t ? item.t[tone - 1] : item.e);
  * A Premium custom emoji, answered as an object rather than a
  * character - it has no character to be.
  *
- * Для реакции — ответ на вопрос «какой эмодзи?». В композере — вставка
- * сущностью (composer.insertCustomEmoji): поле (ui/editor.js) рисует его
- * картинкой и отправляет textEntityTypeCustomEmoji.
- * Панель при этом остаётся открытой, как и для обычных эмодзи.
+ * For a reaction — the answer to "which emoji?". In the composer — insertion
+ * as an entity (composer.insertCustomEmoji): the field (ui/editor.js) draws
+ * it as a picture and sends textEntityTypeCustomEmoji.
+ * The panel stays open meanwhile, as for ordinary emoji.
  */
 function pickCustom(item) {
   if (oneShot) {
@@ -133,7 +134,7 @@ function pickCustom(item) {
     answer({ customEmojiId: item.id, emoji: item.emoji });
     return;
   }
-  // С адресом файла: поле ввода нарисует эмодзи картинкой сразу.
+  // With the file address: the input field draws the emoji as a picture at once.
   hooks.insertCustom?.(item.id, item.emoji, item);
 }
 
@@ -148,14 +149,14 @@ const customCell = (item) => el('button', {
 }, stickerNode(item, { still: true }));
 
 /**
- * Живой плеер — только у ячейки под курсором, поверх её кадра, и
- * уничтожается, как только курсор ушёл. Так в любой момент в сетке
- * играет не больше одного эмодзи.
+ * A live player — only for the cell under the cursor, over its frame, and
+ * it is destroyed as soon as the cursor leaves. So at any moment no more
+ * than one emoji plays in the grid.
  */
 function goLive(cell, item) {
   if (item.format !== 'tgs' && item.format !== 'webm' && item.format !== 'mp4') return;
   if (!item.url || cell.classList.contains('is-live')) return;
-  // GIF — это mp4 без звука: под курсором просто играющее видео.
+  // A GIF is an mp4 without sound: under the cursor just a playing video.
   const live = item.format === 'mp4'
     ? el('video', {
       class: 'picker__gif', src: item.url,
@@ -201,13 +202,13 @@ function wantSet(id) {
 }
 
 /**
- * Рисует набор, ДОПИСЫВАЯ то, что пришло, а не перестраивая всё.
+ * Draws a set by APPENDING what has arrived, not rebuilding everything.
  *
- * Пока файлы набора качаются, событие stickers приходит до пяти раз в
- * секунду, и каждое раньше пересоздавало все ячейки — сотню плееров и
- * видео за раз, а старые оставались жить. Теперь готовая ячейка
- * остаётся как есть, новая встаёт на своё место по порядку набора, а
- * целиком набор сносится (с освобождением) только при смене набора.
+ * While a set's files download, the stickers event comes up to five times a
+ * second, and each used to recreate all the cells — a hundred players and
+ * videos at once, while the old ones stayed alive. Now a ready cell stays
+ * as it is, a new one takes its place in the set's order, and the set is
+ * torn down whole (with releasing) only when the set changes.
  */
 function renderCustomSet(box, set) {
   if (!set || box.dataset.set !== set.id) {
@@ -290,9 +291,9 @@ function setArt(set) {
 }
 
 /**
- * Значок набора — НЕПОДВИЖНЫЙ: кадр, а не цикл. Три десятка наборов в
- * полоске, каждый своим плеером или видео, крутились всё время, пока
- * открыта панель, — ради значков, на которые никто не смотрит.
+ * A set's icon is STILL: a frame, not a loop. Three dozen sets in the strip,
+ * each with its own player or video, spun all the time the panel was open —
+ * for the sake of icons nobody looks at.
  */
 function setIcon(set) {
   const art = setArt(set);
@@ -300,7 +301,7 @@ function setIcon(set) {
   return set.cover?.emoji || set.emoji[0]?.emoji || set.title.slice(0, 1);
 }
 
-/** Что сейчас нарисовано на кнопке набора — чтобы не перерисовывать то же. */
+/** What is drawn on the set's button now — so as not to redraw the same. */
 const setIconKey = (set) => setArt(set)?.url ?? `text:${set.title}`;
 
 /**
@@ -320,9 +321,9 @@ function fillCustomJumps() {
     return;
   }
 
-  // Дописывание, как и в renderCustomSet: полоска обновляется на каждое
-  // событие stickers, и пересоздавать три десятка значков пять раз в
-  // секунду значило каждый раз бросать прежние плееры и видео.
+  // Appending, as in renderCustomSet: the strip updates on every stickers
+  // event, and recreating three dozen icons five times a second meant
+  // throwing away the previous players and videos each time.
   let standard = qs('.picker__jump--standard', box);
   if (!standard) {
     standard = el('button', {
@@ -359,7 +360,7 @@ function fillCustomJumps() {
     }
     prev = button;
   }
-  // Наборы, которых у аккаунта больше нет.
+  // Sets the account no longer has.
   for (const button of have.values()) {
     releaseMedia(button);
     button.remove();
@@ -564,28 +565,28 @@ function runEmojiSearch(text) {
  * a sticker and a custom emoji are the same kind of file.
  */
 // ------------------------------------------------------ still frames
-// Кадр вместо плеера: плеер (или видео) рисует один кадр и сразу
-// уничтожается, а в ячейке остаётся <img> с этим кадром. Лениво —
-// только когда ячейка подошла к видимой области, и не больше
-// STILL_PARALLEL одновременно: набор в сотню эмодзи иначе разом поднял
-// бы сотню плееров ради одного кадра каждый.
+// A frame instead of a player: the player (or video) draws one frame and is
+// destroyed at once, and an <img> with that frame stays in the cell. Lazily
+// — only when the cell nears the visible area, and no more than
+// STILL_PARALLEL at once: a set of a hundred emoji would otherwise raise a
+// hundred players at once for one frame each.
 //
-// Готовые кадры кэшируются по адресу файла как data URL. Вкладка
-// Stickers, набор и полоска перестраиваются на события stickers (до
-// пяти в секунду, пока качаются файлы), и без кэша каждая перестройка
-// гасила плитки и рисовала их кадры заново.
+// Ready frames are cached by file address as data URLs. The Stickers tab,
+// the set and the strip are rebuilt on stickers events (up to five a second
+// while the files download), and without a cache every rebuild blanked the
+// tiles and drew their frames anew.
 //
-// CSS px кадра: ячейка эмодзи — от 32px, плитка стикера — от 68px
-// (минимумы колонок в blocks/_picker.scss), а растянуться обе могут
-// примерно до полутора минимумов.
+// CSS px of the frame: an emoji cell is from 32px, a sticker tile from 68px
+// (the column minimums in blocks/_picker.scss), and both can stretch to
+// about one and a half of the minimum.
 const STILL_SIZE = { emoji: 40, tile: 100, gif: 160 };
 const STILL_PARALLEL = 4;
-// Кадр, не готовый за это время, бросается: иначе зависший файл держал
-// бы слот очереди вечно, а четыре таких — всю очередь.
+// A frame not ready within this time is dropped: otherwise a stuck file
+// would hold a queue slot forever, and four of them — the whole queue.
 const STILL_TIMEOUT_MS = 8000;
 const STILL_CACHE_MAX = 300;
-const stillCache = new Map();   // kind:url -> data URL; порядок Map — давность
-const stillJobs = new Map();    // <img> -> { item, kind }, ещё не дошедшие до вида
+const stillCache = new Map();   // kind:url -> data URL; the Map order is age
+const stillJobs = new Map();    // <img> -> { item, kind }, not yet scrolled into view
 const stillQueue = [];
 let stillRunning = 0;
 let lazy = null;
@@ -600,9 +601,9 @@ function rememberStill(key, src) {
 
 function lazyObserver() {
   if (!lazy) {
-    // Корень — вьюпорт, а не тело панели: значки наборов в полоске
-    // лежат вне тела. Прокрутку тела наблюдатель всё равно учитывает —
-    // ячейка, срезанная им, не пересекается.
+    // The root is the viewport, not the panel body: the set icons in the
+    // strip lie outside the body. The observer still accounts for the
+    // body's scroll — a cell clipped by it does not intersect.
     lazy = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
@@ -618,12 +619,12 @@ function lazyObserver() {
 }
 
 /**
- * Кадр как адрес картинки, или null.
+ * The frame as a picture address, or null.
  *
- * Стикер в плитке — SVG (stillSvg): на этом размере изъян
- * canvas-рендерера с градиентами виден. Эмодзи — canvas-рендерер на
- * черновой холст (stillSticker), webm — первый кадр видео на черновой
- * холст. Холст сразу перегоняется в PNG и отпускается.
+ * A sticker in a tile — SVG (stillSvg): at this size the canvas renderer's
+ * flaw with gradients shows. Emoji — the canvas renderer on a scratch
+ * canvas (stillSticker), webm — the video's first frame on a scratch
+ * canvas. The canvas is converted to PNG at once and released.
  */
 async function makeStill(item, kind) {
   const late = new Promise((_, reject) => {
@@ -645,7 +646,7 @@ function pumpStill() {
     const [img, { item, kind }] = stillQueue.shift();
     if (!img.isConnected) continue;
     const key = stillKey(item, kind);
-    // Мог дорисоваться, пока ячейка стояла в очереди.
+    // It may have been drawn while the cell stood in the queue.
     const ready = stillCache.get(key);
     if (ready) {
       img.src = ready;
@@ -657,7 +658,7 @@ function pumpStill() {
       rememberStill(key, src);
       if (img.isConnected) img.src = src;
     }).catch((err) => {
-      // Не молча: так SecurityError холста и прятался.
+      // Not silently: that is how the canvas SecurityError hid.
       console.error('picker still', item.url, err);
     }).finally(() => {
       stillRunning -= 1;
@@ -666,14 +667,14 @@ function pumpStill() {
   }
 }
 
-/** Первый кадр webm на холст; видео отпускается сразу после. */
+/** The first webm frame onto the canvas; the video is released right after. */
 function videoStill(canvas, url, cssSize) {
   return new Promise((resolve) => {
     const video = document.createElement('video');
-    // Файл — с сервера, а страница — со своего адреса
-    // (https://fptg.example): без CORS кадр «пачкает» холст, и
-    // toDataURL бросает SecurityError — ячейки эмодзи наборов в webm
-    // оставались пустыми. Сервер отдаёт заголовки CORS.
+    // The file is from the server, and the page from its own address
+    // (https://fptg.example): without CORS the frame "taints" the canvas,
+    // and toDataURL throws SecurityError — the emoji cells of webm sets
+    // stayed empty. The server sends CORS headers.
     video.crossOrigin = 'anonymous';
     video.muted = true;
     video.playsInline = true;
@@ -686,15 +687,15 @@ function videoStill(canvas, url, cssSize) {
       video.load();
       resolve(drawn);
     };
-    // Видео, которое так и не дало кадра, отпускается само, а не висит
-    // загрузкой (makeStill к этому времени уже бросил ожидание).
+    // A video that never gave a frame is released by itself rather than
+    // hanging as a download (makeStill has dropped the wait by then).
     timer = setTimeout(done, STILL_TIMEOUT_MS);
     video.addEventListener('loadeddata', () => {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       if (vw && vh) {
-        // Холст — в пропорциях кадра, вписанного в cssSize: у GIF кадр
-        // не квадратный, и поля вокруг него в плитке были бы видны.
+        // The canvas — in the proportions of the frame fitted into cssSize:
+        // a GIF frame is not square, and the margins around it would show in the tile.
         const size = Math.round(cssSize * (window.devicePixelRatio || 1));
         const k = Math.min(size / vw, size / vh);
         canvas.width = Math.max(1, Math.round(vw * k));
@@ -722,12 +723,12 @@ function stillNode(item, kind, cls = 'picker__sticker') {
 }
 
 /**
- * opts.still — неподвижный кадр: true или 'emoji' — для ячеек
- * кастомных эмодзи и значков наборов, 'tile' — для плиток стикеров.
- * Без него — живой плеер (тот, что под курсором).
+ * opts.still — a still frame: true or 'emoji' — for custom emoji cells and
+ * set icons, 'tile' — for sticker tiles. Without it — a live player (the
+ * one under the cursor).
  *
- * Видео не autoplay: его запускает и останавливает offscreen по
- * видимости, а ушедшее далеко за край прокрутки отдаёт декодер.
+ * A video is not autoplay: offscreen starts and stops it by visibility, and
+ * one that went far past the scroll edge gives up its decoder.
  */
 function stickerNode(item, opts = {}) {
   if (opts.still && (item.format === 'tgs' || item.format === 'webm')) {
@@ -793,9 +794,9 @@ function buildStickers(body, data) {
     // arrived is still loading.
     if (set.loaded && !set.stickers.length) continue;
 
-    // Как у кастомных эмодзи: в плитке кадр, живой плеер — только под
-    // курсором. Вкладка держала по SVG-плееру на каждый стикер всех
-    // показанных наборов.
+    // As with custom emoji: a frame in the tile, a live player only under
+    // the cursor. The tab used to hold an SVG player for every sticker of
+    // all the sets shown.
     const cells = set.stickers.filter((s) => s.url).map((s) => el('button', {
       class: 'picker__tile',
       type: 'button',
@@ -828,11 +829,12 @@ function buildStickers(body, data) {
  * measured on a real account, 134 of them came back with 68 mpeg4
  * thumbnails, 60 still jpegs and 6 with no thumbnail at all.
  *
- * Плитка — КАДР, как у стикеров: каждая видимая плитка раньше была
- * своим играющим <video>, а их в панели за сотню. Кадр — неподвижное
- * превью (jpeg), а нет его — первый кадр видео, перегнанный в картинку
- * (stillNode, кэш кадров). Играет только плитка под курсором — тем, что
- * движется: самой анимацией, а пока её нет — движущимся превью.
+ * A tile is a FRAME, as with stickers: every visible tile used to be its
+ * own playing <video>, and there are over a hundred in the panel. The frame
+ * is a still preview (jpeg), and without one — the video's first frame
+ * converted to a picture (stillNode, the frame cache). Only the tile under
+ * the cursor plays — with what moves: the animation itself, and until it
+ * arrives — the moving preview.
  */
 const gifLive = (g) => g.playUrl || (g.thumbFormat === 'mpeg4' ? g.url : '') || '';
 
@@ -908,14 +910,14 @@ function upgradeGifs(pane, items) {
     // for ever - which is exactly what a search full of results looked
     // like. Comparing the source also means an unchanged tile is left
     // alone, so a video that is already playing is not restarted.
-    // Что играть под курсором — всегда самое свежее: анимация приходит
-    // позже превью, а кадр плитки от этого меняться не обязан.
+    // What to play under the cursor — always the freshest: the animation
+    // arrives later than the preview, and the tile's frame need not change.
     tile.dataset.live = gifLive(g);
     if (gifLive(g)) tile.dataset.still = 'no';
     if (!key || tile.dataset.src === key) continue;
     tile.dataset.src = key;
-    // Меняется только кадр; живое видео под курсором, если оно есть,
-    // остаётся.
+    // Only the frame changes; the live video under the cursor, if there is
+    // one, stays.
     const old = qs('.picker__still', tile);
     releaseMedia(old);
     if (old) old.replaceWith(gifNode(g));
@@ -1060,9 +1062,9 @@ export function pickerChanged() {
   if (!panel?.matches(':popover-open')) return;
   if (tab === 'emoji') {
     // The standard emoji never change; the custom ones arrive set by
-    // set and file by file, exactly like stickers. В обоих режимах —
-    // и для реакции, и для композера: первый ответ emoji.sets приходит
-    // без содержимого наборов, и всё остальное доезжает только сюда.
+    // set and file by file, exactly like stickers. In both modes — for a
+    // reaction and for the composer: the first emoji.sets answer comes
+    // without the sets' contents, and everything else arrives only here.
     fillCustom().catch(console.error);
     return;
   }
@@ -1116,10 +1118,10 @@ function build() {
     oneShot = null;
     anchor = mounted;
     node.classList.remove('picker--emoji-only');
-    // Закрытая панель не держит ничего живого. Открытый кастомный набор,
-    // значки наборов и вкладки Stickers/GIF при следующем открытии всё
-    // равно перезапрашиваются; сетка обычных эмодзи — это текст, она
-    // остаётся (её постройка дорогая, а памяти почти не стоит).
+    // A closed panel holds nothing alive. The open custom set, the set
+    // icons and the Stickers/GIF tabs are re-requested on the next open
+    // anyway; the ordinary emoji grid is text, it stays (it is expensive to
+    // build and costs almost no memory).
     renderCustomSet(qs('.picker__custom', node), null);
     const jumps = qs('.picker__jumps--custom', node);
     releaseMedia(jumps);
@@ -1153,8 +1155,8 @@ async function toggle() {
   markPopDirection(panel, anchor);
   await showTab(tab);
   if (tab === 'emoji') qs('.picker__query', panel)?.focus();
-  // Наборы кастомных эмодзи — и для реакции, и для композера. Спрашиваются
-  // при каждом открытии: что установлено у аккаунта, могло измениться.
+  // Custom emoji sets — both for a reaction and for the composer. Asked on
+  // every open: what the account has installed may have changed.
   fillCustom().catch(console.error);
 }
 
@@ -1189,8 +1191,8 @@ export function openEmojiPicker(node, onPick) {
   toggle().then(() => {
     panel?.classList.add('picker--emoji-only');
     // The standard emoji are what the panel opens on - the custom sets
-    // are a click away in the strip, not in front of them. Сами наборы
-    // подтягивает toggle().
+    // are a click away in the strip, not in front of them. The sets
+    // themselves are pulled in by toggle().
     showSet(null);
   }).catch(console.error);
 }

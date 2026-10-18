@@ -6,30 +6,30 @@ import { openEmojiPicker } from './picker.js';
 import { uploadUrl } from '../core/session.js';
 import { startUpload, endUpload, stopAction } from './sendaction.js';
 
-// Отправка файлов — как в нативном клиенте Telegram.
+// Sending files — as in the native Telegram client.
 //
-// Три входа: перетаскивание на открытый чат, скрепка в композере и
-// вставка из буфера. Все три ведут в один диалог: список файлов, подпись,
-// Add / Cancel / Send.
+// Three entries: dragging onto the open chat, the paperclip in the composer
+// and pasting from the clipboard. All three lead to one dialog: the file
+// list, the caption, Add / Cancel / Send.
 //
-// Перетаскивание показывает зоны. Для одних картинок их две — «без
-// сжатия» (файлом) и «быстрая отправка» (сжатым фото), как у нативного
-// клиента; для всего остального одна — файлом. Выбранная зона задаёт
-// режим диалога, а в самом диалоге его можно переключить, пока все
-// файлы — картинки.
+// Dragging shows zones. For pictures only there are two — "without
+// compression" (as a file) and "quick send" (as a compressed photo), as in
+// the native client; for everything else one — as a file. The chosen zone
+// sets the dialog's mode, and in the dialog itself it can be switched while
+// all the files are pictures.
 //
-// Байты уходят на сервер POST /upload (по одному файлу, с ходом
-// загрузки, адрес и токен — core/session.js), обратно приходит id;
-// команда message.sendFiles отдаёт эти id модели. Путь на диске
-// странице не нужен и не виден.
+// The bytes go to the server with POST /upload (one file at a time, with
+// upload progress, the address and token — core/session.js), an id comes
+// back; the message.sendFiles command hands those ids to the model. The
+// path on disk is neither needed nor visible to the page.
 
-// Что Telegram примет как фото. GIF сюда не входит намеренно: сжатым
-// фото он стал бы неподвижной картинкой.
+// What Telegram accepts as a photo. GIF is left out on purpose: as a
+// compressed photo it would become a still picture.
 const PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp']);
 const isPhoto = (file) => PHOTO_TYPES.has(file.type);
 const allPhotos = (files) => files.length > 0 && files.every(isPhoto);
-// Видео, которое уйдёт видео-сообщением в режиме «медиа» (сервер решает
-// по расширению: mp4, mov, m4v, webm, mkv).
+// A video that goes as a video message in "media" mode (the server decides
+// by the extension: mp4, mov, m4v, webm, mkv).
 const VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/x-m4v', 'video/webm', 'video/x-matroska']);
 const isMedia = (file) => isPhoto(file) || VIDEO_TYPES.has(file.type);
 const allMedia = (files) => files.length > 0 && files.every(isMedia);
@@ -37,19 +37,19 @@ const allMedia = (files) => files.length > 0 && files.every(isMedia);
 let hooks = {};
 let layer = null;
 let zone = null;
-let picker = null;      // скрытый <input type=file> для кнопки Add
+let picker = null;      // the hidden <input type=file> for the Add button
 
-// Состояние открытого диалога.
+// The open dialog's state.
 let files = [];
 let asPhoto = false;
-// Вид, заданный пунктом меню скрепки: 'document' или 'audio' — без
-// переключателя сжатия; null — как раньше (сжатие для медиа).
+// The kind set by a paperclip menu item: 'document' or 'audio' — without
+// the compression toggle; null — as before (compression for media).
 let forced = null;
-let previews = new Map();   // File -> object URL миниатюры, отзывается при закрытии
+let previews = new Map();   // File -> the thumbnail's object URL, revoked on closing
 let busy = false;
 let xhr = null;
 let cancelled = false;
-let view = null;            // узлы диалога, которые обновляются на месте
+let view = null;            // the dialog's nodes updated in place
 
 // ------------------------------------------------------------ dropzone
 let dragDepth = 0;
@@ -57,14 +57,14 @@ let dragDepth = 0;
 const hasFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes('Files');
 
 /**
- * Картинки ли всё, что тащат. Во время перетаскивания сами файлы
- * недоступны, а вид (MIME) у элементов уже есть — по нему и решается,
- * показывать ли вторую зону.
+ * Whether everything dragged is pictures. During dragging the files
+ * themselves are unavailable, but the items already have a kind (MIME) —
+ * that decides whether to show the second zone.
  */
 function dragAllMedia(event) {
   const items = [...(event.dataTransfer?.items ?? [])];
-  // Фото И видео: видео тоже отправляется «быстро» — видео-сообщением,
-  // а не файлом (раньше вторая зона была только для картинок).
+  // Photos AND videos: a video is sent "quickly" too — as a video message,
+  // not a file (the second zone used to be for pictures only).
   return items.length > 0 && items.every((item) => item.kind === 'file'
     && (PHOTO_TYPES.has(item.type) || VIDEO_TYPES.has(item.type)));
 }
@@ -124,9 +124,9 @@ function mountDropzone(area) {
     if (dropped.length) openDialog(dropped, mode === 'photo' && allMedia(dropped));
   });
 
-  // Файл, брошенный мимо зоны (на список чатов, в статусную строку), не
-  // должен открываться в окне вместо приложения — браузер по умолчанию
-  // делает именно это.
+  // A file dropped outside the zone (on the chat list, into the status bar)
+  // must not open in the window instead of the app — the browser does
+  // exactly that by default.
   window.addEventListener('dragover', (event) => {
     if (hasFiles(event)) event.preventDefault();
   });
@@ -171,11 +171,11 @@ function fileRow(file) {
     }, icon('close', 'icon--sm'), el('span', { class: 'u-sr-only' }, 'Remove')));
 }
 
-/** Перерисовывает всё, что зависит от списка файлов; подпись не трогает. */
+/** Redraws everything that depends on the file list; does not touch the caption. */
 function refresh() {
   if (!view) return;
-  // Сжатие возможно, только пока ВСЕ файлы — фото или видео, и вид не
-  // задан пунктом меню.
+  // Compression is possible only while ALL the files are photos or videos,
+  // and the kind is not set by a menu item.
   if (!allMedia(files) || forced) asPhoto = false;
   view.title.textContent = titleText();
   clear(view.list).append(...files.map(fileRow));
@@ -226,7 +226,7 @@ function pickEmoji() {
 
 function setProgress(fraction) {
   const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)));
-  // Лестница .w-* — шаг 5%: ширину задаёт класс, а не style.
+  // The .w-* ladder is in 5% steps: the width is set by a class, not style.
   view.bar.className = `attach__bar-fill w-${Math.round(pct / 5) * 5}`;
   view.percent.textContent = `${pct}%`;
 }
@@ -242,14 +242,14 @@ function setBusy(on) {
   for (const btn of view.list.querySelectorAll('.attach__remove')) btn.disabled = on;
 }
 
-/** Файл на сервер без окна (голосовые и кружки, ui/recorder.js): id загрузки. */
+/** A file to the server without a window (voice messages and round videos, ui/recorder.js): the upload id. */
 export async function uploadFile(file) {
   const id = await upload(file, () => {});
   xhr = null;
   return id;
 }
 
-/** Один файл на сервер; resolve — id загрузки. */
+/** One file to the server; resolves to the upload id. */
 async function upload(file, onProgress) {
   const url = await uploadUrl(file.name);
   return new Promise((resolve, reject) => {
@@ -268,10 +268,10 @@ async function upload(file, onProgress) {
 }
 
 /**
- * Файл для богатого сообщения (режим Rich в поле ввода): загрузка без
- * окна. kind — вид блока (photo, video, gif, audio, file), info —
- * сведения о видео (как у message.sendFiles) или null. Загрузки идут по
- * одной: upload держит одну xhr на модуль.
+ * A file for a rich message (Rich mode in the input field): an upload
+ * without a window. kind — the block kind (photo, video, gif, audio, file),
+ * info — video info (as for message.sendFiles) or null. Uploads go one at a
+ * time: upload holds one xhr per module.
  */
 export async function uploadRichFile(file, mode) {
   let kind = 'file';
@@ -296,10 +296,10 @@ export async function uploadRichFile(file, mode) {
   return { id, kind, info };
 }
 
-// Сведения о видео для inputVideo: без них TDLib ставит 320x320 и
-// длительность 0 (живой лог), и превью выходит квадратным, без кадра.
-// Браузер сам читает метаданные из файла; кадр — на холст и в JPEG, его
-// грузим отдельным файлом как миниатюру.
+// Video info for inputVideo: without it TDLib sets 320x320 and duration 0
+// (a live log), and the preview comes out square, without a frame. The
+// browser reads the metadata from the file itself; the frame — onto a
+// canvas and into JPEG, uploaded as a separate file as the thumbnail.
 const THUMB_MAX = 320;
 const VIDEO_PROBE_MS = 8000;
 
@@ -321,7 +321,7 @@ function videoInfo(file) {
     video.muted = true;
     video.preload = 'auto';
     video.addEventListener('loadedmetadata', () => {
-      // Кадр чуть дальше начала: первый часто чёрный.
+      // A frame a little past the start: the first one is often black.
       video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
     }, { once: true });
     video.addEventListener('seeked', () => {
@@ -363,7 +363,7 @@ async function send() {
   const mode = forced ?? (asPhoto ? 'media' : 'document');
   try {
     for (const file of files) {
-      // Видео-сообщению — длительность, размеры и кадр-миниатюра.
+      // For a video message — the duration, size and a thumbnail frame.
       let info = null;
       if (mode === 'media' && isVideoFile(file)) {
         const probe = await videoInfo(file);
@@ -376,13 +376,13 @@ async function send() {
         }
       }
       meta.push(info);
-      // «Отправляет фото/видео/файл» собеседнику, пока байты идут на сервер.
+      // "Sending a photo/video/file" to the other side while the bytes go to the server.
       startUpload(mode === 'media' ? (isPhoto(file) ? 'photo' : 'video') : 'document');
       ids.push(await upload(file, (loaded) => setProgress((done + loaded) / total)));
       done += file.size;
     }
     xhr = null;
-    // Дальше файл грузит в Telegram сама TDLib — и действие шлёт она же.
+    // From here TDLib itself uploads the file to Telegram — and sends the action too.
     endUpload();
     await hooks.call('message.sendFiles', {
       files: ids,
@@ -424,7 +424,7 @@ function closeDialog() {
 function openDialog(list, photos, mode = null) {
   if (!list.length) return;
   if (view) {
-    // Уже открыт — добавить к тому, что есть.
+    // Already open — add to what is there.
     addFiles(list);
     return;
   }
@@ -443,7 +443,7 @@ function openDialog(list, photos, mode = null) {
     class: 'attach__caption-input', rows: 1, placeholder: 'Caption',
   });
   caption.addEventListener('keydown', (event) => {
-    // Как в поле сообщения: Enter отправляет, Ctrl/Shift+Enter — перенос.
+    // As in the message field: Enter sends, Ctrl/Shift+Enter — a line break.
     if (event.key !== 'Enter' || event.ctrlKey || event.shiftKey) return;
     event.preventDefault();
     send();
@@ -511,8 +511,8 @@ export function mountAttach(layerNode, zoneNode, dropArea, options) {
   });
   document.body.append(picker);
 
-  // Клик по затемнению вокруг окна — как Cancel; Escape — тоже, если
-  // панель эмодзи не открыта (её Escape закрывает её саму).
+  // A click on the dimming around the window — like Cancel; Escape too, if
+  // the emoji panel is not open (its Escape closes the panel itself).
   layer.addEventListener('click', (event) => {
     if (event.target === layer) cancel();
   });
@@ -525,17 +525,17 @@ export function mountAttach(layerNode, zoneNode, dropArea, options) {
 
   mountDropzone(dropArea);
 
-  // Скрепка и вставка из буфера: картинки по умолчанию сжатыми, как у
-  // нативного клиента.
-  // mode — от меню скрепки (ui/attachmenu.js): media | document | audio.
+  // The paperclip and pasting from the clipboard: pictures compressed by
+  // default, as in the native client.
+  // mode — from the paperclip menu (ui/attachmenu.js): media | document | audio.
   on('ui:attach', ({ files: list, mode }) => {
     if (!hooks.canCompose()) return;
-    // Режим Rich: файл встаёт строкой в текст, между блоками
-    // (ui/composer.js) — и из меню скрепки тоже, с его видом.
+    // Rich mode: the file goes as a line into the text, between blocks
+    // (ui/composer.js) — from the paperclip menu too, with its kind.
     if (hooks.richAttach?.(list, mode)) return;
-    // Скрепка и вставка: фото и видео по умолчанию «сжатыми» — видео
-    // уходит видео-сообщением, как у нативного клиента; переключатель в
-    // окне возвращает отправку файлом.
+    // The paperclip and pasting: photos and videos "compressed" by default
+    // — a video goes as a video message, as in the native client; the
+    // toggle in the window brings back sending as a file.
     openDialog(list, mode === 'media' || (!mode && allMedia(list)), mode ?? null);
   });
 }

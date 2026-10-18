@@ -6,15 +6,15 @@ import { openMenu } from '../util/menu.js';
 import { openBox, textField, photoPicker, contactPicker, note } from './tgbox.js';
 import { typePage, loadContext } from './manage.js';
 
-// «+» над списком чатов: новая группа или канал — шаги, как у Telegram
+// "+" above the chat list: a new group or channel — steps as in Telegram
 // Desktop.
-//   Группа: «New group» (фото и название) -> «Add members» (контакты,
-//   счётчик) -> Create.
-//   Канал: «New channel» (фото, название, описание) -> Create -> «Channel
-//   type» (публичный с адресом или частный по ссылке) -> «Add
-//   subscribers» -> канал открывается.
-//   Бот: «New bot» -> чат с @BotFather и ему /newbot — он начинает диалог
-//   создания бота.
+//   Group: "New group" (photo and title) -> "Add members" (contacts, a
+//   counter) -> Create.
+//   Channel: "New channel" (photo, title, description) -> Create -> "Channel
+//   type" (public with an address or private by a link) -> "Add
+//   subscribers" -> the channel opens.
+//   Bot: "New bot" -> the chat with @BotFather and /newbot to it — it starts
+//   the bot creation dialogue.
 
 let hooks = {};
 
@@ -113,7 +113,7 @@ function newChannel() {
           }]);
           const uploadId = await photo.upload();
           if (uploadId) await admin([photoStep(chat.id, uploadId)]).catch(() => {});
-          // Дальше — тип канала (шаг без возврата: канал уже создан).
+          // Next — the channel type (a step without return: the channel is created already).
           const ctx = await loadContext(chat.id, hooks);
           const finish = (b) => b.replace(subscribersStep(b, chat.id));
           box.replace(typePage(ctx, { after: finish }));
@@ -153,12 +153,12 @@ function subscribersStep(box, chatId) {
   };
 }
 
-// Сколько ждать открытия чата с BotFather, прежде чем сдаться.
+// How long to wait for the BotFather chat to open before giving up.
 const BOTFATHER_OPEN_MS = 10000;
 
 /**
- * New bot: открыть @BotFather и отправить ему /newbot. Команда уходит в
- * открытый чат (message.send), поэтому — когда пришла его история.
+ * New bot: open @BotFather and send it /newbot. The command goes to the open
+ * chat (message.send), hence — when its history has arrived.
  */
 async function newBot() {
   let target;
@@ -189,7 +189,7 @@ async function newBot() {
   }
 }
 
-/** Кнопка «+» в шапке боковой панели (рядом со вкладками). */
+/** The "+" button in the side panel's header (next to the tabs). */
 export function mountNewChat(headNode, options) {
   hooks = options;
   if (!hooks.report) hooks.report = (error) => emit('ui:error', error?.message || String(error));

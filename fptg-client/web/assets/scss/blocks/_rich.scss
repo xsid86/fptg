@@ -1,9 +1,9 @@
 @use "../abstracts" as *;
 
-// Богатое сообщение (ui/richmessage.js): статья из блоков внутри
-// карточки сообщения — заголовки, абзацы, списки, цитаты, таблицы,
-// медиа, раскрывающиеся блоки и строки кнопок. Отступы — вертикальным
-// ритмом между блоками; медиа — во всю ширину карточки.
+// A rich message (ui/richmessage.js): an article of blocks inside the
+// message card — headings, paragraphs, lists, quotes, tables, media,
+// collapsible blocks and button rows. Spacing — a vertical rhythm between
+// blocks; media — the card's full width.
 .rich {
   @include flex(column, stretch, flex-start, $space-4);
   min-width: 0;
@@ -211,10 +211,10 @@
   }
 }
 
-// Раскрывающийся блок: высота содержимого плавно от 0 до auto
-// (::details-content + interpolate-size, Chromium 131+), стрелка
-// поворачивается. Закрытие — тот же переход назад: content-visibility
-// с allow-discrete держит содержимое видимым, пока высота едет к 0.
+// A collapsible block: the content's height smoothly from 0 to auto
+// (::details-content + interpolate-size, Chromium 131+), the arrow rotates.
+// Closing is the same transition back: content-visibility with
+// allow-discrete keeps the content visible while the height goes to 0.
 .rich__details {
   @include chat-tint(background, 8%);
   border-radius: $radius-sm;
@@ -260,7 +260,7 @@
   }
 }
 
-// Строка кнопок — те же кнопки, что под сообщением (.message__kb-btn).
+// A button row — the same buttons as under a message (.message__kb-btn).
 .rich__buttons {
   @include flex(row, stretch, flex-start, $space-2);
   flex-wrap: wrap;

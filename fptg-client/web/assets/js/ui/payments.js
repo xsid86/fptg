@@ -3,38 +3,38 @@ import { on } from '../core/bus.js';
 import { formDialog, field, checkRow } from './bots.js';
 import { openLink } from './links.js';
 
-// Оплата счетов: кнопки «Купить» у ботов ({ msgId }) и ссылки-счета
-// t.me/$имя ({ invoiceName }) — событие ui:pay-invoice.
+// Paying invoices: bots' "Buy" buttons ({ msgId }) and invoice links
+// t.me/$name ({ invoiceName }) — the ui:pay-invoice event.
 //
-// Звёзды — одно подтверждение. Деньги — по шагам, как у Telegram Desktop:
-//   1. данные заказа (имя/телефон/почта/адрес), если счёт их просит —
-//      validateOrderInfo, и выбор доставки у гибкого счёта;
-//   2. способ оплаты: карта, сохранённая в Telegram (при need_password —
-//      облачный пароль -> временный пароль), или новая карта;
-//   3. новая карта уходит ПРЯМО ПРОВАЙДЕРУ со страницы (fetch): Smart
-//      Glocal или Stripe. Ни наш сервер, ни Telegram номера карты не
-//      видят — в sendPaymentForm идёт только токен провайдера
-//      (inputCredentialsNew.data). Протокол обоих — по исходникам
-//      Telegram Desktop (payments/smartglocal, payments/stripe) и
-//      документации Stripe; CORS обоих разрешает запрос с этой страницы
-//      (проверено preflight-запросом);
-//   4. итоговое подтверждение с полной суммой — и только тогда оплата.
+// Stars — one confirmation. Money — in steps, as in Telegram Desktop:
+//   1. the order info (name/phone/email/address), if the invoice asks for
+//      it — validateOrderInfo, and the shipping choice for a flexible invoice;
+//   2. the payment method: a card saved in Telegram (with need_password —
+//      the cloud password -> a temporary password), or a new card;
+//   3. a new card goes STRAIGHT TO THE PROVIDER from the page (fetch): Smart
+//      Glocal or Stripe. Neither our server nor Telegram sees the card
+//      number — only the provider's token goes into sendPaymentForm
+//      (inputCredentialsNew.data). Both protocols — per the Telegram
+//      Desktop sources (payments/smartglocal, payments/stripe) and the
+//      Stripe docs; both allow a CORS request from this page (verified with
+//      a preflight request);
+//   4. the final confirmation with the full amount — and only then the payment.
 
 let hooks = {};
 const notify = (text) => hooks.notice?.(text);
 
-// Адрес токенизации Smart Glocal — как его проверяет Telegram Desktop
-// (smartglocal_api_client.cpp, ComputeApiUrl): https, хост на
-// .smart-glocal.com, ровно этот путь, без query и фрагмента. Иначе —
-// стандартный адрес. Номер карты по чужому адресу не уходит.
+// The Smart Glocal tokenization address — as Telegram Desktop checks it
+// (smartglocal_api_client.cpp, ComputeApiUrl): https, a host on
+// .smart-glocal.com, exactly this path, without query and fragment.
+// Otherwise — the standard address. The card number does not go to a foreign address.
 const SMART_GLOCAL_PATH = '/cds/v1/tokenize/card';
-// Временный пароль, которому осталось меньше — как будто его нет: пока
-// человек подтверждает сумму, он успел бы истечь.
+// A temporary password with less than this left is as if absent: while the
+// person confirms the amount, it could expire.
 const TMP_PASSWORD_MIN_SEC = 120;
 const SMART_GLOCAL_HOST = { live: 'tgb.smart-glocal.com', test: 'tgb-playground.smart-glocal.com' };
 const STRIPE_TOKENS_URL = 'https://api.stripe.com/v1/tokens';
 
-/** Сумма в минимальных единицах валюты — как человек её читает. */
+/** An amount in the currency's minimal units — as a person reads it. */
 export function money(amount, currency) {
   try {
     const fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency });
@@ -55,7 +55,7 @@ function termsNote(form) {
 }
 
 async function finish(r) {
-  // 3-D Secure и прочие проверки банка — его страница.
+  // 3-D Secure and other bank checks — its own page.
   if (r?.url) openLink(r.url);
   else if (r?.success) notify('Payment completed');
 }
@@ -134,7 +134,7 @@ async function askChoice(text, options, ok) {
 // ------------------------------------------------------------- cards
 const digits = (s) => String(s).replace(/\D/g, '');
 
-/** Контрольная сумма номера карты (алгоритм Луна). */
+/** The card number checksum (the Luhn algorithm). */
 function luhn(number) {
   let sum = 0;
   let dbl = false;
@@ -158,7 +158,7 @@ function brand(number) {
   return 'card';
 }
 
-/** MM/YY -> { month, year } (год — полный) или null. */
+/** MM/YY -> { month, year } (the full year) or null. */
 function parseExpiry(text) {
   const m = /^\s*(\d{1,2})\s*\/\s*(\d{2}|\d{4})\s*$/.exec(text);
   if (!m) return null;
@@ -176,7 +176,7 @@ function smartGlocalUrl(provider, isTest) {
     const u = new URL(provider.tokenizeUrl);
     if (u.protocol === 'https:' && u.hostname.endsWith('.smart-glocal.com')
         && u.pathname === SMART_GLOCAL_PATH && !u.search && !u.hash) return u.href;
-  } catch { /* не адрес — стандартный ниже */ }
+  } catch { /* not an address — the standard one below */ }
   return `https://${isTest ? SMART_GLOCAL_HOST.test : SMART_GLOCAL_HOST.live}${SMART_GLOCAL_PATH}`;
 }
 
@@ -223,7 +223,7 @@ async function tokenizeStripe(provider, card) {
   return JSON.stringify({ type: 'card', id: answer.id });
 }
 
-/** Новая карта: форма -> токен провайдера. { newData, allowSave, title } или null. */
+/** A new card: the form -> the provider's token. { newData, allowSave, title } or null. */
 async function askNewCard(form) {
   const p = form.provider;
   const number = field({ type: 'text', placeholder: 'Card number', inputmode: 'numeric', autocomplete: 'cc-number' });
@@ -288,7 +288,7 @@ async function askPassword() {
   }
 }
 
-/** Способ оплаты: { savedId, title } | { newCard: true } | null. */
+/** The payment method: { savedId, title } | { newCard: true } | null. */
 async function askMethod(form) {
   const canNew = form.provider?.type === 'smartglocal' || form.provider?.type === 'stripe';
   const options = (form.saved ?? []).map((s) => ({ label: s.title, savedId: s.id, title: s.title }));
@@ -324,10 +324,10 @@ async function payCard(invoice, form) {
     creds = await askNewCard(form);
     if (!creds) return;
   } else {
-    // Сохранённой картой — ВСЕГДА с действующим временным паролем
-    // (inputCredentialsSaved, td_api.tl). form.needPassword тут ни при
-    // чём: оно про то, сможет ли человек СОХРАНИТЬ карту. Пароль — если
-    // временного нет или он вот-вот истечёт.
+    // With a saved card — ALWAYS with a valid temporary password
+    // (inputCredentialsSaved, td_api.tl). form.needPassword has nothing to
+    // do with it: it is about whether the person can SAVE the card. The
+    // password — if there is no temporary one or it is about to expire.
     const tmp = await hooks.call('bot.tmpPasswordState').catch(() => null);
     if (!(tmp?.hasPassword && tmp.validFor >= TMP_PASSWORD_MIN_SEC) && !(await askPassword())) return;
     creds = { savedId: method.savedId, title: method.title };

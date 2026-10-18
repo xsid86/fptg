@@ -30,10 +30,10 @@ function renderStatus(status) {
   );
 }
 
-// «Online» — всегда: режима «Невидимка» больше нет (2026-10-12, условия
-// Telegram API §1.4 — нельзя прятать онлайн и не отмечать прочитанное).
-// Кто видит «в сети» и время прочтения — официальные настройки
-// приватности, клик ведёт прямо в них (Settings → Privacy).
+// "Online" — always: there is no "Invisible" mode any more (2026-10-12, the
+// Telegram API terms §1.4 — one must not hide online status and not mark
+// messages read). Who sees "online" and the read time — the official
+// privacy settings, a click leads straight to them (Settings → Privacy).
 function renderPresence() {
   presence.title = 'Who can see your last seen, online status and read time: '
     + 'Settings → Privacy';
@@ -53,11 +53,11 @@ function renderCounts() {
 }
 
 // ---------------------------------------------------------- accounts
-// Переключатель аккаунтов — между состоянием соединения и видимостью.
-// Список и активный аккаунт держит сервер (accounts.list, реестр tdcore);
-// смена активного приходит событием account, и страница перезагружается:
-// у другого аккаунта другие чаты, история, снимки — смешать их нельзя, а
-// чистый старт гарантирует это проще всего.
+// The account switcher — between the connection state and visibility. The
+// list and the active account are kept by the server (accounts.list, the
+// tdcore registry); a change of the active one comes as the account event,
+// and the page reloads: another account has other chats, history, snapshots
+// — they must not be mixed, and a clean start guarantees that most simply.
 let accountBtn = null;
 let accounts = { active: 0, accounts: [], canAdd: false };
 
@@ -75,13 +75,13 @@ function renderAccountButton() {
   }
   accountBtn.hidden = false;
   accountBtn.title = accounts.accounts.length > 1 ? 'Switch account' : 'Account';
-  // append из dom.js, не родной: тот превращает null в текст «null».
+  // append from dom.js, not the native one: that turns null into the text "null".
   append(clear(accountBtn), [
     accountAvatar(a, 'status-bar__account-avatar'),
     el('span', { class: 'status-bar__account-text' },
       el('span', { class: 'status-bar__account-name' }, a.title || 'Account'),
       a.userId ? el('span', { class: 'status-bar__account-id' }, a.userId) : null),
-    // Непрочитанное в ДРУГИХ аккаунтах — точкой: по своему счётчик рядом.
+    // Unread in OTHER accounts — as a dot: for the own one the counter is next to it.
     accounts.accounts.some((x) => x.index !== accounts.active && x.unread > 0)
       ? el('span', { class: 'status-bar__account-dot', title: 'Unread messages in other accounts' })
       : null,
@@ -149,15 +149,16 @@ function openAccounts() {
 }
 
 // ---------------------------------------------------------- traffic
-// Трафик ЭТОГО окна с сервером под Online. Считает сервер — по
-// сеансу входа, с запуска сервера — и присылает итог раз в секунду
-// (событие traffic: sent/recv со стороны сервера); скорость — по
-// разнице двух соседних итогов. ↓ получено окном, ↑ отправлено.
+// THIS window's traffic with the server under Online. The server counts it
+// — per sign-in session, since the server started — and sends the total
+// once a second (the traffic event: sent/recv from the server's side); the
+// speed — by the difference of two neighbouring totals. ↓ received by the
+// window, ↑ sent.
 let traffic = null;
 let prevTraffic = null;
 
-// Показывать ли строку — Settings → General. Настройка вида этого окна,
-// а не сервера: локально, как выбор темы. Нет записи — показывать.
+// Whether to show the line — Settings → General. A setting of this window's
+// look, not of the server: local, like the theme choice. No record — show it.
 const TRAFFIC_KEY = 'showTraffic';
 
 export function trafficShown() {
@@ -172,9 +173,9 @@ export function setTrafficShown(on) {
   try {
     localStorage.setItem(TRAFFIC_KEY, on ? '1' : '0');
   } catch {
-    // Не запомнится до следующего запуска, но сейчас подействует.
+    // It will not be remembered until the next run, but it applies now.
   }
-  // Спрятать сразу; показать — как только придёт следующий итог.
+  // Hide at once; show — as soon as the next total arrives.
   if (traffic && !on) traffic.hidden = true;
 }
 
@@ -209,11 +210,11 @@ export function mountStatusBar(node) {
   accountBtn.hidden = true;
   accountBtn.addEventListener('click', () => openAccounts());
   on('srv:accounts', () => loadAccounts());
-  // Активный аккаунт сменился (здесь, в другом окне или после выхода).
+  // The active account changed (here, in another window or after a sign-out).
   on('srv:account', () => window.location.reload());
   on('net:status', (status) => {
     renderStatus(status);
-    // Без связи прежний итог не сравнивать — скорость начнётся заново.
+    // Without a connection do not compare with the previous total — the speed starts anew.
     if (status !== 'open') prevTraffic = null;
     if (status === 'open') loadAccounts();
   });

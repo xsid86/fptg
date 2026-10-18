@@ -11,7 +11,7 @@
 @forward "user-id";
 @forward "pop";
 @forward "story-ring";
-// Ползунки (input range): библиотека input-range-sass, переделанная под
-// переменные темы. Префикс range- — чтобы её короткие имена (shadow,
-// track, $contrast) не попадали в общее пространство компонентов.
+// Sliders (input range): the input-range-sass library, reworked for the
+// theme variables. The range- prefix — so its short names (shadow, track,
+// $contrast) do not get into the shared component namespace.
 @forward "inputrange" as range-*;

@@ -2,23 +2,23 @@ unit srvpanel;
 
 {$mode objfpc}{$H+}
 
-{ Окно сервера (fptg-server-gui): старт/стоп, адрес (только чтение;
-  адрес работающего сервера — ссылкой в браузер), порт, отпечаток
-  сертификата, пользователь (он у сервера один); внизу — трафик
-  (Telegram и клиенты: итог и скорость, раз в секунду). Значок в трее; крестик
-  прячет окно в трей, выход — только из меню трея.
+{ The server window (fptg-server-gui): start/stop, address (read-only; the
+  running server's address — as a link to the browser), port, certificate
+  fingerprint, user (the server has one); at the bottom — traffic
+  (Telegram and clients: total and speed, once a second). A tray icon; the
+  cross hides the window to the tray, quitting — only from the tray menu.
 
-  Два режима — смотря, кто держит экземпляр сервера (instance.pas):
-  - сервер — само окно: TServerHost (srvhost.pas) здесь же;
-  - уже работает консольный сервер (например, служба): окно — пульт к
-    нему, те же команды по каналу управления; выход из окна сервер не
-    останавливает. Сервер завершился — окно забирает экземпляр и
-    запускает сервер само.
-  И там, и там команды одни (TServerHost.Control), отличается только
-  доставка (Exec).
+  Two modes — depending on who holds the server instance (instance.pas):
+  - the server is the window itself: TServerHost (srvhost.pas) right here;
+  - a console server is already running (a service, for instance): the
+    window is a remote control for it, the same commands over the control
+    channel; quitting the window does not stop the server. When the server
+    ends — the window takes over the instance and starts the server itself.
+  In both the commands are the same (TServerHost.Control), only the
+  delivery differs (Exec).
 
-  Раскладка — в srvpanel.lfm (дизайнер Lazarus). LCL — только здесь;
-  ничего платформенного: окно собирается и под Linux. }
+  The layout is in srvpanel.lfm (Lazarus designer). LCL — only here;
+  nothing platform-specific: the window builds under Linux too. }
 
 interface
 
@@ -88,20 +88,21 @@ type
     procedure tmrPollTimer(Sender: TObject);
     procedure tmrTrafficTimer(Sender: TObject);
   private
-    { nil — окно-пульт к чужому серверу. }
+    { nil — a remote control window for another server. }
     FHost: TServerHost;
     FRunning: boolean;
     FConnected: boolean;
     FQuitting: boolean;
     FClosed: boolean;
-    { Прошлый ответ traffic — скорость по разнице. }
+    { The previous traffic answer — the speed from the difference. }
     FPrevTraffic: array[0..3] of Int64;
     FPrevTick: QWord;
-    { Поля сертификата правят — состояние сервера их не перезаписывает,
-      пока не нажат Apply. FTlsFilling — поля заполняет сам ApplyStatus. }
+    { The certificate fields are being edited — the server state does not
+      overwrite them until Apply is pressed. FTlsFilling — ApplyStatus
+      itself is filling the fields. }
     FTlsDirty: boolean;
     FTlsFilling: boolean;
-    { ApplyStatus ставит галочку лога — не отправлять это обратно. }
+    { ApplyStatus sets the log checkbox — do not send that back. }
     FLogFilling: boolean;
     procedure PickPem(AEdit: TEdit; const ATitle: string);
     function Exec(const ACmd: string; AArgs: TJSONObject; out AError: string): boolean;
@@ -114,9 +115,9 @@ type
     procedure ShutdownDone(Sender: TObject);
     procedure FinishQuit;
   public
-    { Экземпляр сервера — наш: поднять сервер здесь. }
+    { The server instance is ours: bring the server up here. }
     procedure InitLocal;
-    { Экземпляр держит консольный сервер: быть пультом к нему. }
+    { The console server holds the instance: be a remote control for it. }
     procedure InitRemote;
     procedure Reveal;
   end;
@@ -133,7 +134,7 @@ begin
   Result := ServerDataDir;
 end;
 
-{ ---------------- режимы ---------------- }
+{ ---------------- modes ---------------- }
 
 procedure TFormServerPanel.FormCreate(Sender: TObject);
 begin
@@ -174,13 +175,13 @@ begin
   end else begin
     Err := 'TLS: ' + FHost.TlsError;
   end;
-  { Второй запуск окна покажет это окно, консольный — передаст команды. }
+  { A second start of the window shows this window, a console one passes commands. }
   PublishInstance('gui', @FHost.Control);
   ApplyStatus(nil);
   if Err <> '' then begin
     MessageDlg(Caption, Err, mtError, [mbOK], 0);
   end;
-  { Без пользователя войти некому — сразу спросить логин и пароль. }
+  { Without a user nobody can sign in — ask for a login and password right away. }
   if AuthUserName = '' then begin
     btnUserClick(nil);
   end;
@@ -193,7 +194,7 @@ begin
   tmrPollTimer(nil);
 end;
 
-{ Команда серверу: здесь или по каналу. Ответ — состояние после неё. }
+{ A command to the server: here or over the channel. The answer is the state after it. }
 function TFormServerPanel.Exec(const ACmd: string; AArgs: TJSONObject;
   out AError: string): boolean;
 var
@@ -226,7 +227,7 @@ begin
   S.Free;
 end;
 
-{ Команда от кнопки: ошибка — сообщением. }
+{ A command from a button: an error — as a message. }
 procedure TFormServerPanel.Command(const ACmd: string; AArgs: TJSONObject);
 var
   Err: string;
@@ -239,7 +240,7 @@ begin
   end;
 end;
 
-{ Состояние сервера на экран. S = nil — спросить у своего сервера. }
+{ The server state onto the screen. S = nil — ask our own server. }
 procedure TFormServerPanel.ApplyStatus(S: TJSONObject);
 var
   Own: boolean;
@@ -265,7 +266,7 @@ begin
       lblStatus.Caption := 'Console server: ' + lblStatus.Caption;
     end;
     edtAddress.Text := S.Get('address', '');
-    { Порт в поле — пока сервер работает (у остановленного его правят). }
+    { The port in the field — while the server runs (a stopped one's is edited). }
     if FRunning or (edtPort.Text = '') then begin
       edtPort.Text := IntToStr(S.Get('port', 0));
     end;
@@ -276,8 +277,8 @@ begin
 
     lblUrl.Visible := lblUrl.Caption <> '';
     edtUser.Text := S.Get('user', '');
-    { Свой сертификат: пути из conf.dat; заданный ключами --cert/--key
-      из окна не меняется. }
+    { One's own certificate: paths from conf.dat; one set by the --cert/--key
+      keys does not change from the window. }
     if not FTlsDirty then begin
       FTlsFilling := True;
       try
@@ -325,9 +326,9 @@ begin
   trayIcon.Hint := Caption + ' - ' + lblStatus.Caption;
 end;
 
-{ Пульт: спросить состояние. Не отвечает — может, его уже нет: тогда
-  экземпляр свободен, и сервер становится нашим (запускается, если тот
-  работал). }
+{ Remote control: ask for the state. No answer — maybe it is gone: then the
+  instance is free and the server becomes ours (it starts if the other one
+  was running). }
 procedure TFormServerPanel.tmrPollTimer(Sender: TObject);
 var
   Err: string;
@@ -390,7 +391,7 @@ begin
   end;
 end;
 
-{ Адрес и порт — в буфер обмена: их вводят в окне входа клиента. }
+{ Address and port — to the clipboard: they are typed into the client's sign-in window. }
 procedure TFormServerPanel.btnCopyAddressClick(Sender: TObject);
 begin
   Clipboard.AsText := Trim(edtAddress.Text);
@@ -401,7 +402,7 @@ begin
   Clipboard.AsText := Trim(edtPort.Text);
 end;
 
-{ ---------------- трафик ---------------- }
+{ ---------------- traffic ---------------- }
 
 function FormatBytes(N: Int64): string;
 begin
@@ -416,19 +417,19 @@ begin
   end;
 end;
 
-{ ↓ получено программой, ↑ отправлено — итог и скорость. }
+{ ↓ received by the program, ↑ sent — total and speed. }
 function TrafficLine(const AName: string; ARecv, ASent, ARecvSpeed, ASentSpeed: Int64): string;
 begin
-  { Стрелки и точка — байтами UTF-8: литерал не-ASCII без
-    $codepage зависел бы от кодировки исходника. }
+  { The arrows and the dot — as UTF-8 bytes: a non-ASCII literal without
+    $codepage would depend on the source's encoding. }
   Result := AName + '  ' + #$E2#$86#$93 + ' ' + FormatBytes(ARecv) + ' ' + #$C2#$B7 + ' '
     + FormatBytes(ARecvSpeed) + '/s   ' + #$E2#$86#$91 + ' ' + FormatBytes(ASent)
     + ' ' + #$C2#$B7 + ' ' + FormatBytes(ASentSpeed) + '/s';
 end;
 
-{ Раз в секунду: traffic у своего сервера или по каналу у консольного.
-  Ошибки молча — это не действие человека (старый консольный сервер
-  команды не знает). }
+{ Once a second: traffic from our own server or over the channel from the
+  console one. Errors are silent — this is not a person's action (an older
+  console server does not know the command). }
 procedure TFormServerPanel.tmrTrafficTimer(Sender: TObject);
 var
   S: TJSONObject;
@@ -467,7 +468,7 @@ begin
   Now64 := GetTickCount64;
   Dt := Now64 - FPrevTick;
   for I := 0 to 3 do begin
-    { Первый замер и откат счётчика (новый клиент TDLib) — без скорости. }
+    { The first measurement and a counter reset (a new TDLib client) — no speed. }
     if (FPrevTick = 0) or (Dt = 0) or (Cur[I] < FPrevTraffic[I]) then begin
       Speed[I] := 0;
     end else begin
@@ -480,7 +481,7 @@ begin
   lblClTraffic.Caption := TrafficLine('Clients', Cur[2], Cur[3], Speed[2], Speed[3]);
 end;
 
-{ Адрес работающего сервера — в браузере по умолчанию. }
+{ The running server's address — in the default browser. }
 procedure TFormServerPanel.lblUrlClick(Sender: TObject);
 begin
   if lblUrl.Caption <> '' then begin
@@ -488,7 +489,7 @@ begin
   end;
 end;
 
-{ ---------------- пользователь ---------------- }
+{ ---------------- user ---------------- }
 
 function AskPassword(const ACaption, AUser: string; out APassword: string): boolean;
 var
@@ -528,10 +529,10 @@ begin
   end;
 end;
 
-{ Логин и пароль единственного пользователя. Тот же логин — смена
-  пароля; другой — замена пользователя (его сеансы гаснут).
-  Локальные — не Name: у формы (TComponent) это свойство, и одноимённая
-  переменная — Duplicate identifier. }
+{ Login and password of the only user. The same login — a password change;
+  another — replacing the user (their sessions end). The locals are not
+  called Name: on a form (TComponent) that is a property, and a variable
+  of the same name is a Duplicate identifier. }
 procedure TFormServerPanel.btnUserClick(Sender: TObject);
 var
   Current, UserName, Pwd: string;
@@ -555,7 +556,7 @@ begin
   end;
 end;
 
-{ ---------------- сертификат ---------------- }
+{ ---------------- certificate ---------------- }
 
 procedure TFormServerPanel.PickPem(AEdit: TEdit; const ATitle: string);
 begin
@@ -590,9 +591,10 @@ begin
   btnTlsApply.Enabled := edtCert.Enabled;
 end;
 
-{ Оба пути — или ни одного (тогда встроенный самоподписанный). Сервер
-  сам проверит файлы и, если работает, перезапустит приём; смена
-  сертификата — смена отпечатка: окна клиентов спросят, доверять ли. }
+{ Both paths — or neither (then the built-in self-signed one). The server
+  checks the files itself and, if running, restarts accepting; a new
+  certificate means a new fingerprint: the client windows will ask whether
+  to trust it. }
 procedure TFormServerPanel.btnTlsApplyClick(Sender: TObject);
 var
   A: TJSONObject;
@@ -630,7 +632,7 @@ begin
   end;
 end;
 
-{ «Keep TDLib log»: сырой лог обмена с TDLib — для разбора ошибок. }
+{ "Keep TDLib log": the raw log of the exchange with TDLib — for troubleshooting. }
 procedure TFormServerPanel.chkRawLogChange(Sender: TObject);
 var
   Args: TJSONObject;
@@ -655,7 +657,7 @@ begin
   end;
 end;
 
-{ ---------------- трей и выход ---------------- }
+{ ---------------- tray and quitting ---------------- }
 
 procedure TFormServerPanel.Reveal;
 begin
@@ -673,7 +675,7 @@ begin
   Reveal;
 end;
 
-{ Крестик — в трей; выйти можно только из меню трея. }
+{ The cross — to the tray; quitting is only possible from the tray menu. }
 procedure TFormServerPanel.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
   if not FClosed then begin
@@ -682,10 +684,10 @@ begin
   end;
 end;
 
-{ Выход. Сервер — мы: перестать принимать подключения, закрыть клиентов
-  TDLib (иначе база TDLib закрывается грязно) и закончить; ожидание
-  ограничено. Пульт к чужому серверу: просто уйти — сервер работает
-  дальше. }
+{ Quitting. The server is us: stop accepting connections, close the TDLib
+  clients (otherwise the TDLib database closes dirty) and finish; the wait
+  is limited. A remote control for another server: simply leave — the
+  server keeps running. }
 procedure TFormServerPanel.miQuitClick(Sender: TObject);
 begin
   if FQuitting then begin

@@ -8,17 +8,17 @@ import { routeAudio, devicePanel, togglePanel } from '../calls/devices.js';
 import { store } from '../core/store.js';
 import { openLiveStream } from './livestream.js';
 
-// Окно видеочата (группового звонка чата): плитки участников (видео или
-// аватарка, имя, микрофон, рамка у говорящего), кнопки — микрофон,
-// камера, во весь экран, выйти, завершить для всех (если можно).
+// The video chat window (a chat's group call): participant tiles (video or
+// avatar, name, microphone, a frame for the speaker), buttons — microphone,
+// camera, full screen, leave, end for everyone (if allowed).
 //
-// Сервер: vchat.* и события vchat, vchat.participant (webapi.pas);
-// медиа — calls/group.js. Входят с выключенным микрофоном, как в
-// официальных клиентах.
+// The server: vchat.* and the vchat, vchat.participant events (webapi.pas);
+// the media — calls/group.js. One joins with the microphone off, as in the
+// official clients.
 
-const SPEAK_LEVEL = 0.02;     // порог «говорит» по уровню звука (0..1)
+const SPEAK_LEVEL = 0.02;     // the "speaking" threshold by sound level (0..1)
 const SPEAK_TICK_MS = 200;
-const SPEAK_HOLD_MS = 600;    // не мигать рамкой между словами
+const SPEAK_HOLD_MS = 600;    // do not blink the frame between words
 
 let hooks = {};
 let root = null;
@@ -27,13 +27,13 @@ let state = null;   // { chatId, title, callId, call, parts: Map, session, muted
 let speakTimer = 0;
 let audioCtx = null;
 const meters = new Map();     // key -> { analyser, buf, last }
-const videos = new Map();     // key (с #screen для экрана) -> MediaStream
+const videos = new Map();     // key (with #screen for the screen) -> MediaStream
 
 function report(error) {
   hooks.report?.(error);
 }
 
-// ------------------------------------------------------------ звук
+// ------------------------------------------------------------ sound
 function meter(key, stream) {
   try {
     audioCtx ??= new AudioContext();
@@ -43,7 +43,7 @@ function meter(key, stream) {
     src.connect(analyser);
     meters.set(key, { analyser, buf: new Float32Array(analyser.fftSize), last: 0 });
   } catch {
-    // без измерителя — только флаг is_speaking от сервера
+    // without a meter — only the is_speaking flag from the server
   }
 }
 
@@ -66,7 +66,7 @@ function speakingTick() {
   }
 }
 
-// ------------------------------------------------------------ вид
+// ------------------------------------------------------------ view
 const btn = (cls, iconNode, label, onclick) => el('button', {
   class: `call__btn ${cls}`, type: 'button', title: label, onclick,
 }, iconNode, el('span', { class: 'call__btn-label', textContent: label }));
@@ -158,7 +158,7 @@ function render() {
   ui.end.hidden = !state.call?.canManage;
 }
 
-// ------------------------------------------------------------ действия
+// ------------------------------------------------------------ actions
 async function toggleFull() {
   try {
     if (isFull()) await document.exitFullscreen();
@@ -240,7 +240,7 @@ function applyParticipant(p) {
     meters.delete(p.key);
   } else {
     state.parts.set(p.key, p);
-    // Сервер выключил микрофон (админ) — наша дорожка тоже молчит.
+    // The server turned the microphone off (an admin) — our track goes silent too.
     if (p.self && p.mutedAll && !state.muted) {
       state.muted = true;
       state.session?.setMuted(true);
@@ -252,7 +252,7 @@ function pushParticipants() {
   state?.session?.setParticipants([...state.parts.values()].map((p) => ({ ...p, left: !p.order })));
 }
 
-/** Открыть видеочат чата: войти в идущий или начать новый. */
+/** Open the chat's video chat: join the running one or start a new one. */
 async function openChat({ chatId, title }) {
   if (state) {
     if (state.chatId === chatId) return;
@@ -276,7 +276,7 @@ async function openChat({ chatId, title }) {
       return;
     }
   }
-  // RTMP-трансляция — своё окно и куски вместо WebRTC (ui/livestream.js).
+  // An RTMP stream — its own window and pieces instead of WebRTC (ui/livestream.js).
   if (info.call?.rtmp) {
     openLiveStream({ chatId, title, callId, call: info.call });
     return;
@@ -349,7 +349,7 @@ export function mountVideoChat(options) {
     const run = kind === 'mic' ? s.switchMic() : (kind === 'camera' ? s.switchCamera() : null);
     run?.catch(report);
   });
-  // «Join» у идущего группового звонка в истории — видеочат открытого чата.
+  // "Join" on a running group call in the history — the open chat's video chat.
   on('ui:vchat-join', () => {
     const chat = store.chats.find((c) => c.id === store.activeChatId);
     if (store.activeChatId !== null) openChat({ chatId: store.activeChatId, title: chat?.title });

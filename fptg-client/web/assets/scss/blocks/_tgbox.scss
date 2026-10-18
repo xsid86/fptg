@@ -1,8 +1,9 @@
 @use "../abstracts" as *;
 
-// Окно в духе «боксов» Telegram Desktop (ui/tgbox.js): создание группы и
-// канала, управление ими. Шапка — «назад», заголовок, крестик; тело
-// прокручивается; кнопки — внизу справа, текстовые, как у Desktop.
+// A window in the spirit of Telegram Desktop's "boxes" (ui/tgbox.js):
+// creating a group and a channel, managing them. The header — "back", the
+// title, a cross; the body scrolls; the buttons — at the bottom right,
+// text ones, as in Desktop.
 .tgbox {
   @include flex(column, stretch, flex-start);
   background: var(--c-surface);
@@ -25,8 +26,8 @@
   }
 }
 
-// Переход между страницами (ui/tgbox.js): старая гаснет, новая
-// проявляется — заголовок, тело и кнопки вместе.
+// A transition between pages (ui/tgbox.js): the old one fades, the new one
+// fades in — the title, the body and the buttons together.
 .tgbox__title,
 .tgbox__body,
 .tgbox__foot {
@@ -45,8 +46,8 @@
   position: relative;
 }
 
-// Окно «занято»: следующая страница грузится, текущая остаётся —
-// бегущая полоска под шапкой, щелчки не проходят.
+// The window is "busy": the next page loads, the current one stays — a
+// running bar under the header, clicks do not get through.
 .tgbox.is-busy {
   cursor: progress;
 
@@ -106,7 +107,7 @@
   }
 }
 
-// Кнопки — текстовые, акцентным цветом, как у Desktop.
+// Buttons — text ones, in the accent colour, as in Desktop.
 .tgbox__btn {
   background: none;
   border: 0;
@@ -154,7 +155,7 @@
   margin-top: $space-4;
 }
 
-// Фото и название — в одну строку, как у Desktop.
+// The photo and the title — in one row, as in Desktop.
 .tgbox__info {
   @include flex(row, center, flex-start, $space-5);
   padding: $space-2 0;
@@ -189,7 +190,7 @@
   }
 }
 
-// Поле: линия снизу, как у Desktop.
+// A field: a line at the bottom, as in Desktop.
 .tgbox__field {
   @include flex(row, baseline, flex-start, 0);
   border-bottom: 1px solid var(--c-border);
@@ -221,13 +222,13 @@
   @include flex(column, stretch, flex-start);
   margin: $space-3 (-$space-5) 0;
 
-  // Переключатель среди строк — с тем же отступом, что строки.
+  // A toggle among rows — with the same padding as the rows.
   > .tgbox__toggle {
     padding-inline: $space-5;
   }
 }
 
-// Строка-переход: значок, подпись, значение справа.
+// A link row: an icon, a label, a value on the right.
 .tgbox__row {
   @include flex(row, center, flex-start, $space-5);
   background: none;
@@ -286,7 +287,7 @@
   min-width: 0;
 }
 
-// Переключатель: подпись слева, тумблер справа.
+// A toggle: the label on the left, the switch on the right.
 .tgbox__toggle,
 .tgbox__radio {
   @include flex(row, center, flex-start, $space-4);
@@ -342,7 +343,7 @@
   @include flex(column, stretch, flex-start);
 }
 
-// «Send media» раскрывается списком видов.
+// "Send media" expands into a list of kinds.
 .tgbox__expand {
   background: none;
   border: 0;
@@ -385,7 +386,7 @@
   }
 }
 
-// Люди и чаты строками.
+// People and chats as rows.
 .tgbox__list {
   @include flex(column, stretch, flex-start);
   margin: 0 (-$space-5);
@@ -445,18 +446,18 @@
   @include flex(row, center, flex-start, $space-2);
 }
 
-// «+» над списком чатов: та же круглая кнопка, что «наверх» у списков,
-// только на своём месте в шапке, справа.
+// "+" above the chat list: the same round button as "to the top" in lists,
+// only in its own place in the header, on the right.
 .sidebar__new {
   @include scroll-jump;
   margin-inline-start: auto;
   position: static;
 }
 
-// ------------------------------------------------ окна настроек
+// ------------------------------------------------ settings windows
 // (ui/setprivacy.js, setchats.js, setfolders.js, setpremium.js, setproxy.js)
 
-// Подпись строки — в одну строку с многоточием; полное — в title.
+// A row's label — on one line with an ellipsis; the full one — in title.
 .tgbox__peer .tgbox__toggle-text {
   flex: 1 1 auto;
   min-width: 0;
@@ -472,7 +473,7 @@
   cursor: pointer;
 }
 
-// Кнопки действий в строке (Unblock, Archive, Remove…) — в ряд.
+// Action buttons in a row (Unblock, Archive, Remove…) — in a row.
 .tgbox__actions {
   @include flex(row, center, flex-end, .25rem);
   flex: 0 0 auto;
@@ -494,7 +495,7 @@
   margin-inline-start: auto;
 }
 
-// Обложка набора стикеров.
+// A sticker set's cover.
 .tgbox__set-thumb {
   @include flex(row, center, center);
   @include size(40px);
@@ -510,20 +511,20 @@
   }
 }
 
-// Значок устройства, сайта, прокси вместо аватарки.
+// A device, site or proxy icon instead of an avatar.
 .tgbox__device {
   @include flex(row, center, center);
   @include chat-tint(background, 20%);
   color: var(--c-accent);
 }
 
-// Подробности сеанса: подпись сверху, значение под ней.
+// Session details: the label on top, the value under it.
 .tgbox__detail {
   @include flex(column, stretch, flex-start, $space-1);
   padding: $space-2 0;
 }
 
-// Быстрая реакция: сетка эмодзи.
+// The quick reaction: an emoji grid.
 .tgbox__emoji-grid {
   display: grid;
   gap: $space-2;
@@ -544,7 +545,7 @@
   }
 }
 
-// Цвет тега папки: кружки палитры имён (.accent-aN), «без цвета» — значок.
+// A folder tag's colour: circles of the name palette (.accent-aN), "no colour" — an icon.
 .tgbox__colors {
   @include flex(row, center, flex-start, $space-3);
   flex-wrap: wrap;
@@ -573,7 +574,7 @@
   }
 }
 
-// Часы работы: день, под ним «с — до».
+// Opening hours: the day, "from — to" under it.
 .tgbox__day {
   @include flex(column, stretch, flex-start, $space-1);
 }
@@ -587,7 +588,7 @@
   width: 7rem;
 }
 
-// Подарки: та же плитка, что в профиле (.gift-tile), сеткой.
+// Gifts: the same tile as in the profile (.gift-tile), as a grid.
 .tgbox__gifts {
   margin-top: $space-3;
 }
@@ -611,7 +612,7 @@
   @include flex(row, center, center);
 }
 
-// Запланированное сообщение (ui/schedule.js): текст, под ним время и кнопки.
+// A scheduled message (ui/schedule.js): the text, the time and buttons under it.
 .tgbox__scheduled {
   @include flex(column, stretch, flex-start, $space-2);
   border-bottom: 1px solid color-mix(in srgb, var(--c-border) 20%, transparent);

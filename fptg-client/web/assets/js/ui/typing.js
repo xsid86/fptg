@@ -1,13 +1,13 @@
 import { on, emit } from '../core/bus.js';
 
-// Кто сейчас печатает (или записывает, выбирает стикер…) — по событию
-// typing сервера (webapi ChatAction, из updateChatAction TDLib). Шапка
-// чата (ui/chat-header.js) показывает строку вместо подзаголовка.
+// Who is typing now (or recording, choosing a sticker…) — by the server's
+// typing event (webapi ChatAction, from TDLib's updateChatAction). The chat
+// header (ui/chat-header.js) shows a line instead of the subtitle.
 //
-// Гасит действие отмена TDLib (chatActionCancel) — она приходит на
-// каждое. TTL — страховка на потерянную отмену (разрыв связи): TDLib
-// повторяет действие, пока оно идёт, раз в несколько секунд, так что
-// живое за это время продлится само.
+// An action is cancelled by TDLib's cancel (chatActionCancel) — it comes for
+// each. The TTL is insurance against a lost cancel (a dropped connection):
+// TDLib repeats an action while it lasts every few seconds, so a live one
+// extends itself within that time.
 const TTL_MS = 6000;
 
 const LABEL = {
@@ -45,7 +45,7 @@ function onTyping(data) {
   const senderId = Number(data?.senderId);
   if (!chatId || !senderId) return;
   if (!LABEL[data.action]) {
-    // chatActionCancel — и всё, чего страница не умеет назвать.
+    // chatActionCancel — and everything the page cannot name.
     drop(chatId, senderId);
     return;
   }
@@ -79,17 +79,18 @@ export function watchTyping() {
   if (watching) return;
   watching = true;
   on('srv:typing', onTyping);
-  // Без связи отмен не будет — показанное стало бы неправдой.
+  // Without a connection there will be no cancels — what is shown would become untrue.
   on('net:status', (status) => { if (status !== 'open') clearAll(); });
 }
 
 /**
- * Строка для шапки или ''.
+ * The line for the header or ''.
  *
- * opts.inThread — открыта ветка комментариев: в ней — только действия в
- * ветках этой группы (номер ветки TDLib — id копии поста в группе, а его
- * страница не знает); вне ветки — все действия чата.
- * opts.personal — личка: без имени, «typing…», как у официальных клиентов.
+ * opts.inThread — a comment thread is open: in it — only actions in this
+ * group's threads (TDLib's thread number is the id of the post's copy in
+ * the group, and the page does not know it); outside a thread — all the
+ * chat's actions.
+ * opts.personal — a private chat: without a name, "typing…", as in the official clients.
  */
 export function typingLine(chatId, opts = {}) {
   const who = chats.get(Number(chatId));

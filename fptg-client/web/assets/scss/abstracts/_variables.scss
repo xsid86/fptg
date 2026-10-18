@@ -63,13 +63,13 @@ $radius-md: 8px;    // native: MSG_CORNER_RADIUS
 $radius-lg: 10px;
 $radius-xl: 16px;
 $radius-pill: 999px;
-// Три панели окна — список, рабочая область и статус-бар — одним
-// радиусом (у Aurora — свой, a("panel-radius"), тоже на все три).
+// The window's three panels — the list, the workspace and the status bar —
+// share one radius (Aurora has its own, a("panel-radius"), also for all three).
 $panel-radius: $radius-lg;
 
 // -------------------------------------------------------------- sizes
 $avatar-sm: 24px;
-// Аватарка отправителя в шапке сообщения (ui/message.js renderHead).
+// The sender's avatar in the message header (ui/message.js renderHead).
 $message-avatar-size: 18px;
 $avatar-md: 32px;   // native: AVATAR_SIZE
 $avatar-lg: 64px;   // native: CHAT_HEADER_AVATAR_SIZE / 64 there, 48 reads better here
@@ -87,13 +87,14 @@ $header-height:     56px;
 $statusbar-height:  24px;
 $composer-min:      44px;
 $composer-max:      220px;
-// Уже этого композер складывает ряд под полем в два: формат-кнопки
-// (~505px) и действия с Send (~250px) плюс зазор в одну строку не лезут.
+// Narrower than this the composer folds the row under the field in two: the
+// format buttons (~505px) and the actions with Send (~250px) plus the gap do
+// not fit into one line.
 $composer-bar-stack: 600px;
-// Всплывающие уведомления и кнопка «Hide all» над ними — одной ширины.
+// Pop-up notifications and the "Hide all" button above them — the same width.
 $toast-width: 320px;
-// Крестик отмены в кольце хода передачи (components/_xfer.scss) — меньше
-// значка, на месте которого стоит: на всю кнопку он кричит.
+// The cancel cross in the transfer progress ring (components/_xfer.scss) —
+// smaller than the icon it replaces: across the whole button it shouts.
 $xfer-cancel-icon: 22px;
 $scrollbar-width:   8px;
 $message-max-width: 600px;  // native: MAX_MSG_W
@@ -115,7 +116,7 @@ $z-dropdown: 20;
 $z-overlay:  30;
 $z-modal:    40;
 $z-toast:    50;
-$z-notice:   60;   // уведомления сверху (ui/notices.js): над окнами и карточками
+$z-notice:   60;   // notices at the top (ui/notices.js): above windows and cards
 
 // -------------------------------------------------------- transitions
 $ease:        cubic-bezier(.4, 0, .2, 1);
@@ -123,42 +124,42 @@ $dur-fast:    .12s;
 $dur-base:    .18s;
 $dur-slow:    .3s;
 
-// Появление всплывающих меню и модальных окон (components/_pop.scss):
-// въезд на $pop-delta со стороны якоря и проявление.
+// Pop-up menus and modal windows appearing (components/_pop.scss): sliding
+// in by $pop-delta from the anchor's side and fading in.
 $pop-delta:    1rem;
 $pop-duration: .2s;
 $pop-ease:     cubic-bezier(.2, .7, .2, 1);
 
-// Разделители в меню (components/_menu.scss): доля акцента на прозрачном.
+// Separators in menus (components/_menu.scss): the accent's share on transparent.
 $menu-sep-share: 30%;
 
-// Текст на карточках файлов, аудио и голосовых (blocks/_media.scss):
-// доля чёрного в акценте — подложка у них бледная из того же акцента.
+// Text on file, audio and voice cards (blocks/_media.scss): the share of
+// black in the accent — their backdrop is a pale tint of the same accent.
 $audio-text-dark: 30%;
 
-// Свои справа, чужие слева (blocks/_message.scss): наибольшая ширина
-// сообщения — доля колонки истории.
+// Own on the right, others' on the left (blocks/_message.scss): the largest
+// message width — a share of the history column.
 $message-side-max: 78%;
 
-// Значок идущего видеочата на аватарке в списке чатов
-// (blocks/_chat-list-item.scss). Всё — в процентах от аватарки, чтобы
-// значок и вырез под ним масштабировались вместе с ней:
-$live-badge-share: 37.5;   // диаметр значка
-$live-badge-center: 84;    // центр значка от левого верхнего угла (по обеим осям)
-$live-badge-gap: 4;        // зазор между значком и вырезом в аватарке
+// The running video chat badge on the avatar in the chat list
+// (blocks/_chat-list-item.scss). Everything is in percent of the avatar, so
+// the badge and the cut-out under it scale with it:
+$live-badge-share: 37.5;   // the badge's diameter
+$live-badge-center: 84;    // the badge's centre from the top left corner (on both axes)
+$live-badge-gap: 4;        // the gap between the badge and the cut-out in the avatar
 
-// Кольцо историй (components/_story-ring.scss): насколько аватарка внутри
-// меньше кольца — зазор между фото и кольцом. Толщина дуги и зазоры
-// между сегментами — в util/storyring.js (STROKE, GAP).
+// The story ring (components/_story-ring.scss): how much smaller the avatar
+// inside is than the ring — the gap between the photo and the ring. The
+// arc width and the gaps between segments — in util/storyring.js (STROKE, GAP).
 $story-ring-inset: 5px;
 
-// Окно трансляции (ui/livestream.js): ширина карточки.
+// The live stream window (ui/livestream.js): the card width.
 $live-width: 760px;
 
-// Просмотр историй (blocks/_stories.scss): высота карточки 9:16 от окна.
+// The story viewer (blocks/_stories.scss): the height of the 9:16 card from the window.
 $stories-height: 90vh;
 
-// Въезд нового сообщения снизу (blocks/_message.scss, ui/history.js).
+// A new message sliding in from below (blocks/_message.scss, ui/history.js).
 $arrive-delta:    1rem;
 $arrive-duration: .3s;
 $arrive-ease:     cubic-bezier(.2, .7, .2, 1);
@@ -170,9 +171,9 @@ $breakpoints: (
   "lg": 1200px,
 );
 
-// ---------------------------------------------------- кнопки ботов
-// Цвета buttonStylePrimary / buttonStyleSuccess (td_api.tl: «dark blue»,
-// «green»); buttonStyleDanger — общий --c-danger.
+// ---------------------------------------------------- bot buttons
+// The colours of buttonStylePrimary / buttonStyleSuccess (td_api.tl: "dark
+// blue", "green"); buttonStyleDanger — the shared --c-danger.
 $button-style-primary: #2a5db0;
 $button-style-success: #2e9e4f;
 
@@ -279,13 +280,13 @@ $theme-dark: (
   "light":         #f1f2f3
 );
 
-// ------------------------------------------------------ акцент приложения
-// Settings → General → Accent color (ui/theme.js, ACCENTS — те же ключи).
-// Выбор — атрибут <html data-accent="ключ">, base/_app-accent.scss
-// подменяет им --c-accent (и --c-unread); --c-accent-hover выводится из
-// него же. Синий — по умолчанию: его выбор снимает атрибут, и действует
-// "accent" из $theme-light / $theme-dark. Новый цвет — строка здесь и
-// ключ в ACCENTS.
+// ------------------------------------------------------ the app accent
+// Settings → General → Accent color (ui/theme.js, ACCENTS — the same keys).
+// The choice is the <html data-accent="key"> attribute; base/_app-accent.scss
+// replaces --c-accent (and --c-unread) with it; --c-accent-hover is derived
+// from it too. Blue is the default: choosing it removes the attribute, and
+// "accent" from $theme-light / $theme-dark applies. A new colour — a line
+// here and a key in ACCENTS.
 $app-accents: (
   "blue":   #2196f3,
   "cyan":   #00acc1,
@@ -301,45 +302,45 @@ $app-accents: (
   "grey":   #757575
 );
 
-// Наведение на акцентное: светлее в тёмной схеме, темнее в светлой.
-$app-accent-hover-dark:  15%;   // доля белого
-$app-accent-hover-light: 12%;   // доля чёрного
+// Hover on accented things: lighter in the dark scheme, darker in the light one.
+$app-accent-hover-dark:  15%;   // the share of white
+$app-accent-hover-light: 12%;   // the share of black
 
-// ------------------------------------------------------- простые темы
-// «Dark» и «Light» из меню тем (кисточка): themes/_plain.scss. Поверх
-// $theme-dark / $theme-light выше — здесь только то, что у простых тем
-// своё. Три независимые сущности, у каждой свои цвета и свой флаг:
+// ------------------------------------------------------- plain themes
+// "Dark" and "Light" from the theme menu (the brush): themes/_plain.scss.
+// On top of $theme-dark / $theme-light above — here only what is the plain
+// themes' own. Three independent entities, each with its colours and flag:
 //
-//   panel — панели: боковая (список чатов), рабочая область, статусная
-//           строка, инфопанель, окно настроек, меню и всплывающие окна;
-//   card  — карточки: строки списка чатов и контактов, сообщения,
-//           приветствие пустого чата, плашка подгрузки;
-//   chip  — чипы: папки, реакции, «комментарии», служебные сообщения.
+//   panel — panels: the side one (chat list), the workspace, the status
+//           bar, the info panel, the settings window, menus and pop-ups;
+//   card  — cards: chat list and contact rows, messages, the empty chat
+//           greeting, the loading plate;
+//   chip  — chips: folders, reactions, "comments", service messages.
 //
-// Флаг true — заливка градиентом сверху вниз (*-top -> *-bottom),
-// false — сплошным *-solid. Свои сообщения — заливка и граница карточки,
-// смешанные с акцентом в доле own-mix.
+// The flag true — a top-to-bottom gradient fill (*-top -> *-bottom), false
+// — a solid *-solid. Own messages — the card's fill and border mixed with
+// the accent in the own-mix share.
 $plain-panel-gradients: false;
 $plain-card-gradients: false;
 $plain-chip-gradients: false;
 
 $plain-dark: (
-  "bg":            #000000,   // фон приложения
+  "bg":            #000000,   // the app background
 
-  "panel-top":     #313131,   // панели: градиент
+  "panel-top":     #313131,   // panels: gradient
   "panel-bottom":  #131313,
-  "panel-solid":   #030303,   // панели: без градиента
-  "panel-border":  #030303,   // панели: граница
+  "panel-solid":   #030303,   // panels: without a gradient
+  "panel-border":  #030303,   // panels: border
 
-  "card-top":      #313131,   // карточки: градиент
+  "card-top":      #313131,   // cards: gradient
   "card-bottom":   #131313,
-  "card-solid":    #131313,   // карточки: без градиента
-  "card-border":   #131313,   // карточки: граница
-  "own-mix":       15%,       // доля акцента в своих сообщениях
+  "card-solid":    #131313,   // cards: without a gradient
+  "card-border":   #131313,   // cards: border
+  "own-mix":       15%,       // the accent's share in own messages
 
-  "chip-top":      #f1f2f3,   // чипы: градиент
+  "chip-top":      #f1f2f3,   // chips: gradient
   "chip-bottom":   #c1c2c3,
-  "chip-solid":    #414141,   // чипы: без градиента
+  "chip-solid":    #414141,   // chips: without a gradient
   "chip-text":     #f1f2f3
 );
 
@@ -364,26 +365,28 @@ $plain-light: (
 );
 
 // ------------------------------------------------------------- Aurora
-// «Aurora» из меню тем: themes/_aurora.scss. Вид макета окна на сайте
-// проекта (website/assets/scss: abstracts/_variables, sections/_mockup):
-// стеклянные панели на синем фоне с «авророй». Только тёмная схема.
-// Поверх $theme-dark: все числа и цвета темы — здесь, правила — там.
+// "Aurora" from the theme menu: themes/_aurora.scss. The look of the window
+// mockup on the project site (website/assets/scss: abstracts/_variables,
+// sections/_mockup): glass panels on a blue background with an "aurora".
+// Dark scheme only. On top of $theme-dark: all the theme's numbers and
+// colours are here, the rules are there.
 //
-// ВСЕ цвета темы выводятся из акцента (Settings → General), постоянного
-// синего нет — сменил акцент, сменился и фон. Как записано:
-//   NN%          — у тёмных: доля ЧЁРНОГО в акценте; у текста: доля
-//                  БЕЛОГО; у сияний, свечений, своих сообщений: доля
-//                  акцента на прозрачном;
-//   (W, A)       — полупрозрачное: акцент с долей белого W, на
-//                  прозрачном в доле A;
-//   (A, #серый)  — приглушённый текст: акцент в доле A, остальное серое.
+// ALL the theme's colours derive from the accent (Settings → General);
+// there is no fixed blue — change the accent, and the background changes
+// too. How it is written:
+//   NN%          — for dark ones: the share of BLACK in the accent; for
+//                  text: the share of WHITE; for auroras, glows, own
+//                  messages: the accent's share on transparent;
+//   (W, A)       — semi-transparent: the accent with a share of white W,
+//                  on transparent in the share A;
+//   (A, #grey)   — muted text: the accent in the share A, the rest grey.
 $aurora: (
-  // ---------------------------------------------------------- цвета
-  "bg":               93%,       // фон; он же — цвет рамки окна (DWM)
-  "bg-top":           90%,       // вертикальный градиент фона: верх
-  "bg-bottom":        95%,       //                             низ
-  "surface":          84%,       // непрозрачное: настройки, окна, меню
-  "surface-2":        rgba(0, 0, 0, .4),         // поля, таблетки дат
+  // ---------------------------------------------------------- colours
+  "bg":               93%,       // the background; also the window frame colour (DWM)
+  "bg-top":           90%,       // the background's vertical gradient: top
+  "bg-bottom":        95%,       //                                     bottom
+  "surface":          84%,       // opaque: settings, windows, menus
+  "surface-2":        rgba(0, 0, 0, .4),         // fields, date pills
   "surface-hover":    (40%, 8%),
   "surface-active":   (40%, 14%),
   "border":           (50%, 14%),
@@ -391,74 +394,74 @@ $aurora: (
   "text":             92%,
   "text-dim":         (22%, #a4a7ad),
   "text-faint":       (25%, #676b72),
-  "accent":           #3d8bff,   // если акцент в настройках не выбран
+  "accent":           #3d8bff,   // if no accent is chosen in the settings
   "accent-hover":     #74b8ff,
-  "soft":             22%,       // акцентная подложка: вкладка, строка, папка
-  "glow":             45%,       // свечение кнопки и своих сообщений
+  "soft":             22%,       // the accent backdrop: a tab, a row, a folder
+  "glow":             45%,       // the glow of buttons and own messages
 
-  // --------------------------------------------------- фон: аврора
-  // Сияния — эллипсы акцентного цвета; «-dark» — доля чёрного в нём.
-  "aurora-1":         55%,       // большое справа сверху
+  // --------------------------------------------------- background: aurora
+  // Auroras — ellipses of the accent colour; "-dark" — the share of black in it.
+  "aurora-1":         55%,       // the large one, top right
   "aurora-1-dark":    25%,
-  "aurora-2":         45%,       // слева посередине
+  "aurora-2":         45%,       // left, in the middle
   "aurora-2-dark":    55%,
-  "aurora-3":         40%,       // сверху по центру, над лучом
+  "aurora-3":         40%,       // top centre, above the beam
   "aurora-3-dark":    0%,
-  "aurora-4":         22%,       // справа снизу
+  "aurora-4":         22%,       // bottom right
   "aurora-4-dark":    35%,
-  // Луч сверху: вытянутое вниз сияние, светлое (доля белого в акценте).
-  "beam":             55%,       // яркость луча
-  "beam-white":       55%,       // доля белого в его верхушке
-  "beam-width":       12%,       // полуширина у верха окна
-  "beam-depth":       46%,       // докуда достаёт, от верха окна
-  // Диагональная световая полоса.
-  "streak":           30%,       // яркость (доля белого в акценте — beam-white)
-  "streak-angle":     162deg,    // направление градиента: 180deg — полоса горизонтальна, меньше — поднимается вправо
+  // The beam from the top: an aurora stretched downwards, light (the share of white in the accent).
+  "beam":             55%,       // the beam's brightness
+  "beam-white":       55%,       // the share of white at its top
+  "beam-width":       12%,       // the half-width at the top of the window
+  "beam-depth":       46%,       // how far it reaches, from the top of the window
+  // A diagonal streak of light.
+  "streak":           30%,       // brightness (the share of white in the accent — beam-white)
+  "streak-angle":     162deg,    // the gradient direction: 180deg — the streak is horizontal, less — it rises to the right
   "streak-width":     .4%,
-  "streak-at":        30%,       // где лежит, от верха окна (вдоль направления)
-  // Сетка точек — фактура под стеклом, гаснет к низу.
+  "streak-at":        30%,       // where it lies, from the top of the window (along the direction)
+  // A dot grid — texture under the glass, fading towards the bottom.
   "dots":             (50%, 7%),
   "dots-step":        28px,
-  "dots-fade":        70%,       // где гаснет совсем
+  "dots-fade":        70%,       // where it fades out completely
 
-  // --------------------------------------------------------- стекло
+  // --------------------------------------------------------- glass
   "glass-angle":      160deg,
   "glass-top":        (40%, 12%),
   "glass-bottom":     (0%, 4%),
   "glass-blur":       blur(22px) saturate(140%),
-  "glass-shine":      rgba(255, 255, 255, .08),  // блик по верхней кромке
+  "glass-shine":      rgba(255, 255, 255, .08),  // a highlight along the top edge
   "panel-shadow":     none,//0 24px 60px -24px rgba(0, 0, 0, .7),
-  "panel-radius":     16px,      // боковая и рабочая область
-  "panel-gap":        8px,       // между ними и до краёв окна
-  "popup-share":      92%,       // непрозрачность меню и инфопанели
+  "panel-radius":     16px,      // the side panel and the workspace
+  "panel-gap":        8px,       // between them and to the window edges
+  "popup-share":      92%,       // the opacity of menus and the info panel
 
-  // ----------------------------------------------------- список чатов
+  // ----------------------------------------------------- chat list
   "item-radius":      12px,
-  "item-active-from": 22%,       // выбранная: полоса акцента слева...
-  "item-active-to":   7%,        // ...гаснет вправо
-  "item-border":      25%,       // кайма выбранной
-  "tab-radius":       999px,     // вкладки Chats / Archive / Contacts
+  "item-active-from": 22%,       // the selected one: an accent band on the left...
+  "item-active-to":   7%,        // ...fading to the right
+  "item-border":      25%,       // the selected one's edging
+  "tab-radius":       999px,     // the Chats / Archive / Contacts tabs
   "search-radius":    999px,
 
-  // ------------------------------------------------------- сообщения
-  "msg-radius":       18px,      // все углы одинаковые
-  "msg-gap":          16px,      // между сообщениями
+  // ------------------------------------------------------- messages
+  "msg-radius":       18px,      // all corners the same
+  "msg-gap":          16px,      // between messages
   "msg-head-padding": 8px 14px 0,
-  "pill-head-padding": 6px 14px, // шапка стикера и гифки без подписи — сама по себе плашка
+  "pill-head-padding": 6px 14px, // the header of a sticker or GIF without a caption — a pill of its own
   "msg-body-padding": 8px 14px 12px,
-  "msg-in":           (40%, 10%),                // входящие: стекло
-  // Свои: градиент акцента по glass-angle, доли сверху и снизу. Меньше —
-  // спокойнее; 85% / 80% — насыщенно, как пузырь на сайте.
+  "msg-in":           (40%, 10%),                // incoming: glass
+  // Own: an accent gradient along glass-angle, the shares at the top and
+  // bottom. Less — calmer; 85% / 80% — rich, like the bubble on the site.
   "own-top":          42%,
   "own-bottom":       26%,
   "own-border":       35%,
   "own-glow":         25%,
   "own-text":         #ffffff,
-  "pill-padding":     2px 12px,  // даты, служебные сообщения
+  "pill-padding":     2px 12px,  // dates, service messages
 
-  // -------------------------------------------------------- композер
+  // -------------------------------------------------------- composer
   "input-radius":     8px,
   "input-padding":    8px 16px,
   "send-radius":      8px,
-  "send-white":       30%        // доля белого вверху кнопки «Send»
+  "send-white":       30%        // the share of white at the top of the "Send" button
 );

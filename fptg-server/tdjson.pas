@@ -35,10 +35,10 @@ function TdReceive(Timeout: double): utf8string;
 function TdExecute(const ARequest: utf8string): utf8string;
 procedure TdSend(AClientId: integer; const ARequest: utf8string);
 
-{ Сырой лог обмена с TDLib (tdlib_raw.log в папке данных сервера).
-  По умолчанию ВЫКЛЮЧЕН: в нём вся переписка открытым текстом. Включает
-  галочка «Keep TDLib log» в окне сервера (conf.dat) или --tdlib-log у
-  консольного (srvhost.PrepareRawLog). }
+{ The raw log of the exchange with TDLib (tdlib_raw.log in the server's
+  data folder). OFF by default: it holds all the correspondence in plain
+  text. Turned on by the "Keep TDLib log" checkbox in the server window
+  (conf.dat) or --tdlib-log of the console one (srvhost.PrepareRawLog). }
 procedure SetRawLog(AOn: boolean);
 function RawLogOn: boolean;
 
@@ -53,8 +53,8 @@ var
   GLogFile: TFileStream = nil;
   GLogLock: TCriticalSection = nil;
   GLogOn: boolean = False;
-  { Файл уже создан в этом запуске: повторное включение дописывает,
-    а не стирает то, что было до выключения. }
+  { The file was created in this run already: turning it on again appends
+    rather than erases what was there before it was turned off. }
   GLogStarted: boolean = False;
 
 procedure SetRawLog(AOn: boolean);
@@ -160,7 +160,7 @@ end;
 
 initialization
   GLogLock := TCriticalSection.Create;
-  { До первого клиента: уровень общий на процесс (td_api.tl,
+  { Before the first client: the level is process-wide (td_api.tl,
     setLogVerbosityLevel: "Can be called synchronously"). }
   TdExecute(utf8string('{"@type":"setLogVerbosityLevel","new_verbosity_level":'
     + IntToStr(TDLIB_LOG_VERBOSITY) + '}'));

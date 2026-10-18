@@ -5,15 +5,16 @@ import { statusText } from './chat-list.js';
 import { note } from './tgbox.js';
 import { load } from './setkit.js';
 
-// Люди и чаты в окнах настроек: карточка по id (из списка чатов, иначе
-// users.cards), строка с кнопкой справа и выбор из списка чатов с
-// поиском — для исключений приватности, чёрного списка и папок.
+// People and chats in the settings windows: a card by id (from the chat
+// list, otherwise users.cards), a row with a button on the right and a
+// choice from the chat list with search — for privacy exceptions, the
+// block list and folders.
 
-/** Чат из списка по id (у лички id чата = id человека). */
+/** A chat from the list by id (a private chat's id = the person's id). */
 const chatById = (id) => store.chats.find((c) => String(c.id) === String(id));
 
 /**
- * Карточки по id: users — люди (user_id), chats — чаты (chat_id).
+ * Cards by id: users — people (user_id), chats — chats (chat_id).
  * Map 'u<id>' / 'c<id>' -> { id, title, avatar, avatarThumb, color, status }.
  */
 export async function peerCards({ users = [], chats = [] }) {
@@ -32,7 +33,7 @@ export async function peerCards({ users = [], chats = [] }) {
       const answer = await load('users.cards', { ids: [...new Set(unknown)] });
       for (const c of answer?.items ?? []) out.set(`u${c.userId}`, { ...c, id: c.userId });
     } catch {
-      // Без карточек — строки с «Unknown user».
+      // Without cards — rows with "Unknown user".
     }
   }
   for (const id of unknown) {
@@ -42,12 +43,12 @@ export async function peerCards({ users = [], chats = [] }) {
   return out;
 }
 
-// Аватарки, которых ещё нет на диске: users.cards и chats.avatars их
-// заказывают, а строки уже нарисованы. Несколько раз переспросить и
-// вставить в те же кружки (peerLine запоминает их по карточке).
+// Avatars not yet on disk: users.cards and chats.avatars order them, while
+// the rows are drawn already. Ask again a few times and put them into the
+// same circles (peerLine remembers them by card).
 const AVATAR_RETRY_MS = 1200;
 const AVATAR_RETRIES = 4;
-const circles = new WeakMap();   // карточка -> кружки аватарки
+const circles = new WeakMap();   // card -> avatar circles
 
 async function chaseAvatars(cards) {
   const users = [];
@@ -83,7 +84,7 @@ async function chaseAvatars(cards) {
   }
 }
 
-/** Вторая строка по умолчанию: бот — «bot», чат — его вид, человек — статус. */
+/** The default second line: a bot — "bot", a chat — its kind, a person — the status. */
 function defaultSub(card) {
   if (card.bot || card.kind === 'bot') return 'bot';
   if (card.kind === 'group') return 'group';
@@ -91,7 +92,7 @@ function defaultSub(card) {
   return card.status ? statusText(card) : '';
 }
 
-/** Строка: аватарка, имя, вторая строка, справа — узел (кнопка). */
+/** A row: avatar, name, a second line, on the right — a node (a button). */
 export function peerLine(card, { sub, right } = {}) {
   const name = card.title || card.name || 'Deleted account';
   const avatar = el('span', { class: `avatar tgbox__avatar accent-${card.color || 'a5'}` });
@@ -112,8 +113,8 @@ const KIND_SUB = {
 };
 
 /**
- * Выбор чатов из списка с галочками и поиском. kinds — какие виды
- * показывать (user, bot, group, channel, self). .chosen() — id строками.
+ * A choice of chats from the list with checkboxes and search. kinds — which
+ * kinds to show (user, bot, group, channel, self). .chosen() — ids as strings.
  */
 export function chatPicker({ kinds, exclude = new Set(), preset = [] }) {
   const chosen = new Set(preset.map(String));
@@ -146,5 +147,5 @@ export function chatPicker({ kinds, exclude = new Set(), preset = [] }) {
   return { nodes, chosen: () => [...chosen] };
 }
 
-/** Вид чата по id (для правил: человек или группа). */
+/** A chat's kind by id (for the rules: a person or a group). */
 export const chatKind = (id) => chatById(id)?.kind ?? 'user';

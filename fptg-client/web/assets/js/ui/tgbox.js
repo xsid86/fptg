@@ -4,18 +4,19 @@ import { fillAvatar } from '../util/avatar.js';
 import { statusText } from './chat-list.js';
 import { uploadRichFile } from './attach.js';
 
-// Окно в духе «боксов» Telegram Desktop: одно модальное окно со стеком
-// страниц (создание группы и канала — ui/newchat.js, управление —
-// ui/manage.js). Шапка — «назад» (на вложенной странице), заголовок и
-// крестик; тело прокручивается; кнопки — внизу справа, как у Desktop.
+// A window in the spirit of Telegram Desktop's "boxes": one modal window
+// with a stack of pages (creating a group and a channel — ui/newchat.js,
+// management — ui/manage.js). The header — "back" (on a nested page), the
+// title and a cross; the body scrolls; the buttons — at the bottom right,
+// as in Desktop.
 //
-// Переход между страницами — как между окнами: старая гаснет
-// (FADE_OUT_MS), новая проявляется (CSS, .tgbox.is-leaving); вместе —
-// меньше полсекунды. Перерисовка той же страницы (refresh) — без него.
+// A transition between pages is as between windows: the old one fades
+// (FADE_OUT_MS), the new one fades in (CSS, .tgbox.is-leaving); together —
+// under half a second. Redrawing the same page (refresh) — without it.
 //
-// Страница — { title, render(body, box) -> узлы, buttons: [{ label,
-// run, primary, danger }] }. render зовётся при каждом показе (в том
-// числе по возвращении «назад») и может быть async.
+// A page is { title, render(body, box) -> nodes, buttons: [{ label, run,
+// primary, danger }] }. render is called on every showing (including on
+// coming "back") and may be async.
 
 const FADE_OUT_MS = 150;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,7 +33,7 @@ export function openBox() {
     class: 'btn btn--icon tgbox__close', type: 'button', title: 'Close',
     onclick: () => dialog.close(),
   }, icon('close'));
-  // Фокус при открытии — на тело, не на крестик (иначе на нём рамка).
+  // Focus on opening — on the body, not on the cross (otherwise it gets a ring).
   const body = el('div', { class: 'tgbox__body', tabindex: '-1', autofocus: true });
   const foot = el('div', { class: 'tgbox__foot' });
   dialog.append(el('header', { class: 'tgbox__head' }, back, title, close), body, foot);
@@ -45,12 +46,12 @@ export function openBox() {
   let seq = 0;
   const box = {
     dialog,
-    /** Новая страница поверх. */
+    /** A new page on top. */
     push(page) {
       stack.push(page);
       return show(true);
     },
-    /** Заменить текущую (шаг мастера без возврата). */
+    /** Replace the current one (a wizard step without return). */
     replace(page) {
       stack.pop();
       stack.push(page);
@@ -64,11 +65,11 @@ export function openBox() {
         dialog.close();
       }
     },
-    /** Перерисовать текущую (данные изменились). */
+    /** Redraw the current one (the data changed). */
     refresh: () => show(),
     close: () => dialog.close(),
     get depth() { return stack.length; },
-    /** Кнопки внизу недоступны, пока идёт запрос. */
+    /** The buttons at the bottom are unavailable while a request runs. */
     busy(on) {
       for (const b of foot.querySelectorAll('button')) b.disabled = on;
     },
@@ -79,11 +80,11 @@ export function openBox() {
   async function show(animate = false) {
     const my = ++seq;
     const page = stack[stack.length - 1];
-    // Первая страница — «Loading…», пока она готовится; дальше старая
-    // страница остаётся на месте (окно «занято»), пока новая не готова
-    // целиком — данные загружены, узлы построены — и только потом
-    // переход: старая гаснет, новая проявляется. Иначе окно менялось
-    // раньше, чем в нём появлялось содержимое, и переход дёргался.
+    // The first page — "Loading…" while it prepares; after that the old
+    // page stays in place (the window is "busy") until the new one is ready
+    // whole — the data loaded, the nodes built — and only then the
+    // transition: the old one fades, the new one fades in. Otherwise the
+    // window changed before content appeared in it, and the transition jerked.
     if (!shown) {
       title.textContent = page.title ?? '';
       clear(body).append(el('p', { class: 'tgbox__hint' }, 'Loading…'));
@@ -126,7 +127,7 @@ export function openBox() {
     }
     shown = true;
     dialog.classList.remove('is-leaving');
-    // Первое поле — в фокус, как у Desktop.
+    // The first field — focused, as in Desktop.
     body.querySelector('input:not([type="checkbox"]):not([type="radio"]), textarea')?.focus();
   }
 
@@ -134,22 +135,22 @@ export function openBox() {
   return box;
 }
 
-/** Ошибка на странице — сверху тела, до следующего показа. */
+/** An error on the page — at the top of the body, until the next showing. */
 export function showError(body, error) {
   body.querySelector('.tgbox__error')?.remove();
   body.prepend(el('p', { class: 'tgbox__error', role: 'alert' }, error?.message || String(error)));
   body.scrollTop = 0;
 }
 
-// ------------------------------------------------------------ детали
+// ------------------------------------------------------------ parts
 
-/** Подпись раздела. */
+/** A section label. */
 export const section = (text) => el('div', { class: 'tgbox__section' }, text);
 
-/** Пояснение под разделом. */
+/** A note under a section. */
 export const note = (text) => el('p', { class: 'tgbox__note' }, text);
 
-/** Строка-переход: значок, подпись, значение справа. */
+/** A link row: an icon, a label, a value on the right. */
 export function linkRow({ iconName, label, value = '', onClick, danger = false }) {
   return el('button', {
     class: `tgbox__row${danger ? ' is-danger' : ''}`, type: 'button', onclick: onClick,
@@ -159,7 +160,7 @@ export function linkRow({ iconName, label, value = '', onClick, danger = false }
   value !== '' ? el('span', { class: 'tgbox__row-value' }, String(value)) : null);
 }
 
-/** Переключатель строкой; .checked — у возвращённого input. */
+/** A toggle as a row; .checked — on the returned input. */
 export function toggleRow(label, checked, { sub = '', disabled = false, onChange } = {}) {
   const input = el('input', { type: 'checkbox', class: 'tgbox__switch', checked, disabled });
   if (onChange) input.addEventListener('change', () => onChange(input.checked));
@@ -171,7 +172,7 @@ export function toggleRow(label, checked, { sub = '', disabled = false, onChange
   return { node, input };
 }
 
-/** Радиокнопки: [{ value, label, sub }]; .value() — выбранное. */
+/** Radio buttons: [{ value, label, sub }]; .value() — the chosen one. */
 export function radioGroup(name, options, value, onChange) {
   const inputs = [];
   const node = el('div', { class: 'tgbox__radios' }, ...options.map((o) => {
@@ -186,7 +187,7 @@ export function radioGroup(name, options, value, onChange) {
   return { node, value: () => inputs.find((i) => i.checked)?.value };
 }
 
-/** Поле с подписью-подсказкой; prefix — неизменяемое начало (t.me/). */
+/** A field with a placeholder label; prefix — an unchangeable start (t.me/). */
 export function textField(placeholder, value = '', { multiline = false, prefix = '', max = 0 } = {}) {
   const input = el(multiline ? 'textarea' : 'input', {
     class: 'tgbox__input', placeholder, value, rows: multiline ? 3 : undefined,
@@ -197,7 +198,7 @@ export function textField(placeholder, value = '', { multiline = false, prefix =
   return { node, input };
 }
 
-/** Человек или чат строкой: аватарка, имя, вторая строка, справа — метка. */
+/** A person or chat as a row: avatar, name, a second line, a mark on the right. */
 export function peerRow(card, { sub, right, onClick, checkbox } = {}) {
   const name = card.title || card.name || 'Deleted account';
   const avatar = el('span', { class: `avatar tgbox__avatar accent-${card.color || 'a5'}` });
@@ -216,8 +217,8 @@ export function peerRow(card, { sub, right, onClick, checkbox } = {}) {
 }
 
 /**
- * Фото группы или канала: круг с камерой, по щелчку — выбор файла, он
- * сразу грузится (POST /upload). .upload() — id загрузки или ''.
+ * A group or channel photo: a circle with a camera, a click — a file choice,
+ * it uploads at once (POST /upload). .upload() — the upload id or ''.
  */
 export function photoPicker(current = null) {
   const circle = el('span', { class: 'avatar tgbox__photo' });
@@ -242,14 +243,14 @@ export function photoPicker(current = null) {
   return { node, upload: async () => (pending ? pending : ''), changed: () => pending !== null };
 }
 
-/** Удобная обёртка для admin: шаги -> ответы TDLib по ключам. */
+/** A handy wrapper for admin: steps -> TDLib answers by keys. */
 export function adminCall(call, steps) {
   return call('admin', { steps });
 }
 
 /**
- * Список контактов с галочками, поиском и счётчиком «N / max», как
- * «Add Members» у Desktop. .chosen() — выбранные id (строки).
+ * A contact list with checkboxes, search and an "N / max" counter, like
+ * "Add Members" in Desktop. .chosen() — the chosen ids (strings).
  */
 export async function contactPicker(call, { max = 200000, exclude = new Set() } = {}) {
   const answer = await call('contacts.list');

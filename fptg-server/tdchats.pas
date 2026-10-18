@@ -106,18 +106,19 @@ type
     UnreadCount:        integer;
     UnreadMentionCount: integer;
     IsMarkedAsUnread:   boolean;
-    { Есть запланированные сообщения (chat.has_scheduled_messages,
-      updateChatHasScheduledMessages): значок у кнопки отложенной
-      отправки (ui/schedule.js). }
+    { There are scheduled messages (chat.has_scheduled_messages,
+      updateChatHasScheduledMessages): the dot on the send-later button
+      (ui/schedule.js). }
     HasScheduled:       boolean;
-    { Видеочат / трансляция чата (chat.video_chat, updateChatVideoChat):
-      id звонка (0 — нет) и есть ли в нём кто-то — значок в списке и
-      плашка над историей (ui/livebar.js). }
+    { The chat's video chat / live stream (chat.video_chat,
+      updateChatVideoChat): the call id (0 — none) and whether anyone is in
+      it — the badge in the list and the bar above the history
+      (ui/livebar.js). }
     VideoChatId:        integer;
     VideoChatLive:      boolean;
-    { Активные истории чата (updateChatActiveStories): сколько и сколько
-      из них прочитано (story_id <= max_read_story_id) — кольцо из
-      сегментов вокруг аватарки (ui/chat-list.js). }
+    { The chat's active stories (updateChatActiveStories): how many and how
+      many of them are read (story_id <= max_read_story_id) — the ring of
+      segments around the avatar (ui/chat-list.js). }
     StoryCount:         integer;
     StoryReadCount:     integer;
     IsMuted:            boolean;   { mute_for > 0 }
@@ -140,19 +141,20 @@ type
     PhotoPath:          utf8string;   { local path, if already downloaded }
     Minithumb:          RawByteString;{ raw JPEG from minithumbnail }
     AvatarRequested:    boolean;      { downloadFile already sent }
-    { Анимированная аватарка (см. EnsureAvatarAnim). PhotoHasAnim — из
-      chatPhotoInfo.has_animation; файл — small_animation из полной
-      информации пользователя или группы. }
+    { Animated avatar (see EnsureAvatarAnim). PhotoHasAnim — from
+      chatPhotoInfo.has_animation; the file — small_animation from the full
+      info of the user or group. }
     PhotoHasAnim:       boolean;
     AnimFileId:         integer;
     AnimPath:           utf8string;
-    AnimRequested:      boolean;      { полная информация уже запрошена }
-    { chatTypeBasicGroup.basic_group_id — для getBasicGroupFullInfo. }
+    AnimRequested:      boolean;      { the full info has been requested }
+    { chatTypeBasicGroup.basic_group_id — for getBasicGroupFullInfo. }
     BasicGroupId:       Int64;
-    { Клавиатура бота над полем ввода: id сообщения, чья она
-      (chat.reply_markup_message_id), и сама разметка, если её принёс
-      updateChatReplyMarkup (в 1.8.67 он несёт сообщение целиком). Нет
-      разметки — мост ищет её у загруженного сообщения по id. }
+    { The bot keyboard above the input field: the id of the message it
+      belongs to (chat.reply_markup_message_id), and the markup itself if
+      updateChatReplyMarkup brought it (in 1.8.67 it carries the whole
+      message). No markup — the bridge looks for it in the loaded message
+      by id. }
     ReplyMarkupMsgId:   Int64;
     ReplyMarkupRaw:     utf8string;
     { -1 if not received yet. 0..6 are the reserved "base" colors
@@ -213,10 +215,11 @@ type
     already open, is the view's business - see webapi.pas. }
   TTdChatsArrivalEvent = procedure(Sender: TObject; ARow: TChatRow;
     const APreview: utf8string) of object;
-  { Кто-то печатает / записывает / выбирает стикер (updateChatAction).
-    AThreadId — message_thread_id из topic_id (messageTopicThread), иначе
-    0; ASender — MessageSender как прислан, живёт только на время вызова;
-    AAction — @type действия (chatActionTyping, …, chatActionCancel). }
+  { Someone is typing / recording / choosing a sticker (updateChatAction).
+    AThreadId — message_thread_id from topic_id (messageTopicThread),
+    otherwise 0; ASender — the MessageSender as sent, alive only for the
+    call; AAction — the action's @type (chatActionTyping, …,
+    chatActionCancel). }
   TTdChatsActionEvent = procedure(Sender: TObject; AChatId, AThreadId: Int64;
     ASender: TJSONObject; const AAction: utf8string) of object;
   TTdChatsErrorEvent = procedure(Sender: TObject; ACode: integer;
@@ -235,7 +238,7 @@ type
     FReq:     TTdRequests;
     FAll:   TChatMap;     { every known chat, by id }
     FByFile: TFileMap;    { avatar file_id -> chat }
-    FByAnimFile: TFileMap; { файл анимированной аватарки -> чат }
+    FByAnimFile: TFileMap; { animated avatar file -> chat }
     { Bots are identified by user, not chat: a chat's type is always
       chatTypePrivate. updateUser updates arrive on their own. }
     FBots:   TBotMap;
@@ -413,8 +416,8 @@ type
       rows — downloading everything at once would be pointless. Repeat
       calls are harmless. }
     procedure EnsureAvatar(ARow: TChatRow);
-    { Анимированная аватарка, если она у чата есть: полная информация,
-      из неё — MPEG4, его скачивание. Звать там же, где EnsureAvatar. }
+    { The animated avatar, if the chat has one: the full info, from it the
+      MPEG4, its download. Call it wherever EnsureAvatar is called. }
     procedure EnsureAvatarAnim(ARow: TChatRow);
     { Custom (Premium) emoji in ARow.LastGlyphs, plus the peer's own
       Premium "emoji status" (ARow.EmojiStatusCustomEmojiId) if it has
@@ -802,9 +805,9 @@ begin
   end;
 end;
 
-{ Плоский текст богатого сообщения (messageRichMessage) — все
-  richTextPlain по порядку, блоки через пробел, пока не наберётся на
-  строку превью. }
+{ Plain text of a rich message (messageRichMessage) — all richTextPlain in
+  order, blocks separated by a space, until there is enough for the
+  preview line. }
 procedure CollectRichText(D: TJSONData; var AText: utf8string);
 var
   O: TJSONObject;
@@ -823,7 +826,7 @@ begin
       AText := AText + JGetStr(O, 'text');
       Exit;
     end;
-    { Новый блок — с пробела, чтобы абзацы не слипались. }
+    { A new block — after a space, so paragraphs do not run together. }
     if (Copy(JGetStr(O, '@type'), 1, 9) = 'pageBlock') and (AText <> '')
       and (AText[Length(AText)] <> ' ') then begin
       AText := AText + ' ';
@@ -886,7 +889,7 @@ begin
   end else if T = 'messageContact' then begin
     Result := 'Contact';
   end else if T = 'messagePoll' then begin
-    { poll.question — formattedText (td_api.tl коммита d1085f9). }
+    { poll.question — formattedText (td_api.tl at commit d1085f9). }
     Cap := JGetStr(JGetObj(JGetObj(AContent, 'poll'), 'question'), 'text');
     if Cap <> '' then begin
       Result := 'Poll: ' + Cap;
@@ -902,9 +905,9 @@ begin
       Result := 'Message';
     end;
   end else begin
-    { Сервисное (создание группы, вход, закреп…) — тем же текстом, что
-      строка в истории, но без имени: «Pinned a message». Совсем
-      неизвестное — сырой тип, это полезнее пустоты. }
+    { A service message (group created, joined, pinned…) — the same text as
+      the line in the history, but without the name: "Pinned a message".
+      Something entirely unknown — the raw type, more useful than nothing. }
     Result := ServiceMessageText(AContent, '', False, nil);
     if Result = '' then begin
       Result := T;
@@ -1240,23 +1243,23 @@ end;
 
 { ---------------- animated avatars ---------------- }
 
-{ Анимированная аватарка: в объекте чата (chatPhotoInfo) о ней есть
-  только has_animation, сам MPEG4 — в chatPhoto, а chatPhoto приходит
-  лишь в полной информации (td_api.tl): userFullInfo для лички,
-  supergroupFullInfo / basicGroupFullInfo для групп и каналов. Берётся
-  small_animation (160x160) — список и шапка больше не показывают, —
-  а если его нет, animation.
+{ Animated avatar: the chat object (chatPhotoInfo) only has
+  has_animation, the MPEG4 itself is in chatPhoto, and chatPhoto comes only
+  in the full info (td_api.tl): userFullInfo for a private chat,
+  supergroupFullInfo / basicGroupFullInfo for groups and channels.
+  small_animation (160x160) is taken — the list and the header show
+  nothing bigger — and if it is missing, animation.
 
-  Просится там же, где обычная аватарка, — для строк на экране и для
-  шапки открытого чата, — а не для всего списка: полная информация —
-  запрос на каждый чат. }
+  Asked for wherever the ordinary avatar is — for the rows on screen and
+  for the header of the open chat — not for the whole list: the full info
+  is a request per chat. }
 procedure TTdChats.EnsureAvatarAnim(ARow: TChatRow);
 begin
   if (ARow = nil) or (FReq = nil) or (not ARow.PhotoHasAnim)
      or ARow.AnimRequested or (ARow.AnimPath <> '') then begin
     Exit;
   end;
-  { Tag — id чата: ответ полной информации своего чата не называет. }
+  { Tag — the chat id: the full info answer does not name its chat. }
   if (ARow.Kind = ckPrivate) and (ARow.UserId <> 0) then begin
     ARow.AnimRequested := True;
     FReq.SendRequest('getUserFullInfo',
@@ -1286,9 +1289,9 @@ begin
     R.AnimRequested := False;
     Exit;
   end;
-  { У пользователя три фото: personal_photo — то, что ВЫ поставили
-    контакту, оно и показывается; иначе его собственное photo; иначе
-    public_photo. У групп — одно photo. }
+  { A user has three photos: personal_photo — the one YOU set for the
+    contact, that is what shows; otherwise their own photo; otherwise
+    public_photo. Groups have one photo. }
   Photo := JGetObj(AResp.Obj, 'personal_photo');
   if Photo = nil then begin
     Photo := JGetObj(AResp.Obj, 'photo');
@@ -1326,7 +1329,7 @@ begin
   if FByAnimFile.IndexOf(R.AnimFileId) < 0 then begin
     FByAnimFile.Add(R.AnimFileId, R);
   end;
-  { Приоритет 1, как у обычной аватарки: не мешать сообщениям. }
+  { Priority 1, as for the ordinary avatar: not to get in the way of messages. }
   FReq.SendRequest('downloadFile',
     '"file_id":' + utf8string(IntToStr(R.AnimFileId)) +
     ',"priority":1,"offset":0,"limit":0,"synchronous":false',
@@ -1335,13 +1338,13 @@ end;
 
 procedure TTdChats.AnimDownloadDone(Sender: TObject; const AResp: TTdResponse);
 begin
-  { Файл, уже лежащий на диске, приходит прямо в ответе. }
+  { A file already on disk comes right in the answer. }
   if AResp.Success then begin
     ApplyAnimFile(AResp.Obj);
   end;
 end;
 
-{ Как ApplyFile: анимация канала и его группы обсуждений — тоже один файл. }
+{ As ApplyFile: the animation of a channel and its discussion group is one file too. }
 procedure TTdChats.ApplyAnimFile(AFile: TJSONObject);
 var
   Idx, FileId, I: integer;
@@ -1388,8 +1391,8 @@ begin
     ApplyFile(AResp.Obj);
     Exit;
   end;
-  { Failure — clear the flag so another attempt can be made. У ВСЕХ
-    строк с этим файлом — см. ApplyFile. }
+  { Failure — clear the flag so another attempt can be made. On ALL rows
+    with this file — see ApplyFile. }
   for Idx := 0 to FAll.Count - 1 do begin
     if FAll.Data[Idx].PhotoFileId = integer(AResp.Tag) then begin
       FAll.Data[Idx].AvatarRequested := False;
@@ -1397,15 +1400,15 @@ begin
   end;
 end;
 
-{ Путь — КАЖДОЙ строке с этим файлом, а не одной из карты.
+{ The path — to EVERY row with this file, not to the one from the map.
 
-  Один файл бывает у нескольких чатов: у канала и его группы обсуждений
-  TDLib отдаёт одно и то же фото (в tdlib_raw.log у «X_SID Stuff»
-  -1002175282897 и -2072175282897 — оба small.id = 1254). Карта FByFile
-  хранит «файл -> один чат», и вторая строка в неё не попадала; путь
-  получала только первая, а вторая так и стояла с размытым превью —
-  пометка «запрошено» уже стояла, и повторного запроса не было. Карта
-  остаётся воротами: «этот файл мы просили». }
+  One file can belong to several chats: for a channel and its discussion
+  group TDLib returns the same photo (in tdlib_raw.log "X_SID Stuff"
+  -1002175282897 and -2072175282897 — both small.id = 1254). The FByFile
+  map keeps "file -> one chat", and the second row did not get into it;
+  only the first got the path, while the second kept its blurred preview —
+  the "requested" mark was already set, and there was no second request.
+  The map stays as the gate: "we asked for this file". }
 procedure TTdChats.ApplyFile(AFile: TJSONObject);
 var
   Idx, FileId, I: integer;
@@ -1654,9 +1657,8 @@ begin
   end;
 end;
 
-{ Истории: TDLib присылает updateChatActiveStories только для списков,
-  которые попросили загрузить (loadActiveStories); просить до 404 —
-  «загружено всё». }
+{ Stories: TDLib sends updateChatActiveStories only for the lists asked to
+  be loaded (loadActiveStories); ask until a 404 — "everything is loaded". }
 procedure TTdChats.LoadStories(AArchive: boolean);
 const
   LIST: array[boolean] of utf8string = ('storyListMain', 'storyListArchive');
@@ -2434,7 +2436,7 @@ begin
   Small := JGetObj(APhoto, 'small');
   if ARow.PhotoFileId <> JGetInt(Small, 'id') then begin
     { The photo changed — any earlier request is no longer about this
-      file. Анимация — тоже: она от прежнего фото. }
+      file. So is the animation: it is from the previous photo. }
     ARow.AvatarRequested := False;
     ARow.AnimFileId := 0;
     ARow.AnimPath := '';
@@ -2600,9 +2602,9 @@ begin
   Obj := AData;
   T := JGetStr(Obj, '@type');
 
-  { Модель действий не хранит: TDLib сам присылает chatActionCancel,
-    когда действие кончилось или истекло (в живом логе — по отмене на
-    каждое), — состояние держит страница. }
+  { The model does not keep actions: TDLib itself sends chatActionCancel
+    when an action ends or expires (in the live log — a cancel for every
+    one), the page keeps the state. }
   if T = 'updateChatAction' then begin
     if Assigned(FOnChatAction) then begin
       ThreadId := 0;

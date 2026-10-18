@@ -1,29 +1,30 @@
 unit callpopup;
 
-{ Окошко входящего звонка поверх всех окон — оболочка, не логика.
+{ The incoming call pop-up above all windows — a shell, not logic.
 
-  Решает всё страница: главная (ui/call.js) видит входящий звонок при
-  окне не на виду и просит хост показать карточку (сообщение
-  callpopup с адресом страницы карточки); карточка (callcard.html) сама
-  рисует кнопки и о нажатии сообщает хосту, а хост передаёт это главной
-  странице, которая и принимает или отклоняет звонок — медиа живёт там.
+  The page decides everything: the main one (ui/call.js) sees an incoming
+  call while the window is not in view and asks the host to show the card
+  (a callpopup message with the card page's address); the card
+  (callcard.html) draws its buttons itself and tells the host about a
+  press, and the host passes it on to the main page, which accepts or
+  declines the call — the media live there.
 
-  Отсюда платформенное только одно: маленькое окно без рамки, поверх
-  всех, без кнопки на панели задач и без отбора фокуса, со своим
-  WebView2. На другой оболочке (Linux, Android) это её окно с её
-  веб-движком, а страницы те же.
+  Only one thing here is platform-specific: a small borderless window
+  above all others, without a taskbar button and without stealing focus,
+  with its own WebView2. On another shell (Linux, Android) it is that
+  shell's window with its web engine, and the pages are the same.
 
-  LCL — только как хозяин окна WebView2, как webui и miniapp. Показ —
-  ShowWindow(SW_SHOWNOACTIVATE) и WS_EX_NOACTIVATE: обычный Show у LCL
-  активирует окно и отнимает фокус у того, кто сейчас печатает
-  (desknotify.pas, тот же вывод). }
+  LCL — only as the host of the WebView2 window, like webui and miniapp.
+  Showing — ShowWindow(SW_SHOWNOACTIVATE) and WS_EX_NOACTIVATE: LCL's
+  ordinary Show activates the window and takes focus from whoever is
+  typing (desknotify.pas, the same conclusion). }
 
 {$mode objfpc}{$H+}
 
 interface
 
-{ Показать карточку с адресом AUrl (страница того же сервера, что и
-  главная). Уже показана — сменить адрес, если другой. }
+{ Show the card with the address AUrl (a page of the same server as the
+  main one). Shown already — change the address if it differs. }
 procedure CallPopupShow(const AUrl: utf8string);
 procedure CallPopupHide;
 
@@ -66,15 +67,15 @@ begin
   FormStyle := fsSystemStayOnTop;
   ShowInTaskBar := stNever;
   Caption := APP_TITLE;
-  { Ширина — как у обычных уведомлений (desknotify): одна колонка. }
+  { Width — as ordinary notifications (desknotify): one column. }
   Width := Sc(DESKNOTIFY_WIDTH);
   Height := Sc(CALLPOPUP_HEIGHT);
   FView := TWebView2.Create(Handle);
-  { Заголовка нет (bsNone) — от темы ей достаются тёмный режим и кайма
-    Windows 11 (winframe). }
+  { There is no title bar (bsNone) — from the theme it gets the dark mode
+    and the Windows 11 border (winframe). }
   FrameAttach(Handle);
-  { Карточка — тоже из файлов окна, аватарка — с сервера: тот же сайт и
-    то же решение о сертификате, что у главного окна. }
+  { The card is from the window's files too, the avatar from the server:
+    the same site and the same certificate decision as the main window. }
   FView.MapVirtualHost(WEB_APP_HOST, utf8string(WebUiFolder));
   FView.OnCertificateError := @ViewCertificateError;
   FView.OnWebMessage := @ViewMessage;
@@ -95,8 +96,8 @@ end;
 procedure TFormCallPopup.CreateParams(var Params: TCreateParams);
 begin
   inherited CreateParams(Params);
-  { Клик по карточке не активирует окно и не отбирает фокус; без
-    кнопки на панели задач и в Alt+Tab. }
+  { A click on the card does not activate the window or take focus; no
+    button on the taskbar or in Alt+Tab. }
   Params.ExStyle := Params.ExStyle or WS_EX_NOACTIVATE or WS_EX_TOOLWINDOW
     or WS_EX_TOPMOST;
 end;
@@ -109,14 +110,15 @@ begin
   end;
 end;
 
-{ Место — угол уведомлений из настроек (DeskNotifyCorner, тот же,
-  что у desknotify) с тем же отступом от края рабочей области.
+{ The place — the notification corner from the settings (DeskNotifyCorner,
+  the same as desknotify's) with the same margin from the edge of the work
+  area.
 
-  Позиция — SetWindowPos напрямую, не SetBounds: окно показано мимо LCL
-  (ShowWindow), LCL считает его скрытым и свои координаты к нему не
-  применяет — живой случай 2026-10-07: окошко вставало в левый верхний
-  угол экрана. По той же причине WebView2 растягивается здесь же —
-  Resize не придёт. }
+  The position — SetWindowPos directly, not SetBounds: the window is shown
+  past LCL (ShowWindow), LCL considers it hidden and does not apply its
+  coordinates — a live case on 2026-10-07: the pop-up went to the top
+  left corner of the screen. For the same reason WebView2 is stretched
+  right here — Resize will not come. }
 procedure TFormCallPopup.Present(const AUrl: utf8string);
 var
   Work: TRect;
@@ -149,14 +151,14 @@ end;
 procedure TFormCallPopup.Conceal;
 begin
   Windows.ShowWindow(Handle, SW_HIDE);
-  { Следующий звонок — заново: страница карточки держит id звонка. }
+  { The next call — from scratch: the card page keeps the call id. }
   FUrl := '';
   FView.Navigate('about:blank');
 end;
 
-{ От карточки: (t: 'call', action: accept | decline | open, id).
-  accept и open поднимают главное окно; любое действие уходит главной
-  странице как есть и прячет карточку. close — звонок перестал звонить. }
+{ From the card: (t: 'call', action: accept | decline | open, id). accept
+  and open bring up the main window; any action goes to the main page as
+  is and hides the card. close — the call stopped ringing. }
 procedure TFormCallPopup.ViewCertificateError(Sender: TObject; const AUri, APem: utf8string;
   var AAllow: boolean);
 begin

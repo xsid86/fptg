@@ -1,11 +1,11 @@
 @use "../abstracts" as *;
 
-// Акцент приложения, выбранный в Settings → General (ui/theme.js):
-// <html data-accent="ключ">. Ключи и цвета — $app-accents
-// (abstracts/_variables.scss). Без атрибута — "accent" темы, как было.
+// The app accent chosen in Settings → General (ui/theme.js):
+// <html data-accent="key">. The keys and colours — $app-accents
+// (abstracts/_variables.scss). Without the attribute — the theme's "accent", as before.
 //
-// Стоит в base ПОСЛЕ root: специфичность та же, что у правил тем
-// (:root[атрибут]), и побеждает порядок.
+// It stands in base AFTER root: the specificity is the same as the theme
+// rules' (:root[attribute]), and the order wins.
 
 @each $key, $color in $app-accents {
   :root[data-accent="#{$key}"] {
@@ -13,7 +13,7 @@
     --c-unread: #{$color};
   }
 
-  // Кружок выбора (.color-swatch, blocks/_settings.scss).
+  // The choice circle (.color-swatch, blocks/_settings.scss).
   .swatch-app-#{$key} {
     --swatch-1: #{$color};
     --swatch-2: #{$color};

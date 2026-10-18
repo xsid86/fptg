@@ -8,31 +8,31 @@ import { renderRichText } from '../util/entities.js';
 import { setCustomEmoji } from '../util/emoji.js';
 import { openLink } from './links.js';
 
-// Официальная реклама Telegram (Telegram API ToS 3.3,
-// core.telegram.org/api/sponsored-messages): в канале — карточки после
-// последнего поста, в чате с ботом — полоса «Ad» над полем ввода.
+// Official Telegram ads (Telegram API ToS 3.3,
+// core.telegram.org/api/sponsored-messages): in a channel — cards after the
+// last post, in a chat with a bot — an "Ad" bar above the input field.
 //
-// Что показывать, решает мост (ads.get в webapi.pas): он спрашивает
-// getChatSponsoredMessages при каждом открытии канала или бота (у себя
-// держит ответ 5 минут), докачивает медиа и отдаёт уже готовое к показу.
-// Показ (ads.view) — один раз, когда весь текст рекламы на экране; клик
-// (ads.click) — кнопка, заголовок, аватарка, медиа или ссылка в тексте;
-// жалоба (ads.report) — с вариантами, которые присылает Telegram.
+// What to show is decided by the bridge (ads.get in webapi.pas): it asks
+// getChatSponsoredMessages on every opening of a channel or bot (keeps the
+// answer for 5 minutes), downloads the media and returns it ready to show.
+// A view (ads.view) — once, when the whole ad text is on screen; a click
+// (ads.click) — the button, the title, the avatar, the media or a link in
+// the text; a report (ads.report) — with the options Telegram sends.
 
 const TELEGRAM_LINK = /^(?:https?:\/\/(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)\/|tg:)/i;
 
 let hooks = {};
 let bar = null;
-// chatId -> ответ ads.get ({ chatId, between, items })
+// chatId -> the ads.get answer ({ chatId, between, items })
 const ads = new Map();
-// `${chatId}:${id}` уже засчитанных показов
+// `${chatId}:${id}` of views already counted
 const viewed = new Set();
-// Узлы карточек: история сверяет узлы по тождеству, поэтому карточка
-// одной и той же рекламы — один и тот же узел.
+// Card nodes: the history reconciles nodes by identity, so the card of the
+// same ad is the same node.
 const cards = new Map();
 let observer = null;
 let barObserver = null;
-// Реклама, которую сейчас показывает полоса (для её контекстного меню).
+// The ad the bar is showing now (for its context menu).
 let barAd = null;
 
 const key = (ad) => `${ad.chatId}:${ad.id}`;
@@ -51,8 +51,8 @@ export function mountSponsored(composer, options) {
 }
 
 /**
- * Реклама канала для истории: { between, items } или null. Ветка
- * комментариев и поиск рекламы не показывают — это решает история.
+ * The channel's ads for the history: { between, items } or null. A comment
+ * thread and search show no ads — the history decides that.
  */
 export function channelAds(chatId) {
   const data = ads.get(chatId);
@@ -66,7 +66,7 @@ async function load(chatId) {
   try {
     data = await hooks.call('ads.get', { chatId: String(chatId) });
   } catch (error) {
-    // Реклама — не то, ради чего открыт чат: ошибка только в консоль.
+    // Ads are not what the chat was opened for: the error only to the console.
     console.error(error);
     return;
   }
@@ -85,7 +85,7 @@ function forget(chatId) {
   }
 }
 
-// ------------------------------------------------------------- клик
+// ------------------------------------------------------------- click
 function confirmOutside(url) {
   return new Promise((resolve) => {
     const dialog = el('dialog', { class: 'confirm', 'aria-label': 'Open link' });
@@ -119,7 +119,7 @@ function reportClick(ad, media = false) {
   }).catch(console.error);
 }
 
-/** Ссылка спонсора: t.me — внутри приложения, прочее — после вопроса. */
+/** The sponsor's link: t.me — inside the app, the rest — after a question. */
 async function follow(url) {
   if (!url) return;
   if (TELEGRAM_LINK.test(url)) {
@@ -134,7 +134,7 @@ function activate(ad, media = false) {
   follow(ad.url);
 }
 
-// ------------------------------------------------------- меню и жалоба
+// ------------------------------------------------------- menu and report
 function showInfo(ad) {
   const dialog = el('dialog', { class: 'confirm', 'aria-label': 'Sponsor info' });
   const ok = el('button', {
@@ -154,7 +154,7 @@ function showInfo(ad) {
   ok.focus();
 }
 
-/** Выбор варианта жалобы; resolve — id варианта или null. */
+/** Choosing a report option; resolves to the option id or null. */
 function chooseOption(title, options) {
   return new Promise((resolve) => {
     const dialog = el('dialog', { class: 'confirm', 'aria-label': 'Report ad' });
@@ -185,7 +185,7 @@ function chooseOption(title, options) {
 
 async function report(ad) {
   let option = '';
-  // Telegram может спрашивать уточнение несколько раз подряд.
+  // Telegram may ask for clarification several times in a row.
   for (;;) {
     let res;
     try {
@@ -230,11 +230,11 @@ function openAdMenu(anchor, ad, at) {
   openMenu(anchor, items, at ? { at } : {});
 }
 
-// -------------------------------------------------------------- показ
+// -------------------------------------------------------------- views
 /**
- * Показ засчитывается, когда на экране весь текст (кнопка не в счёт —
- * так в td_api.tl у viewMessages). Текст выше окна целиком не влезет:
- * тогда хватает того, что он занял окно по высоте.
+ * A view counts when the whole text is on screen (the button does not count
+ * — so in td_api.tl for viewMessages). A text taller than the window will
+ * not fit whole: then it is enough that it filled the window's height.
  */
 function seen(entries) {
   for (const entry of entries) {
@@ -268,7 +268,7 @@ function watchView(node, inBar) {
   }
 }
 
-// ------------------------------------------------------------ разметка
+// ------------------------------------------------------------ markup
 function renderMedia(ad) {
   const m = ad.msg?.media;
   if (!m) return null;
@@ -295,13 +295,13 @@ function renderText(ad) {
     }, ad.title));
   }
   if (ad.msg?.text) text.append(renderRichText(ad.msg.text, ad.msg.entities ?? []));
-  // Ссылка в тексте — тоже клик по рекламе. pointerdown, а не click:
-  // ссылки t.me перехватывает ui/links.js в фазе погружения на
-  // документе, и до этого узла их click не доходит.
+  // A link in the text is an ad click too. pointerdown, not click: t.me
+  // links are intercepted by ui/links.js in the capture phase on the
+  // document, and their click does not reach this node.
   text.addEventListener('pointerdown', (event) => {
     if (event.button === 0 && event.target.closest('a[href]')) reportClick(ad);
   });
-  // Ссылка не в Telegram — только после вопроса.
+  // A link outside Telegram — only after a question.
   text.addEventListener('click', (event) => {
     const a = event.target.closest('a[href]');
     if (!a || TELEGRAM_LINK.test(a.href)) return;
@@ -335,7 +335,7 @@ function renderButton(ad) {
   }, ad.buttonText || 'Open');
 }
 
-/** Карточка рекламы канала — для истории, после постов. */
+/** A channel ad card — for the history, after the posts. */
 export function adCard(ad) {
   const k = key(ad);
   const known = cards.get(k);
@@ -355,7 +355,7 @@ export function adCard(ad) {
   return card;
 }
 
-/** Полоса рекламы в чате с ботом; null — убрать. */
+/** The ad bar in a chat with a bot; null — remove it. */
 function renderBar(ad) {
   if (!bar) return;
   barObserver?.disconnect();

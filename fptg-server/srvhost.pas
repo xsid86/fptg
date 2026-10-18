@@ -2,28 +2,30 @@ unit srvhost;
 
 {$mode objfpc}{$H+}
 
-{ Сервер как целое — то, чем управляют: TLS, порт, приём подключений
-  (старт/стоп), клиенты TDLib, пользователь. Общий у консольного сервера и
-  у окна, без LCL.
+{ The server as a whole — what is controlled: TLS, the port, accepting
+  connections (start/stop), the TDLib clients, the user. Shared by the
+  console server and the window, without LCL.
 
-  Control — команды управления; их же получает канал экземпляра
-  (instance.pas) от второго запуска или от окна-пульта, и их же окно
-  вызывает напрямую, когда сервер — оно само. Одна реализация:
-    status            -> состояние (StatusJson)
-    start (port)      -> начать приём подключений
-    stop              -> перестать принимать
-    user.set (user, password) -> логин и пароль единственного пользователя
-    signOut           -> завершить все сеансы
-    log.set (on)      -> вести сырой лог TDLib (tdlib_raw.log); в conf.dat
-    traffic           -> трафик: telegram (TDLib <-> Telegram, все
-                         аккаунты) и clients (сервер <-> окна и браузеры),
-                         байты с запуска; скорость считает спросивший
-    show              -> показать окно (OnShow; у консольного — ничего)
-  Ответ на каждую — состояние после неё.
+  Control — the control commands; the instance channel (instance.pas)
+  receives the same ones from a second start or from a remote window, and
+  the window calls them directly when it is the server itself. One
+  implementation:
+    status            -> state (StatusJson)
+    start (port)      -> start accepting connections
+    stop              -> stop accepting
+    user.set (user, password) -> login and password of the only user
+    signOut           -> end all sessions
+    log.set (on)      -> keep the raw TDLib log (tdlib_raw.log); in conf.dat
+    traffic           -> traffic: telegram (TDLib <-> Telegram, all
+                         accounts) and clients (server <-> windows and
+                         browsers), bytes since start; the asker computes
+                         the speed
+    show              -> show the window (OnShow; nothing for the console one)
+  The answer to each is the state after it.
 
-  «Стоп» гасит только приём подключений: клиенты TDLib поднимаются с
-  первым стартом и живут до выхода (TTdCore после закрытия заново не
-  поднимается). }
+  "Stop" only stops accepting connections: the TDLib clients come up with
+  the first start and live until exit (TTdCore does not come up again
+  after closing). }
 
 interface
 
@@ -37,15 +39,15 @@ type
     FTls: TServerTls;
     FTlsOk: boolean;
     FTlsError: string;
-    { Сертификат задан ключами --cert/--key — из окна его не меняют. }
+    { The certificate was set by --cert/--key — the window does not change it. }
     FTlsFromCli: boolean;
-    { Свой сертификат из conf.dat (пути; '' — встроенный). }
+    { One's own certificate from conf.dat (paths; '' — the built-in one). }
     FCertFile, FKeyFile: string;
     FTdStarted: boolean;
     FOnShow: TNotifyEvent;
     FOnChanged: TNotifyEvent;
-    { Раз в секунду: трафик сеансов — их страницам, статистика TDLib —
-      в FTg* (по аккаунтам, ответы асинхронные). }
+    { Once a second: session traffic — to their pages, TDLib statistics —
+      into FTg* (per account, the answers are asynchronous). }
     FTrafficTimer: TTdTimer;
     FTgSent, FTgRecv: array of Int64;
     procedure Changed;
@@ -55,15 +57,15 @@ type
     procedure NetStatsDone(Sender: TObject; const AResp: TTdResponse);
     function TrafficJson: TJSONObject;
   public
-    { AKind — 'console' или 'gui'. Готовит TLS (свой сертификат или
+    { AKind — 'console' or 'gui'. Prepares TLS (our own certificate or
       --cert/--key). }
     constructor Create(const AKind: string);
     destructor Destroy; override;
     function Running: boolean;
-    { Начать приём на APort (и, в первый раз, поднять TDLib). }
+    { Start accepting on APort (and, the first time, bring TDLib up). }
     function Start(APort: word; out AError: string): boolean;
     procedure Stop;
-    { Закрыть клиентов TDLib; True — уже закрыты (или не поднимались). }
+    { Close the TDLib clients; True — closed already (or never started). }
     function BeginShutdown(ADone: TNotifyEvent): boolean;
     function StatusJson: TJSONObject;
     function Control(const ACmd: string; AArgs: TJSONObject): TJSONObject;
@@ -73,11 +75,12 @@ type
     property CertFile: string read FTls.CertFile;
     property Kind: string read FKind;
     property OnShow: TNotifyEvent read FOnShow write FOnShow;
-    { Состояние поменялось (в том числе командой по каналу). }
+    { The state changed (including by a command over the channel). }
     property OnChanged: TNotifyEvent read FOnChanged write FOnChanged;
   end;
 
-{ Порт: --server-port=N, иначе выбранный в окне (conf.dat), иначе
+{ The port: --server-port=N, otherwise the one chosen in the window
+  (conf.dat), otherwise
   LOCAL_SERVER_PORT. }
 function SavedPort: word;
 procedure SavePort(APort: word);
@@ -88,7 +91,7 @@ implementation
 uses
   constants, tdcore, tdaccount, tdauth, localserver, webapi, srvauth, secureconfig, tdjson;
 
-{ --tdlib-log у консольного: лог на этот запуск, без записи в conf.dat. }
+{ --tdlib-log of the console one: the log for this run, not written to conf.dat. }
 function RawLogFromCli: boolean;
 var
   I: integer;
@@ -101,7 +104,7 @@ begin
   end;
 end;
 
-{ Сырой лог TDLib при запуске: галочка из conf.dat или --tdlib-log. }
+{ The raw TDLib log at start: the checkbox from conf.dat or --tdlib-log. }
 procedure PrepareRawLog;
 var
   Ini: TSecureIni;
@@ -212,9 +215,9 @@ begin
   end;
 end;
 
-{ networkStatistics (td_api.tl): entries — networkStatisticsEntryFile и
-  networkStatisticsEntryCall, у обоих sent_bytes/received_bytes (int53).
-  only_current — с запуска клиента TDLib. }
+{ networkStatistics (td_api.tl): entries — networkStatisticsEntryFile and
+  networkStatisticsEntryCall, both with sent_bytes/received_bytes (int53).
+  only_current — since the TDLib client started. }
 procedure TServerHost.NetStatsDone(Sender: TObject; const AResp: TTdResponse);
 var
   Arr: TJSONArray;
@@ -271,8 +274,9 @@ begin
   Result := LocalServerUrl <> '';
 end;
 
-{ Откуда сертификат: --cert/--key, иначе пути из conf.dat (окно
-  сервера), иначе встроенный самоподписанный (tlscert). }
+{ Where the certificate comes from: --cert/--key, otherwise paths from
+  conf.dat (the server window), otherwise the built-in self-signed one
+  (tlscert). }
 procedure TServerHost.PrepareTls;
 var
   Ini: TSecureIni;
@@ -292,10 +296,10 @@ begin
   end;
 end;
 
-{ tls.set из окна: сначала проверить новые файлы (ошибка — сразу и с
-  объяснением, прежний сертификат остаётся), потом сохранить и, если
-  сервер работает, перезапустить приём — сертификат берётся при старте.
-  Пустые оба пути — встроенный самоподписанный. }
+{ tls.set from the window: first check the new files (an error — at once
+  and with an explanation, the previous certificate stays), then save and,
+  if the server is running, restart accepting — the certificate is taken
+  at start. Both paths empty — the built-in self-signed one. }
 procedure TServerHost.SetTls(const ACertFile, AKeyFile: string);
 var
   Tls: TServerTls;
@@ -366,8 +370,8 @@ end;
 
 procedure TServerHost.Stop;
 begin
-  { Сначала сервер, потом мост — чтобы к освобождению очереди команд не
-    осталось потоков сокетов. }
+  { The server first, then the bridge — so no socket threads are left by
+    the time the command queue is freed. }
   StopLocalServer;
   WebApiStop;
   Changed;
@@ -410,7 +414,7 @@ begin
     UserName := '';
   end;
   if ACmd = 'status' then begin
-    { только состояние }
+    { state only }
   end else if ACmd = 'start' then begin
     Port := 0;
     if AArgs <> nil then begin
@@ -444,7 +448,7 @@ begin
   end else if ACmd = 'log.set' then begin
     SaveRawLog((AArgs <> nil) and AArgs.Get('on', False));
   end else if ACmd = 'traffic' then begin
-    { Раз в секунду от окна — без всего состояния. }
+    { Once a second from the window — without the whole state. }
     Result := TrafficJson;
     Exit;
   end else if ACmd = 'show' then begin

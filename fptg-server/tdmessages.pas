@@ -34,8 +34,9 @@ type
       was tried on this file and got nowhere (and must not be retried). }
     Unthrottled: boolean;
     GaveUp: boolean;
-    { Ответ «скачан», а файла нет — уже снимали deleteFile и качали
-      заново. Второй раз так же — сдаться, а не ходить по кругу. }
+    { The answer said "downloaded" but there is no file — deleteFile and a
+      fresh download have been done already. The same again — give up
+      rather than go round in circles. }
     StaleRetried: boolean;
   end;
 
@@ -70,8 +71,8 @@ type
     Kind:      TMsgEntityKind;
     URL:       utf8string;   { mekTextUrl only; for mekUrl the link is the text itself }
     CustomEmojiId: Int64;    { mekCustomEmoji only }
-    { mekMentionName only: textEntityTypeMentionName.user_id — упоминание
-      человека без username (текст — его имя). }
+    { mekMentionName only: textEntityTypeMentionName.user_id — a mention
+      of a person without a username (the text is their name). }
     UserId: Int64;
     { mekPre only, and only from textEntityTypePreCode - TDLib names
       the language itself, even for a fence that carried no tag. Empty
@@ -181,14 +182,15 @@ type
     AlbumId:         Int64;
     Kind:            TMsgContentKind;
     ContentRaw:      utf8string;
-    { message.reply_markup как есть (JSON) — кнопки бота: инлайн под
-      сообщением или клавиатура над полем ввода. Разбирает мост
-      (webapi.pas, KeyboardRowsJson); '' — кнопок нет. }
+    { message.reply_markup as is (JSON) — the bot's buttons: inline under
+      the message or a keyboard above the input field. The bridge parses
+      it (webapi.pas, KeyboardRowsJson); '' — no buttons. }
     ReplyMarkupRaw:  utf8string;
-    { Эфемерное содержимое (message.ephemeral_content, Bot API 10.2):
-      видно только этому пользователю и показывается ВМЕСТО обычного —
-      ContentRaw/ReplyMarkupRaw тогда его, а обычное ждёт здесь, чтобы
-      вернуться, когда эфемерное снимут (updateMessageEphemeralContent с
+    { Ephemeral content (message.ephemeral_content, Bot API 10.2): visible
+      to this user only and shown INSTEAD of the ordinary one —
+      ContentRaw/ReplyMarkupRaw are then its, and the ordinary one waits
+      here to come back when the ephemeral one is removed
+      (updateMessageEphemeralContent with
       null). }
     HasEphemeral:    boolean;
     NormalContentRaw: utf8string;
@@ -399,9 +401,9 @@ type
     VideoThumbDownloadRequested: boolean;
     VideoFileId:                 integer;
     VideoLocalPath:              utf8string;
-    { Видеосообщение («кружок», messageVideoNote): то же видео, только
-      квадратное и круглое на экране — поля Video* те же (сторона —
-      в VideoWidth/VideoHeight). }
+    { A video message (a "round video", messageVideoNote): the same video,
+      only square and round on screen — the same Video* fields (the side
+      in VideoWidth/VideoHeight). }
     VideoRound:                  boolean;
     VideoDownloadRequested:      boolean;
     { Download progress for the video file above — see the comment on
@@ -410,13 +412,13 @@ type
       instead of discarding them). }
     VideoDownloadedSize:         Int64;
     VideoTotalSize:              Int64;
-    { Ход передачи ОСНОВНОГО файла сообщения — любого вида, вверх или
-      вниз (см. ApplyXferFile). Для кольца вокруг значка на странице. }
+    { Progress of the message's MAIN file transfer — of any kind, up or
+      down (see ApplyXferFile). For the ring around the icon on the page. }
     XferDone:   Int64;
     XferTotal:  Int64;
     XferUp:     boolean;
     XferActive: boolean;
-    { Файл, который передаётся, — его и отменяет CancelTransfer. }
+    { The file being transferred — CancelTransfer cancels it. }
     XferFileId: integer;
     { messageSticker.sticker — Kind=mckSticker only. The same
       double-"sticker" JSON naming (content.sticker.sticker is the
@@ -465,8 +467,8 @@ type
       now: no UI to add/remove a reaction of your own yet. }
     Reactions: TMsgReactionArray;
     { interaction_info.reactions.can_get_added_reactions (td_api.tl):
-      можно ли спросить, кто поставил реакции. Без него страница список
-      не предлагает вовсе — и не спрашивает зря. }
+      whether one can ask who reacted. Without it the page does not offer
+      the list at all — and does not ask in vain. }
     CanSeeReactors: boolean;
     { content.poll — meaningful for Kind=mckPoll only. Refreshed the
       ordinary way, through ApplyContentUpdate: every vote changes the
@@ -501,23 +503,23 @@ type
     EditId: Int64;    { 0 - a new message rather than an edit }
   end;
 
-  { Отправка файлов, ждущая разбора подписи (parseTextEntities) — то же,
-    что TPendingSend, плюс сами файлы и как их слать. }
+  { A file send waiting for its caption to be parsed (parseTextEntities) —
+    the same as TPendingSend, plus the files themselves and how to send them. }
   TPendingFiles = record
     Busy: boolean;
     Paths: array of utf8string;
-    { 'media' — фото и видео (по расширению), 'audio', иначе документом. }
+    { 'media' — photos and videos (by extension), 'audio', otherwise as a document. }
     Mode: utf8string;
-    { На каждый путь — готовый кусок полей inputVideo (duration, width,
-      height, thumbnail) или ''; см. SendFiles. }
+    { Per path — a ready piece of inputVideo fields (duration, width,
+      height, thumbnail) or ''; see SendFiles. }
     Extras: array of utf8string;
     Silent: boolean;
     ReplyTo: Int64;
   end;
 
-  { Один запрос sendMessage/sendMessageAlbum и пути его файлов по
-    порядку: ответ TDLib приходит сообщениями в том же порядке, и только
-    так видно, какой временный файл какому сообщению принадлежит. }
+  { One sendMessage/sendMessageAlbum request and the paths of its files in
+    order: TDLib answers with messages in the same order, and only this way
+    is it visible which temporary file belongs to which message. }
   TFileBatch = record
     Busy: boolean;
     Paths: array of utf8string;
@@ -578,8 +580,8 @@ type
     JumpTo/JumpDone. }
   TTdMessagesJumpEvent = procedure(Sender: TObject; AMessageId: Int64) of object;
 
-  { Прыжок к сообщению в полёте: в каком чате, к какому id и сколько раз
-    уже повторён (JumpDone, JUMP_RETRY_MAX). }
+  { A jump to a message in flight: in which chat, to which id and how many
+    times it has been retried (JumpDone, JUMP_RETRY_MAX). }
   TJumpState = record
     ChatId: Int64;
     Target: Int64;
@@ -599,12 +601,12 @@ type
     FSession: ITdSession;
     FReq:     TTdRequests;
     FAll:     TMsgMap;    { every known message in the open chat, by id }
-    { id временных сообщений, уже заменённых настоящими
-      (updateMessageSendSucceeded). Ответ на sendMessage несёт ТО ЖЕ
-      временное сообщение и мог прийти в модель позже замены — оно
-      возвращалось в историю с часиками и висело до смены чата (живой
-      случай, tdlib_raw.log 2026-10-06 10:13). ApplyMessage их не
-      впускает. }
+    { Ids of temporary messages already replaced by real ones
+      (updateMessageSendSucceeded). The sendMessage answer carries THE
+      SAME temporary message and could reach the model after the
+      replacement — it came back into the history with a clock and hung
+      there until the chat changed (a live case, tdlib_raw.log 2026-10-06
+      10:13). ApplyMessage does not let them in. }
     FReplaced: TInt64List;
     FRows:    TFPList;    { the same set, in chronological order }
     FTimer:   TTdTimer;
@@ -643,9 +645,9 @@ type
     FThreadChatId: Int64;
     FThreadPostId: Int64;
     FThreadId: Int64;
-    { Отложенная отправка следующего sendMessage (webapi ставит на время
-      одной команды message.send*): 0 — сразу, >0 — дата unix, -1 —
-      «когда собеседник будет в сети». }
+    { Scheduled sending of the next sendMessage (webapi sets it for the
+      duration of one message.send* command): 0 — right away, >0 — a unix
+      date, -1 — "when the peer comes online". }
     FScheduleAt: Int64;
     FThreadBack: Int64;
     { What OpenThread asked about, held until the answer comes back. }
@@ -683,8 +685,9 @@ type
       the same purpose, which isn't enough here because the filter can
       change without the chat changing. }
     FFilterType:     utf8string;
-    { Тема «Избранного» (savedMessagesTopic.id), чьи сообщения показаны:
-      источник на панели сведений (ui/infopanel.js). 0 — вся история. }
+    { The Saved Messages topic (savedMessagesTopic.id) whose messages are
+      shown: a source on the info panel (ui/infopanel.js). 0 — the whole
+      history. }
     FSavedTopic:     Int64;
     FSearchQuery:    utf8string;
     FSearchNextFrom: Int64;
@@ -717,7 +720,7 @@ type
       TPendingSend. Reused rather than appended to for ever; there are
       never more than a couple in flight. }
     FSends: array of TPendingSend;
-    { То же для файлов — см. TPendingFiles и TFileBatch. }
+    { The same for files — see TPendingFiles and TFileBatch. }
     FFileSends: array of TPendingFiles;
     FFileBatches: array of TFileBatch;
 
@@ -786,8 +789,8 @@ type
     function Obtain(AId: Int64): TMsgRow;
 
     procedure ApplyMessage(AMsg: TJSONObject);
-    { Разбор content в поля строки: текст, сущности, медиа, состояние
-      передачи. Общий для ApplyMessage и DetachedRow. }
+    { Parsing content into the row's fields: text, entities, media,
+      transfer state. Shared by ApplyMessage and DetachedRow. }
     procedure FillContent(R: TMsgRow; AContent: TJSONObject);
     procedure ApplyContentUpdate(AChatId, AMessageId: Int64; ANewContent: TJSONObject);
     procedure ApplyEphemeralUpdate(AChatId, AMessageId: Int64; AEphemeral: TJSONObject);
@@ -954,27 +957,27 @@ type
     procedure JoinChat(AChatId: Int64);
     property ThreadPostId: Int64 read FThreadPostId;
     property ThreadChatId: Int64 read FThreadChatId;
-    { formattedText (ответ translateText/translateMessageText и т.п.) —
-      в текст и сущности так же, как текст сообщения (ExtractFormatted:
-      UTF-16 -> байтовые смещения). }
+    { formattedText (the answer of translateText/translateMessageText and
+      the like) — into text and entities the same way as a message's text
+      (ExtractFormatted: UTF-16 -> byte offsets). }
     procedure ParseFormattedText(AFormatted: TJSONObject;
       out APlainText: utf8string; out AEntities: TMsgEntityArray);
-    { Строка из содержимого (messageText/Photo/Video/Animation…) ВНЕ
-      модели: в FAll не попадает, владеет ею вызывающий. Для рекламных
-      сообщений (getChatSponsoredMessages): у них свой id в пространстве
-      id чата, и строка в FAll сломала бы непрерывность истории, на
-      которой стоит LoadOlder. }
+    { A row from content (messageText/Photo/Video/Animation…) OUTSIDE the
+      model: it does not go into FAll, the caller owns it. For sponsored
+      messages (getChatSponsoredMessages): they have their own id in the
+      chat's id space, and a row in FAll would break the continuity of the
+      history LoadOlder relies on. }
     function DetachedRow(AChatId, AMessageId: Int64; AContent: TJSONObject): TMsgRow;
-    { message_thread_id открытой ветки (0 — не ветка): в группе
-      обсуждения это id корневого сообщения — копии поста. }
+    { message_thread_id of the open thread (0 — not a thread): in a
+      discussion group it is the id of the root message — the post's copy. }
     property ThreadId: Int64 read FThreadId;
-    { Относится ли сообщение к открытой ветке. Вне ветки — всегда да. }
+    { Whether a message belongs to the open thread. Outside a thread — always yes. }
     function InOpenThread(AMsg: TJSONObject): boolean;
     procedure OpenChat(AChatId: Int64; AJumpToMessageId: Int64 = 0;
       AUnreadFrom: Int64 = 0);
     function TopicPart: utf8string;
-    { ',"options":…' для sendMessage: без звука и отложенная отправка
-      (ScheduleAt); пусто — когда ни того ни другого. }
+    { ',"options":…' for sendMessage: silent and scheduled sending
+      (ScheduleAt); empty — when neither. }
     function OptionsPart(ASilent: boolean): utf8string;
     property ScheduleAt: Int64 read FScheduleAt write FScheduleAt;
     procedure ThreadDone(Sender: TObject; const AResp: TTdResponse);
@@ -1030,48 +1033,49 @@ type
     procedure SendFormattedText(const AMarkupText: utf8string; AIsHtml: boolean;
       ASilent: boolean; AReplyTo: Int64 = 0);
 
-    { Богатое сообщение (inputMessageRichMessage, источник —
-      richMessageSourceBlocks: Markdown/HTML-источники только для ботов,
-      td_api.tl). ABlocksJson — готовый JSON-массив InputPageBlock. }
+    { A rich message (inputMessageRichMessage, source —
+      richMessageSourceBlocks: Markdown/HTML sources are for bots only,
+      td_api.tl). ABlocksJson — a ready JSON array of InputPageBlock. }
     procedure SendRichMessage(const ABlocksJson: utf8string; ASilent: boolean;
       AReplyTo: Int64 = 0);
-    { Готовое InputMessageContent (JSON) — в открытый чат. }
+    { A ready InputMessageContent (JSON) — into the open chat. }
     procedure SendInputContent(const AContentJson: utf8string; ASilent: boolean;
       AReplyTo: Int64 = 0);
 
-    { Готовый formattedText (сущности собрало поле ввода страницы) —
-      отправка или, при AEditId <> 0, правка. }
+    { A ready formattedText (the page's input field built the entities) —
+      sending or, with AEditId <> 0, editing. }
     procedure SendFormattedJson(const AFormatted: utf8string; ASilent: boolean;
       AReplyTo: Int64 = 0; AEditId: Int64 = 0);
 
-    { Файлы с диска (inputFileLocal) — то, что страница загрузила через
-      POST /upload. AAsPhoto: сжатыми фото (inputMessagePhoto), иначе
-      документами без сжатия (inputMessageDocument) — поля сверены с
-      td_api.tl. Больше одного — альбомами по SEND_ALBUM_MAX
-      (sendMessageAlbum, 2..10 сообщений одного рода).
+    { Files from disk (inputFileLocal) — what the page uploaded through
+      POST /upload. AAsPhoto: as compressed photos (inputMessagePhoto),
+      otherwise as uncompressed documents (inputMessageDocument) — fields
+      checked against td_api.tl. More than one — as albums of SEND_ALBUM_MAX
+      (sendMessageAlbum, 2..10 messages of one kind).
 
-      Подпись — та же разметка, что у сообщения, через тот же
-      parseTextEntities. Достаётся ПЕРВОМУ файлу у фото (так она
-      становится подписью альбома) и ПОСЛЕДНЕМУ у документов — чтобы
-      стояла после списка файлов, а не посреди него.
+      The caption — the same markup as a message's, through the same
+      parseTextEntities. It goes to the FIRST file for photos (so it
+      becomes the album's caption) and to the LAST one for documents — so
+      it stands after the list of files rather than in the middle of it.
 
-      Временный файл НЕ удаляется, когда сообщение ушло: TDLib держит
-      его как локальную копию файла сообщения, и удалённый он превращал
-      отправленное видео в пустой плеер (живой случай). Папку загрузок
-      подчищает сервер при следующем старте.
+      The temporary file is NOT deleted when the message has gone: TDLib
+      keeps it as the local copy of the message's file, and deleting it
+      turned a sent video into an empty player (a live case). The server
+      cleans the uploads folder on its next start.
 
-      AExtras — на каждый путь кусок полей inputVideo от страницы
-      (длительность, размеры, миниатюра) или ''. Без них TDLib ставит
-      320x320 и длительность 0 (живой лог) — превью квадратное. }
+      AExtras — per path a piece of inputVideo fields from the page
+      (duration, size, thumbnail) or ''. Without them TDLib sets 320x320
+      and duration 0 (live log) — the preview comes out square. }
     procedure SendFiles(const APaths: array of utf8string; const AExtras: array of utf8string;
       const AMode: utf8string;
       const ACaption: utf8string; AIsHtml, ASilent: boolean; AReplyTo: Int64);
 
-    { Отмена передачи по клику на кольцо. Скачивание — cancelDownloadFile
-      (td_api.tl) плюс снятие из нашей очереди и сброс пометки
-      «запрошено», чтобы следующий клик снова начинал загрузку. Закачка
-      исходящего — удаление самого сообщения, как у нативного клиента:
-      cancelPreliminaryUploadFile — только для предварительной загрузки. }
+    { Cancelling a transfer by a click on the ring. A download —
+      cancelDownloadFile (td_api.tl) plus taking it off our queue and
+      resetting the "requested" mark, so the next click starts the
+      download again. An outgoing upload — deleting the message itself, as
+      in the native client: cancelPreliminaryUploadFile is only for a
+      preliminary upload. }
     procedure CancelTransfer(AMessageId: Int64);
 
     { Replaces the text of a message already sent. Goes through the
@@ -1122,18 +1126,18 @@ type
       one caller, and never again. The caller (webapi) holds the
       request it has to answer and resolves it when the response
       arrives. }
-    { Кто поставил реакцию (getMessageAddedReactions; AReactionJson —
-      объект ReactionType или '' для всех), кто из участников группы
-      прочитал своё сообщение (getMessageViewers) и когда собеседник в
-      личке прочитал (getMessageReadDate). Поля и ограничения — по
-      td_api.tl: первое — при can_get_added_reactions, второе — при
-      can_get_viewers, третье — при can_get_read_date; иначе TDLib
-      отвечает ошибкой, и её видит страница. }
+    { Who reacted (getMessageAddedReactions; AReactionJson — a ReactionType
+      object or '' for all), which group members read one's own message
+      (getMessageViewers) and when the peer in a private chat read it
+      (getMessageReadDate). Fields and limits — per td_api.tl: the first
+      with can_get_added_reactions, the second with can_get_viewers, the
+      third with can_get_read_date; otherwise TDLib answers with an error,
+      and the page sees it. }
     procedure QueryAddedReactions(AMessageId: Int64; const AReactionJson: utf8string;
       ACallback: TTdResponseEvent; ATag: PtrInt);
     procedure QueryViewers(AMessageId: Int64; ACallback: TTdResponseEvent; ATag: PtrInt);
-    { Запрос TDLib, не привязанный к открытому чату (разбор ссылок t.me,
-      вступление по приглашению): тело — уже готовый JSON без скобок. }
+    { A TDLib request not tied to the open chat (parsing t.me links,
+      joining by invitation): the body is ready JSON without braces. }
     procedure Request(const AMethod, ABody: utf8string; ACallback: TTdResponseEvent;
       ATag: PtrInt);
     procedure QueryReadDate(AMessageId: Int64; ACallback: TTdResponseEvent; ATag: PtrInt);
@@ -1194,12 +1198,12 @@ type
       legitimate thing to send. }
     procedure SetPollAnswers(ARow: TMsgRow; const AOptionIndexes: array of integer);
     procedure MarkRead(const AMessageIds: array of Int64);
-    { Своё действие в открытом чате (и ветке — тот же topic_id, что у
-      sendMessage): AAction — @type ChatAction (chatActionTyping,
-      chatActionUploadingPhoto…, chatActionCancel). У действий загрузки
-      есть поле progress — AWithProgress добавляет его нулём. Ответ не
-      ждётся: отказ (нет права писать) для «печатает» не новость.
-      Условия Telegram API (§1.3) — индикатор набора не глушить. }
+    { One's own action in the open chat (and thread — the same topic_id as
+      sendMessage): AAction — the ChatAction @type (chatActionTyping,
+      chatActionUploadingPhoto…, chatActionCancel). Upload actions have a
+      progress field — AWithProgress adds it as zero. The answer is not
+      awaited: a refusal (no right to write) is no news for "typing".
+      Telegram API terms (§1.3) — do not suppress the typing indicator. }
     procedure SendChatAction(const AAction: utf8string; AWithProgress: boolean);
     { Loads (if not already loaded) and prepares for display a batch of
       messages AROUND AMessageId in the CURRENTLY open chat — not to be
@@ -1265,7 +1269,7 @@ type
       "framehistory.pas calls this unconditionally for visible rows, no
       Auto download gate" principle as EnsureVideoThumbFile/stickers. }
     procedure EnsureCustomEmojiForRow(ARow: TMsgRow);
-    { То же для произвольных id — эмодзи на кнопках разметки. }
+    { The same for arbitrary ids — the emoji on markup buttons. }
     procedure EnsureCustomEmojiIds(const AIds: array of Int64);
 
     { A second (third, ...) listener for the same signal OnChanged
@@ -1374,15 +1378,16 @@ implementation
 uses
   customemoji;
 
-{ «Скачан» — только если файл и правда на диске.
+{ "Downloaded" — only if the file really is on disk.
 
-  is_downloading_completed сам по себе этого не гарантирует: после
-  optimizeStorage (ApplyCacheLimit, TTL кеша) TDLib ещё отдаёт старый
-  путь как скачанный — живой tdlib_raw.log 2026-10-07: фото сообщения
-  «скачано», а files/photos/<имя>.jpg на диске нет, страница рисовала
-  битую картинку (/media/<id> -> 404). Модель на таком файле считает
-  его НЕ скачанным; сам downloadFile на нём сразу отвечает тем же
-  «скачан» — это ловит NoteFileDownloadState (deleteFile и заново). }
+  is_downloading_completed alone does not guarantee it: after
+  optimizeStorage (ApplyCacheLimit, cache TTL) TDLib still reports the old
+  path as downloaded — live tdlib_raw.log 2026-10-07: a message photo
+  "downloaded", but files/photos/<name>.jpg was not on disk, and the page
+  drew a broken picture (/media/<id> -> 404). The model treats such a file
+  as NOT downloaded; downloadFile itself answers on it at once with the
+  same "downloaded" — NoteFileDownloadState catches that (deleteFile and
+  again). }
 function CompletedLocal(ALocal: TJSONObject): boolean;
 var
   Path: utf8string;
@@ -1586,7 +1591,7 @@ begin
   end else if AType = 'messageDocument' then begin
     Result := mckFile;
   end else if (AType = 'messageVideo') or (AType = 'messageVideoNote') then begin
-    { Кружок — видео (VideoRound), см. TMsgRow.VideoRound. }
+    { A round video is a video (VideoRound), see TMsgRow.VideoRound. }
     Result := mckVideo;
   end else if AType = 'messagePoll' then begin
     Result := mckPoll;
@@ -1628,7 +1633,7 @@ begin
   end else if AType = 'textEntityTypeCustomEmoji' then begin
     Result := mekCustomEmoji;
   end else if AType = 'textEntityTypeMention' then begin
-    { @username — текст и есть имя пользователя. }
+    { @username — the text is the username itself. }
     Result := mekMention;
   end else if AType = 'textEntityTypeMentionName' then begin
     Result := mekMentionName;
@@ -2043,10 +2048,10 @@ begin
   if Assigned(FOnLoadingChanged) then begin
     FOnLoadingChanged(Self);
   end;
-  { И общий сигнал изменения: OnLoadingChanged никто не слушает, а веб
-    узнаёт loadingOlder только из messages.list по Touch. Пустая страница
-    истории (пустой канал) снимала флаг и выходила без Touch — «Loading
-    older messages…» висело вечно. }
+  { And the general change signal: nobody listens to OnLoadingChanged, and
+    the web learns loadingOlder only from messages.list through Touch. An
+    empty history page (an empty channel) cleared the flag and left
+    without Touch — "Loading older messages…" hung forever. }
   Touch;
 end;
 
@@ -2091,7 +2096,7 @@ begin
         ',"offset":0' +
         ',"limit":' + utf8string(IntToStr(FLoadLimit)) +
         ',"filter":{"@type":"' + FilterPart + '"}';
-      { Источник «Избранного» — та же выдача, ограниченная темой. }
+      { A Saved Messages source — the same results, limited to the topic. }
       if FSavedTopic <> 0 then begin
         Body := Body + ',"topic_id":{"@type":"messageTopicSavedMessages",' +
           '"saved_messages_topic_id":' + utf8string(IntToStr(FSavedTopic)) + '}';
@@ -2701,7 +2706,7 @@ begin
   if AFormatted = nil then begin
     Exit;
   end;
-  { Обёртка под messageText — тот же разбор, что у сообщений. }
+  { A messageText wrapper — the same parsing as for messages. }
   Wrap := TJSONObject.Create;
   try
     Wrap.Add('text', AFormatted.Clone);
@@ -3483,9 +3488,9 @@ begin
   end;
   if JGetBool(Local, 'is_downloading_completed') and not CompletedLocal(Local)
      and not FActiveDownloads[Idx].StaleRetried then begin
-    { TDLib считает файл скачанным, а его нет (см. CompletedLocal):
-      deleteFile — чтобы TDLib забыл запись, дальше та же загрузка
-      (StaleFileDeleted). Слот остаётся за этим файлом. }
+    { TDLib considers the file downloaded, but it is not there (see
+      CompletedLocal): deleteFile — so TDLib forgets the record, then the
+      same download (StaleFileDeleted). The slot stays with this file. }
     FActiveDownloads[Idx].StaleRetried := True;
     FReq.SendRequest('deleteFile', '"file_id":' + utf8string(IntToStr(FileId)),
       @StaleFileDeleted, FileId);
@@ -3542,8 +3547,8 @@ begin
   if (Idx < 0) or (FReq = nil) then begin
     Exit;
   end;
-  { Целиком и без окон: файл уже был у нас, ограничение скорости тут
-    только задержит то, что страница ждёт прямо сейчас. }
+  { Whole and without windows: we had the file already, a speed limit here
+    would only delay what the page is waiting for right now. }
   FActiveDownloads[Idx].Unthrottled := True;
   FActiveDownloads[Idx].NextOffset := 0;
   FReq.SendRequest('downloadFile',
@@ -3987,8 +3992,9 @@ begin
   if (AContent = nil) or ((AType <> 'messageVideo') and (AType <> 'messageVideoNote')) then begin
     Exit;
   end;
-  { Кружок: content.video_note (videoNote: duration, length, thumbnail,
-    video — td_api.tl коммита d1085f9), сторона квадрата — length. }
+  { A round video: content.video_note (videoNote: duration, length,
+    thumbnail, video — td_api.tl at commit d1085f9), the square's side is
+    length. }
   if AType = 'messageVideoNote' then begin
     VideoObj := JGetObj(AContent, 'video_note');
   end else begin
@@ -4094,10 +4100,10 @@ end;
 
 { ---------------- transfer progress (any media) ---------------- }
 
-{ Основной файл содержимого — тот, ход передачи которого показывает
-  страница: документ, трек, голосовое, видео, GIF; у фото — самый
-  большой размер (его TDLib закачивает при отправке). nil — у вида нет
-  файла, ход которого стоит показывать (стикер, текст). Пути по
+{ The content's main file — the one whose transfer progress the page shows:
+  a document, a track, a voice message, a video, a GIF; for a photo — the
+  largest size (TDLib uploads it when sending). nil — the kind has no file
+  whose progress is worth showing (a sticker, text). Paths per
   td_api.tl: messageDocument.document.document, messageAudio.audio.audio,
   messageVoiceNote.voice_note.voice, messageVideo.video.video,
   messageAnimation.animation.animation, messagePhoto.photo.sizes[].photo. }
@@ -4140,8 +4146,8 @@ begin
   end;
 end;
 
-{ Доля в сотых — по ней решается, стоит ли перерисовывать: updateFile
-  приходит на каждый пакет, а странице хватает шага в процент. }
+{ The share in hundredths — it decides whether to redraw: updateFile comes
+  on every packet, and a step of one percent is enough for the page. }
 function XferBucket(ADone, ATotal: Int64): integer;
 begin
   if ATotal <= 0 then begin
@@ -4151,13 +4157,14 @@ begin
   end;
 end;
 
-{ Состояние передачи строки из объекта file. True — изменилось видимое:
-  началась или кончилась передача, сменилось направление или процент.
+{ The row's transfer state from a file object. True — something visible
+  changed: a transfer started or ended, the direction or the percentage
+  changed.
 
-  Закачка (remote.is_uploading_active) важнее скачивания: исходящий
-  файл сначала лежит у нас целиком, и local говорит «готово», пока
-  remote ещё идёт. size бывает 0, пока TDLib не знает точного размера, —
-  тогда expected_size, его же оценка. }
+  An upload (remote.is_uploading_active) beats a download: an outgoing
+  file lies with us whole first, and local says "done" while remote is
+  still going. size can be 0 while TDLib does not know the exact size —
+  then expected_size, its estimate. }
 function ApplyXferFile(ARow: TMsgRow; AFile: TJSONObject; AInFlight: boolean): boolean;
 var
   Local, Remote: TJSONObject;
@@ -4183,9 +4190,9 @@ begin
     Done := JGetInt64(Remote, 'uploaded_size');
   end else if (Local <> nil) and (JGetBool(Local, 'is_downloading_active')
       or (AInFlight and not CompletedLocal(Local))) then begin
-    { AInFlight — файл в нашей очереди загрузок. С ограничением скорости
-      TDLib между окнами говорит is_downloading_active = false, и без
-      этого кольцо мигало бы на каждом окне. }
+    { AInFlight — the file is in our download queue. With a speed limit
+      TDLib says is_downloading_active = false between windows, and
+      without this the ring would blink on every window. }
     Active := True;
     Done := JGetInt64(Local, 'downloaded_size');
   end else if Local <> nil then begin
@@ -4210,9 +4217,9 @@ begin
   ARow.XferFileId := 0;
 end;
 
-{ Строка, у которой этот файл — один из медиафайлов. У фото их два:
-  превью, которое качается для показа, и оригинал, который уходит при
-  отправке; ход показывается того, что сейчас передаётся. }
+{ A row for which this file is one of its media files. A photo has two:
+  the preview downloaded for display and the original that goes out on
+  sending; the progress shown is of whichever is being transferred now. }
 function RowHasFile(ARow: TMsgRow; AFileId: integer): boolean;
 begin
   Result := (AFileId <> 0) and (
@@ -4260,10 +4267,10 @@ begin
   if AMsg = nil then begin
     Exit;
   end;
-  { Запланированное сообщение (scheduling_state есть) — не история: оно
-    живёт в своём списке (getChatScheduledMessages, ui/schedule.js), а
-    в ленту придёт обычным сообщением, когда отправится. Иначе ответ
-    sendMessage и updateNewMessage с ним вставили бы его в историю. }
+  { A scheduled message (it has scheduling_state) is not history: it lives
+    in its own list (getChatScheduledMessages, ui/schedule.js) and comes
+    into the feed as an ordinary message once sent. Otherwise the
+    sendMessage answer and updateNewMessage would put it into the history. }
   if JGetObj(AMsg, 'scheduling_state') <> nil then begin
     Exit;
   end;
@@ -4275,7 +4282,7 @@ begin
   if Id = 0 then begin
     Exit;
   end;
-  { Уже заменено настоящим — опоздавший ответ отправки (см. FReplaced). }
+  { Already replaced by a real one — a late send answer (see FReplaced). }
   if FReplaced.IndexOf(Id) >= 0 then begin
     Exit;
   end;
@@ -4362,8 +4369,8 @@ begin
     re-delivered byte-for-byte identical in content (overlapping
     pagination pages, a repeated getChatHistory) while its reaction
     counts have moved on since the last time it was seen. }
-  { До проверки «содержимое не изменилось» ниже: кнопки меняются и без
-    смены содержимого. }
+  { Before the "content did not change" check below: buttons change without
+    the content changing. }
   if JGetObj(AMsg, 'reply_markup') <> nil then begin
     R.ReplyMarkupRaw := utf8string(JGetObj(AMsg, 'reply_markup').AsJSON);
   end else begin
@@ -4375,7 +4382,7 @@ begin
   ExtractReplyInfo(JGetObj(AMsg, 'interaction_info'), R);
 
   ContentObj := JGetObj(AMsg, 'content');
-  { Эфемерное — вместо обычного (см. TMsgRow.HasEphemeral). }
+  { Ephemeral — instead of the ordinary one (see TMsgRow.HasEphemeral). }
   R.NormalMarkupRaw := R.ReplyMarkupRaw;
   if ContentObj <> nil then begin
     R.NormalContentRaw := utf8string(ContentObj.AsJSON);
@@ -4452,8 +4459,8 @@ begin
   ExtractStickerMeta(AContent, T, R.StickerWidth, R.StickerHeight, R.StickerFormat,
     R.StickerFileId, R.StickerLocalPath);
   ExtractPollMeta(AContent, T, R.Poll);
-  { Состояние передачи — из самого сообщения: исходящее приходит уже
-    закачивающимся, а файл, начатый в прошлый раз, — недокачанным. }
+  { The transfer state — from the message itself: an outgoing one arrives
+    already uploading, and a file started last time — partly downloaded. }
   if MainFileObj(AContent, T) <> nil then begin
     ApplyXferFile(R, MainFileObj(AContent, T),
       ActiveDownloadIndex(JGetInt(MainFileObj(AContent, T), 'id')) >= 0);
@@ -4470,10 +4477,11 @@ begin
   Result.ChatId := AChatId;
   Result.Delivery := mdsDelivered;
   FillContent(Result, AContent);
-  { Ensure* кладут строку в карты «файл -> строка» (FPhotoByFile и т.п.),
-    а эту строку вызывающий освободит — указатель в карте повис бы.
-    Взведённое «уже запрошено» не пускает их дальше первой проверки;
-    файлы такой строки качает сам вызывающий. }
+  { Ensure* put the row into "file -> row" maps (FPhotoByFile and the
+    like), and this row will be freed by the caller — the pointer in the
+    map would dangle. The "already requested" flag set here keeps them from
+    going past their first check; the caller downloads such a row's files
+    itself. }
   Result.AudioDownloadRequested := True;
   Result.AudioCoverDownloadRequested := True;
   Result.VoiceDownloadRequested := True;
@@ -4487,8 +4495,9 @@ begin
   Result.StickerDownloadRequested := True;
 end;
 
-{ updateMessageEphemeralContent: новое эфемерное — вместо обычного;
-  null — вернуть обычное (запомненное в ApplyMessage). }
+{ updateMessageEphemeralContent: a new ephemeral one — instead of the
+  ordinary one; null — bring the ordinary one back (remembered in
+  ApplyMessage). }
 procedure TTdMessages.ApplyEphemeralUpdate(AChatId, AMessageId: Int64;
   AEphemeral: TJSONObject);
 var
@@ -4816,12 +4825,12 @@ var
     Result := True;
   end;
 
-  { ![👍](tg://emoji?id=123) — кастомный эмодзи, синтаксис по
-    core.telegram.org/bots/api (MarkdownV2). Пропускается только точная
-    форма, которую вставляет панель эмодзи: адрес tg://emoji?id= и одни
-    цифры. Всё остальное, что начинается с '!', — обычный текст, и '!'
-    экранируется как всегда. Эмодзи внутри скобок экранируется, как
-    текст ссылки; в нём и так нечего экранировать. }
+  { ![👍](tg://emoji?id=123) — a custom emoji, syntax per
+    core.telegram.org/bots/api (MarkdownV2). Only the exact form the emoji
+    panel inserts is let through: the tg://emoji?id= address and digits
+    only. Anything else starting with '!' is ordinary text, and '!' is
+    escaped as always. The emoji inside the brackets is escaped like link
+    text; there is nothing to escape in it anyway. }
   function TryCustomEmoji: boolean;
   const
     PREFIX = '](tg://emoji?id=';
@@ -4915,9 +4924,9 @@ end;
   failure mode as the MarkdownV2 case. }
 function EscapeHtml(const AText: utf8string): utf8string;
 const
-  { Кастомный эмодзи: <tg-emoji emoji-id="123">👍</tg-emoji>, синтаксис
-    по core.telegram.org/bots/api. Открывающий тег пропускается только
-    с цифрами в emoji-id — так его вставляет панель эмодзи. }
+  { A custom emoji: <tg-emoji emoji-id="123">👍</tg-emoji>, syntax per
+    core.telegram.org/bots/api. The opening tag is let through only with
+    digits in emoji-id — that is how the emoji panel inserts it. }
   EMOJI_OPEN = '<tg-emoji emoji-id="';
   EMOJI_CLOSE = '</tg-emoji>';
   TAGS: array[0..15] of string = (
@@ -5094,17 +5103,17 @@ begin
   if ABlocksJson = '' then begin
     Exit;
   end;
-  { Ответ — само сообщение, как у текста; ошибка (нет Premium, лимиты
-    rich_message_*) — тем же путём в тост. }
+  { The answer is the message itself, as for text; an error (no Premium,
+    rich_message_* limits) goes the same way into a toast. }
   SendInputContent('{"@type":"inputMessageRichMessage",' +
     '"clear_draft":true,"message":{"@type":"inputRichMessage","is_rtl":false,' +
     '"detect_automatic_blocks":true,"source":{"@type":"richMessageSourceBlocks",' +
     '"blocks":' + ABlocksJson + '}}}', ASilent, AReplyTo);
 end;
 
-{ Любое готовое InputMessageContent (JSON) — sendMessage в открытый чат:
-  богатое сообщение, голосовое, видеосообщение. Ответ — само сообщение,
-  ошибка — в тост, как у текста. }
+{ Any ready InputMessageContent (JSON) — sendMessage into the open chat: a
+  rich message, a voice message, a video message. The answer is the
+  message itself, an error goes into a toast, as for text. }
 procedure TTdMessages.SendInputContent(const AContentJson: utf8string;
   ASilent: boolean; AReplyTo: Int64);
 var
@@ -5126,9 +5135,9 @@ end;
 
 { ---------------- files from the page ---------------- }
 
-{ Сообщение (временный id) -> временный файл, который оно везёт. Общая
-  для всех экземпляров: updateMessageSendSucceeded приходит той модели,
-  что открыта, а отправить могли из любой. }
+{ A message (temporary id) -> the temporary file it carries. Shared by all
+  instances: updateMessageSendSucceeded comes to the model that is open,
+  and the send could have come from any. }
 var
   GUploadByMsg: TStringList = nil;
 
@@ -5143,7 +5152,7 @@ begin
   GUploadByMsg.Values[IntToStr(AMsgId)] := string(APath);
 end;
 
-{ Удаляет файл и его каталог (uploads/<id>/ — в нём только этот файл). }
+{ Deletes the file and its folder (uploads/<id>/ — only this file is in it). }
 procedure ForgetUploadMessage(AMsgId: Int64; ADelete: boolean = True);
 var
   I: integer;
@@ -5176,8 +5185,8 @@ begin
 
   if R.XferUp then begin
     DeleteMessage(AMessageId, True);
-    { Временная копия больше не нужна. Если TDLib ещё держит файл,
-      Windows не даст удалить — тогда его подчистит старт сервера. }
+    { The temporary copy is no longer needed. If TDLib still holds the file,
+      Windows will not let it be deleted — then the server's start cleans it up. }
     ForgetUploadMessage(AMessageId);
     Exit;
   end;
@@ -5197,8 +5206,8 @@ begin
     '"file_id":' + utf8string(IntToStr(FileId)) + ',"only_if_pending":false', nil);
   ReleaseDownloadSlot(FileId);
 
-  { Иначе Ensure*File решит, что файл уже запрошен, и повторный клик
-    ничего не сделает. }
+    { Otherwise Ensure*File decides the file has been requested already, and
+      a repeated click does nothing. }
   if R.DocFileId = FileId then R.DocDownloadRequested := False;
   if R.AudioFileId = FileId then R.AudioDownloadRequested := False;
   if R.VoiceFileId = FileId then R.VoiceDownloadRequested := False;
@@ -5255,8 +5264,8 @@ begin
     Exit;
   end;
 
-  { Подпись — тем же путём, что текст сообщения: экранирование своих
-    знаков (см. EscapeMarkdownV2/EscapeHtml) и parseTextEntities. }
+  { The caption — the same way as a message's text: escaping its own
+    characters (see EscapeMarkdownV2/EscapeHtml) and parseTextEntities. }
   if AIsHtml then begin
     EscapedText := EscapeHtml(ACaption);
   end else begin
@@ -5295,7 +5304,7 @@ begin
     end;
     Exit;
   end;
-  { Чистый formattedText без "@extra", как в ParseEntitiesDone. }
+  { A clean formattedText without "@extra", as in ParseEntitiesDone. }
   Clean := TJSONObject.Create;
   try
     Clean.Strings['@type'] := 'formattedText';
@@ -5352,8 +5361,8 @@ begin
         Ext := LowerCase(utf8string(ExtractFileExt(string(Paths[I]))));
         if (Mode = 'media') and ((Ext = '.mp4') or (Ext = '.mov') or (Ext = '.m4v')
            or (Ext = '.webm') or (Ext = '.mkv')) then begin
-          { Видео — inputMessageVideo / inputVideo (td_api.tl), с потоковым
-            воспроизведением. }
+          { Video — inputMessageVideo / inputVideo (td_api.tl), with
+            streaming playback. }
           Content := '{"@type":"inputMessageVideo","video":{"@type":"inputVideo"' +
             ',"video":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}' +
             ',"supports_streaming":true';
@@ -5365,8 +5374,8 @@ begin
           Content := '{"@type":"inputMessagePhoto","photo":{"@type":"inputPhoto"' +
             ',"photo":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}}';
         end else if Mode = 'audio' then begin
-          { Музыка — inputMessageAudio / inputAudio; название и исполнителя
-            TDLib достанет из тегов файла. }
+          { Music — inputMessageAudio / inputAudio; TDLib takes the title
+            and performer from the file's tags. }
           Content := '{"@type":"inputMessageAudio","audio":{"@type":"inputAudio"' +
             ',"audio":{"@type":"inputFileLocal","path":' + utf8string(PathVal.AsJSON) + '}}';
         end else begin
@@ -5388,7 +5397,7 @@ begin
 
     Body := '"chat_id":' + utf8string(IntToStr(FChatId)) + TopicPart;
     Body := Body + OptionsPart(Silent);
-    { Ответом — только первое сообщение; остальные пачки идут следом. }
+    { Only the first message is a reply; the other batches follow. }
     if (First = 0) and (ReplyTo <> 0) then begin
       Body := Body +
         ',"reply_to":{"@type":"inputMessageReplyToMessage","message_id":' +
@@ -5412,7 +5421,7 @@ begin
       FFileBatches[B].Paths[I - First] := Paths[I];
     end;
 
-    { Один файл — обычное сообщение: sendMessageAlbum берёт от двух. }
+    { One file — an ordinary message: sendMessageAlbum takes two and up. }
     if Last = First then begin
       FReq.SendRequest('sendMessage',
         Body + ',"input_message_content":' + Contents, @FilesSentDone, B);
@@ -5603,7 +5612,7 @@ begin
   if AReactionJson <> '' then begin
     Body := Body + ',"reaction_type":' + AReactionJson;
   end;
-  { Сотня — предел запроса; для всплывающего списка этого с избытком. }
+  { A hundred is the request's limit; plenty for a pop-up list. }
   FReq.SendRequest('getMessageAddedReactions',
     Body + ',"offset":"","limit":100', ACallback, ATag);
 end;
@@ -5751,10 +5760,10 @@ begin
   SendFormattedJson(Body, Silent, ReplyTo, Edit);
 end;
 
-{ Готовый formattedText (JSON) -> sendMessage или editMessageText
-  (AEditId <> 0). Общий конец для двух путей: текст с разметкой после
-  parseTextEntities и текст с сущностями, которые собрало поле ввода
-  страницы (ui/editor.js) — тогда разбора нет вовсе. }
+{ A ready formattedText (JSON) -> sendMessage or editMessageText
+  (AEditId <> 0). The common end of two paths: text with markup after
+  parseTextEntities, and text with entities built by the page's input
+  field (ui/editor.js) — then there is no parsing at all. }
 procedure TTdMessages.SendFormattedJson(const AFormatted: utf8string;
   ASilent: boolean; AReplyTo, AEditId: Int64);
 var
@@ -5825,7 +5834,7 @@ begin
     Action := Action + ',"progress":0';
   end;
   Action := Action + '}';
-  { topic_id без ветки — null: поле в схеме обязательное по имени. }
+  { topic_id without a thread is null: the field is required by name in the schema. }
   if FThreadId = 0 then begin
     FReq.SendRequest('sendChatAction',
       '"chat_id":' + utf8string(IntToStr(FChatId)) +
@@ -5895,10 +5904,10 @@ begin
     puts the message somewhere in the middle of the batch rather than
     right at the end — showing part of the conversation around it, not
     just what came before. }
-  { В ветке комментариев — история ВЕТКИ вокруг цели
-    (getMessageThreadHistory: те же from_message_id/offset, td_api.tl
-    коммита d1085f9). getChatHistory группы обсуждения подмешал бы в
-    ветку комментарии к чужим постам. }
+  { In a comment thread — the THREAD's history around the target
+    (getMessageThreadHistory: the same from_message_id/offset, td_api.tl at
+    commit d1085f9). getChatHistory of the discussion group would mix
+    comments on other posts into the thread. }
   if FThreadPostId <> 0 then begin
     FReq.SendRequest('getMessageThreadHistory',
       '"chat_id":' + utf8string(IntToStr(FThreadChatId)) +
@@ -5958,10 +5967,11 @@ begin
     as in the normal update flow. }
   Rebuild(nil);
 
-  { Цели в ответе нет — TDLib отдал только локальное (см.
-    JUMP_RETRY_MAX). Тот же запрос ещё раз, пока прыжок всё ещё этот:
-    чат не сменился и новый прыжок его не перебил. Готовность —
-    только когда цель на месте или повторы кончились. }
+  { The target is not in the answer — TDLib returned only what is local
+    (see JUMP_RETRY_MAX). The same request once more, while the jump is
+    still this one: the chat has not changed and a new jump has not
+    overridden it. Ready — only when the target is in place or the retries
+    are used up. }
   if (Lookup(TargetId) = nil) and (FJump.ChatId = FChatId)
     and (FJump.Target = TargetId) and (FJump.Retries < JUMP_RETRY_MAX) then begin
     Inc(FJump.Retries);
@@ -6045,8 +6055,8 @@ begin
     Exit;
   end;
 
-  { Цитата из другого чата (комментарий цитирует пост канала, ответ из
-    другого чата) — в FAll её нет, только кеш и запрос. }
+  { A quote from another chat (a comment quotes the channel's post, a reply
+    from another chat) — it is not in FAll, only the cache and a request. }
   R := nil;
   if (AChatId = 0) or (AChatId = FChatId) then begin
     R := Lookup(AMessageId);
@@ -6074,13 +6084,13 @@ begin
   RequestReply(AChatId, AMessageId);
 end;
 
-{ Цитируемое сообщение — getMessage(chat_id, message_id) в ЕГО чате.
+{ The quoted message — getMessage(chat_id, message_id) in ITS chat.
 
-  Не getRepliedMessage: тому нужен id ОТВЕТА (td_api.tl: «message_id
-  Identifier of the reply message»), а здесь на руках id цитаты. Так
-  было раньше — живой tdlib_raw.log 2026-10-07: 47 из 47 вызовов
-  ответили 404, и цитаты незагруженных сообщений навсегда оставались
-  «…» (с повторным запросом на каждой перерисовке). }
+  Not getRepliedMessage: that one needs the id of the REPLY (td_api.tl:
+  "message_id Identifier of the reply message"), while here we have the
+  quote's id. That is how it used to be — live tdlib_raw.log 2026-10-07:
+  47 of 47 calls answered 404, and quotes of messages not loaded stayed
+  "…" forever (with a repeated request on every redraw). }
 procedure TTdMessages.RequestReply(AChatId, AMessageId: Int64);
 begin
   if (FReq = nil) or (AChatId = 0) or IsReplyPending(AMessageId) then begin
@@ -6104,9 +6114,9 @@ begin
   Id := Int64(AResp.Tag);
   ClearReplyPending(Id);
   if not AResp.Success then begin
-    { Сообщения нет (удалено) — так и сказать в цитате и запомнить,
-      иначе каждая перерисовка спрашивала бы снова, а цитата навсегда
-      оставалась «…». }
+    { The message is gone (deleted) — say so in the quote and remember it,
+      otherwise every redraw would ask again and the quote would stay "…"
+      forever. }
     if FReplyCache.IndexOf(Id) < 0 then begin
       P := TMsgReplyPreview.Create;
       P.PreviewText := REPLY_DELETED_TEXT;
@@ -7368,16 +7378,16 @@ begin
         history from TDLib. Updates to messages ALREADY in the list
         (edits, reactions, delivery state, files) stay live below;
         those are about rows that really are part of the result. }
-      { И не в ветку комментариев, если сообщение не из неё: в группе
-        обсуждения идут комментарии ко всем постам канала сразу, а
-        открыта ветка одного. Принадлежность — topic_id
-        (messageTopicThread.message_thread_id, по живому tdlib_raw.log);
-        сам корень ветки (копия поста) — по своему id. }
+      { And not into a comment thread if the message is not from it: a
+        discussion group carries comments on all of the channel's posts at
+        once, while one post's thread is open. Membership — by topic_id
+        (messageTopicThread.message_thread_id, per a live tdlib_raw.log);
+        the thread's root (the post's copy) — by its own id. }
       if not SearchActive and InOpenThread(JGetObj(Obj, 'message')) then begin
         ApplyMessage(JGetObj(Obj, 'message'));
       end;
     end else if T = 'updateMessageContent' then begin
-      { Пока показано эфемерное, обычное только запоминается. }
+      { While an ephemeral one is shown, the ordinary one is only remembered. }
       R := nil;
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));
@@ -7407,23 +7417,24 @@ begin
       { Last, after everyone has read the file: this is what lets the
         next queued download start (see RequestFileDownload). }
       NoteFileDownloadState(JGetObj(Obj, 'file'));
-      { Кольцо — ПОСЛЕ слота: «в очереди ли файл» решает, идёт ли
-        передача, а остановленный (отменён, сбой) освобождается как раз
-        строкой выше. До неё кольцо застревало бы. }
+      { The ring — AFTER the slot: "whether the file is in the queue"
+        decides whether a transfer is going, and a stopped one (cancelled,
+        failed) is released exactly on the line above. Before it the ring
+        would get stuck. }
       ApplyXferUpdate(JGetObj(Obj, 'file'));
     end else if T = 'updateMessageEdited' then begin
       if JGetInt64(Obj, 'chat_id') = FChatId then begin
         R := Lookup(JGetInt64(Obj, 'message_id'));
         if R <> nil then begin
           R.EditDate := JGetInt64(Obj, 'edit_date');
-          { Боты меняют кнопки правкой (td_api.tl: updateMessageEdited
-            несёт reply_markup). }
+          { Bots change buttons by editing (td_api.tl: updateMessageEdited
+            carries reply_markup). }
           if JGetObj(Obj, 'reply_markup') <> nil then begin
             R.NormalMarkupRaw := utf8string(JGetObj(Obj, 'reply_markup').AsJSON);
           end else begin
             R.NormalMarkupRaw := '';
           end;
-          { Пока показано эфемерное, у него свои кнопки. }
+          { While an ephemeral one is shown, it has its own buttons. }
           if not R.HasEphemeral then begin
             R.ReplyMarkupRaw := R.NormalMarkupRaw;
           end;
@@ -7449,10 +7460,10 @@ begin
         simpler and more reliable than trying to reuse the same object
         under a different id. }
       OldId := JGetInt64(Obj, 'old_message_id');
-      { Если сообщение несло файл со страницы — TDLib его закачал, и
-        временная копия больше не нужна. }
-      { Временный файл остаётся: он теперь локальная копия файла
-        сообщения (см. SendFiles). }
+      { If the message carried a file from the page — TDLib has uploaded
+        it, and the temporary copy is no longer needed. }
+      { The temporary file stays: it is now the local copy of the message's
+        file (see SendFiles). }
       ForgetUploadMessage(OldId, False);
       if OldId <> 0 then begin
         if FReplaced.Count >= REPLACED_IDS_MAX then begin
@@ -7464,10 +7475,10 @@ begin
           ForgetRowFiles(FAll.Data[Idx]);
           FAll.Data[Idx].Free;
           FAll.Delete(Idx);
-          { FRows держит освобождённый указатель до таймера (50 мс), а
-            messages.list, пришедший в это окно, сериализует FRows —
-            перестроить сразу (то же, что в ветке подгрузки ниже по
-            файлу). }
+          { FRows holds the freed pointer until the timer (50 ms), and a
+            messages.list arriving in that window serialises FRows —
+            rebuild right away (the same as in the loading branch further
+            down the file). }
           FDirty := True;
           Rebuild(nil);
         end;
@@ -7516,10 +7527,10 @@ begin
               FAll.Delete(Idx);
             end;
           end;
-          { Сразу, не таймером: до перестройки FRows держит указатели на
-            только что освобождённые строки, и messages.list, пришедший в
-            эти 50 мс, читал освобождённую память (Access violation при
-            многократном удалении сообщений, errors.log 2026-10-17). }
+          { Right away, not by the timer: until the rebuild FRows holds
+            pointers to the rows just freed, and a messages.list arriving
+            within those 50 ms read freed memory (Access violation on
+            repeated deletion of messages, errors.log 2026-10-17). }
           FDirty := True;
           Rebuild(nil);
         end;

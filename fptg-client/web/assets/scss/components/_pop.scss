@@ -1,19 +1,20 @@
 @use "../abstracts" as *;
 
-// Появление всплывающих меню и модальных окон: проявление и въезд на
-// $pop-delta. Анимация CSS запускается сама, когда элемент выходит из
-// display: none, — то есть при каждом showPopover / showModal / снятии
-// hidden, без единой строки JS.
+// Pop-up menus and modal windows appearing: fading in and sliding by
+// $pop-delta. The CSS animation starts by itself when the element leaves
+// display: none — that is, on every showPopover / showModal / removing
+// hidden, without a single line of JS.
 //
-// НАПРАВЛЕНИЕ. По умолчанию — вниз: окно въезжает сверху, из -$pop-delta.
-// Меню, открывшееся НАД якорем (position-try перевернул его или оно
-// сразу над полем), въезжает снизу вверх: класс is-pop-up ставит
-// util/pop.js, сравнив прямоугольники меню и якоря сразу после показа,
-// до первой отрисовки. Смена animation-name перезапускает анимацию, так
-// что кадра «не в ту сторону» не видно.
+// DIRECTION. Down by default: the window slides in from above, from
+// -$pop-delta. A menu that opened ABOVE its anchor (position-try flipped it
+// or it is above the field from the start) slides in from below: the
+// is-pop-up class is set by util/pop.js, having compared the menu's and the
+// anchor's rectangles right after showing, before the first paint.
+// Changing animation-name restarts the animation, so a "wrong way" frame is
+// not seen.
 //
-// translate, а не transform: у части окон transform уже занят своим
-// расположением, а translate складывается с ним отдельно.
+// translate, not transform: for some windows transform is already taken by
+// their positioning, and translate adds up with it separately.
 
 @keyframes pop-down {
   from {

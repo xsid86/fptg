@@ -1,9 +1,9 @@
 @use "../abstracts" as *;
 
-// Переключатель вкл/выкл: настоящий checkbox поверх дорожки. Флажок
-// остаётся в документе (невидимым), поэтому клик, клавиатура, label
-// for и change работают как у обычного checkbox — вид меняет только
-// :checked, без единой строчки JS.
+// An on/off switch: a real checkbox over the track. The checkbox stays in
+// the document (invisible), so a click, the keyboard, label for and change
+// work as for an ordinary checkbox — only :checked changes the look,
+// without a single line of JS.
 .switch {
   display: inline-flex;
   flex: 0 0 auto;

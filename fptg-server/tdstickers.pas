@@ -564,11 +564,11 @@ begin
       WantFile(Row.Items[I].FileId, Row.Items[I].Requested);
     end;
   end;
-  { Сигнал безусловно. Список набора теперь уходит странице (его
-    отдают только наборам с FilesWanted), а если все файлы уже лежат в
-    кэше TDLib, качать нечего — и без этого Touch страница так и не
-    узнала бы, что пора спросить заново: набор висел на «Loading…»,
-    пока сигнал не приходил от загрузки СЛЕДУЮЩЕГО набора. }
+  { The signal unconditionally. The set's list now goes to the page (it is
+    given only to sets with FilesWanted), and if all the files are in the
+    TDLib cache already there is nothing to download — and without this
+    Touch the page would never learn it is time to ask again: the set hung
+    on "Loading…" until a signal came from loading the NEXT set. }
   Touch;
 end;
 

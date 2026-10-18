@@ -1,18 +1,18 @@
-// Адрес файла с сервера (/media/…) для СОХРАНЕНИЯ, а не показа.
+// A file's address on the server (/media/…) for SAVING, not showing.
 //
-// Атрибут download у ссылки на чужой origin браузер не слушает: сервер —
-// другой origin, чем страница окна (https://fptg.example/), и PDF
-// по такой ссылке открывался прямо в окне, а дороги назад не было.
-// Поэтому имя едет параметром save: сервер отдаёт файл вложением
-// (Content-Disposition: attachment, localserver.ServeMedia), и это
-// загрузка в любом браузере.
+// The browser ignores the download attribute on a link to a foreign
+// origin: the server is a different origin from the window's page
+// (https://fptg.example/), and a PDF via such a link opened right in the
+// window, with no way back. So the name travels as the save parameter: the
+// server sends the file as an attachment (Content-Disposition: attachment,
+// localserver.ServeMedia), and that is a download in any browser.
 //
-// open — ещё и открыть внешним приложением: в окне fptg такую
-// загрузку забирает оболочка (webui.ViewDownloadStart) и открывает
-// готовый файл системой; в обычном браузере — просто загрузка.
+// open — also open it with an external app: in the fptg window the shell
+// takes such a download (webui.ViewDownloadStart) and opens the finished
+// file with the system; in an ordinary browser — just a download.
 
-// Без имени (фото, видео) — '*': сервер возьмёт имя файла на диске, с
-// расширением.
+// Without a name (photos, videos) — '*': the server takes the file's name on
+// disk, with the extension.
 export function downloadUrl(url, name, open = false) {
   const u = new URL(url, window.location.href);
   u.searchParams.set('save', name || '*');

@@ -21,7 +21,7 @@ import { channelAds, adCard } from './sponsored.js';
 let root = null;
 let column = null;
 let scrollBtn = null;
-// Чип непрочитанных над кнопкой «вниз» (число — строка открытого чата).
+// The unread chip above the "down" button (the number is from the open chat's row).
 let unreadChip = null;
 let threadBtn = null;
 let floatDate = null;
@@ -143,13 +143,13 @@ export function mountHistory(node) {
   }, icon('chevron-left'));
   root.parentElement.append(threadBtn);
 
-  // Дата дня, который сейчас наверху, — поверх истории, а не в ней. См.
+  // The date of the day now at the top — over the history, not in it. See
   // updateFloatDate.
   floatDate = el('div', { class: 'history__float-date', hidden: true },
     el('span', { title: 'Go to the first message of this day' }));
   root.parentElement.append(floatDate);
-  // Клик по дате — к первому сообщению этого дня (main.js, chat.dateJump).
-  // В ветке комментариев — нет: getChatMessageByDate о ветках не знает.
+  // A click on the date — to the first message of that day (main.js, chat.dateJump).
+  // Not in a comment thread: getChatMessageByDate knows nothing of threads.
   const jumpToDay = (date) => {
     if (!date || store.messages?.thread) return;
     takeOver();
@@ -185,7 +185,7 @@ export function mountHistory(node) {
     showWanted();
   });
   on('store:messages', render);
-  // Реклама канала доехала (или ушла после жалобы) — ui/sponsored.js.
+  // The channel's ad arrived (or went away after a report) — ui/sponsored.js.
   on('ui:ads', () => render(lastState));
   onActiveChat(() => {
     paintUnreadChip();
@@ -201,9 +201,9 @@ export function mountHistory(node) {
 }
 
 /**
- * Число непрочитанных открытого чата — чипом над кнопкой «вниз».
- * Строка чата приходит с каждым обновлением списка (onActiveChat), так
- * что число живое. В ветке комментариев — не показывать: оно о канале.
+ * The open chat's unread count — as a chip above the "down" button. The
+ * chat row comes with every list update (onActiveChat), so the number is
+ * live. Not shown in a comment thread: it is about the channel.
  */
 function paintUnreadChip() {
   if (!unreadChip) return;
@@ -225,27 +225,27 @@ export function invalidateHistory() {
   if (lastState) render(lastState);
 }
 
-// Заглушка пустой истории. Запоминается, потому что сверка узлов в
-// paint знает только узлы сообщений: пока фильтр ждал ответа, список был
-// пуст и заглушка встала в колонку, а пришедшие результаты легли вокруг
-// неё — «Nothing found» посреди найденного.
+// The empty history placeholder. Remembered because the node reconciliation
+// in paint knows only message nodes: while a filter waited for the answer,
+// the list was empty and the placeholder went into the column, and the
+// results that arrived settled around it — "Nothing found" amid what was found.
 let emptyNode = null;
 
 // ------------------------------------------------------- arrivals
-// Новые сообщения въезжают снизу (класс is-arriving, blocks/_message.scss).
-// Новое — то, чего в этом чате ещё не было и что новее самого свежего
-// из показанного. Не новое: первая загрузка чата, подгрузка старых,
-// виртуальное окно, перерисовка, поиск.
+// New messages slide in from below (the is-arriving class, blocks/_message.scss).
+// New is what this chat did not have yet and what is newer than the
+// freshest shown. Not new: the chat's first load, loading older ones, the
+// virtual window, a redraw, search.
 //
-// known — id показанного в прошлый раз -> «своё и ещё отправляется»;
-// null — в этом чате ещё ничего не показано (первый кадр не анимируется).
-// Отправленное своё TDLib переименовывает (временный id -> настоящий):
-// пропавшее «отправляется» гасит одно своё новое, иначе своё сообщение
-// въезжало бы второй раз, когда дойдёт.
+// known — the ids shown last time -> "own and still sending"; null —
+// nothing has been shown in this chat yet (the first frame is not
+// animated). TDLib renames a sent own message (temporary id -> real): a
+// vanished "sending" cancels one own new one, otherwise the own message
+// would slide in a second time when it arrives.
 let known = null;
 let newest = 0;
-// Больше за один кадр — это не «пришло», а подгрузка страницы новых
-// (после прыжка по дате или к сообщению).
+// More in one frame is not "arrived" but loading a page of newer ones
+// (after a jump by date or to a message).
 const ARRIVE_MAX = 3;
 
 function rememberShown(items) {
@@ -278,9 +278,9 @@ function arrivals(state) {
   return fresh.length <= ARRIVE_MAX ? new Set(fresh) : new Set();
 }
 
-// Класс снимается, как только въезд кончился: иначе узел, выпавший из
-// виртуального окна и вставленный обратно, въезжал бы снова (анимация
-// CSS перезапускается при вставке). Прерванная — тоже.
+// The class is removed as soon as the slide-in ends: otherwise a node that
+// dropped out of the virtual window and was inserted back would slide in
+// again (a CSS animation restarts on insertion). An interrupted one too.
 function arrivedEnd(event) {
   if (event.target === event.currentTarget) event.currentTarget.classList.remove('is-arriving');
 }
@@ -331,11 +331,11 @@ function render(state) {
 function paint(state) {
   lastState = state;
   if (threadBtn) threadBtn.hidden = !state.thread;
-  // Свои сообщения справа, чужие слева (blocks/_message.scss) — кроме
-  // ленты канала: там «свои» — все посты владельца, и разнос по сторонам
-  // ничего не различал бы. Ветка комментариев — уже группа.
-  // Строка открытого чата, а не поиск в списке: архивного канала или
-  // канала, до которого дошли по пересылке, в списке может не быть.
+  // Own messages on the right, others' on the left (blocks/_message.scss) —
+  // except a channel feed: there "own" are all the owner's posts, and
+  // splitting by sides would distinguish nothing. A comment thread is a group already.
+  // The open chat's row, not a search in the list: an archived channel or a
+  // channel reached by a forward may not be in the list.
   const chat = state.chat ?? store.activeChat;
   column.classList.toggle('is-channel', chat?.kind === 'channel' && !state.thread);
 
@@ -379,9 +379,9 @@ function paint(state) {
     } else if (state.loadingOlder) {
       renderEmpty('Loading…', null);
     } else {
-      // Пустой чат — приветствие, как у нативного клиента (ui/greeting.js).
+      // An empty chat — a greeting, as in the native client (ui/greeting.js).
       renderGreeting(state.chatId);
-      // Первое сообщение в пустой чат — уже «пришло».
+      // The first message into an empty chat has "arrived" already.
       known = new Map();
     }
     return;
@@ -448,10 +448,10 @@ function paint(state) {
     const msg = items[i];
     const day = dateLabel(msg.date);
     if (day !== lastDay) {
-      // data-day — по нему плавающая дата (updateFloatDate) отличает
-      // дневные разделители от «Discussion starts here».
-      // data-date — полночь этого дня (unix, по часам страницы): клик по
-      // разделителю или плавающему ярлыку ведёт к первому сообщению дня.
+      // data-day — by it the floating date (updateFloatDate) tells day
+      // dividers from "Discussion starts here".
+      // data-date — that day's midnight (unix, by the page's clock): a click
+      // on the divider or the floating label leads to the day's first message.
       const midnight = new Date(msg.date * 1000);
       midnight.setHours(0, 0, 0, 0);
       const date = String(Math.floor(midnight.getTime() / 1000));
@@ -500,17 +500,17 @@ function paint(state) {
   // And everything newer than it.
   if (to < items.length) desired.push(gapNode(sumHeights(items, to, items.length)));
 
-  // Плашка нулевой высоты: в потоке места не занимает, надпись висит
-  // поверх у верхнего края. Обычным блоком она появлялась и пропадала
-  // на каждой подгрузке и дёргала всю колонку (заметнее всего в короткой
-  // ветке комментариев, которая не прокручивается).
+  // A zero-height plate: it takes no room in the flow, the label hangs on
+  // top at the upper edge. As an ordinary block it appeared and disappeared
+  // on every load and jerked the whole column (most noticeably in a short
+  // comment thread that does not scroll).
   if (state.loadingOlder) {
     desired.unshift(separator('loading', () =>
       el('div', { class: 'history__loader' },
         el('span', { class: 'history__loader-pill' }, 'Loading older messages…'))));
   }
 
-  // До вставки: въезд начинается, когда узел попадает в документ.
+  // Before insertion: the slide-in starts when the node enters the document.
   const fresh = arrivals(state);
   if (fresh.size) {
     for (const slot of slots) {
@@ -557,12 +557,12 @@ function paint(state) {
 }
 
 /**
- * Где стоит реклама канала: индекс сообщения -> реклама после него.
+ * Where the channel's ads go: a message index -> the ad after it.
  *
- * Первая — после последнего поста. messages_between > 0 разрешает
- * больше одной: каждая следующая — на столько сообщений выше
- * предыдущей; 0 — только одна (так в td_api.tl, sponsoredMessages).
- * Не в ветке комментариев и не в поиске — там нет «последнего поста».
+ * The first one — after the last post. messages_between > 0 allows more
+ * than one: each next one is that many messages above the previous one; 0
+ * — only one (so in td_api.tl, sponsoredMessages). Not in a comment thread
+ * and not in search — there is no "last post" there.
  */
 function adPlaces(state, chat) {
   const places = new Map();
@@ -824,7 +824,7 @@ function messageNode(msg) {
   // serialising every message in the window on every refresh.
   if (known && known.msg === msg) return known.node;
 
-  // Видео прежнего узла переезжают в новый — см. renderMessageReusing.
+  // The previous node's videos move into the new one — see renderMessageReusing.
   const node = known ? renderMessageReusing(msg, known.node) : renderMessage(msg);
   // A context menu may be anchored to the node about to be thrown
   // away; it has to follow the message rather than be left pointing at
@@ -935,11 +935,11 @@ function noteScrollPosition() {
   updateFloatDate();
 }
 
-// Расстояние плавающей даты от верха истории (= от шапки) — то же, что
-// top у .history__float-date в blocks/_history.scss.
+// The floating date's distance from the top of the history (= from the
+// header) — the same as top of .history__float-date in blocks/_history.scss.
 const FLOAT_DATE_TOP = 16;
 
-/** Плавающая дата над историей — util/floatdate.js. */
+/** The floating date above the history — util/floatdate.js. */
 function updateFloatDate() {
   updateFloatDateIn(root, column, floatDate, FLOAT_DATE_TOP);
 }
@@ -951,10 +951,10 @@ function updateFloatDate() {
  * none while the window is not being drawn.
  */
 /**
- * Узел, на котором стоит сообщение: свой — или альбома, куда оно входит.
- * Альбом кэшируется под ключом `album:<id>`, и по id члена альбома
- * своего узла нет вовсе — прокрутка к фото из альбома (сетка медиа в
- * панели) раньше молча ничего не делала.
+ * The node a message stands on: its own — or the album it belongs to. An
+ * album is cached under the key `album:<id>`, and an album member's id has
+ * no node of its own at all — scrolling to a photo from an album (the media
+ * grid in the panel) used to silently do nothing.
  */
 function entryFor(id) {
   const own = nodes.get(id);
@@ -1021,13 +1021,13 @@ function onScroll() {
  * flick of the wheel would otherwise fire a request per frame.
  */
 function collectRead() {
-  // Чат ещё открывается: позиция не выбрана ('pending') или окно держит
-  // её само ('settling'), а не читатель. Видимое тогда ещё ничего не
-  // значит — в 'settling' без разделителя непрочитанного applyScroll
-  // ставит историю в самый низ, и всё внизу ушло бы прочитанным, а TDLib
-  // по самому новому id отмечает прочитанным ВСЁ (живой случай: 89 -> 0
-  // при открытии канала, viewMessages с самыми новыми id через 1,3 с
-  // после openChat). Считать видимое — только у разделителя.
+  // The chat is still opening: the position is not chosen ('pending') or
+  // the window holds it itself ('settling'), not the reader. What is
+  // visible means nothing yet then — in 'settling' without the unread
+  // divider applyScroll puts the history at the very bottom, and everything
+  // at the bottom would go as read, while TDLib marks EVERYTHING read by the
+  // newest id (a live case: 89 -> 0 on opening a channel, viewMessages with
+  // the newest ids 1.3 s after openChat). Count the visible — only at the divider.
   if (wantScroll === 'pending') return;
   if (wantScroll === 'settling' && !userMoved && !separators.get('unread')?.isConnected) return;
   const top = root.scrollTop;

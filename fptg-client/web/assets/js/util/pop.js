@@ -1,11 +1,12 @@
-// Куда всплыло окно — вверх или вниз от своего якоря. Звать сразу после
-// showPopover(), в той же задаче: прямоугольники уже посчитаны, а кадр
-// ещё не нарисован, и анимация появления (components/_pop.scss) сразу
-// пойдёт в нужную сторону. Над якорем — класс is-pop-up (въезд снизу),
-// иначе без него (въезд сверху).
+// Where a pop-up went — up or down from its anchor. Call right after
+// showPopover(), in the same task: the rectangles are computed already,
+// while the frame is not painted yet, and the appearance animation
+// (components/_pop.scss) goes in the right direction at once. Above the
+// anchor — the is-pop-up class (sliding in from below), otherwise without
+// it (sliding in from above).
 //
-// Место решает CSS (position-area и position-try-fallbacks), поэтому
-// узнать его можно только измерив, а не заранее.
+// The place is decided by CSS (position-area and position-try-fallbacks),
+// so it can only be learned by measuring, not in advance.
 export function markPopDirection(node, anchor) {
   if (!node || !anchor) return;
   const box = node.getBoundingClientRect();

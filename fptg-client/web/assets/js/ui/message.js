@@ -18,8 +18,8 @@ import {downloadUrl} from '../util/download.js';
 import {getPref} from '../util/prefs.js';
 import {on} from '../core/bus.js';
 
-// Настройки анимаций поменялись — уже показанные GIF и стикеры играют по
-// новым правилам сразу, без перерисовки истории.
+// The animation settings changed — GIFs and stickers already shown play by
+// the new rules at once, without redrawing the history.
 function restyleMedia() {
     const loop = getPref('loopStickers');
     const still = !getPref('animatedStickers');
@@ -71,24 +71,24 @@ function withMenu(card, msg) {
     return card;
 }
 
-// Плееры прежнего узла того же сообщения, по адресу файла. Сообщение
-// перестраивается целиком при любой смене своего payload (реакции,
-// счётчик комментариев, ход передачи — живой лог: в одном канале 28
-// смен реакций за 9 минут), и новый <video> заново тянул файл — на
-// незапущенном видео мелькал нативный индикатор загрузки, а играющее
-// останавливалось. Теперь тот же элемент переносится в новый узел:
-// перенос в одном задании воспроизведение не прерывает (элемент не
-// успевает оказаться вне документа к «стабильному состоянию»).
+// The players of the same message's previous node, by file address. A
+// message is rebuilt whole on any change of its payload (reactions, the
+// comment counter, transfer progress — a live log: 28 reaction changes in
+// one channel in 9 minutes), and the new <video> pulled the file anew — a
+// native loading indicator flashed on a video not yet started, and a
+// playing one stopped. Now the same element moves into the new node: a
+// move within one task does not interrupt playback (the element does not
+// manage to be outside the document by the "stable state").
 let reusable = null;
 
 /**
- * Как renderMessage, но видео с тем же адресом берутся из `oldNode`, а не
- * создаются заново. Адрес — data-media: src плеер теряет, когда уходит за
- * экран (util/offscreen.js отпускает декодер).
+ * Like renderMessage, but videos with the same address are taken from
+ * `oldNode` rather than created anew. The address is data-media: the player
+ * loses src when it goes off screen (util/offscreen.js releases the decoder).
  */
 export function renderMessageReusing(msg, oldNode) {
-    // Узел вне документа мог уже пройти через sweep (util/offscreen.js):
-    // его плееры без src и без наблюдателей, переносить их нельзя.
+    // A node outside the document may have gone through the sweep already
+    // (util/offscreen.js): its players have no src and no observers, they cannot be moved.
     if (!oldNode?.isConnected) return renderMessage(msg);
     reusable = new Map();
     for (const video of oldNode.querySelectorAll('video[data-media]')) {
@@ -101,7 +101,7 @@ export function renderMessageReusing(msg, oldNode) {
     }
 }
 
-/** Плеер прежнего узла для этого адреса, или null — тогда строить новый. */
+/** The previous node's player for this address, or null — then build a new one. */
 function takeVideo(url) {
     const video = reusable?.get(url) ?? null;
     if (video) reusable.delete(url);
@@ -109,8 +109,8 @@ function takeVideo(url) {
 }
 
 export function renderMessage(msg) {
-    // Сервисное сообщение (создание группы, вход, закреп…) — строка
-    // посередине истории, без пузыря и заголовка.
+    // A service message (group created, joined, pinned…) — a line in the
+    // middle of the history, without a bubble or header.
     if (msg.service) {
         return withMenu(el('div', {
             class: 'message-service',
@@ -122,7 +122,7 @@ export function renderMessage(msg) {
             'message',
             `accent-${msg.senderColor}`,
             msg.outgoing ? 'message--outgoing' : '',
-            // Кружок — как стикер: без подложки, только шапка.
+            // A round video — like a sticker: no backdrop, only the header.
             msg.kind === 'sticker' || msg.media?.round ? 'message--sticker' : '',
         ].filter(Boolean).join(' '),
         dataset: {messageId: String(msg.id)},
@@ -145,9 +145,9 @@ export function renderMessage(msg) {
     if (msg.kind === 'location' && msg.location) body.append(renderLocation(msg));
     if (msg.kind === 'contact' && msg.contact) body.append(renderContact(msg));
     if (msg.kind === 'call' && msg.call) body.append(renderCall(msg));
-    // Богатое сообщение — статья из блоков с кнопками (ui/richmessage.js).
+    // A rich message — an article of blocks with buttons (ui/richmessage.js).
     if (msg.kind === 'rich' && msg.rich) body.append(renderRichMessage(msg));
-    // Перевод чата включён и готов — он вместо текста (ui/translate.js).
+    // The chat's translation is on and ready — it replaces the text (ui/translate.js).
     const tr = translationFor(msg);
     if (msg.text) body.append(renderRichText(tr ? tr.text : msg.text, tr ? tr.entities : (msg.entities ?? [])));
     if (tr) body.append(el('div', {class: 'message__translated'}, 'Translated'));
@@ -157,7 +157,7 @@ export function renderMessage(msg) {
     const footer = renderFooter(msg, bare);
     if (footer) card.append(footer);
     watchTranslation(card, msg);
-    // Кнопки бота под сообщением (ui/bots.js).
+    // The bot's buttons under the message (ui/bots.js).
     if (msg.keyboard?.length) card.append(renderInlineKeyboard(msg));
     return withMenu(card, msg);
 }
@@ -293,14 +293,14 @@ function renderHead(msg, withComments = false) {
     // photo above a little photo glyph.
     const receipt = RECEIPT_ICON[msg.receipt];
     if (receipt) {
-        // Наведение — кто прочитал (ui/people.js). Обёртка нужна: у
-        // самой иконки pointer-events: none.
+        // Hover — who read it (ui/people.js). The wrapper is needed: the
+        // icon itself has pointer-events: none.
         const hit = el('span', {class: 'message__receipt-hit'}, icon(receipt, 'message__receipt'));
         peopleOnHover(hit, {id: String(msg.id), what: 'viewers'}, 'Seen by');
         head.append(hit);
     }
 
-    // Аватарка отправителя перед именем.
+    // The sender's avatar before the name.
     const avatar = el('span', {class: `avatar message__avatar accent-${msg.senderColor || 'a5'}`});
     fillAvatar(avatar, {
         id: msg.senderId,
@@ -317,7 +317,7 @@ function renderHead(msg, withComments = false) {
     if (msg.editDate) {
         head.append(el('span', {class: 'message__state', textContent: 'edited'}));
     }
-    // Эфемерное содержимое бота — видно только этому пользователю.
+    // A bot's ephemeral content — visible only to this user.
     if (msg.ephemeral) {
         head.append(el('span', {class: 'message__state', textContent: 'only you can see this'}));
     }
@@ -518,19 +518,19 @@ function ensure(msg, what) {
 }
 
 /**
- * Клик по кольцу: скачивание останавливается, исходящее удаляется, как
- * у нативного клиента (TTdMessages.CancelTransfer). Пока передача идёт,
- * в кольце крестик — так видно, что клик отменит, а не скачает.
+ * A click on the ring: a download stops, an outgoing message is deleted, as
+ * in the native client (TTdMessages.CancelTransfer). While the transfer is
+ * running, the ring has a cross — so it is clear a click cancels, not downloads.
  */
 function cancelTransfer(msg) {
     emit('ui:cancel-transfer', {id: msg.id});
 }
 
 /**
- * «Сколько из скольких» в углу картинки, пока файл передаётся (вниз или
- * вверх), или ничего. Само кольцо — на кнопке посередине (overlay /
- * xferOverlay); раньше здесь была линейная полоска только для фото и
- * видео и только на скачивание.
+ * "How much of how much" in the corner of the picture while the file is
+ * transferred (down or up), or nothing. The ring itself is on the button in
+ * the middle (overlay / xferOverlay); there used to be a linear bar here,
+ * only for photos and videos and only for downloads.
  */
 function progress(m) {
     if (!m.xfer) return null;
@@ -538,9 +538,9 @@ function progress(m) {
 }
 
 /**
- * Кольцо поверх картинки, у которой файл уже есть, но ещё уходит —
- * исходящее фото, видео, GIF. Клик отменяет отправку; дальше по
- * картинке (просмотрщик) он не идёт.
+ * A ring over a picture whose file is here already but is still going out —
+ * an outgoing photo, video, GIF. A click cancels the sending; it does not go
+ * further to the picture (the viewer).
  */
 function xferOverlay(msg, m) {
     return addRing(el('button', {
@@ -564,8 +564,8 @@ function xferOverlay(msg, m) {
  * fog over the history rather than as a button.
  */
 function overlay(name, onclick, m, msg) {
-    // Пока файл качается — кольцо хода вокруг кнопки и крестик в нём:
-    // клик отменяет загрузку.
+    // While the file downloads — a progress ring around the button and a
+    // cross in it: a click cancels the download.
     if (m?.xfer) {
         return addRing(el('button', {
             class: 'media__overlay',
@@ -651,13 +651,13 @@ function renderVideo(msg, m) {
 }
 
 /**
- * Видеосообщение («кружок»), как у Telegram Desktop: круг без пузыря, по
- * умолчанию на паузе — кадр-превью, кнопка «играть» и длительность.
- * Щелчок — играть со звуком, вокруг круга — кольцо прогресса (зазор
- * 2px, толщина 3px, цвет акцента); ещё щелчок — пауза; доиграл — снова
- * в начало, кольцо прячется.
+ * A video message ("round video"), as in Telegram Desktop: a circle without
+ * a bubble, paused by default — a preview frame, a "play" button and the
+ * duration. A click — play with sound, a progress ring around the circle
+ * (gap 2px, width 3px, the accent colour); another click — pause; played to
+ * the end — back to the start, the ring hides.
  */
-// Кольцо: круг 240 — по центру поля 250, радиус 120 + зазор 2 + пол-толщины.
+// The ring: circle 240 — centred in a 250 box, radius 120 + gap 2 + half the width.
 const ROUND_RING_BOX = 250;
 const ROUND_RING_R = 123.5;
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -672,10 +672,10 @@ function roundRing() {
     arc.setAttribute('cx', String(c));
     arc.setAttribute('cy', String(c));
     arc.setAttribute('r', String(ROUND_RING_R));
-    // Длина окружности — 100: прогресс в процентах прямо в dasharray.
+    // The circumference is 100: progress in percent right in dasharray.
     arc.setAttribute('pathLength', '100');
     arc.setAttribute('stroke-dasharray', '0 100');
-    // Начало — сверху, по часовой.
+    // The start — at the top, clockwise.
     arc.setAttribute('transform', `rotate(-90 ${c} ${c})`);
     svg.classList.add('is-empty');
     svg.append(arc);
@@ -684,7 +684,7 @@ function roundRing() {
         set(part) {
             const p = Math.max(0, Math.min(100, part * 100));
             arc.setAttribute('stroke-dasharray', `${p.toFixed(2)} 100`);
-            // Ноль со скруглёнными концами — точка: пустое кольцо прячем.
+            // Zero with rounded caps is a dot: an empty ring is hidden.
             svg.classList.toggle('is-empty', p < 0.5);
         },
     };
@@ -704,7 +704,7 @@ function renderVideoNote(msg, m) {
             playsInline: true,
             preload: 'metadata',
         });
-        // Только освобождение файла вдали от экрана — сам не играет.
+        // Only releasing the file far from the screen — it does not play by itself.
         holdVideo(player, m.url);
         clip.append(player);
         const ring = roundRing();
@@ -717,7 +717,7 @@ function renderVideoNote(msg, m) {
         });
         player.addEventListener('play', () => box.classList.add('is-playing', 'is-started'));
         player.addEventListener('pause', () => box.classList.remove('is-playing', 'is-waiting'));
-        // Ждёт данных (медленная сеть) — ровная дуга поверх видео.
+        // Waiting for data (slow network) — a steady arc over the video.
         player.addEventListener('waiting', () => box.classList.add('is-waiting'));
         player.addEventListener('playing', () => box.classList.remove('is-waiting'));
         player.addEventListener('timeupdate', () => {
@@ -810,8 +810,8 @@ function renderAnimation(msg, m) {
                 });
             },
         });
-        // «Autoplay GIFs» выключено (Battery and animation) — играет
-        // только по щелчку, наблюдатель её не запускает.
+        // "Autoplay GIFs" is off (Battery and animation) — it plays only on
+        // a click, the observer does not start it.
         if (!reused) holdVideo(player, m.url, getPref('autoplayGifs') ? 'loop' : false);
         box.append(player);
         if (m.xfer) box.append(xferOverlay(msg, m));
@@ -875,14 +875,14 @@ function audioCard(msg, m, coverIcon, title) {
         track,
         el('div', {class: 'audio__times'}, elapsed, remaining)));
 
-    // Кольцо — вокруг кнопки, «сколько из скольких» и «сколько осталось» —
-    // на месте двух времён: пока файл не здесь, проигрывать нечего.
+    // The ring — around the button, "how much of how much" and "how much is
+    // left" — in place of the two times: while the file is not here, there is nothing to play.
     if (m.xfer) {
         addRing(button, m.xfer);
         elapsed.textContent = xferText(m.xfer);
         remaining.textContent = xferLeft(m.xfer);
-        // Кнопка только отменяет: качать уже качается, а играть свой
-        // недоотправленный файл незачем.
+        // The button only cancels: the download is running already, and
+        // there is no point playing one's own half-sent file.
         setGlyph('close');
         button.title = 'Cancel';
         track.classList.add('is-idle');
@@ -956,20 +956,20 @@ function renderAudio(msg, m) {
     return audioCard(msg, m, 'audio', title);
 }
 
-// Расшифровка голосовых (recognizeSpeech) — только у Premium: без него
-// Telegram отвечает ошибкой, поэтому кнопки нет вовсе. Флаг приходит с
-// каждым ответом messages.list (canTranscribe), main.js кладёт его сюда.
+// Voice message transcription (recognizeSpeech) — Premium only: without it
+// Telegram answers with an error, so there is no button at all. The flag
+// comes with every messages.list answer (canTranscribe), main.js puts it here.
 let canTranscribe = false;
 
-/** true — флаг поменялся (уже нарисованным голосовым нужна перерисовка). */
+/** true — the flag changed (voice messages already drawn need a redraw). */
 export function setCanTranscribe(value) {
     const changed = canTranscribe !== !!value;
     canTranscribe = !!value;
     return changed;
 }
 
-// Свёрнутые расшифровки (id сообщений): сворачивание — класс на узле,
-// без перерисовки; запомнено, чтобы перерисовка не разворачивала.
+// Folded transcriptions (message ids): folding is a class on the node,
+// without a redraw; remembered so a redraw does not unfold them.
 const speechFolded = new Set();
 
 function renderVoice(msg, m) {
@@ -986,10 +986,10 @@ function renderVoice(msg, m) {
         ? (sp.text || 'Could not transcribe this message')
         : `${sp.text || ''}${sp.state === 'pending' ? '\u2026' : ''}`) : null;
 
-    // Кнопка — в правом верхнем углу карточки, в «рамке»: div с
-    // отступом 2px, в нём кнопка. Рамка — холст для анимации: пока
-    // Telegram распознаёт (pending или только что нажали), по ней бежит
-    // пятно радиального градиента (blocks/_media.scss, voice-tx-orbit).
+    // The button — in the top right corner of the card, in a "frame": a div
+    // with a 2px padding, the button inside it. The frame is the canvas for
+    // the animation: while Telegram recognizes (pending or just pressed), a
+    // spot of radial gradient runs along it (blocks/_media.scss, voice-tx-orbit).
     if (canTranscribe) {
         const folded = speechFolded.has(msg.id);
         const frame = el('div', {
@@ -1030,7 +1030,7 @@ function renderVoice(msg, m) {
  */
 function renderFile(msg, m) {
     const name = m.fileName || 'File';
-    // Пока файл передаётся, вся карточка — отмена (как и её кольцо).
+    // While the file is transferred, the whole card is a cancel (as is its ring).
     const box = m.xfer
         ? el('div', {
             class: 'media media--file is-clickable',
@@ -1038,8 +1038,8 @@ function renderFile(msg, m) {
             onclick: () => cancelTransfer(msg),
         })
         : m.url
-        // Открыть внешним приложением (util/download.js): сам файл в
-        // окне не показывается никогда.
+        // Open with an external app (util/download.js): the file itself is
+        // never shown in the window.
         ? el('a', {
             class: 'media media--file is-clickable',
             href: downloadUrl(m.url, name, true),
@@ -1052,8 +1052,8 @@ function renderFile(msg, m) {
             onclick: () => ensure(msg, 'full'),
         });
 
-    // Пока файл передаётся — стрелка (вверх при отправке) в кольце хода и
-    // «сколько из скольких · сколько осталось» на месте размера.
+    // While the file is transferred — an arrow (up when sending) in the
+    // progress ring and "how much of how much · how much is left" in place of the size.
     let glyph = m.url ? 'file' : 'download';
     if (m.xfer) glyph = 'close';
     box.append(addRing(el('span', {class: 'file__icon'}, icon(glyph)), m.xfer));
@@ -1064,7 +1064,7 @@ function renderFile(msg, m) {
     return box;
 }
 
-/** Стикер вне сообщения — приветствие пустого чата (ui/greeting.js). */
+/** A sticker outside a message — the greeting of an empty chat (ui/greeting.js). */
 export function stickerNode(m) {
     return renderSticker(null, m);
 }
@@ -1079,9 +1079,9 @@ function renderSticker(msg, m) {
         // Not autoplay: what starts it is coming into view, and what
         // stops it is leaving - see util/offscreen.js. A click replays
         // it from the start.
-        // «Loop animated stickers» — по кругу, пока на экране; «Animated
-        // stickers» выключены — стоит первым кадром до щелчка (кадр
-        // появляется только после перемотки, см. util/emoji.js).
+        // "Loop animated stickers" — in a loop while on screen; "Animated
+        // stickers" off — stays on the first frame until a click (the frame
+        // appears only after seeking, see util/emoji.js).
         const looping = getPref('loopStickers');
         const still = !getPref('animatedStickers');
         const reused = takeVideo(m.url);
@@ -1113,8 +1113,8 @@ function renderSticker(msg, m) {
         // hole the size of a sticker.
         const frame = el('div', {class: 'media__sticker media__sticker--lottie'});
         box.append(frame);
-        // «Loop animated stickers» (Chat settings) — по кругу; «Animated
-        // stickers» выключены (Battery and animation) — стоит до щелчка.
+        // "Loop animated stickers" (Chat settings) — in a loop; "Animated
+        // stickers" off (Battery and animation) — stays until a click.
         playSticker(frame, m.url, {
             once: !getPref('loopStickers'),
             still: !getPref('animatedStickers'),
@@ -1136,9 +1136,9 @@ function renderSticker(msg, m) {
 // ------------------------------------------------------------ poll
 // ---------------------------------------------------------- contact
 /**
- * Карточка контакта: аватарка, имя, телефон. Человек в Telegram — клик
- * открывает личку с ним (ui:open-contact, как в списке контактов) и
- * есть «Add»; без аккаунта — только копирование телефона.
+ * A contact card: avatar, name, phone. A person on Telegram — a click opens
+ * the private chat with them (ui:open-contact, as in the contact list) and
+ * there is "Add"; without an account — only copying the phone.
  */
 function renderContact(msg) {
     const c = msg.contact;
@@ -1178,10 +1178,10 @@ function renderContact(msg) {
 
 // ------------------------------------------------------------- call
 /**
- * Звонок в истории (messageCall / messageGroupCall, webapi.pas
- * CallMessageJson): значок, что за звонок, длительность или чем
- * кончился, и кнопка — перезвонить тем же видом (ui:call-back, ui/call.js)
- * или войти в идущий видеочат (ui:vchat-join).
+ * A call in the history (messageCall / messageGroupCall, webapi.pas
+ * CallMessageJson): an icon, what kind of call, the duration or how it
+ * ended, and a button — call back the same way (ui:call-back, ui/call.js)
+ * or join the running video chat (ui:vchat-join).
  */
 const CALL_REASON = {
     missed: 'Missed',
@@ -1198,7 +1198,7 @@ function renderCall(msg) {
         title = c.reason === 'active' ? 'Ongoing group call' : (c.reason === 'missed' ? 'Missed group call' : 'Group call');
         failed = c.reason === 'missed';
     } else if (c.reason === 'missed' || c.reason === 'declined') {
-        // Свой неотвеченный — «отменённый», чужой — «пропущенный».
+        // One's own unanswered — "cancelled", someone else's — "missed".
         title = msg.outgoing
             ? (c.reason === 'declined' ? `Declined ${kind}` : `Cancelled ${kind}`)
             : `Missed ${kind}`;
@@ -1231,9 +1231,9 @@ function renderCall(msg) {
 
 // --------------------------------------------------------- location
 /**
- * Геопозиция, место (venue) или трансляция геопозиции: карта Telegram с
- * меткой по центру, под ней — название и адрес места. Клик — точка в
- * выбранном сервисе карт в браузере (util/maps.js).
+ * A location, a place (venue) or a live location: a Telegram map with a
+ * pin in the centre, below it the name and address of the place. A click —
+ * the point in the chosen map service in the browser (util/maps.js).
  */
 function renderLocation(msg) {
     const l = msg.location;
@@ -1241,9 +1241,9 @@ function renderLocation(msg) {
     const info = [];
     if (l.title) info.push(el('span', {class: 'location__title'}, l.title));
     if (l.address) info.push(el('span', {class: 'location__address'}, l.address));
-    // У простой геопозиции текста нет — в content только координаты и
-    // точность (живой лог); их и подписываем. Адрес по координатам не
-    // ищется: для этого их пришлось бы отправить стороннему сервису.
+    // A plain location has no text — content has only the coordinates and
+    // the accuracy (a live log); those are what we label. No address is looked
+    // up by coordinates: that would mean sending them to a third-party service.
     if (!l.title && !l.address) {
         const acc = l.accuracy > 0 ? ` · ±${Math.round(l.accuracy)} m` : '';
         info.push(el('span', {class: 'location__address u-tabular'},
@@ -1255,7 +1255,7 @@ function renderLocation(msg) {
     }
     return el('button', {
         class: 'location', type: 'button', title: 'Open the map',
-        // Сервис карт — по умолчанию из настроек или из окна выбора.
+        // The map service — the default from the settings or from the choice window.
         onclick: () => openMapPoint(l.lat, l.lon),
     },
     el('span', {class: `location__map${url ? '' : ' is-pending'}`},
@@ -1367,9 +1367,8 @@ function fillReactions(strip, msg) {
         // reaction costs stars and a custom one is a Premium sticker
         // this page cannot offer yet.
         const clickable = r.kind === 'emoji';
-        // Подсказка — в aria-label, а не title: по наведению всплывает
-        // список тех, кто поставил реакцию, и нативная подсказка легла
-        // бы поверх него.
+        // The hint — in aria-label, not title: on hover a list of those who
+        // reacted pops up, and a native tooltip would lie on top of it.
         const pill = el(clickable ? 'button' : 'span', {
             class: `reaction${r.chosen ? ' is-chosen' : ''}`,
             type: clickable ? 'button' : null,
@@ -1394,13 +1393,13 @@ function fillReactions(strip, msg) {
                 ?? el('span', {class: 'reaction__emoji', textContent: '•'}));
         }
         pill.append(String(r.count));
-        // Кто поставил — у всех, кроме платных: их список Telegram не
-        // отдаёт (getMessageAddedReactions, td_api.tl).
-        // И только там, где Telegram его вообще отдаёт
-        // (can_get_added_reactions — приходит с самим сообщением, без
-        // запроса): иначе наведение ничего не делает.
+        // Who reacted — for all but paid ones: Telegram does not give their
+        // list (getMessageAddedReactions, td_api.tl).
+        // And only where Telegram gives it at all (can_get_added_reactions —
+        // comes with the message itself, without a request): otherwise hover
+        // does nothing.
         if (!msg.canSeeReactors) {
-            // список не предлагается
+            // no list is offered
         } else if (r.kind === 'emoji') {
             peopleOnHover(pill, {id: String(msg.id), what: 'reactions', emoji: r.emoji}, 'Reacted');
         } else if (r.kind !== 'paid' && r.customEmojiId) {

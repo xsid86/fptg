@@ -6,37 +6,36 @@ import { CallSession } from '../calls/session.js';
 import { routeAudio, devicePanel, togglePanel } from '../calls/devices.js';
 import { store } from '../core/store.js';
 
-// Окно звонка: входящий (принять / с видео / отклонить), исходящий
-// («Calling…», отмена), идущий (время, эмодзи ключа, микрофон, камера,
-// положить трубку) и видео собеседника с превью своей камеры.
+// The call window: incoming (accept / with video / decline), outgoing
+// ("Calling…", cancel), ongoing (time, key emoji, microphone, camera, hang
+// up) and the other side's video with a preview of one's own camera.
 //
-// Сервер шлёт каждое изменение звонка событием call и каждый сигнальный
-// пакет — call.signal (webapi.pas, CallToJson). Медиа ведёт ТА страница,
-// которая звонок начала или приняла (owned): у остальных открытых
-// страниц входящий звонок звенит, но разговор идёт в одной.
+// The server sends every call change as a call event and every signalling
+// packet as call.signal (webapi.pas, CallToJson). The media is run by THE
+// page that started or accepted the call (owned): on the other open pages
+// an incoming call rings, but the conversation goes on in one.
 //
-// Звонок, завершённый на этой странице, показывает итог ENDED_SHOW_MS
-// и закрывается.
+// A call ended on this page shows the outcome for ENDED_SHOW_MS and closes.
 
 const ENDED_SHOW_MS = 2500;
 const TICK_MS = 1000;
-// Звонок/гудок — синтезом, без файлов: тон и ритм как у телефона.
+// Ringing/the ring-back tone — synthesized, without files: the tone and rhythm of a phone.
 const RING_TONE_HZ = [440, 480];
 const RING_ON_MS = 1000;
 const RING_OFF_MS = 2000;
 
 let hooks = {};
 let root = null;
-let current = null;    // последний объект звонка от сервера
-let session = null;    // CallSession, если медиа ведёт эта страница
-const owned = new Set();      // id звонков, начатых/принятых здесь
-const wantVideo = new Map();  // id -> включить камеру при соединении
+let current = null;    // the latest call object from the server
+let session = null;    // a CallSession, if this page runs the media
+const owned = new Set();      // ids of calls started/accepted here
+const wantVideo = new Map();  // id -> turn the camera on when connected
 let connectedAt = 0;
 let tickTimer = 0;
 let endTimer = 0;
 let remoteMedia = { muted: false, video: false };
 
-// ------------------------------------------------------------ звук
+// ------------------------------------------------------------ sound
 let ringCtx = null;
 let ringTimer = 0;
 
@@ -74,7 +73,7 @@ function ringStart() {
   burst();
 }
 
-// ------------------------------------------------------------ вид
+// ------------------------------------------------------------ view
 const REASONS = {
   missed: 'Missed call',
   declined: 'Call declined',
@@ -109,17 +108,17 @@ function statusText(c) {
   }
 }
 
-// name — имя иконки спрайта или готовый узел (у «во весь экран» своей
-// иконки в спрайте нет — знак ⛶ в кружке той же формы).
+// name — a sprite icon name or a ready node ("full screen" has no icon of
+// its own in the sprite — the ⛶ sign in a circle of the same shape).
 const btn = (cls, name, label, onclick) => el('button', {
   class: `call__btn ${cls}`, type: 'button', title: label, onclick,
 }, typeof name === 'string' ? icon(name) : name,
 el('span', { class: 'call__btn-label', textContent: label }));
 
-// ------------------------------------------------------ во весь экран
-// Полноэкранный режим элемента (.call целиком): хост WebView2 на это
-// разворачивает окно (webui.pas, ViewFullScreenElement). Выход — та же
-// кнопка, Escape или двойной клик по видео.
+// ------------------------------------------------------ full screen
+// Full-screen mode of an element (.call whole): the WebView2 host expands
+// the window for it (webui.pas, ViewFullScreenElement). Exit — the same
+// button, Escape or a double click on the video.
 const isFull = () => document.fullscreenElement === root;
 
 async function toggleFull() {
@@ -131,8 +130,8 @@ async function toggleFull() {
   }
 }
 
-// Элементы окна строятся один раз; render() меняет текст, классы и
-// видимость. <video> пересоздавать нельзя — потеряется поток.
+// The window's elements are built once; render() changes text, classes and
+// visibility. A <video> must not be recreated — the stream would be lost.
 let ui = null;
 
 function build() {
@@ -140,8 +139,8 @@ function build() {
   const name = el('div', { class: 'call__name' });
   const status = el('div', { class: 'call__status u-tabular' });
   const emojis = el('div', { class: 'call__emojis', title: 'If these emoji match on both sides, the call is end-to-end encrypted' });
-  // Видео заглушено: звук собеседника — только у <audio> (его выход
-  // переключается на выбранный динамик, calls/devices.js).
+  // The video is muted: the other side's sound is only in <audio> (its
+  // output switches to the chosen speaker, calls/devices.js).
   const remoteVideo = el('video', { class: 'call__remote', autoplay: true, playsInline: true, muted: true });
   const localVideo = el('video', { class: 'call__local', autoplay: true, playsInline: true, muted: true });
   const remoteAudio = el('audio', { class: 'call__audio', autoplay: true });
@@ -153,9 +152,9 @@ function build() {
   const mute = btn('call__btn--toggle', 'mic', 'Mute', () => toggleMute());
   const camera = btn('call__btn--toggle', 'video', 'Camera', () => toggleCamera());
   const hangup = btn('call__btn--hangup', 'close', 'End', () => hangUp());
-  // Устройства и громкость — панелью в окне (calls/devices.js), не
-  // всплывающим меню: меню, открытое от кнопки звонка, после конца
-  // звонка оставалось висеть без якоря в углу экрана.
+  // Devices and volume — a panel in the window (calls/devices.js), not a
+  // pop-up menu: a menu opened from a call button stayed hanging without an
+  // anchor in the corner of the screen after the call ended.
   const levels = devicePanel({ hidden: true });
   const devices = btn('call__btn--toggle', 'settings', 'Devices', () => {
     togglePanel(levels);
@@ -211,7 +210,7 @@ function render() {
   root.classList.toggle('call--ended', finished);
 }
 
-// ------------------------------------------------------------ действия
+// ------------------------------------------------------------ actions
 function report(error) {
   hooks.report?.(error);
 }
@@ -225,7 +224,7 @@ async function startCall(userId, video) {
     const r = await hooks.call('call.start', { userId: String(userId), video: !!video });
     owned.add(r.id);
     wantVideo.set(r.id, !!video);
-    // Событие call могло прийти раньше ответа — тогда звонок уже наш.
+    // The call event may have come before the answer — then the call is ours already.
     if (current?.id === r.id) onCall(current);
   } catch (error) {
     report(error);
@@ -280,12 +279,12 @@ async function toggleCamera() {
   render();
 }
 
-// ------------------------------------------------------------ сессия
+// ------------------------------------------------------------ session
 function startSession(c) {
   if (session || !owned.has(c.id)) return;
   if (c.version && c.version !== '10.0.0') {
-    // Сервер выбрал версию, которой у страницы нет: собеседник не
-    // поддерживает 10.0.0. Честно завершить, а не висеть «Connecting».
+    // The server chose a version the page does not have: the other side
+    // does not support 10.0.0. End honestly rather than hang at "Connecting".
     hooks.notice?.(`Call protocol ${c.version} is not supported`);
     hangUp();
     return;
@@ -339,14 +338,15 @@ function endSession() {
   }
 }
 
-// ------------------------------------------------ окошко поверх всех
-// Входящий звонит, а окно не на виду (свёрнуто, в трее, позади других) —
-// просим оболочку показать карточку поверх всех окон (callpopup.pas;
-// на другой платформе — её окно). Решает страница, оболочка только
-// показывает. Карточке — всё в адресе (callcard.html), сервер она не
-// спрашивает; нажатия возвращаются сюда сообщением оболочки.
+// ------------------------------------------------ a small window on top of all
+// An incoming call rings, and the window is not in view (minimized, in the
+// tray, behind others) — ask the shell to show a card on top of all windows
+// (callpopup.pas; on another platform — its window). The page decides, the
+// shell only shows. The card has everything in its address
+// (callcard.html), it does not ask the server; presses come back here as a
+// shell message.
 const host = () => window.chrome?.webview ?? null;
-let popupFor = 0;     // id звонка, чья карточка показана
+let popupFor = 0;     // the id of the call whose card is shown
 
 const ringingHere = (c) => !!c && c.state === 'pending' && !c.outgoing && !owned.has(c.id);
 const pageOutOfSight = () => document.hidden || !document.hasFocus();
@@ -374,19 +374,19 @@ function syncPopup() {
     : { t: 'callpopup', show: false }));
 }
 
-// Нажатие на карточке (оболочка передала его сюда).
+// A press on the card (the shell passed it here).
 function onHostMessage(m) {
   if (m?.t !== 'call') return;
   popupFor = 0;
   if (!current || current.id !== m.id) return;
   if (m.action === 'accept') acceptCall(!!current.video);
   else if (m.action === 'decline') hangUp();
-  // open — оболочка уже подняла окно, звонок звонит в окне
+  // open — the shell has raised the window already, the call rings in the window
 }
 
 function onCall(c) {
-  // Чужой звонок поверх идущего своего — не перехватывать окно (второй
-  // входящий TDLib сам отклонит как «занято», если мы в разговоре).
+  // Someone else's call over an ongoing own one — do not take over the
+  // window (TDLib itself declines a second incoming one as "busy" if we are talking).
   if (current && c.id !== current.id && session) return;
   clearTimeout(endTimer);
   current = c;
@@ -414,8 +414,8 @@ export function mountCalls(options) {
   root = el('div', { class: 'call', hidden: true, role: 'dialog', 'aria-label': 'Call' });
   document.body.append(root);
   document.addEventListener('fullscreenchange', () => render());
-  // Окно вернулось на экран — карточка поверх всех больше не нужна, и
-  // наоборот: ушло, пока звонит, — показать.
+  // The window came back on screen — the card on top of all is no longer
+  // needed, and the other way round: it left while ringing — show it.
   window.addEventListener('focus', syncPopup);
   window.addEventListener('blur', syncPopup);
   document.addEventListener('visibilitychange', syncPopup);
@@ -426,19 +426,19 @@ export function mountCalls(options) {
     if (session && session.call.id === id) session.receive(data);
   });
   on('ui:call-start', ({ userId, video } = {}) => startCall(userId, video));
-  // Выбрали другое устройство — в идущем звонке сразу на него.
+  // Another device chosen — in an ongoing call switch to it at once.
   on('calls:device', ({ kind } = {}) => {
     if (kind === 'speaker' && ui) routeAudio(ui.remoteAudio);
     if (!session) return;
     const run = kind === 'mic' ? session.switchMic() : (kind === 'camera' ? session.switchCamera() : null);
     run?.catch(report);
   });
-  // «Перезвонить» из звонка в истории: собеседник — открытый личный чат
-  // (id лички = id пользователя).
+  // "Call back" from a call in the history: the other side is the open
+  // private chat (private chat id = user id).
   on('ui:call-back', ({ video } = {}) => {
     if (store.activeChatId > 0) startCall(store.activeChatId, video);
   });
-  // Страница открылась посреди звонка: входящий ещё звенит.
+  // The page opened in the middle of a call: an incoming one is still ringing.
   hooks.call('call.list')
     .then((r) => {
       for (const c of r?.calls ?? []) onCall(c);

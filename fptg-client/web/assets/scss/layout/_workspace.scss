@@ -6,13 +6,13 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  // Опора для зоны перетаскивания файлов (blocks/_attach.scss), которая
-  // ложится поверх всей рабочей области.
+  // The base for the file drop zone (blocks/_attach.scss), which lies over
+  // the whole workspace.
   position: relative;
-  // Свой контекст наложения ВСЕГДА: z-index: 1000 у шапки чата и 1001 у
-  // зоны перетаскивания — внутри рабочей области, а не на всё окно.
-  // Раньше контекст давал backdrop-filter из миксина card; в простых
-  // темах его нет, и шапка вылезала поверх уведомлений и окон.
+  // A stacking context of its own ALWAYS: z-index: 1000 for the chat header
+  // and 1001 for the drop zone — inside the workspace, not over the whole
+  // window. The context used to come from backdrop-filter in the card mixin;
+  // the plain themes have none, and the header climbed over notices and windows.
   isolation: isolate;
 }
 

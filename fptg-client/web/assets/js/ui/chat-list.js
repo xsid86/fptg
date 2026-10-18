@@ -170,10 +170,10 @@ function receipt(chat) {
 function avatar(chat) {
   let box = el('span', { class: 'avatar chat-item__avatar' });
   fillAvatar(box, chat);
-  // Активные истории — кольцо сегментов вокруг аватарки (util/storyring.js).
+  // Active stories — a ring of segments around the avatar (util/storyring.js).
   if (chat.stories > 0) {
     box = storyRing(box, chat.stories, chat.storiesRead ?? 0);
-    // Клик по кольцу — истории (ui/stories.js), а не открыть чат.
+    // A click on the ring — the stories (ui/stories.js), not opening the chat.
     box.classList.add('is-clickable');
     box.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -181,9 +181,9 @@ function avatar(chat) {
     });
   }
   if (!(chat.videoChat && chat.videoChatLive)) return box;
-  // Идёт видеочат или трансляция с участниками — значок на аватарке, как
-  // у официальных клиентов. Рядом с аватаркой, а не в ней: у той
-  // overflow: hidden (круг).
+  // A video chat or a live stream with participants is on — a badge on the
+  // avatar, as in the official clients. Next to the avatar, not inside it:
+  // it has overflow: hidden (a circle).
   return el('span', { class: 'chat-item__avatar-box' },
     box,
     el('span', {
@@ -193,7 +193,7 @@ function avatar(chat) {
 }
 
 // Which row the viewport is resting on, so a rebuild can put it back.
-// key — data-атрибут строки: chatId у чатов, userId у контактов.
+// key — the row's data attribute: chatId for chats, userId for contacts.
 //
 // A row rather than a pixel offset, and that is not belt-and-braces: the
 // list is sorted by date, so a message arriving in a chat further down
@@ -261,18 +261,18 @@ let topBtn = null;
 const rows = new Map();
 
 // ------------------------------------------------- avatars on demand
-// Аватарки просятся для строк, которые ВИДНЫ, — как у нативного списка,
-// который зовёт EnsureAvatar из отрисовки ячейки. Раньше просились
-// только первые 40 чатов при загрузке списка, и всё ниже так и стояло
-// с размытым превью, пока чат не откроют.
+// Avatars are requested for the rows that are VISIBLE — like the native
+// list, which calls EnsureAvatar from drawing a cell. They used to be
+// requested only for the first 40 chats when the list loaded, and
+// everything below stayed with a blurred preview until the chat was opened.
 //
-// Строки, вошедшие в кадр, копятся и уходят одной пачкой (chats.avatars
-// через main.js). Чат просится снова, только если его аватарка с тех
-// пор поменялась (сменилось фото), — сервер и так ничего не делает
-// дважды, но незачем спрашивать его на каждой прокрутке.
+// Rows that came into view accumulate and go in one batch (chats.avatars
+// through main.js). A chat is requested again only if its avatar changed
+// since (the photo changed) — the server does nothing twice anyway, but
+// there is no point asking it on every scroll.
 const AVATAR_BATCH_MS = 150;
-const asked = new Map();          // chat id -> состояние аватарки, когда просили
-const rowChat = new WeakMap();    // строка -> её чат
+const asked = new Map();          // chat id -> the avatar's state when requested
+const rowChat = new WeakMap();    // row -> its chat
 const pendingAvatars = new Set();
 let avatarTimer = 0;
 let seen = null;
@@ -308,12 +308,13 @@ function seenObserver() {
 }
 
 function rowNode(chat) {
-  // Активность — не часть данных чата, но меняет строку (is-active): без
-  // неё в ключе прежняя открытая строка оставалась подсвеченной, пока её
-  // чат сам не менялся (после отправки файла — заметно).
-  // Кастомные эмодзи строки (статус у имени, эмодзи в превью) — тоже в
-  // ключе: файл догружается позже, чат при этом не меняется, и без
-  // адресов в ключе строка держала запасной символ до клика по чату.
+  // Being active is not part of the chat's data but changes the row
+  // (is-active): without it in the key the previously open row stayed
+  // highlighted until its chat itself changed (noticeable after sending a file).
+  // The row's custom emoji (the status by the name, emoji in the preview) —
+  // in the key too: the file arrives later, the chat does not change
+  // meanwhile, and without the addresses in the key the row kept the
+  // fallback character until a click on the chat.
   const emojiIds = [chat.emojiStatus, ...(chat.previewGlyphs ?? []).map((g) => g?.customEmojiId)];
   const hash = JSON.stringify(chat) + (chat.id === store.activeChatId ? '|active' : '')
     + emojiIds.filter(Boolean).map(customEmojiUrl).join('|');
@@ -328,14 +329,14 @@ function rowNode(chat) {
 }
 
 // --------------------------------------------------------- contacts
-// Кнопка Contacts над списком: тот же контейнер показывает контакты
-// аккаунта (contacts.list в мосте). Фильтр из поля поиска действует и
-// здесь — по имени, имени пользователя и телефону. Клик — личка с
-// человеком (ui:open-contact, main.js).
+// The Contacts button above the list: the same container shows the
+// account's contacts (contacts.list in the bridge). The filter from the
+// search field works here too — by name, username and phone. A click — the
+// private chat with the person (ui:open-contact, main.js).
 let contactsMode = false;
 let contacts = [];
 
-/** Показать контакты вместо чатов (или обновить уже показанные). */
+/** Show contacts instead of chats (or refresh those already shown). */
 export function showContacts(list) {
   if (!contactsMode) {
     for (const { node } of rows.values()) seen?.unobserve(node);
@@ -346,7 +347,7 @@ export function showContacts(list) {
   render();
 }
 
-/** Вернуть список чатов. */
+/** Return the chat list. */
 export function hideContacts() {
   if (!contactsMode) return;
   contactsMode = false;
@@ -358,7 +359,7 @@ export function hideContacts() {
 
 export const contactsShown = () => contactsMode;
 
-/** «В сети» / «был(а) …» по userStatus* (td_api.tl). */
+/** "Online" / "last seen …" by userStatus* (td_api.tl). */
 export function statusText(c) {
   switch (c.status) {
     case 'userStatusOnline':
@@ -387,19 +388,19 @@ function contactMatches(c) {
   return [c.title, c.username, c.phone].some((v) => (v ?? '').toLowerCase().includes(needle));
 }
 
-// Что показано сейчас: список чатов перерисовывается на каждое событие
-// где угодно, а строки контактов от этого не меняются — без проверки они
-// пересоздавались бы, и аватарки мигали.
+// What is shown now: the chat list redraws on every event anywhere, while
+// contact rows do not change from it — without the check they would be
+// recreated, and the avatars blinked.
 let contactsDrawn = '';
 
 function renderContacts() {
   const key = JSON.stringify([needle, contacts]);
   if (key === contactsDrawn && root.childElementCount) return;
   contactsDrawn = key;
-  // Список перечитывается целиком (смена папки, докачанные аватарки,
-  // статусы) — без якоря clear() сбрасывал прокрутку к началу. Якорь —
-  // строка, а не пиксели: онлайн-контакты стоят сверху и сдвигают
-  // остальных, когда статус меняется.
+  // The list is re-read whole (a folder change, downloaded avatars,
+  // statuses) — without an anchor clear() reset the scroll to the top. The
+  // anchor is a row, not pixels: online contacts stand on top and shift the
+  // others when a status changes.
   const keep = scrollAnchor('userId');
   const list = contacts.filter(contactMatches).sort((a, b) => {
     const ao = a.status === 'userStatusOnline' ? 0 : 1;
@@ -417,10 +418,11 @@ function renderContacts() {
   clear(root).append(...list.map((c) => {
     const avatar = el('span', { class: `avatar avatar--md contact-row__avatar accent-${c.color}` });
     fillAvatar(avatar, { id: c.userId, title: c.title, avatar: c.avatar, avatarThumb: c.avatarThumb });
-    // Чип папки лички — тот же, что у строки чата, и то же меню
-    // (ui:folder-menu), текущая папка — с сервера. Только у тех, чья личка
-    // стоит в списке (inList): без переписки её нет ни в одном, а в папку
-    // Telegram берёт только чаты из списков — кнопка была бы мёртвой.
+    // The private chat's folder chip — the same as a chat row's, and the
+    // same menu (ui:folder-menu), the current folder — from the server. Only
+    // for those whose private chat is in the list (inList): without a
+    // conversation it is in none, and Telegram takes only chats from lists
+    // into a folder — the button would be dead.
     const folder = c.inList !== true ? null : el('button', {
       class: `chip chat-item__folder contact-row__folder${c.folder ? '' : ' chat-item__folder--none'}`,
       type: 'button',
@@ -433,8 +435,8 @@ function renderContacts() {
         });
       },
     }, el('span', { textContent: c.folder || 'no folder' }));
-    // div с ролью кнопки, не <button>: внутри настоящая кнопка папки, а
-    // кнопка в кнопке — невалидная разметка (см. chatItem).
+    // A div with the button role, not a <button>: inside is a real folder
+    // button, and a button in a button is invalid markup (see chatItem).
     const open = () => emit('ui:open-contact', { userId: c.userId });
     return el('div', {
       class: `contact-row accent-${c.color}`,

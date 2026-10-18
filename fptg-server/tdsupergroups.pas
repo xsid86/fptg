@@ -32,7 +32,7 @@ type
     JoinByRequest: boolean;
     { Derived from the same status this row already reads. }
     IsMember:    boolean;
-    { chatMemberStatusBanned: вступить нельзя, кнопку не показывать. }
+    { chatMemberStatusBanned: cannot join, do not show the button. }
     IsBanned:    boolean;
     { True when CanSend was derived from an EXPLICIT personal signal
       (being the creator, an administrator's own posting rights, a
@@ -102,14 +102,14 @@ type
       "you must join" about a group whose status has not loaded would
       be a guess. }
     function MustJoinToSend(AId: Int64; out AByRequest: boolean): boolean;
-    { Аккаунт не состоит в группе или канале и может вступить: статус
-      Left (или Restricted без членства), не Banned. Неизвестная группа —
-      False и запрос getSupergroup; ответ придёт updateSupergroup.
-      AByRequest — вступление через одобрение администратора. }
+    { The account is not a member of the group or channel and can join:
+      status Left (or Restricted without membership), not Banned. An
+      unknown group — False and a getSupergroup request; the answer comes
+      as updateSupergroup. AByRequest — joining through an admin's approval. }
     function CanJoin(AId: Int64; out AByRequest: boolean): boolean;
-    { Известен ли собственный статус аккаунта в группе или канале и
-      состоит ли он (AIsMember). Ничего не запрашивает: неизвестная
-      группа — False. }
+    { Whether the account's own status in the group or channel is known and
+      whether it is a member (AIsMember). Requests nothing: an unknown group
+      — False. }
     function Membership(AId: Int64; out AIsMember: boolean): boolean;
 
     { ITdUpdateListener }

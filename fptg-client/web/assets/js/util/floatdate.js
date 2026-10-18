@@ -1,30 +1,31 @@
-// Плавающая дата: день, элементы которого сейчас наверху прокрутки, —
-// одним ярлыком на `offset` пикселей ниже её верхнего края. Общая для
-// истории (ui/history.js) и медиа в панели информации (ui/infopanel.js).
+// The floating date: the day whose elements are now at the top of the
+// scroll — as one label `offset` pixels below its top edge. Shared by the
+// history (ui/history.js) and the media in the info panel (ui/infopanel.js).
 //
-// Не position: sticky на самих разделителях — они все на одном уровне
-// и в конце концов склеивались в пачку. Ярлык один, лежит поверх
-// прокрутки, а скрипт решает, что на нём написано и виден ли он:
-//   * день — у последнего дневного разделителя, ушедшего выше линии
-//     ярлыка;
-//   * ярлык прячется, пока настоящий разделитель этого дня ещё виден
-//     на своём месте, и когда следующий подъезжает к ярлыку снизу — там
-//     уже стоит настоящий, и два одинаковых рядом не нужны.
-// Сдвигать ярлык не приходится, поэтому и style не нужен.
+// Not position: sticky on the dividers themselves — they are all on one
+// level and in the end stuck together in a stack. The label is one, lies
+// over the scroll, and the script decides what is written on it and
+// whether it is visible:
+//   * the day — of the last day divider that went above the label's line;
+//   * the label hides while that day's real divider is still visible in
+//     its place, and when the next one approaches the label from below —
+//     the real one stands there already, and two identical ones side by
+//     side are not needed.
+// The label never has to be moved, so no style is needed either.
 //
-// Разделитель — элемент с data-day (текст дня), его первый потомок —
-// видимая плашка. Ярлык — элемент с одним потомком, в который пишется
-// день; прячется атрибутом hidden.
+// A divider is an element with data-day (the day's text), its first child
+// is the visible plate. The label is an element with one child the day is
+// written into; it hides with the hidden attribute.
 
-// Высота ярлыка, пока он ни разу не был показан и измерить его нечем.
+// The label's height while it has never been shown and there is nothing to measure it by.
 const CHIP_FALLBACK_PX = 24;
-// Зазор, на котором подъезжающий снизу разделитель уже «встал» на ярлык.
+// The gap at which a divider approaching from below has "landed" on the label.
 const CHIP_GAP_PX = 4;
 
 /**
- * scroller — прокручиваемый элемент; scope — где искать разделители;
- * float — сам ярлык; offset — его расстояние от верха scroller (то же,
- * что top у ярлыка в CSS).
+ * scroller — the scrolling element; scope — where to look for dividers;
+ * float — the label itself; offset — its distance from the top of scroller
+ * (the same as the label's top in CSS).
  */
 export function updateFloatDate(scroller, scope, float, offset) {
   if (!float || !scroller || !scope) return;
@@ -47,15 +48,15 @@ export function updateFloatDate(scroller, scope, float, offset) {
   }
 
   const show = !!current
-    // Свой разделитель дня ещё виден — дата и так на экране.
+    // The day's own divider is still visible — the date is on screen anyway.
     && current.label.bottom <= top
-    // Следующий день подъезжает к ярлыку — на этом месте уже он.
+    // The next day approaches the label — it is in that place already.
     && !(next && next.top < line + chipHeight + CHIP_GAP_PX);
   if (show && chip.textContent !== current.sep.dataset.day) {
     chip.textContent = current.sep.dataset.day;
   }
-  // Полночь дня (data-date, если разделитель её несёт) — ярлык с ней
-  // кликабелен (переход к первому сообщению дня, ui/history.js).
+  // The day's midnight (data-date, if the divider carries it) — the label
+  // with it is clickable (a jump to the day's first message, ui/history.js).
   if (show && current.sep.dataset.date) float.dataset.date = current.sep.dataset.date;
   else delete float.dataset.date;
   float.hidden = !show;

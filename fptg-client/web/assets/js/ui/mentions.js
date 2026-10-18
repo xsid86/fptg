@@ -3,22 +3,23 @@ import { call } from '../core/net.js';
 import { fillAvatar } from '../util/avatar.js';
 import { markPopDirection } from '../util/pop.js';
 
-// Подсказка упоминаний в поле ввода: набрали «@» и начало имени — над
-// полем всплывает список людей (mention.search: участники группы,
-// в личке — контакты). Стрелки и Enter/Tab выбирают, Escape закрывает,
-// мышью — кликом.
+// Mention suggestions in the input field: typed "@" and the start of a name
+// — a list of people pops up above the field (mention.search: group
+// members, in a private chat — contacts). The arrows and Enter/Tab choose,
+// Escape closes, with the mouse — a click.
 //
-// Вставляется то, что Telegram поймёт: «@username » — упоминание он
-// распознаёт сам; человек без username — его имя с сущностью
-// mentionName (ui/editor.js -> textEntityTypeMentionName).
+// What gets inserted is what Telegram understands: "@username " — it
+// recognizes the mention itself; a person without a username — their name
+// with a mentionName entity (ui/editor.js -> textEntityTypeMentionName).
 //
-// Список — popover в верхнем слое, привязанный к полю через anchor
-// positioning (как меню): у карточки композера своя рамка, и абсолютный
-// блок внутри неё обрезался бы. showPopover фокус у поля не забирает.
+// The list is a popover in the top layer tied to the field through anchor
+// positioning (like the menu): the composer card has its own frame, and an
+// absolute block inside it would be clipped. showPopover does not take the
+// field's focus.
 
-// «@» в начале или после пробела/скобки, дальше — буквы, цифры, «_».
+// "@" at the start or after a space/bracket, then letters, digits, "_".
 const TRIGGER = /(^|[\s(])@([\p{L}\p{N}_]{0,32})$/u;
-// Пауза набора перед запросом: каждый запрос — поиск в Telegram.
+// The typing pause before a request: each request is a search on Telegram.
 const DEBOUNCE_MS = 150;
 
 let input = null;
@@ -26,7 +27,7 @@ let pop = null;
 let opts = {};
 let items = [];
 let index = 0;
-let token = null;   // { start, end } — позиции «@запрос» в поле
+let token = null;   // { start, end } — the positions of "@query" in the field
 let seq = 0;
 let timer = 0;
 
@@ -40,7 +41,7 @@ function close() {
 
 const isOpen = () => Boolean(pop?.matches(':popover-open') && items.length);
 
-/** «@запрос» прямо перед кареткой, или null. */
+/** "@query" right before the caret, or null. */
 function tokenAtCaret() {
   if (input.selectionStart !== input.selectionEnd) return null;
   const caret = input.selectionStart;
@@ -93,7 +94,7 @@ function render() {
       class: `mention-pop__item${i === index ? ' is-active' : ''}`,
       type: 'button',
       role: 'option',
-      // Фокус остаётся в поле: иначе blur закрыл бы список раньше клика.
+      // Focus stays in the field: otherwise blur would close the list before the click.
       onmousedown: (event) => event.preventDefault(),
       onclick: () => choose(item),
     },
@@ -132,15 +133,15 @@ function onKey(event) {
   else if (event.key === 'Escape') close();
   else handled = false;
   if (!handled) return;
-  // Раньше обработчика композера: Enter не должен отправить сообщение,
-  // Escape — отменить ответ.
+  // Before the composer's handler: Enter must not send the message, Escape
+  // must not cancel the reply.
   event.preventDefault();
   event.stopImmediatePropagation();
 }
 
 /**
- * editor — поле ввода (ui/editor.js); options: { enabled(): можно ли
- * писать в чат }
+ * editor — the input field (ui/editor.js); options: { enabled(): whether
+ * one may write to the chat }
  */
 export function mountMentions(editor, options) {
   input = editor;
@@ -148,8 +149,8 @@ export function mountMentions(editor, options) {
   pop = el('div', { class: 'mention-pop', popover: 'manual', role: 'listbox' });
   document.body.append(pop);
   input.classList.add('mention-anchor');
-  // В фазе перехвата: на самом поле она срабатывает раньше его обычных
-  // обработчиков, в том числе отправки по Enter.
+  // In the capture phase: on the field itself it fires before its ordinary
+  // handlers, including sending on Enter.
   input.addEventListener('keydown', onKey, true);
   input.addEventListener('input', onInput);
   input.addEventListener('blur', () => setTimeout(() => {
@@ -157,7 +158,7 @@ export function mountMentions(editor, options) {
   }, 100));
 }
 
-/** Закрыть подсказку (смена чата, отправка). */
+/** Close the suggestion (a chat change, sending). */
 export function closeMentions() {
   close();
 }

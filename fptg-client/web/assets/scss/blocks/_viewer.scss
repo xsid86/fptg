@@ -90,12 +90,12 @@ $viewer-thumb-size: 64px;
   }
 }
 
-// Текстовые кнопки на верхней полосе (openViewer, options.actions):
-// «Set as main» и «Delete» в галерее своих аватарок. У PhotoSwipe
-// кнопка квадратная под иконку, здесь — по тексту.
-// Через .pswp: у вендорного .pswp__button:hover/:active/:focus
-// padding: 0 той же специфичности (0,2,0), и он подключается позже —
-// при наведении отступ обнулялся, кнопка сужалась и соседние уезжали.
+// Text buttons on the top bar (openViewer, options.actions): "Set as main"
+// and "Delete" in the gallery of own avatars. In PhotoSwipe a button is
+// square for an icon, here — by the text.
+// Through .pswp: the vendor's .pswp__button:hover/:active/:focus has
+// padding: 0 of the same specificity (0,2,0), and it is included later — on
+// hover the padding was zeroed, the button narrowed and the neighbours moved.
 .pswp .pswp__button.pswp__action {
   color: var(--c-light);
   font-size: $fs-md;

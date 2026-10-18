@@ -1,19 +1,18 @@
-// Вход на сервер (connect.html): логин и пароль -> refresh-токен сеанса
-// (POST /api/login, srvauth.pas).
+// Signing in to the server (connect.html): login and password -> the
+// session's refresh token (POST /api/login, srvauth.pas).
 //
-// В окне fptg страница — из файлов окна, адрес и порт сервера
-// вводятся; удачный вход уходит оболочке {t:'session', host, port, user,
-// refresh} — она запомнит его в conf.dat и откроет приложение.
-// Самоподписанный сертификат сервера окно пускает, только если человек
-// ему доверился: незнакомый оно отклоняет и присылает сюда
-// {t:'certificate', origin, fingerprint, changed}; «доверять» — обратно
-// {t:'trustCert', origin, fingerprint}, и вход повторяется.
+// In the fptg window the page is from the window's files, the server's
+// address and port are entered; a successful sign-in goes to the shell
+// {t:'session', host, port, user, refresh} — it remembers it in conf.dat
+// and opens the app. The window lets the server's self-signed certificate
+// through only if the person trusted it: an unknown one it refuses and
+// sends here {t:'certificate', origin, fingerprint, changed}; "trust" —
+// back {t:'trustCert', origin, fingerprint}, and the sign-in is repeated.
 //
-// В обычном браузере страница — с самого сервера: адрес не спрашивается,
-// refresh-токен ложится в localStorage (core/session.js читает его там).
+// In an ordinary browser the page is from the server itself: the address is
+// not asked, the refresh token goes into localStorage (core/session.js reads it there).
 //
-// Обычный скрипт, а не модуль — как и было: страница ни от чего не
-// зависит.
+// A plain script, not a module — as it was: the page depends on nothing.
 (function () {
   'use strict';
 
@@ -21,9 +20,9 @@
   var q = new URLSearchParams(location.search);
   var $ = function (id) { return document.getElementById(id); };
   var REFRESH_KEY = 'fptg.refresh';
-  // Сколько ждать, не придёт ли от окна весть о сертификате, прежде чем
-  // считать сервер недоступным: отказ fetch и сообщение окна приходят
-  // в любом порядке.
+  // How long to wait for news about the certificate from the window before
+  // considering the server unreachable: the fetch refusal and the window's
+  // message arrive in any order.
   var CERT_WAIT_MS = 500;
 
   var lastCert = null;      // {origin, fingerprint, changed}
@@ -54,8 +53,8 @@
       ? 'WARNING: this server’s certificate has CHANGED since you last trusted it. '
         + 'Someone may be impersonating the server.'
       : 'This server uses its own (self-signed) certificate.';
-    // Пробел после каждых восьми байт: 95 знаков без пробелов не
-    // переносятся и вылезли бы из карточки.
+    // A space after every eight bytes: 95 characters without spaces do not
+    // wrap and would stick out of the card.
     $('certPrint').textContent = cert.fingerprint.replace(/((?:[0-9A-F]{2}:){8})/g, '$1 ');
     $('cert').hidden = false;
     $('form').hidden = true;
@@ -108,7 +107,7 @@
       shell.postMessage(JSON.stringify({ t: 'session', host: $('host').value.trim(),
         port: parseInt($('port').value.trim(), 10), user: user, refresh: body.refresh }));
     } else {
-      try { localStorage.setItem(REFRESH_KEY, body.refresh); } catch (e) { /* без него — вход каждый раз */ }
+      try { localStorage.setItem(REFRESH_KEY, body.refresh); } catch (e) { /* without it — sign in every time */ }
       location.href = 'index.html';
     }
   }

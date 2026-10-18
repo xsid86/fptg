@@ -2,15 +2,15 @@ unit guiconn;
 
 {$mode objfpc}{$H+}
 
-{ Подключение окна к серверу — что помнить между запусками. В conf.dat
-  рядом с fptg-client.exe (secureconfig, зашифровано): адрес и порт
-  сервера, имя пользователя, refresh-токен сеанса (не пароль: пароль не
-  хранится нигде, кроме хеша на сервере) и отпечаток сертификата
-  сервера, которому человек доверился (pinning).
+{ The window's connection to the server — what to remember between runs.
+  In conf.dat (secureconfig, encrypted): the server's address and port,
+  the user name, the session's refresh token (not the password: the
+  password is kept nowhere except as a hash on the server) and the
+  fingerprint of the server certificate the person trusted (pinning).
 
-  Сам вход и проверки — на странице (connect.js, core/session.js): она
-  ходит к серверу из WebView2, а окно только хранит и решает о
-  сертификате. }
+  Signing in itself and the checks happen on the page (connect.js,
+  core/session.js): it reaches the server from WebView2, and the window
+  only stores things and decides about the certificate. }
 
 interface
 
@@ -26,16 +26,16 @@ type
     Fingerprint: string;
   end;
 
-{ Сохранённое; False — не к чему подключаться (нет адреса). }
+{ What is saved; False — nothing to connect to (no address). }
 function LoadServerAddress(out AAddr: TServerAddress): boolean;
 procedure SaveServerAddress(const AAddr: TServerAddress);
-{ Последние цвета рамки окна от страницы (JSON как пришёл, winframe);
-  '' — ещё не было. }
+{ The latest window frame colours from the page (JSON as it came,
+  winframe); '' — none yet. }
 function LoadWindowFrame: string;
 procedure SaveWindowFrame(const AJson: string);
-{ https://адрес:порт (IPv6 — в скобках). }
+{ https://address:port (IPv6 — in brackets). }
 function ServerOrigin(const AAddr: TServerAddress): string;
-{ Экранирование для параметра адреса. }
+{ Escaping for an address parameter. }
 function UrlEncode(const S: string): string;
 
 implementation
@@ -56,7 +56,7 @@ var
 procedure EnsureConfigDir;
 begin
   if not GConfigReady then begin
-    { conf.dat окна — в профиле пользователя (appdirs.pas). }
+    { The window's conf.dat is in the user profile (appdirs.pas). }
     SecureConfigSetDir(ClientDataDir);
     GConfigReady := True;
   end;
@@ -87,7 +87,7 @@ begin
   EnsureConfigDir;
   Ini := OpenConfig;
   try
-    { Прежний формат (токен вместо входа) — убрать. }
+    { The previous format (a token instead of sign-in) — remove it. }
     Ini.DeleteKey(GUI_CONFIG_SECTION, 'token');
     Ini.WriteString(GUI_CONFIG_SECTION, KEY_HOST, AAddr.Host);
     Ini.WriteInteger(GUI_CONFIG_SECTION, KEY_PORT, AAddr.Port);

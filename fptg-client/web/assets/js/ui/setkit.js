@@ -2,15 +2,15 @@ import { el } from '../core/dom.js';
 import { icon } from '../util/icons.js';
 import { store } from '../core/store.js';
 
-// Общее для разделов настроек (ui/settings.js и разделы в ui/set*.js):
-// строки, переключатели, строки-переходы как у Telegram Desktop, вызовы
-// TDLib через admin (webapi.pas: ADMIN_METHODS / SETTINGS_METHODS —
-// ответы TDLib как есть, поля по td_api.tl коммита d1085f9) и признак
-// Premium.
+// Shared by the settings sections (ui/settings.js and the sections in
+// ui/set*.js): rows, toggles, link rows as in Telegram Desktop, TDLib calls
+// through admin (webapi.pas: ADMIN_METHODS / SETTINGS_METHODS — TDLib
+// answers as they are, fields per td_api.tl of commit d1085f9) and the
+// Premium flag.
 //
-// Настройка, доступная только с Premium, без него не прячется, а
-// становится неактивной (как у Desktop — с замком и пометкой Premium):
-// row/navRow с { premium: true }.
+// A setting available only with Premium is not hidden without it but
+// becomes inactive (as in Desktop — with a lock and a Premium mark):
+// row/navRow with { premium: true }.
 
 let hooks = { load: () => Promise.reject(new Error('settings are not mounted')), report: () => {} };
 let refresher = () => {};
@@ -23,14 +23,14 @@ export function initKit(options, refresh) {
 
 export const load = (cmd, args) => hooks.load(cmd, args);
 export const report = (error) => hooks.report(error);
-/** Перерисовать открытый раздел (данные изменились). */
+/** Redraw the open section (the data changed). */
 export const refresh = () => refresher();
 
 /**
- * Последние обновления TDLib этих типов (td.kept): { тип: объект | null }.
- * Сервер отдаёт их строками как пришли (webapi.pas, CmdTdKept). Тип с
- * двоеточием на конце («updateQuickReplyShortcut:») — все хранимые по
- * ключам «тип:id»: массив объектов.
+ * The latest TDLib updates of these types (td.kept): { type: object | null }.
+ * The server returns them as strings, as they came (webapi.pas,
+ * CmdTdKept). A type with a colon at the end ("updateQuickReplyShortcut:")
+ * — all those kept under "type:id" keys: an array of objects.
  */
 export async function kept(types) {
   const raw = (await hooks.load('td.kept', { types })) ?? {};
@@ -52,18 +52,18 @@ export async function kept(types) {
   return out;
 }
 
-/** Шаги TDLib по очереди -> ответы по ключам; soft-шаг ошибкой не валит. */
+/** TDLib steps in turn -> answers by keys; a soft step does not fail on an error. */
 export const td = (steps) => hooks.load('admin', { steps });
 export async function one(method, params = {}) {
   return (await td([{ key: 'r', method, params }])).r;
 }
-/** Ответ soft-шага — ошибка? */
+/** Is a soft step's answer an error? */
 export const failed = (answer) => !answer || answer['@type'] === 'error';
 
 export const myId = () => store.chats.find((c) => c.kind === 'self')?.id ?? 0;
 export const me = () => ({ '@type': 'messageSenderUser', user_id: Number(myId()) });
 
-/** Premium у аккаунта: account.get (settings.js) или строка «Избранного». */
+/** The account's Premium: account.get (settings.js) or the Saved Messages row. */
 export function setPremium(value) {
   premium = !!value;
 }
@@ -72,7 +72,7 @@ export function isPremium() {
 }
 const locked = (needs) => !!needs && !isPremium();
 
-/** Изменение -> TDLib; ошибка — в уведомление; потом раздел заново. */
+/** A change -> TDLib; an error — into a notice; then the section anew. */
 export async function saving(fn, { redraw = true } = {}) {
   try {
     await fn();
@@ -94,7 +94,7 @@ function disableInside(node) {
   for (const c of node.querySelectorAll('input, button, select, textarea')) c.disabled = true;
 }
 
-/** Строка раздела: подпись и пояснение слева, элемент управления справа. */
+/** A section row: the label and hint on the left, the control on the right. */
 export function row(id, label, hint, control, { premium: needs = false } = {}) {
   const lock = locked(needs);
   const box = el('div', { class: 'settings__control' }, control);
@@ -125,15 +125,15 @@ export function switchControl(id, checked, onCommit) {
   return el('span', { class: 'switch' }, input, el('span', { class: 'switch__track' }));
 }
 
-/** Переключатель строкой целиком: row + switchControl. */
+/** A toggle as a whole row: row + switchControl. */
 export function switchRow(label, hint, checked, onCommit, options = {}) {
   const id = uid();
   return row(id, label, hint, switchControl(id, checked, onCommit), options);
 }
 
 /**
- * Число с единицей измерения. Отправляется по change (Enter или уход из
- * поля), а не на каждый ввод: иначе набор «100» сохранил бы сначала 1.
+ * A number with a unit. Sent on change (Enter or leaving the field), not on
+ * every input: otherwise typing "100" would first save 1.
  */
 export function numberControl(id, { value, min, max, unit }, onCommit) {
   const input = el('input', {
@@ -161,7 +161,7 @@ export function textControl(id, value, onCommit) {
   return el('label', { class: 'field settings__field settings__field--wide' }, input);
 }
 
-/** Выпадающий список: options — [{ value, label }]. */
+/** A drop-down list: options — [{ value, label }]. */
 export function selectControl(id, options, value, onCommit) {
   const select = el('select', {
     class: 'settings__select', id,
@@ -173,7 +173,7 @@ export function selectControl(id, options, value, onCommit) {
   return select;
 }
 
-/** Радиокнопки строками: options — [{ value, label, hint, premium }]. */
+/** Radio buttons as rows: options — [{ value, label, hint, premium }]. */
 export function radioRows(options, value, onCommit) {
   const name = uid();
   return options.map((o) => {
@@ -188,8 +188,8 @@ export function radioRows(options, value, onCommit) {
 }
 
 /**
- * Строка-переход, как у Desktop: подпись (с пояснением), справа —
- * текущее значение цвета акцента и шеврон; щелчок — окно или подстраница.
+ * A link row, as in Desktop: a label (with a hint), on the right — the
+ * current value in the accent colour and a chevron; a click — a window or a subpage.
  */
 export function navRow({ label, value = '', hint = '', iconName = '', onClick, premium: needs = false, danger = false }) {
   const lock = locked(needs);
@@ -206,7 +206,7 @@ export function navRow({ label, value = '', hint = '', iconName = '', onClick, p
   danger ? null : icon('chevron-right', 'settings__chevron'));
 }
 
-/** Кнопка действия в строке (Terminate, Unblock…). */
+/** An action button in a row (Terminate, Unblock…). */
 export function actionButton(label, onClick, { danger = false, primary = false } = {}) {
   return el('button', {
     class: `btn${primary ? ' btn--primary' : ''} settings__action${danger ? ' is-danger' : ''}`,
@@ -218,10 +218,10 @@ export function loading() {
   return [el('p', { class: 'settings__hint' }, 'Loading…')];
 }
 
-// --------------------------------------------------------------- время
+// --------------------------------------------------------------- time
 const DAY = 86400;
 
-/** «1 day», «2 weeks», «1 month»… для таймеров автоудаления. */
+/** "1 day", "2 weeks", "1 month"… for auto-delete timers. */
 export function periodLabel(seconds) {
   if (!seconds) return 'Off';
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -234,7 +234,7 @@ export function periodLabel(seconds) {
   return plural(Math.round(seconds / 60), 'minute');
 }
 
-/** Дата и время по-английски: «Oct 17, 2026 at 14:05». */
+/** The date and time in English: "Oct 17, 2026 at 14:05". */
 export function dateTime(unix) {
   if (!unix) return '';
   const d = new Date(unix * 1000);

@@ -49,8 +49,8 @@ export function setCustomEmoji(dict) {
         known.set(key, info);
         fresh = true;
     }
-    // Тем, кто показывает эмодзи вне сообщений (поле ввода, ui/editor.js),
-    // — что пора заменить запасной символ картинкой.
+    // To those showing emoji outside messages (the input field,
+    // ui/editor.js) — that it is time to replace the fallback character with a picture.
     if (fresh) document.dispatchEvent(new CustomEvent('custom-emoji:ready'));
     return fresh;
 }

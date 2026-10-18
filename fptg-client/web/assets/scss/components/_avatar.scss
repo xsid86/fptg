@@ -29,12 +29,12 @@
   object-fit: cover;
 }
 
-// Анимированная аватарка (util/avatar.js). <video> рисуется отдельным
-// слоем компоновщика, и скругление родителя (border-radius + overflow:
-// hidden у .avatar) обрезает такой слой неточно — особенно под предками
-// с backdrop-filter, которые выносят слои в отдельные поверхности: по
-// краю проступал еле заметный квадрат. Обрезка на САМОМ видео: clip-path
-// ложится на его слой маской, border-radius — запасной путь.
+// An animated avatar (util/avatar.js). A <video> is drawn as a separate
+// compositor layer, and the parent's rounding (border-radius + overflow:
+// hidden on .avatar) clips such a layer imprecisely — especially under
+// ancestors with backdrop-filter, which move layers into separate surfaces:
+// a barely visible square showed at the edge. The clipping is on the video
+// ITSELF: clip-path goes onto its layer as a mask, border-radius — the fallback.
 .avatar__video {
   border-radius: 50%;
   clip-path: circle(50%);

@@ -1,7 +1,7 @@
 @use "../abstracts" as *;
 
-// Подсказка упоминаний (ui/mentions.js): popover над полем ввода,
-// привязанный к нему через anchor positioning, как меню.
+// Mention suggestions (ui/mentions.js): a popover above the input field,
+// tied to it through anchor positioning, like the menu.
 .mention-pop {
   @include card($radius-md, var(--c-dark));
   background: var(--c-bg);
@@ -71,8 +71,8 @@
 
 .composer {
   @include card;
-  // Промежутки между частями — как отступ от краёв (padding ниже):
-  // поле ввода от ряда кнопок на том же расстоянии, что ряд от низа.
+  // The gaps between the parts — like the padding from the edges (padding
+  // below): the input field is as far from the button row as the row from the bottom.
   @include flex(column, stretch, flex-start, $space-3);
   background: var(--c-surface);
   border: none;
@@ -87,15 +87,16 @@
   }
 }
 
-// Ряд под полем ввода: слева то, что действует на ВЫДЕЛЕНИЕ (формат),
-// справа то, что действует на СООБЩЕНИЕ (эмодзи, режимы, отправка).
+// The row under the input field: on the left what acts on the SELECTION
+// (format), on the right what acts on the MESSAGE (emoji, modes, sending).
 .composer__bar {
   @include flex(row, center, space-between, $space-4);
 
-  // Обеим группам не хватает места в одну строку — друг под другом,
-  // действия прижаты вправо, к тому краю, где кнопка Send была всегда.
-  // Порог — ширина самого композера (container query), а не окна:
-  // композер стоит правее сайдбара, и окно о нём ничего не говорит.
+  // Both groups do not fit into one line — one under the other, the actions
+  // pressed to the right, to the edge where the Send button always was. The
+  // threshold is the composer's own width (a container query), not the
+  // window's: the composer stands to the right of the sidebar, and the
+  // window tells nothing about it.
   @container composer (max-width: #{$composer-bar-stack}) {
     align-items: stretch;
     flex-direction: column;
@@ -170,7 +171,7 @@
   }
 }
 
-// Поле ввода и справа — кнопка голосового / кружка (ui/recorder.js).
+// The input field and on the right — the voice / round video button (ui/recorder.js).
 .composer__row {
   @include flex(row, flex-end, flex-start, $space-3);
   position: relative;
@@ -187,9 +188,9 @@
   }
 }
 
-// Поле ввода — <fptg-editor> (ui/editor.js), contenteditable: растёт
-// с содержимым до $composer-max, дальше прокрутка. Переводы строк —
-// текстом и <br>, поэтому pre-wrap.
+// The input field — <fptg-editor> (ui/editor.js), contenteditable: it grows
+// with the content up to $composer-max, then scrolls. Line breaks — as text
+// and <br>, hence pre-wrap.
 .composer__input {
   background: var(--c-surface-2);
   border: 1px solid transparent;
@@ -220,7 +221,7 @@
     cursor: default;
   }
 
-  // Оформление — так, как оно выйдет в сообщении.
+  // Formatting — the way it will come out in the message.
   code,
   .ed-pre {
     font-family: $font-mono;
@@ -266,7 +267,7 @@
     text-decoration: none;
   }
 
-  // Кастомный эмодзи — картинкой размером с букву; целиком, как символ.
+  // A custom emoji — as a picture the size of a letter; whole, like a character.
   .ed-emoji {
     display: inline-block;
     height: 1.25em;
@@ -358,8 +359,8 @@
   flex: 0 0 auto;
 }
 
-// Кнопки разметки: основной ряд и под ним — ряд блоков (Heading, List,
-// Table…), он только в режиме Rich.
+// Markup buttons: the main row and under it — the block row (Heading, List,
+// Table…), only in Rich mode.
 .composer__group--format {
   align-items: flex-start;
   flex-direction: column;

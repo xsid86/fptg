@@ -31,7 +31,7 @@
   opacity: .85;
 }
 
-// Нулевой высоты и sticky: подгрузка не сдвигает историю (см. history.js).
+// Zero height and sticky: loading does not shift the history (see history.js).
 .history__loader {
   @include flex(row, flex-start, center);
   height: 0;
@@ -78,7 +78,7 @@
     padding: $space-1 $space-4;
   }
 
-  // Дневной разделитель (data-date) — клик ведёт к первому сообщению дня.
+  // A day divider (data-date) — a click leads to the day's first message.
   &[data-date] > span {
     cursor: pointer;
 
@@ -86,10 +86,10 @@
   }
 }
 
-// Плавающая дата (updateFloatDate в ui/history.js): тот же ярлык, что
-// у разделителя, но один и поверх истории, на 16px ниже шапки. top
-// держать в согласии с FLOAT_DATE_TOP там же. `hidden` прописан явно:
-// свой display перебил бы правило UA для атрибута.
+// The floating date (updateFloatDate in ui/history.js): the same label as
+// the divider's, but one and over the history, 16px below the header. Keep
+// top in agreement with FLOAT_DATE_TOP there. `hidden` is spelled out
+// explicitly: our own display would override the UA rule for the attribute.
 .history__float-date {
   @include flex(row, center, center);
   inset-block-start: $space-6;
@@ -107,8 +107,8 @@
     padding: $space-1 $space-4;
   }
 
-  // Сам ряд мимо мыши (под ним история), ярлык — кликабелен, когда у
-  // него есть день (data-date): к первому сообщению дня.
+  // The row itself is transparent to the mouse (the history is under it),
+  // the label is clickable when it has a day (data-date): to the day's first message.
   &[data-date] > span {
     cursor: pointer;
     pointer-events: auto;
@@ -179,8 +179,8 @@
   inset-inline-end: $space-6;
 }
 
-// Непрочитанные открытого чата — над кнопкой «вниз», по центру неё,
-// акцентом (ui/history.js, paintUnreadChip).
+// The open chat's unread count — above the "down" button, centred on it,
+// in the accent (ui/history.js, paintUnreadChip).
 .history__to-bottom-count {
   background: var(--c-accent);
   border-radius: $radius-pill;
@@ -203,12 +203,12 @@
   }
 }
 
-// --------------------------------------------------------- приветствие
-// ui/greeting.js: карточка посреди пустого личного чата — как у нативного
-// клиента, полупрозрачная поверх фона.
-// Колонка сама высоты не имеет — пока в ней приветствие (или заглушка
-// «Pick a chat on the left»), она растягивается на всю высоту истории и
-// ставит его посередине — по обеим осям.
+// --------------------------------------------------------- greeting
+// ui/greeting.js: a card in the middle of an empty private chat — as in the
+// native client, semi-transparent over the background.
+// The column has no height of its own — while it holds the greeting (or
+// the "Pick a chat on the left" placeholder), it stretches over the whole
+// history height and puts it in the middle — on both axes.
 .history__column:has(> .greeting),
 .history__column:has(> .workspace__empty) {
   @include flex(column, center, center);
@@ -244,9 +244,9 @@
   align-self: stretch;
 }
 
-// ------------------------------------------------- панель информации
-// ui/infopanel.js: кнопка «i» в правом верхнем углу истории (акцентная,
-// белая буква) и панель, выезжающая справа поверх истории.
+// ------------------------------------------------- info panel
+// ui/infopanel.js: the "i" button in the top right corner of the history
+// (accented, a white letter) and the panel sliding in from the right over the history.
 .info-toggle {
   @include flex(row, center, center);
   @include focus-ring;
@@ -271,8 +271,8 @@
   }
 }
 
-// Перевод чата — круглая кнопка под «i»; включённая — залита акцентом,
-// выключенная — приглушена (ui/translate.js).
+// The chat translation — a round button under "i"; on — filled with the
+// accent, off — muted (ui/translate.js).
 .translate-toggle {
   @include flex(row, center, center);
   @include focus-ring;
@@ -304,7 +304,7 @@
   line-height: 1;
 }
 
-// Пометка под переведённым текстом сообщения.
+// A mark under a message's translated text.
 .message__translated {
   color: var(--c-text-faint);
   font-size: $fs-xs;
@@ -346,7 +346,7 @@
   top: $space-4;
 }
 
-// Панель «занята»: данные следующего вида грузятся, текущий остаётся.
+// The panel is "busy": the next view's data loads, the current one stays.
 .info-panel.is-busy {
   cursor: progress;
 
@@ -360,8 +360,8 @@
   @include flex(column, stretch, flex-start, $space-6);
   flex: 1 1 auto;
   padding: $space-7 $space-6 $space-6;
-  // Переход между видами (ui/infopanel.js, viewTransition): старый
-  // гаснет, новый проявляется.
+  // A transition between views (ui/infopanel.js, viewTransition): the old
+  // one fades, the new one fades in.
   transition: opacity .2s $ease;
 
   &.is-leaving {
@@ -385,9 +385,9 @@
   @include focus-ring;
   border-radius: $radius-pill;
   cursor: pointer;
-  // Ровно по аватарке: строчный потомок давал кнопке хвост под базовую
-  // линию, и кольцо загрузки (.is-ring-loading, растянутое по кнопке)
-  // выходило овалом.
+  // Exactly the avatar's size: an inline child gave the button a tail under
+  // the baseline, and the loading ring (.is-ring-loading, stretched over the
+  // button) came out oval.
   display: inline-flex;
   line-height: 0;
   padding: 0;
@@ -405,7 +405,7 @@
   text-align: center;
 }
 
-// Telegram ID под именем; клик копирует (ui/infopanel.js idLine).
+// The Telegram ID under the name; a click copies (ui/infopanel.js idLine).
 .info-panel__id {
   @include focus-ring;
   background: none;
@@ -553,16 +553,16 @@
   font-size: $fs-sm;
 }
 
-// Подпись участника и под ней роль — столбиком у правого края строки.
+// The member's label and the role under it — as a column at the row's right edge.
 .info-panel__roles {
   @include flex(column, flex-end, center, $space-1);
   flex: 0 0 auto;
   margin-left: auto;
 }
 
-// Подпись, выбранная участником (chatMember.tag): чип его цвета — фон
-// цветом участника на четверть, текст его же цветом. Цвет личный,
-// поэтому и в простых темах остаётся своим.
+// The label the member chose (chatMember.tag): a chip of their colour — the
+// background a quarter of the member's colour, the text in the same colour.
+// The colour is personal, so it stays its own in plain themes too.
 .info-panel__tag {
   --chat-color: var(--accent-color, var(--c-accent));
   background: color-mix(in srgb, var(--chat-color) 25%, transparent);
@@ -575,9 +575,9 @@
   @include ellipsis;
 }
 
-// ------------------------------------------------------------- подарки
-// ui/infopanel.js, renderGifts: подарки профиля — фильтр, сетка, окно
-// подробностей.
+// ------------------------------------------------------------- gifts
+// ui/infopanel.js, renderGifts: the profile's gifts — a filter, a grid, a
+// details window.
 .info-panel__back {
   @include flex(row, center, flex-start, $space-3);
   align-self: flex-start;
@@ -610,21 +610,21 @@
   }
 }
 
-// Сетка фото и видео: квадратные превью вплотную, как у нативного клиента.
+// The photo and video grid: square previews edge to edge, as in the native client.
 .media-grid {
   display: grid;
   gap: 2px;
   grid-template-columns: repeat(3, 1fr);
 }
 
-// Разделитель дня в медиа панели (та же плашка, что в истории,
-// .history__date): в сетке — на весь ряд, отступы поменьше.
+// A day divider in the panel's media (the same plate as in the history,
+// .history__date): in the grid — across the whole row, smaller margins.
 .media-day {
   grid-column: 1 / -1;
   margin: $space-4 0 $space-3;
 }
 
-// Плавающая дата медиа — поверх тела панели; top — MEDIA_FLOAT_TOP в
+// The floating media date — over the panel body; top — MEDIA_FLOAT_TOP in
 // ui/infopanel.js.
 .info-panel__float-date {
   inset-block-start: 16px;
@@ -639,7 +639,7 @@
   overflow: hidden;
   position: relative;
 
-  // Плитка, к сообщению которой прокручена история.
+  // The tile whose message the history is scrolled to.
   &.is-current {
     outline: 2px solid var(--c-accent);
     outline-offset: -2px;
@@ -655,9 +655,10 @@
   width: 100%;
 }
 
-// Своим слоем композитора: без него Chromium уменьшает превью резко, с
-// зубцами, а под мышью (opacity выносит картинку в слой) — сглаженно, и
-// плитка менялась от наведения. Слой — постоянно, вид один.
+// A compositor layer of its own: without it Chromium shrinks the preview
+// sharply, with jaggies, and under the mouse (opacity moves the picture into
+// a layer) — smoothly, and the tile changed on hover. The layer is
+// permanent, the look is one.
 .media-tile__img {
   transform: translateZ(0);
 }
@@ -667,7 +668,7 @@
   transform: scale(1.1);
 }
 
-// Видео: значок и длительность в углу.
+// Video: an icon and the duration in the corner.
 .media-tile__badge {
   @include flex(row, center, flex-start, $space-1);
   background: rgba(0, 0, 0, 0.55);
@@ -680,8 +681,8 @@
   position: absolute;
 }
 
-// Музыка и ссылки — списком строк: обложка или картинка сайта слева,
-// текст, дата справа.
+// Music and links — as a list of rows: the cover or the site's picture on
+// the left, the text, the date on the right.
 .media-list {
   @include flex(column, stretch, flex-start, 2px);
 }
@@ -724,7 +725,7 @@
   }
 }
 
-// Буква сайта или расширение файла на цветном квадрате (нет картинки).
+// The site's letter or the file extension on a coloured square (no picture).
 .media-row__letter {
   @include flex(row, center, center);
   background: var(--accent-color);
@@ -736,7 +737,7 @@
   width: 100%;
 }
 
-// Расширение файла длиннее буквы — мельче.
+// A file extension is longer than a letter — smaller.
 .media-row__letter.is-ext {
   font-size: $fs-sm;
 }
@@ -745,13 +746,13 @@
   border-radius: 50%;
 }
 
-// Аватарка отправителя голосового — во весь кружок.
+// The voice message sender's avatar — over the whole circle.
 .media-row__avatar {
   --avatar-color: var(--accent-color);
   @include size(100%);
 }
 
-// Непрослушанное голосовое — точка акцентным цветом после длительности.
+// An unlistened voice message — an accent-coloured dot after the duration.
 .media-row.is-unlistened .media-row__sub--icon::after {
   @include size(6px);
   background: var(--c-accent);
@@ -776,12 +777,12 @@
   font-size: $fs-sm;
 }
 
-// Строка со значком (голосовое): значок, длительность, точка.
+// A row with an icon (voice): the icon, the duration, the dot.
 .media-row__sub--icon {
   @include flex(row, center, flex-start, $space-1);
 }
 
-// Описание ссылки — не больше двух строк.
+// A link's description — no more than two lines.
 .media-row__desc {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -808,8 +809,8 @@
   font-size: $fs-xs;
 }
 
-// Ряды одной высоты: плитка растягивается на весь ряд, а её содержимое
-// остаётся прижатым к верху.
+// Rows of one height: a tile stretches over the whole row, and its content
+// stays pressed to the top.
 .gift-grid {
   display: grid;
   gap: $space-3;
@@ -817,7 +818,7 @@
   grid-template-columns: repeat(3, 1fr);
 }
 
-// Содержимое плитки — по верхнему краю и по центру по горизонтали.
+// The tile's content — at the top edge and centred horizontally.
 .gift-tile {
   @include flex(column, center, flex-start, $space-1);
   @include focus-ring;
@@ -838,10 +839,11 @@
   }
 }
 
-// Стикер подарка рисуется тем же кодом, что в сообщениях, а там он
-// 170x170 (.media__sticker--lottie, .media__sticker-wait). Размер задаётся
-// всей цепочке: обёртке .media--sticker тоже — без неё max-height: 100%
-// не на что опереться, и стикер вылезал из ячейки на подписи.
+// A gift's sticker is drawn by the same code as in messages, and there it is
+// 170x170 (.media__sticker--lottie, .media__sticker-wait). The size is set
+// for the whole chain: for the .media--sticker wrapper too — without it
+// max-height: 100% has nothing to lean on, and the sticker stuck out of the
+// cell over the caption.
 .gift-tile__sticker,
 .gift-details__sticker {
   @include flex(row, center, center);
@@ -874,7 +876,7 @@
   align-self: center;
 }
 
-// Аватарка отправителя — кружок в левом верхнем углу плитки.
+// The sender's avatar — a circle in the tile's top left corner.
 .gift-tile__sender {
   --avatar-color: var(--accent-color);
   @include size(22px);
@@ -919,7 +921,7 @@
   color: var(--c-text-faint);
 }
 
-// Имя отправителя — ссылка в его чат.
+// The sender's name — a link to their chat.
 .gift-details__link {
   @include focus-ring;
   color: var(--c-accent);
@@ -930,8 +932,8 @@
   }
 }
 
-// Источник «Избранного» (ui/infopanel.js): последнее сообщение одной
-// строкой, дата справа.
+// A Saved Messages source (ui/infopanel.js): the last message as one line,
+// the date on the right.
 .info-panel__topic .info-panel__label {
   @include ellipsis;
 }

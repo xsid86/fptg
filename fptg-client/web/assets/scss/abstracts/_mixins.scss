@@ -3,20 +3,21 @@
 @use "sass:string";
 @use "variables" as v;
 
-// ЦВЕТ ЧАТА — одно правило на всё, что красится «под собеседника»:
-// в цветных темах (Dark colored, Light colored) — цвет контакта
-// (--chat-color блока, из класса .accent-*), в простых темах и Aurora —
-// акцент приложения (--c-accent). Поэтому в блоке пишется одна строка:
+// THE CHAT COLOUR — one rule for everything painted "after the other side":
+// in the colour themes (Dark colored, Light colored) — the contact's colour
+// (the block's --chat-color, from the .accent-* class), in the plain themes
+// and Aurora — the app accent (--c-accent). So the block gets one line:
 //
-//     @include chat-tint(background, 20%);    // подложка: 20% цвета на прозрачном
-//     @include chat-tint(color);              // сам цвет
+//     @include chat-tint(background, 20%);    // backdrop: 20% of the colour on transparent
+//     @include chat-tint(color);              // the colour itself
 //     @include chat-tint(stroke);
 //
-// $share — доля цвета, $mix — с чем смешан (по умолчанию прозрачный).
-// Переопределение для простых тем и Aurora миксин ставит сам (селектор
-// с :root[data-style] специфичнее правил блока) — в файлы тем ничего не
-// дописывается. Условие одно: у элемента или его предка задан
-// --chat-color, иначе в цветных темах берётся акцент.
+// $share — the colour's share, $mix — what it is mixed with (transparent by
+// default). The mixin itself sets the override for the plain themes and
+// Aurora (a selector with :root[data-style] is more specific than the
+// block's rules) — nothing is added to the theme files. One condition: the
+// element or its ancestor has --chat-color set, otherwise the colour themes
+// take the accent.
 @function tint-value($color, $share, $mix) {
   @if $share == 100% {
     @return string.unquote($color);
@@ -101,8 +102,8 @@
   }
 }
 
-// --card-bg / --card-border / --card-blur задают простые темы
-// (themes/_plain.scss); без них — как всегда у цветных тем.
+// --card-bg / --card-border / --card-blur are set by the plain themes
+// (themes/_plain.scss); without them — as always in the colour themes.
 @mixin card($radius: v.$radius-md, $bg: var(--c-surface)) {
   background: var(--card-bg, color-mix(in srgb, var(--c-bg) 25%, transparent));
   backdrop-filter: var(--card-blur, blur(15px));
@@ -113,10 +114,10 @@
 // Thin overlay scrollbar. Chromium only (this UI runs in a WebView),
 // with the standards-track properties first so other engines at least
 // get the colours.
-// Стандартные scrollbar-width / scrollbar-color — ТОЛЬКО там, где нет
-// ::-webkit-scrollbar (Firefox): Chromium с 121 при них игнорирует
-// ::-webkit-scrollbar и рисует системную тонкую полосу со стрелками.
-// Без кнопок-стрелок — как раз полоса из ::-webkit-scrollbar ниже.
+// The standard scrollbar-width / scrollbar-color — ONLY where there is no
+// ::-webkit-scrollbar (Firefox): Chromium since 121 ignores
+// ::-webkit-scrollbar with them and draws the thin system bar with arrows.
+// Without arrow buttons — exactly the bar from ::-webkit-scrollbar below.
 @mixin scrollbar($size: v.$scrollbar-width) {
   @supports not selector(::-webkit-scrollbar) {
     scrollbar-width: thin;

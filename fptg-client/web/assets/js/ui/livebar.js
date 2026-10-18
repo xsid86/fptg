@@ -4,19 +4,20 @@ import { store, onActiveChat, openThread } from '../core/store.js';
 import { fillAvatar } from '../util/avatar.js';
 import { icon } from '../util/icons.js';
 
-// Плашка над историей, пока в открытом чате идёт видеочат или
-// трансляция: что это (Live stream / Video chat), сколько участников,
-// аватарки последних говоривших и «Join» (ui:vchat-join -> ui/videochat.js).
+// A plate above the history while a video chat or a live stream is on in
+// the open chat: what it is (Live stream / Video chat), how many
+// participants, the avatars of the last speakers and "Join" (ui:vchat-join
+// -> ui/videochat.js).
 //
-// Есть ли звонок — поле videoChat строки чата (webapi RowToJson, из
-// chat.video_chat / updateChatVideoChat). Подробности — vchat.info один
-// раз на звонок; дальше число участников обновляют события vchat
-// (updateGroupCall, TDLib шлёт их после getGroupCall).
+// Whether there is a call — the videoChat field of the chat row (webapi
+// RowToJson, from chat.video_chat / updateChatVideoChat). The details —
+// vchat.info once per call; after that the vchat events update the
+// participant count (updateGroupCall, TDLib sends them after getGroupCall).
 
 let bar = null;
 let parts = null;
-// Чат и звонок, для которых плашка заполнена; повторно не спрашивать —
-// onActiveChat срабатывает на каждое обновление списка.
+// The chat and call the plate is filled for; do not ask again — onActiveChat
+// fires on every list update.
 let shownChat = null;
 let shownCall = 0;
 let call = null;
@@ -37,13 +38,13 @@ function paint() {
   const visible = Boolean(chat && call && call.active && !openThread());
   bar.hidden = !visible;
   if (!visible) return;
-  // Цвет контакта для «цвета чата» (@include tint в _live-bar.scss).
+  // The contact's colour for the "chat colour" (@include tint in _live-bar.scss).
   bar.className = `live-bar accent-${chat.color || 'a5'}`;
   const stream = call.rtmp || chat.kind === 'channel';
   parts.title.textContent = call.title || (stream ? 'Live stream' : 'Video chat');
   parts.count.textContent = plural(call.count ?? 0, 'participant', 'participants');
-  // У трансляции (RTMP) говорящих нет — тогда аватарка самого канала,
-  // как у официальных клиентов.
+  // A stream (RTMP) has no speakers — then the channel's own avatar, as in
+  // the official clients.
   let faces = call.speakers ?? [];
   if (!faces.length && stream) {
     faces = [{ name: chat.title, avatar: chat.avatar, avatarThumb: chat.avatarThumb, color: chat.color }];
@@ -56,7 +57,7 @@ async function load(chat) {
   const callId = chat.videoChat;
   try {
     const info = await emitCall('vchat.info', { chatId });
-    // Пока ждали ответ, могли открыть другой чат.
+    // While we waited for the answer, another chat may have been opened.
     if (shownChat !== chatId || shownCall !== callId) return;
     call = info?.call ?? null;
   } catch {
@@ -99,7 +100,7 @@ export function mountLiveBar(header, options) {
   header.after(bar);
 
   onActiveChat(onChat);
-  on('store:messages', () => paint());      // ветка комментариев открылась / закрылась
+  on('store:messages', () => paint());      // a comment thread opened / closed
   on('srv:vchat', (c) => {
     if (!c || c.id !== shownCall) return;
     call = c;

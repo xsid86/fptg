@@ -1,23 +1,23 @@
 @use "../abstracts" as *;
 
-// Запись голосовых и кружков (ui/recorder.js), как у Telegram Desktop:
-// круглая кнопка справа от поля; пока держат — она растёт и пульсирует
-// в такт громкости (ступени is-level-N), над ней — замок; поле ввода
-// закрывает полоса записи (точка, время, подсказка); кружок — круглое
-// превью над полем.
+// Recording voice messages and round videos (ui/recorder.js), as in
+// Telegram Desktop: a round button to the right of the field; while held it
+// grows and pulses in time with the volume (is-level-N steps), a lock above
+// it; the recording bar covers the input field (a dot, the time, a hint);
+// a round video — a round preview above the field.
 
-// Превью кружка встаёт над полем — от композера.
+// The round video preview goes above the field — from the composer.
 .composer {
   position: relative;
 }
 
-// Полоса записи закрывает поле ввода: его подсказка не просвечивает
-// (у полупрозрачных тем фон полосы — не сплошной).
+// The recording bar covers the input field: its placeholder does not show
+// through (with semi-transparent themes the bar's background is not solid).
 .composer.is-recording .composer__input {
   visibility: hidden;
 }
 
-// «Вступить» вместо поля — записывать некуда.
+// "Join" instead of the field — there is nowhere to record to.
 .composer--join .composer__record-box {
   display: none;
 }
@@ -41,8 +41,8 @@
   user-select: none;
   z-index: 3;
 
-  // Наведение — как у соседних кнопок-значков (.btn): подложка и
-  // светлее значок; не во время записи — там фон уже цвета чата.
+  // Hover — as for the neighbouring icon buttons (.btn): a backdrop and a
+  // lighter icon; not during recording — the background is the chat colour there already.
   &:hover:not(.is-recording) {
     background: var(--c-surface-hover);
     color: var(--c-text);
@@ -63,7 +63,7 @@
     transform: scale(1.35);
   }
 
-  // Громкость — кольцо вокруг кнопки.
+  // The volume — a ring around the button.
   &.is-recording::before {
     @include chat-tint(background, 30%);
     border-radius: 50%;
@@ -81,7 +81,7 @@
   }
 }
 
-// Замок над кнопкой: «потяните вверх».
+// The lock above the button: "drag up".
 .recorder__lock {
   @include flex(column, center, center, 0);
   background: var(--c-surface);
@@ -109,7 +109,7 @@
   50% { translate: 0 -3px; }
 }
 
-// Полоса записи — поверх поля ввода.
+// The recording bar — over the input field.
 .recorder {
   @include flex(row, center, flex-start, $space-4);
   background: var(--c-surface-2);
@@ -160,7 +160,7 @@
   flex: 0 0 auto;
 }
 
-// Волна голосового при прослушивании: 50 столбиков, высота — ступенью.
+// The voice waveform while listening: 50 bars, the height — in steps.
 .recorder__wave {
   @include flex(row, center, flex-start, 2px);
   flex: 1 1 auto;
@@ -182,7 +182,7 @@
   }
 }
 
-// Кружок: круглое превью над полем ввода, по центру.
+// A round video: a round preview above the input field, centred.
 .recorder-video {
   inset-block-end: calc(100% + #{$space-6});
   inset-inline-start: 50%;
@@ -211,11 +211,11 @@
   display: block;
   object-fit: cover;
 
-  // Пока с камеры не пришло ни одного кадра — пусто, поверх — дуга.
+  // Until a single frame has come from the camera — empty, with an arc on top.
   .recorder-video.is-waiting & {
     visibility: hidden;
   }
-  // Живое превью — зеркалом, как у камер; записанное — как есть.
+  // The live preview — mirrored, as cameras do; the recorded one — as it is.
   transform: scaleX(-1);
 
   &.is-recorded {
@@ -223,10 +223,10 @@
   }
 }
 
-// ------------------------------------------------- кружки в ленте
-// ui/message.js, renderVideoNote: круг без пузыря, по умолчанию на паузе
-// (кадр, кнопка «играть», длительность); играет — кольцо прогресса вокруг:
-// зазор 2px, толщина 3px, скруглённые концы, цвет акцента.
+// ------------------------------------------------- round videos in the feed
+// ui/message.js, renderVideoNote: a circle without a bubble, paused by
+// default (a frame, a "play" button, the duration); playing — a progress
+// ring around it: a 2px gap, 3px width, rounded ends, the accent colour.
 .media--round {
   @include size(240px);
   position: relative;
@@ -252,7 +252,7 @@
   }
 }
 
-// Кольцо — за краем круга: 240 + 2 * (2 + 3) = 250.
+// The ring — past the circle's edge: 240 + 2 * (2 + 3) = 250.
 .media-round__ring {
   @include size(250px);
   fill: none;
@@ -300,7 +300,7 @@
   }
 }
 
-// Ожидание данных: ровная дуга цвета акцента, вращение на композиторе.
+// Waiting for data: a steady arc of the accent colour, rotating on the compositor.
 .media-round__wait,
 .recorder-video__wait {
   @include size(44px);
@@ -334,8 +334,8 @@
   transform: translateX(-50%);
 }
 
-// Отложенная отправка (ui/schedule.js): слева от кнопки записи. Точка —
-// в чате есть запланированные сообщения.
+// Scheduled sending (ui/schedule.js): to the left of the record button. The
+// dot — the chat has scheduled messages.
 .composer__schedule {
   @include size($composer-min);
   border-radius: 50%;

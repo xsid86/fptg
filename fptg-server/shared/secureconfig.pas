@@ -1,35 +1,34 @@
 unit secureconfig;
 
-{ Настройки программы — один зашифрованный файл вместо config.ini и
+{ The program's settings — one encrypted file instead of config.ini and
   accounts.ini (2026-10-06).
 
-  Ключ — случайный, свой на каждой машине и у каждого пользователя
-  Windows: создаётся при первом запуске и хранится в заголовке того же
-  файла, защищённый DPAPI (CryptProtectData, текущий пользователь, плюс
-  строка программы SECURE_CONFIG_ENTROPY). Файл, скопированный на другой
-  компьютер или другому пользователю, не расшифровывается; секрета в
-  самой программе нет.
+  The key is random, its own on every machine and for every Windows user:
+  created on the first start and kept in the header of the same file,
+  protected by DPAPI (CryptProtectData, current user, plus the program's
+  string SECURE_CONFIG_ENTROPY). A file copied to another computer or to
+  another user does not decrypt; there is no secret in the program itself.
 
-  Формат (все целые — little-endian):
-    'FPTS'                       магия
-    версия                       1 байт (SECURE_CONFIG_VERSION)
-    длина блоба DPAPI            4 байта
-    блоб DPAPI                   защищённый мастер-ключ (88 байт:
+  Format (all integers little-endian):
+    'FPTS'                       magic
+    version                      1 byte (SECURE_CONFIG_VERSION)
+    DPAPI blob length            4 bytes
+    DPAPI blob                   the protected master key (88 bytes:
                                  56 — Blowfish, 32 — HMAC)
-    IV                           8 байт, новый при каждой записи
-    длина шифротекста            4 байта
-    шифротекст                   Blowfish-CBC, дополнение PKCS#7
-    HMAC-SHA1                    20 байт по всему, что выше
-  Внутри — текст ini (UTF-8): [telegram], [ui], [autodownload], ...,
-  [accounts] (бывший [general] из accounts.ini) и [accN].
+    IV                           8 bytes, new on every write
+    ciphertext length            4 bytes
+    ciphertext                   Blowfish-CBC, PKCS#7 padding
+    HMAC-SHA1                    20 bytes over everything above
+  Inside — ini text (UTF-8): [telegram], [ui], [autodownload], ...,
+  [accounts] (the former [general] of accounts.ini) and [accN].
 
-  Blowfish — блочный шифр из fcl-base (blowfish.pp, только блок 8 байт);
-  CBC и HMAC собраны здесь, HMAC — на SHA1Init/Update/Final по сырым
-  буферам (hmac.pp берёт string, и при DefaultSystemCodePage = UTF-8
-  двоичные данные могли бы перекодироваться).
+  Blowfish is the block cipher from fcl-base (blowfish.pp, an 8-byte block
+  only); CBC and HMAC are put together here, HMAC on SHA1Init/Update/Final
+  over raw buffers (hmac.pp takes a string, and with DefaultSystemCodePage
+  = UTF-8 binary data could get re-encoded).
 
-  Доступ — как раньше к TIniFile: OpenConfig отдаёт TMemIniFile с
-  текущим содержимым; изменения сохраняются при UpdateFile и при Free. }
+  Access — as with TIniFile before: OpenConfig returns a TMemIniFile with
+  the current contents; changes are saved on UpdateFile and on Free. }
 
 {$mode objfpc}{$H+}
 
@@ -39,9 +38,9 @@ uses
   Classes, SysUtils, IniFiles;
 
 type
-  { Окно в общие настройки на время одного блока: читает их при
-    создании, пишет (шифруя) при UpdateFile и при уничтожении, если что-то
-    изменилось. }
+  { A window into the shared settings for the duration of one block: reads
+    them on creation, writes (encrypting) on UpdateFile and on destruction
+    if anything changed. }
   TSecureIni = class(TMemIniFile)
   public
     constructor CreateFromStore;
@@ -49,13 +48,13 @@ type
     procedure UpdateFile; override;
   end;
 
-{ Каталог файла настроек (папка программы). Зовёт TTdCore при создании. }
+{ Folder of the settings file (the program folder). TTdCore calls it on creation. }
 procedure SecureConfigSetDir(const ADir: string);
-{ Настройки на время блока; вызывающий освобождает. }
+{ Settings for the duration of a block; the caller frees them. }
 function OpenConfig: TSecureIni;
-{ Почему прежний файл не прочитался ('' — всё в порядке). }
+{ Why the previous file did not read ('' — all is well). }
 function SecureConfigProblem: string;
-{ Криптостойкие случайные байты (ключи, соли, токены). }
+{ Cryptographically strong random bytes (keys, salts, tokens). }
 function SecureRandomBytes(ALen: integer): RawByteString;
 
 implementation
@@ -64,15 +63,15 @@ uses
   Windows, SyncObjs, sha1, blowfish, constants;
 
 var
-  { Настройки читают и пишут и главный поток, и потоки сокетов (вход,
-    srvauth). Замок держится всё время жизни TSecureIni — от чтения до
-    записи, — чтобы два окна в настройки не затёрли друг друга.
-    Повторный вход тем же потоком допустим (критическая секция FPC
-    рекурсивна). }
+  { The settings are read and written by the main thread and by socket
+    threads alike (sign-in, srvauth). The lock is held for the whole life
+    of a TSecureIni — from read to write — so two windows into the settings
+    do not overwrite each other. Re-entry by the same thread is fine (an
+    FPC critical section is recursive). }
   GLock: TCriticalSection = nil;
 
 { ------------------------------------------------------------------ }
-{ Windows: случайные байты и DPAPI                                    }
+{ Windows: random bytes and DPAPI                                      }
 { ------------------------------------------------------------------ }
 
 type
@@ -145,11 +144,11 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ HMAC-SHA1 и Blowfish-CBC                                            }
+{ HMAC-SHA1 and Blowfish-CBC                                           }
 { ------------------------------------------------------------------ }
 
 const
-  KEY_ENC_LEN = 56;          { Blowfish: ключ до 448 бит }
+  KEY_ENC_LEN = 56;          { Blowfish: a key of up to 448 bits }
   KEY_MAC_LEN = 32;
   KEY_LEN = KEY_ENC_LEN + KEY_MAC_LEN;
   BLOCK = 8;
@@ -273,15 +272,15 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ Файл                                                                }
+{ File                                                                 }
 { ------------------------------------------------------------------ }
 
 var
   GDir: string = '';
   GLoaded: boolean = False;
-  GText: string = '';        { расшифрованный текст ini }
-  GMaster: TBytes = nil;     { мастер-ключ (в памяти процесса) }
-  GBlob: TBytes = nil;       { он же под DPAPI — пишется в заголовок }
+  GText: string = '';        { decrypted ini text }
+  GMaster: TBytes = nil;     { the master key (in process memory) }
+  GBlob: TBytes = nil;       { the same under DPAPI — written into the header }
   GProblem: string = '';
 
 function StorePath: string;
@@ -352,8 +351,8 @@ begin
   Move(Mac, Result[Pos], MAC_LEN);
 end;
 
-{ Разбор файла: ключ — из DPAPI-блоба, затем проверка HMAC, затем
-  расшифровка. Заполняет GMaster/GBlob; результат — текст ini. }
+{ Parsing the file: the key from the DPAPI blob, then the HMAC check, then
+  decryption. Fills GMaster/GBlob; the result is the ini text. }
 function Unpack(const AData: TBytes): string;
 var
   Pos, BlobLen, CtLen, MacAt: integer;
@@ -416,8 +415,8 @@ begin
   end;
 end;
 
-{ Запись — во временный файл и подмена (MoveFileEx с заменой): оборванная
-  запись не оставит полфайла вместо настроек. }
+{ Writing — into a temporary file and a swap (MoveFileEx with replace): a
+  broken-off write will not leave half a file instead of the settings. }
 procedure WriteStore;
 var
   Data: TBytes;
@@ -438,8 +437,8 @@ begin
   end;
 end;
 
-{ Прежние config.ini и accounts.ini -> текст ini одного файла
-  ([general] из accounts.ini становится [accounts]). }
+{ The former config.ini and accounts.ini -> the ini text of one file
+  ([general] of accounts.ini becomes [accounts]). }
 function LegacyText: string;
 var
   Merged, Src: TMemIniFile;
@@ -515,9 +514,9 @@ begin
       Exit;
     except
       on E: Exception do begin
-        { Не стираем: файл другого пользователя или машины, или битый. Он
-          откладывается в сторону, настройки начинаются заново — api_id
-          и api_hash спросит страница, сессии TDLib (tdlib/accN) целы. }
+        { Not erased: another user's or machine's file, or a broken one. It
+          is set aside, the settings start anew — the page asks for api_id
+          and api_hash, the TDLib sessions (tdlib/accN) are intact. }
         GProblem := E.Message;
         Bad := StorePath + SECURE_CONFIG_BAD_SUFFIX;
         SysUtils.DeleteFile(Bad);
@@ -528,9 +527,9 @@ begin
     end;
   end;
 
-  { Первый запуск на этой машине у этого пользователя: свой ключ. Если
-    рядом прежние открытые файлы — их содержимое переезжает внутрь, а
-    сами они удаляются, только когда записанное прочиталось обратно. }
+  { The first start on this machine for this user: our own key. If the
+    former plain files are next to it — their contents move inside, and
+    they themselves are deleted only once what was written reads back. }
   NewKey;
   GText := LegacyText;
   WriteStore;
@@ -594,8 +593,8 @@ begin
   finally
     L.Free;
   end;
-  { Файлового имени нет — inherited ничего не пишет, только сбрасывает
-    признак изменений. Пишем мы. }
+  { There is no file name — inherited writes nothing, it only resets the
+    changed flag. We do the writing. }
   inherited UpdateFile;
   WriteStore;
 end;
@@ -607,12 +606,12 @@ begin
       try
         UpdateFile;
       except
-        { Как у TIniFile: деструктор исключений не бросает. }
+        { As with TIniFile: the destructor throws no exceptions. }
       end;
     end;
     inherited Destroy;
   finally
-    { Взят в OpenConfig. }
+    { Taken in OpenConfig. }
     GLock.Leave;
   end;
 end;

@@ -8,14 +8,14 @@ import {
   peerRow, photoPicker, contactPicker,
 } from './tgbox.js';
 
-// Управление группой и каналом — как «Manage group / Manage channel» у
-// Telegram Desktop: фото, название, описание; тип (публичный/частный),
-// история для новых участников, права участников и медленный режим,
-// администраторы и их права, участники (повысить, ограничить, удалить),
-// удалённые, ссылки-приглашения, недавние действия, удаление.
+// Managing a group and a channel — like "Manage group / Manage channel" in
+// Telegram Desktop: photo, title, description; the type (public/private),
+// history for new members, member permissions and slow mode,
+// administrators and their rights, members (promote, restrict, remove),
+// removed users, invite links, recent actions, deletion.
 //
-// Данные — ответы TDLib как есть (команда admin, webapi.pas; поля —
-// td_api.tl коммита d1085f9), карточки людей — users.cards.
+// The data — TDLib answers as they are (the admin command, webapi.pas;
+// fields — td_api.tl of commit d1085f9), people's cards — users.cards.
 
 let call = null;
 
@@ -24,7 +24,7 @@ const one = async (method, params) => (await admin([{ key: 'r', method, params }
 const sender = (userId) => ({ '@type': 'messageSenderUser', user_id: Number(userId) });
 const myId = () => store.chats.find((c) => c.kind === 'self')?.id ?? 0;
 
-/** Карточки людей по id (users.cards) — Map id -> карточка. */
+/** People's cards by id (users.cards) — Map id -> card. */
 async function cards(ids) {
   const uniq = [...new Set(ids.filter(Boolean).map(String))];
   if (!uniq.length) return new Map();
@@ -32,16 +32,16 @@ async function cards(ids) {
   return new Map((answer?.items ?? []).map((c) => [String(c.userId), c]));
 }
 
-// ------------------------------------------------------------ данные
+// ------------------------------------------------------------ data
 
-// Обычная группа, переведённая в супергруппу (тип, история): старый id
-// -> новый. Страницы держат id, с которым открылись.
+// A basic group converted to a supergroup (type, history): the old id ->
+// the new one. Pages hold the id they opened with.
 const migrated = new Map();
 
 /**
- * Обычную группу — в супергруппу, как Desktop делает сам, когда для
- * изменения нужна супергруппа (тип, история). ctx обновляется на месте,
- * открытый чат переключается на новый.
+ * A basic group — into a supergroup, as Desktop does itself when a change
+ * needs a supergroup (type, history). ctx is updated in place, the open
+ * chat switches to the new one.
  */
 async function ensureSuper(ctx) {
   if (ctx.isSuper) return ctx;
@@ -52,7 +52,7 @@ async function ensureSuper(ctx) {
   return ctx;
 }
 
-/** Чат, группа, полные сведения и мои права. */
+/** The chat, the group, the full info and my rights. */
 async function load(requestedId) {
   const chatId = migrated.get(requestedId) ?? requestedId;
   const { chat } = await admin([{ key: 'chat', method: 'getChat', params: { chat_id: chatId } }]);
@@ -84,10 +84,10 @@ async function load(requestedId) {
   return ctx;
 }
 
-// -------------------------------------------------------- права участников
+// -------------------------------------------------------- member permissions
 
-// Права участников, как в «Permissions» у Desktop: основные и раскрытый
-// список медиа под «Send media».
+// Member permissions, as in "Permissions" in Desktop: the main ones and the
+// expanded media list under "Send media".
 const MEDIA_RIGHTS = [
   ['can_send_photos', 'Photos'],
   ['can_send_videos', 'Video files'],
@@ -112,7 +112,7 @@ function permissionsFrom(src = {}) {
   return p;
 }
 
-/** Переключатели прав; .read() — chatPermissions. */
+/** Permission toggles; .read() — chatPermissions. */
 function permissionsForm(current, { isForum = false } = {}) {
   const inputs = new Map();
   const add = (key, label) => {
@@ -148,7 +148,7 @@ function permissionsForm(current, { isForum = false } = {}) {
     read() {
       const p = permissionsFrom(current);
       for (const [k, input] of inputs) p[k] = input.checked;
-      // Реакции и метки — как были (у Desktop их тут нет).
+      // Reactions and tags — as they were (Desktop does not have them here).
       return p;
     },
   };
@@ -156,7 +156,7 @@ function permissionsForm(current, { isForum = false } = {}) {
 
 const countOn = (perm) => ALL_PERMISSIONS.filter((k) => perm?.[k]).length;
 
-// --------------------------------------------------------- права админа
+// --------------------------------------------------------- admin rights
 
 const ADMIN_GROUP = [
   ['can_change_info', 'Change group info'],
@@ -185,13 +185,13 @@ const ADMIN_CHANNEL = [
   ['can_manage_direct_messages', 'Manage direct messages'],
   ['can_promote_members', 'Add new admins'],
 ];
-// Новому администратору — всё, кроме «добавлять админов» и анонимности,
-// как у Desktop.
+// A new administrator gets everything except "add admins" and anonymity,
+// as in Desktop.
 const NEW_ADMIN_OFF = new Set(['can_promote_members', 'is_anonymous']);
 
-// ------------------------------------------------------------ страницы
+// ------------------------------------------------------------ pages
 
-/** Главная: фото, название, описание и разделы. */
+/** The main one: photo, title, description and sections. */
 function mainPage(chatId) {
   let ctx = null;
   let title = null;
@@ -201,7 +201,7 @@ function mainPage(chatId) {
     title: 'Manage',
     async render(body, box) {
       ctx = await load(chatId);
-      // Заголовок окна сменится вместе со страницей (tgbox, show).
+      // The window title changes together with the page (tgbox, show).
       this.title = ctx.isChannel ? 'Manage channel' : 'Manage group';
       const canInfo = ctx.can('can_change_info');
       const rowCard = store.chats.find((c) => c.id === chatId) ?? { id: chatId, title: ctx.chat.title };
@@ -214,7 +214,7 @@ function mainPage(chatId) {
 
       const rows = [];
       const word = ctx.word;
-      // Тип — и у обычной группы: при смене она станет супергруппой.
+      // The type — for a basic group too: on a change it becomes a supergroup.
       if (ctx.isCreator) {
         rows.push(linkRow({
           iconName: 'lock', label: ctx.isChannel ? 'Channel type' : 'Group type',
@@ -225,7 +225,7 @@ function mainPage(chatId) {
       if (!ctx.isChannel && canInfo) {
         rows.push(linkRow({
           iconName: 'chat', label: 'Chat history for new members',
-          // У обычной группы история новым участникам видна всегда.
+      // In a basic group the history is always visible to new members.
           value: !ctx.isSuper || ctx.full.is_all_history_available ? 'Visible' : 'Hidden',
           onClick: () => box.push(historyPage(ctx)),
         }));
@@ -325,7 +325,7 @@ function mainPage(chatId) {
   };
 }
 
-/** Тип: публичный (адрес t.me/…) или частный (ссылка-приглашение). */
+/** The type: public (a t.me/… address) or private (an invite link). */
 export function typePage(ctx, { after } = {}) {
   let kind = ctx.username ? 'public' : 'private';
   let username = null;
@@ -413,7 +413,7 @@ export function typePage(ctx, { after } = {}) {
           const changes = name !== ctx.username
             || (approve && approve.input.checked !== !!ctx.group.join_by_request)
             || protect.input.checked !== !!ctx.chat.has_protected_content;
-          // Публичной и прочим настройкам типа нужна супергруппа.
+          // Public and other type settings need a supergroup.
           if (changes && name !== ctx.username) await ensureSuper(ctx);
           if (name !== ctx.username) steps.push({ key: 'u', method: 'setSupergroupUsername', params: { supergroup_id: ctx.sgId, username: name } });
           if (approve && approve.input.checked !== !!ctx.group.join_by_request) {
@@ -460,7 +460,7 @@ function historyPage(ctx) {
   };
 }
 
-// Медленный режим: значения Desktop.
+// Slow mode: Desktop's values.
 const SLOW = [[0, 'Off'], [10, '10s'], [30, '30s'], [60, '1m'], [300, '5m'], [900, '15m'], [3600, '1h']];
 
 function permissionsPage(ctx) {
@@ -481,7 +481,7 @@ function permissionsPage(ctx) {
         }, label)));
         parts.push(section('Slow mode'), chips,
           note('Choose how long each member must wait before sending their next message.'));
-        // Исключения — ограниченные участники.
+        // Exceptions — restricted members.
         const restricted = await one('getSupergroupMembers', {
           supergroup_id: ctx.sgId, filter: { '@type': 'supergroupMembersFilterRestricted', query: '' }, offset: 0, limit: 200,
         });
@@ -515,7 +515,7 @@ function permissionsPage(ctx) {
   };
 }
 
-/** Участники чата: { card, status, tag, isMe }. */
+/** The chat's members: { card, status, tag, isMe }. */
 async function members(ctx, filter = 'recent', query = '') {
   let list;
   if (ctx.isSuper) {
@@ -580,7 +580,7 @@ function adminsPage(ctx) {
   };
 }
 
-/** Права администратора (новый или существующий). */
+/** Administrator rights (a new or an existing one). */
 function rightsPage(ctx, member) {
   const isNew = member.status?.['@type'] !== 'chatMemberStatusAdministrator';
   const current = isNew ? {} : (member.status.rights ?? {});
@@ -592,7 +592,7 @@ function rightsPage(ctx, member) {
     render() {
       const toggles = list.map(([k, label]) => {
         const on = isNew ? !NEW_ADMIN_OFF.has(k) && ctx.can(k) : !!current[k];
-        // Дать можно только то, что есть у самого (кроме владельца).
+        // One can give only what one has oneself (except the owner).
         const t = toggleRow(label, on, { disabled: !ctx.isCreator && !ctx.rights[k] });
         inputs.set(k, t.input);
         return t.node;
@@ -635,7 +635,7 @@ function rightsPage(ctx, member) {
             steps.push({ key: 't', method: 'setChatMemberTag', params: { chat_id: ctx.chatId, user_id: Number(member.card.userId), tag: title.input.value.trim() } });
           }
           await admin(steps);
-          // Из выбора участника — на две страницы назад, к списку админов.
+          // From the member choice — two pages back, to the admin list.
           box.pop();
           if (isNew && box.depth > 1) box.pop();
         },
@@ -644,7 +644,7 @@ function rightsPage(ctx, member) {
   };
 }
 
-/** Выбор участника (для «Add admin», «Add exception»). */
+/** Choosing a member (for "Add admin", "Add exception"). */
 function pickMemberPage(ctx, title, onPick) {
   let query = '';
   return {
@@ -670,7 +670,7 @@ function pickMemberPage(ctx, title, onPick) {
   };
 }
 
-/** Ограничения одного участника (исключение из прав группы). */
+/** One member's restrictions (an exception from the group's permissions). */
 function restrictPage(ctx, member) {
   const base = member.status?.['@type'] === 'chatMemberStatusRestricted'
     ? member.status.permissions : ctx.chat.permissions;
@@ -922,7 +922,7 @@ function newLinkPage(ctx) {
   };
 }
 
-// ------------------------------------------------------- недавние действия
+// ------------------------------------------------------- recent actions
 
 function contentText(m) {
   const c = m?.content ?? {};
@@ -1005,16 +1005,16 @@ function logPage(ctx) {
   };
 }
 
-// ------------------------------------------------------------ вход
+// ------------------------------------------------------------ entry
 
-/** Открыть управление группой или каналом. */
+/** Open management of a group or channel. */
 export function openManage(chatId, hooks) {
   call = hooks.call;
   const box = openBox();
   box.push(mainPage(chatId));
 }
 
-/** Для ui/newchat.js: загрузка сведений и страница типа канала. */
+/** For ui/newchat.js: loading the info and the channel type page. */
 export async function loadContext(chatId, hooks) {
   call = hooks.call;
   return load(chatId);

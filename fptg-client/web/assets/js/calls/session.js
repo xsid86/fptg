@@ -1,21 +1,21 @@
-// Звонок поверх WebRTC браузера — протокол tgcalls 10.0.0
-// (InstanceV2ReferenceImpl): сигналинг — обычные SDP и ICE-кандидаты.
+// A call on top of the browser's WebRTC — the tgcalls 10.0.0 protocol
+// (InstanceV2ReferenceImpl): the signalling is ordinary SDP and ICE candidates.
 //
 //   {"@type":"offer"|"answer", "sdp": "..."}
 //   {"@type":"candidate", "sdp": "candidate:...", "mid": "0", "mline": 0}
 //
-// Предлагает звонящий (call.is_outgoing), сразу как звонок готов;
-// принимающий отвечает на offer. Новые дорожки (включили камеру) —
-// новый offer с любой стороны; столкновение двух offer решается как в
-// tgcalls: принимающий звонок уступает (откат своего), звонящий
-// чужой offer в это время пропускает.
+// The caller (call.is_outgoing) offers as soon as the call is ready; the
+// receiver answers the offer. New tracks (the camera turned on) — a new
+// offer from either side; a collision of two offers is resolved as in
+// tgcalls: the receiver yields (rolls back its own), the caller skips the
+// other side's offer meanwhile.
 //
-// Канал данных «data» создаёт звонящий; по нему ходит MediaState —
-// выключен ли микрофон, идёт ли видео.
+// The "data" data channel is created by the caller; MediaState travels
+// over it — whether the microphone is off, whether video is on.
 //
-// ICE: только серверы WebRTC-типа (STUN/TURN) — рефлекторы Telegram
-// говорят на своём протоколе, браузеру недоступном. Без allowP2p —
-// только TURN (iceTransportPolicy: relay), как у tgcalls.
+// ICE: only servers of the WebRTC kind (STUN/TURN) — Telegram's reflectors
+// speak their own protocol the browser cannot use. Without allowP2p — only
+// TURN (iceTransportPolicy: relay), as in tgcalls.
 
 import { SignalingCipher, SignalingChannel, b64ToBytes } from './signaling.js';
 import { micConstraints, cameraConstraints, openMic } from './devices.js';
@@ -38,10 +38,10 @@ function iceServers(servers, allowP2p) {
 }
 
 /**
- * Одна сессия на звонок в состоянии ready.
- *   call — объект звонка от сервера (ready: key, servers, version...);
- *   send(b64) — отправить сигнальный пакет (call.signal);
- *   on — колбэки: state(строка), remoteStream(MediaStream),
+ * One session per call in the ready state.
+ *   call — the call object from the server (ready: key, servers, version...);
+ *   send(b64) — send a signalling packet (call.signal);
+ *   on — callbacks: state(string), remoteStream(MediaStream),
  *        localStream(MediaStream), remoteMedia({muted, video}), log.
  */
 export class CallSession {
@@ -89,25 +89,25 @@ export class CallSession {
       this.on.remoteStream?.(stream);
     };
     pc.ondatachannel = ({ channel }) => this.attachData(channel);
-    // Принимающий молчит до первого offer звонящего: его микрофон,
-    // добавленный заранее, иначе сам вызвал бы встречный offer.
+    // The receiver stays silent until the caller's first offer: its
+    // microphone, added in advance, would otherwise cause a counter-offer itself.
     pc.onnegotiationneeded = () => {
       if (!this.outgoing && !this.negotiated) return;
       this.offer();
     };
 
-    // Микрофон обязателен — без него звонок не начать; камера — по
-    // желанию, её отказ не роняет звонок.
+    // The microphone is required — a call cannot start without it; the
+    // camera is optional, its refusal does not bring the call down.
     this.local = await openMic(micConstraints());
-    // addTrack, не addTransceiver: дорожку, добавленную так, браузер
-    // привязывает к строке того же вида из пришедшего offer.
+    // addTrack, not addTransceiver: a track added this way the browser binds
+    // to the line of the same kind from the incoming offer.
     pc.addTrack(this.local.getAudioTracks()[0], this.local);
     if (withVideo) await this.setVideo(true);
     this.on.localStream?.(this.local);
 
     if (this.outgoing) {
       this.attachData(pc.createDataChannel('data'));
-      // onnegotiationneeded уже отправит offer после addTransceiver.
+      // onnegotiationneeded will send the offer after addTransceiver.
     }
   }
 
@@ -176,8 +176,8 @@ export class CallSession {
     try {
       if (type === 'offer' || type === 'answer') {
         const collision = type === 'offer' && (this.makingOffer || pc.signalingState !== 'stable');
-        // Звонящий — «невежливая» сторона: чужой offer при своём
-        // пропускает; принимающий откатывает свой (implicit rollback).
+        // The caller is the "impolite" side: it skips the other side's offer
+        // while it has its own; the receiver rolls back its own (implicit rollback).
         if (collision && this.outgoing) return;
         await pc.setRemoteDescription({ type, sdp: m.sdp });
         this.negotiated = true;
@@ -237,7 +237,7 @@ export class CallSession {
     this.sendMediaState();
   }
 
-  /** Выбрали другой микрофон — подменить дорожку без переговоров. */
+  /** Another microphone chosen — replace the track without negotiation. */
   async switchMic() {
     if (this.closed || !this.local) return;
     const fresh = await openMic(micConstraints());
@@ -252,7 +252,7 @@ export class CallSession {
     this.local.addTrack(track);
   }
 
-  /** Выбрали другую камеру — если видео идёт, подменить дорожку. */
+  /** Another camera chosen — if video is on, replace the track. */
   async switchCamera() {
     if (this.closed || !this.videoOn || !this.videoSender) return;
     const cam = await navigator.mediaDevices.getUserMedia({ video: cameraConstraints() });
@@ -270,8 +270,8 @@ export class CallSession {
     if (this.closed) return;
     this.closed = true;
     this.channel.close();
-    try { this.dc?.close(); } catch { /* уже закрыт */ }
-    try { this.pc?.close(); } catch { /* уже закрыт */ }
+    try { this.dc?.close(); } catch { /* already closed */ }
+    try { this.pc?.close(); } catch { /* already closed */ }
     for (const t of this.local?.getTracks() ?? []) t.stop();
   }
 }

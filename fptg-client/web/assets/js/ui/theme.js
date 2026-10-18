@@ -20,11 +20,11 @@ import { postShell } from './shell.js';
 
 const KEY = 'theme';
 
-// Порядок — как в меню. id — то, что лежит в localStorage; у прежних
-// версий там были только 'dark' и 'light', они и остались цветными.
+// The order — as in the menu. id — what lies in localStorage; earlier
+// versions had only 'dark' and 'light' there, and they stayed the colour ones.
 const THEMES = [
-  // Как макет окна на сайте проекта (website/, sections/_mockup.scss):
-  // стекло на «авроре» цвета акцента. Только тёмная — scss/themes/_aurora.
+  // Like the window mockup on the project site (website/, sections/_mockup.scss):
+  // glass on an "aurora" of the accent colour. Dark only — scss/themes/_aurora.
   { id: 'dark-aurora', label: 'Aurora' },
   { id: 'dark-plain', label: 'Dark' },
   { id: 'dark', label: 'Dark colored' },
@@ -32,18 +32,18 @@ const THEMES = [
   { id: 'light', label: 'Light colored' },
 ];
 
-// Без сохранённого выбора — Aurora. То же значение — в ранних скриптах
+// Without a saved choice — Aurora. The same value is in the early scripts of
 // index.html, check.html, callcard.html.
 const DEFAULT_THEME = 'dark-aurora';
 
 let button = null;
 
 // ------------------------------------------------------------- accent
-// Акцент приложения (Settings → General). Ключи — те же, что в
-// $app-accents (abstracts/_variables.scss): палитра конечна, цвет живёт
-// в CSS, а здесь только атрибут <html data-accent>. Синий — по
-// умолчанию: без атрибута действует акцент темы. Хранится локально, как
-// тема: вид этого окна, а не сервера.
+// The app accent (Settings → General). The keys are the same as in
+// $app-accents (abstracts/_variables.scss): the palette is finite, the
+// colour lives in CSS, and here only the <html data-accent> attribute. Blue
+// is the default: without the attribute the theme's accent applies. Kept
+// locally, like the theme: the look of this window, not of the server.
 const ACCENT_KEY = 'accent';
 export const ACCENTS = ['blue', 'cyan', 'teal', 'green', 'lime', 'amber',
   'orange', 'red', 'pink', 'purple', 'indigo', 'grey'];
@@ -67,9 +67,9 @@ export function setAccent(key) {
     if (key === DEFAULT_ACCENT) localStorage.removeItem(ACCENT_KEY);
     else localStorage.setItem(ACCENT_KEY, key);
   } catch {
-    // Не запомнится до следующего запуска, но сейчас подействует.
+    // It will not be remembered until the next run, but it applies now.
   }
-  // В Aurora из акцента выведен и фон — рамка окна тоже за ним.
+  // In Aurora the background is derived from the accent too — the window frame follows it.
   paintFrame(schemeOf(effective()));
 }
 
@@ -90,20 +90,20 @@ function effective() {
 }
 
 const schemeOf = (id) => (id.startsWith('dark') ? 'dark' : 'light');
-// Стиль поверх схемы — то, что после дефиса: plain | aurora.
+// The style on top of the scheme — what follows the hyphen: plain | aurora.
 const styleOf = (id) => id.split('-')[1] ?? null;
 
-// Цвет токена темы как '#rrggbb' (style трогать нельзя, а
-// getComputedStyle отдаёт токен так, как он записан). Через пиксель
-// канвы, а не её fillStyle: color-mix (токены Aurora) fillStyle отдаёт
-// как 'color(srgb …)', а winframe ждёт '#rrggbb'.
+// A theme token's colour as '#rrggbb' (style must not be touched, and
+// getComputedStyle returns the token as it is written). Through a canvas
+// pixel, not its fillStyle: fillStyle returns color-mix (the Aurora tokens)
+// as 'color(srgb …)', while winframe expects '#rrggbb'.
 let probe = null;
 function tokenColor(name) {
   probe ??= Object.assign(document.createElement('canvas'), { width: 1, height: 1 })
     .getContext('2d', { willReadFrequently: true });
   const css = getComputedStyle(document.documentElement);
-  // Полупрозрачный токен (кайма Aurora — акцент на 14%) — поверх фона
-  // страницы, как его и видно; иначе пиксель отдал бы чистый акцент.
+    // A semi-transparent token (the Aurora edging — the accent at 14%) — over
+    // the page background, as it is seen; otherwise the pixel would give the pure accent.
   probe.fillStyle = '#000000';
   probe.fillStyle = css.getPropertyValue('--c-bg').trim();
   probe.fillRect(0, 0, 1, 1);
@@ -114,8 +114,9 @@ function tokenColor(name) {
   return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
-// Рамка окна в цвет темы (winframe.pas): заголовок — фон страницы,
-// текст и кайма — свои токены. В обычном браузере postShell молчит.
+// The window frame in the theme colour (winframe.pas): the caption — the
+// page background, the text and edging — their own tokens. In an ordinary
+// browser postShell is silent.
 function paintFrame(scheme) {
   postShell({
     t: 'frame',
@@ -163,8 +164,8 @@ function openThemes() {
   })));
 }
 
-// Для «Chat settings» → Theme (ui/setchats.js): тот же список и тот же
-// выбор, что в меню кисти.
+// For "Chat settings" → Theme (ui/setchats.js): the same list and the same
+// choice as in the brush menu.
 export const themeList = () => THEMES.map((t) => ({ ...t }));
 export const currentTheme = () => effective();
 export const setTheme = (id) => apply(id);

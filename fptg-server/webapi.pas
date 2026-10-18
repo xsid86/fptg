@@ -91,8 +91,9 @@ type
     Held: TJSONObject;
   end;
 
-  { Ответ getChatSponsoredMessages одного чата, уже с путями скачанных
-    файлов, и когда он получен (см. «рекламные сообщения»). }
+  { The getChatSponsoredMessages answer for one chat, already with the
+    paths of the downloaded files, and when it arrived (see "sponsored
+    messages"). }
   TAdsEntry = class
   public
     Fetched: QWord;
@@ -113,9 +114,10 @@ type
     at two different places in the same history. }
   TConnSnapMap = specialize TFPGMap<Int64, TIdHashMap>;
 
-  { Слушатель реестра аккаунтов для моста: смена активного и изменения
-    списка (пришло имя, вход, выход). Отдельный объект, потому что
-    подписка идёт по интерфейсу с GUID, а TWebApi — простой класс. }
+  { The bridge's listener on the account registry: the active account
+    changing and the list changing (a name arrived, sign-in, sign-out).
+    A separate object because the subscription goes through an interface
+    with a GUID, while TWebApi is a plain class. }
   TWebActiveHook = class(TComponent, ITdActiveListener)
   public
     procedure TdActiveChanged(ANew: TTdAccount);
@@ -126,8 +128,8 @@ type
   private
     FTimer: TTdTimer;
     FActiveHook: TWebActiveHook;
-    { Куда вернуться при отмене добавления аккаунта (accounts.cancel);
-      -1 — не запоминали. }
+    { Where to go back to when adding an account is cancelled
+      (accounts.cancel); -1 — not remembered. }
     FAddReturn: integer;
     FLock:  SyncObjs.TCriticalSection;
     FQueue: TFPList;
@@ -138,21 +140,21 @@ type
     FBoundChats: TTdChats;
     FBoundMsgs:  TTdMessages;
     FBoundStickers: TTdStickers;
-    { Статус аккаунта в группах и каналах — для кнопки вступления
-      (messages.list -> join). Один обработчик, как у стикеров: больше
-      OnChanged супергрупп никто не слушает. }
+    { The account's status in groups and channels — for the join button
+      (messages.list -> join). One handler, as with stickers: nobody else
+      listens to the supergroups' OnChanged. }
     FBoundGroups: TTdSupergroups;
-    { Модель пользователей: докачанное фото и пришедшее имя отправителя
-      доезжают до страницы перечитыванием сообщений (сводится таймером,
-      как супергруппы). Раньше её единственный OnChanged держало нативное
-      окно истории. }
+    { The user model: a downloaded photo and a sender name that arrived
+      reach the page by re-reading the messages (coalesced by the timer,
+      like supergroups). Its only OnChanged used to be held by the native
+      history window. }
     FBoundUsers: TTdUsers;
-    { Звонки активного аккаунта: каждое изменение и каждый сигнальный
-      пакет — событием странице (call, call.signal). }
+    { Calls of the active account: every change and every signalling
+      packet becomes an event for the page (call, call.signal). }
     FBoundCalls: TTdCalls;
     FUsersDirty: boolean;
-    { updateSupergroup на старте приходят пачкой — в событие страницы
-      сводятся таймером, как стикеры. }
+    { updateSupergroup arrives in a batch at start — coalesced into a page
+      event by the timer, like stickers. }
     FGroupsDirty: boolean;
     { Watches the sign-in flow. Owned here, alive for the life of the
       bridge: unlike the models it exists before any account does,
@@ -173,9 +175,9 @@ type
       history again, which is the same thing that happens on its first
       request. }
     FSnaps: TConnSnapMap;
-    { Имя инлайн-бота (в нижнем регистре) -> его id, см. CmdInlineQuery. }
+    { Inline bot name (lower case) -> its id, see CmdInlineQuery. }
     FInlineBots: TStringList;
-    { Реклама по чатам: id чата текстом -> TAdsEntry (владеет). }
+    { Sponsored messages per chat: chat id as text -> TAdsEntry (owned). }
     FAds: TStringList;
     procedure Tick(Sender: TObject);
     procedure Drain;
@@ -544,16 +546,17 @@ end;
   nothing on disk yet. Publishing happens here, while serialising, so
   the page can never be handed a URL for a file the HTTP side does not
   know how to resolve. }
-{ id из аргументов команды — числом или строкой. Страница шлёт большие id
-  строками (JSON-числа неточны после 2^53), а TJSONObject.Get с числовым
-  умолчанием строку НЕ берёт — Find(AName, jtNumber) в fpjson.pp — и молча
-  отдаёт умолчание: уходил user_id 0 и «User not found» (галерея аватарок
-  из панели информации). }
-{ Сбой команды, а не её отказ (отказ — обычный Exception с текстом для
-  человека): access violation, выход за границы и т.п. Пишется в
-  SERVER_ERROR_LOG — команда, аргументы, класс, текст и адреса стека
-  (имён и строк в них нет: сборка без отладочной информации, но по
-  команде и аргументам сбой можно повторить). }
+{ An id from command arguments — a number or a string. The page sends
+  large ids as strings (JSON numbers lose precision past 2^53), and
+  TJSONObject.Get with a numeric default does NOT take a string —
+  Find(AName, jtNumber) in fpjson.pp — and silently returns the default:
+  user_id 0 went out and "User not found" came back (the avatar gallery
+  from the info panel). }
+{ A command crash rather than its refusal (a refusal is an ordinary
+  Exception with a text for a human): access violation, out of range and
+  so on. Written to SERVER_ERROR_LOG — command, arguments, class, text and
+  stack addresses (no names or lines in them: the build has no debug
+  info, but the command and arguments let the crash be repeated). }
 procedure LogCommandCrash(const ACmd: utf8string; AArgs: TJSONObject; E: Exception);
 var
   Path, Line, ArgsText: string;
@@ -597,7 +600,7 @@ begin
       CloseFile(F);
     end;
   except
-    { Журнал не должен ронять ответ на команду. }
+    { The log must not break the answer to the command. }
   end;
 end;
 
@@ -692,7 +695,7 @@ begin
   AddCustomEmoji(ADict, ARow.EmojiStatusCustomEmojiId);
 end;
 
-{ true/false для тела запроса TDLib. }
+{ true/false for the body of a TDLib request. }
 function BoolJson(AValue: boolean): utf8string;
 begin
   if AValue then begin
@@ -702,8 +705,9 @@ begin
   end;
 end;
 
-{ Короткое имя игры сообщения: messageGame.game.short_name (td_api.tl)
-  — из сырого content строки; '' если это не игра или строки нет. }
+{ The game short name of a message: messageGame.game.short_name
+  (td_api.tl) — from the row's raw content; '' if it is not a game or
+  there is no row. }
 function GameShortName(AMsgs: TTdMessages; AMsgId: Int64): utf8string;
 var
   Idx: integer;
@@ -728,8 +732,8 @@ begin
   end;
 end;
 
-{ id кастомных эмодзи на кнопках разметки (icon_custom_emoji_id у
-  keyboardButton / inlineKeyboardButton; 0 — нет). }
+{ Ids of custom emoji on markup buttons (icon_custom_emoji_id of
+  keyboardButton / inlineKeyboardButton; 0 — none). }
 type
   TMarkupEmojiIds = array of Int64;
 
@@ -780,8 +784,8 @@ begin
   end;
 end;
 
-{ Эмодзи кнопок разметки — в словарь ответа и, если ещё не знаем, в
-  запрос getCustomEmojiStickers (как эмодзи текста). }
+{ Emoji of markup buttons — into the answer's dictionary and, if not known
+  yet, into a getCustomEmojiStickers request (like the emoji of text). }
 procedure CollectMarkupEmoji(AMsgs: TTdMessages; ADict: TJSONObject; const ARaw: utf8string);
 var
   Ids: TMarkupEmojiIds;
@@ -876,11 +880,11 @@ begin
     the current entry without matching on a display string. 0 = the
     chat is in no folder, the same convention RowFolderId uses. }
   Result.Add('folderId', FolderId);
-  { Видеочат или трансляция: id звонка (0 — нет) и идёт ли он с
-    участниками — значок на аватарке и плашка над историей. }
+  { Video chat or live stream: the call id (0 — none) and whether it has
+    participants — the badge on the avatar and the bar above the history. }
   Result.Add('videoChat', ARow.VideoChatId);
   Result.Add('videoChatLive', ARow.VideoChatLive);
-  { Истории: всего и прочитано — сегменты кольца вокруг аватарки. }
+  { Stories: total and read — the segments of the ring around the avatar. }
   Result.Add('stories', ARow.StoryCount);
   Result.Add('storiesRead', ARow.StoryReadCount);
   Result.Add('premium',  AChats.IsPremiumUser(ARow));
@@ -899,8 +903,8 @@ begin
     object itself, with no download at all. }
   Result.Add('avatar',   string(FileUrl(ARow.PhotoFileId, ARow.PhotoPath)));
   Result.Add('avatarThumb', string(ThumbDataUri(ARow.Minithumb)));
-  { Анимированная аватарка (MPEG4), когда она скачана; запрашивается
-    вместе с обычной — chats.avatars и шапка открытого чата. }
+  { Animated avatar (MPEG4), once downloaded; asked for together with the
+    ordinary one — chats.avatars and the header of the open chat. }
   Result.Add('avatarAnim', string(FileUrl(ARow.AnimFileId, ARow.AnimPath)));
 end;
 
@@ -1015,10 +1019,11 @@ begin
   end;
 end;
 
-{ Аватарка отправителя сообщения (кружок в шапке): адрес фото, если оно
-  уже на диске, иначе размытая minithumbnail и докачка — человека через
-  модель пользователей (её OnChanged слушает мост и перечитывает
-  сообщения), канала/группы через строку чата. }
+{ Avatar of a message's sender (the circle in its header): the photo
+  address if it is on disk already, otherwise a blurred minithumbnail and
+  a download — of a person through the user model (the bridge listens to
+  its OnChanged and re-reads the messages), of a channel/group through
+  the chat row. }
 procedure AddSenderAvatar(AObj: TJSONObject; AUserId, AChatId: Int64);
 var
   Users: TTdUsers;
@@ -1096,8 +1101,8 @@ begin
       O.Add('language', string(AEntities[I].Language));
     end;
     if AEntities[I].UserId <> 0 then begin
-      { Строкой, как id альбомов и эмодзи: страница передаёт его дальше
-        как есть (ui:open-contact). }
+      { As a string, like album and emoji ids: the page passes it on as
+        is (ui:open-contact). }
       O.Add('userId', string(IntToStr(AEntities[I].UserId)));
     end;
     if AEntities[I].CustomEmojiId <> 0 then begin
@@ -1176,11 +1181,11 @@ end;
   the video, the track, a document) are NOT: the page asks for those
   with media.ensure when it decides to, which is the web equivalent of
   the native "first click downloads". }
-{ Расшифровка голосового — voice_note.speech_recognition_result
-  (td_api.tl коммита d1085f9): speechRecognitionResultPending
-  (partial_text), ...Text (text), ...Error (error). Запускается
-  recognizeSpeech (message.transcribe), результат приходит обновлением
-  содержимого сообщения. null — не расшифровывали. }
+{ Transcription of a voice message — voice_note.speech_recognition_result
+  (td_api.tl at commit d1085f9): speechRecognitionResultPending
+  (partial_text), ...Text (text), ...Error (error). Started by
+  recognizeSpeech (message.transcribe), the result arrives as an update of
+  the message content. null — never transcribed. }
 function SpeechJson(const ARaw: utf8string): TJSONData;
 var
   Data: TJSONData;
@@ -1258,7 +1263,7 @@ begin
       Result.Add('url', string(FileUrl(ARow.VideoFileId, ARow.VideoLocalPath)));
       Result.Add('got', ARow.VideoDownloadedSize);
       Result.Add('total', ARow.VideoTotalSize);
-      { Кружок (messageVideoNote) — круглое видео, ui/message.js. }
+      { A round video (messageVideoNote) — ui/message.js. }
       Result.Add('round', ARow.VideoRound);
     end;
     mckAnimation: begin
@@ -1302,9 +1307,9 @@ begin
       Result.Add('url', string(FileUrl(ARow.StickerFileId, ARow.StickerLocalPath)));
     end;
   end;
-  { Ход передачи основного файла — только пока она идёт: страница
-    рисует по нему кольцо вокруг значка и «сколько из скольких». up —
-    закачка (исходящее), иначе скачивание. }
+  { Progress of the main file's transfer — only while it runs: the page
+    draws a ring around the icon from it and "how much of how much". up —
+    an upload (outgoing), otherwise a download. }
   if (Result <> nil) and ARow.XferActive then begin
     Xfer := TJSONObject.Create;
     Xfer.Add('done', ARow.XferDone);
@@ -1380,17 +1385,17 @@ begin
   end;
 end;
 
-{ Ряды кнопок клавиатуры — и инлайн (под сообщением), и обычной (над
-  полем ввода), в одном виде для страницы: text, kind и то, что нужно
-  этому виду. Виды — по td_api.tl (TDLib 1.8.67):
-    url / loginUrl -> url (открыть ссылку)
-    webApp         -> webapp, url (Mini App — второй этап)
-    callback       -> callback, data (base64, как его отдаёт TDLib)
+{ Rows of keyboard buttons — both inline (under a message) and ordinary
+  (above the input field), in one shape for the page: text, kind and what
+  that kind needs. Kinds — per td_api.tl (TDLib 1.8.67):
+    url / loginUrl -> url (open the link)
+    webApp         -> webapp, url (Mini App — second stage)
+    callback       -> callback, data (base64, as TDLib gives it)
     user           -> user, userId
     copyText       -> copy, copy
-    keyboardButtonTypeText -> text (отправить текст кнопки)
-  Прочее (оплата, игры, запросы телефона и т.п.) — unsupported: страница
-  рисует кнопку, но говорит, что этого пока нет. }
+    keyboardButtonTypeText -> text (send the button's text)
+  The rest (payment, games, phone requests and so on) — unsupported: the
+  page draws the button but says this is not there yet. }
 function ButtonStyleStr(const AType: utf8string): utf8string;
 begin
   if AType = 'buttonStylePrimary' then begin
@@ -1406,10 +1411,10 @@ begin
   end;
 end;
 
-{ Одна кнопка (inlineKeyboardButton, keyboardButton или inlineButton
-  богатого сообщения) -> JSON страницы: text, style, emoji, kind и поля
-  своего вида. AText — подпись: у inlineButton она RichText, и её
-  плоский текст собирает вызывающий. }
+{ One button (inlineKeyboardButton, keyboardButton or a rich message's
+  inlineButton) -> JSON for the page: text, style, emoji, kind and the
+  fields of its kind. AText — the caption: for inlineButton it is
+  RichText, and the caller collects its plain text. }
 function ButtonToJson(Btn: TJSONObject; const AText: utf8string): TJSONObject;
 var
   BType, O, Sub: TJSONObject;
@@ -1419,12 +1424,12 @@ begin
   T := JGetStr(BType, '@type');
   O := TJSONObject.Create;
   O.Add('text', string(AText));
-  { Цвет кнопки: style — buttonStylePrimary/Danger/Success/Link
-    (td_api.tl коммита d1085f9, и у keyboardButton, и у
-    inlineKeyboardButton); живой лог: Default 89, Danger 1. Странице —
-    хвост имени типа, '' для Default. }
+  { Button colour: style — buttonStylePrimary/Danger/Success/Link
+    (td_api.tl at commit d1085f9, on both keyboardButton and
+    inlineKeyboardButton); live log: Default 89, Danger 1. To the page —
+    the tail of the type name, '' for Default. }
   O.Add('style', string(ButtonStyleStr(JGetStr(JGetObj(Btn, 'style'), '@type'))));
-  { Кастомный эмодзи перед текстом: id строкой, '' — нет. }
+  { A custom emoji before the text: id as a string, '' — none. }
   if JGetInt64(Btn, 'icon_custom_emoji_id') <> 0 then begin
     O.Add('emoji', string(IntToStr(JGetInt64(Btn, 'icon_custom_emoji_id'))));
   end else begin
@@ -1434,7 +1439,7 @@ begin
     O.Add('kind', 'url');
     O.Add('url', string(JGetStr(BType, 'url')));
   end else if T = 'inlineKeyboardButtonTypeLoginUrl' then begin
-    { Вход на сайт через Telegram: getLoginUrlInfo по id кнопки. }
+    { Signing in to a site through Telegram: getLoginUrlInfo by button id. }
     O.Add('kind', 'login');
     O.Add('url', string(JGetStr(BType, 'url')));
     O.Add('buttonId', JGetInt64(BType, 'id'));
@@ -1468,9 +1473,9 @@ begin
     O.Add('kind', 'user');
     O.Add('userId', string(IntToStr(JGetInt64(BType, 'user_id'))));
   end else if T = 'inlineKeyboardButtonTypeSwitchInline' then begin
-    { «@бот запрос» — в этот чат (targetChatCurrent) или в выбранный
-      (targetChatChosen, с разрешёнными видами чатов). Ссылка
-      (targetChatInternalLink) — пока нет. }
+    { "@bot query" — into this chat (targetChatCurrent) or a chosen one
+      (targetChatChosen, with the allowed kinds of chats). A link
+      (targetChatInternalLink) — not yet. }
     O.Add('kind', 'switchInline');
     O.Add('query', string(JGetStr(BType, 'query')));
     Sub := JGetObj(BType, 'target_chat');
@@ -1492,9 +1497,9 @@ begin
   end else if T = 'keyboardButtonTypeText' then begin
     O.Add('kind', 'text');
   end else if T = 'keyboardButtonTypeRequestUsers' then begin
-    { Кого можно выбрать: max_quantity (0 — один), и ограничение на
-      ботов: restrict_user_is_bot + user_is_bot. Премиум-ограничение
-      страница не проверит — его проверит Telegram и откажет. }
+    { Who can be chosen: max_quantity (0 — one), and the restriction on
+      bots: restrict_user_is_bot + user_is_bot. The page cannot check the
+      Premium restriction — Telegram checks it and refuses. }
     O.Add('kind', 'requestUsers');
     O.Add('buttonId', JGetInt(BType, 'id'));
     O.Add('max', JGetInt(BType, 'max_quantity'));
@@ -1513,18 +1518,19 @@ begin
   Result := O;
 end;
 
-{ ---------------- богатые сообщения (messageRichMessage) ----------------
+{ ---------------- rich messages (messageRichMessage) ----------------
 
-  Страница рисует блоки сама (ui/richmessage.js) по структуре TDLib —
-  pageBlock*, richText* (td_api.tl). Сервер отдаёт её почти как есть,
-  с двумя заменами на копии:
-  - файл (@type file) -> id, size, url: адрес может выдать только сервер
-    (FileUrl), скачанного ещё нет — url '' и странице file.ensure по id;
-  - кнопка (@type inlineButton) -> тот же JSON, что у кнопок клавиатуры
-    (ButtonToJson) с @type inlineButton: нажатие идёт через тот же
-    обработчик (callback, ссылка, мини-приложение). }
+  The page draws the blocks itself (ui/richmessage.js) from TDLib's
+  structure — pageBlock*, richText* (td_api.tl). The server hands it over
+  almost as is, with two replacements in a copy:
+  - a file (@type file) -> id, size, url: only the server can give an
+    address (FileUrl); not downloaded yet — url '' and the page calls
+    file.ensure by id;
+  - a button (@type inlineButton) -> the same JSON as keyboard buttons
+    (ButtonToJson) with @type inlineButton: a press goes through the same
+    handler (callback, link, mini app). }
 
-{ RichText -> плоский текст (подпись кнопки). }
+{ RichText -> plain text (a button caption). }
 function RichPlainText(ANode: TJSONData): utf8string;
 var
   O: TJSONObject;
@@ -1556,7 +1562,7 @@ begin
   end;
 end;
 
-{ Копия узла с заменами (см. выше). }
+{ A copy of the node with the replacements (see above). }
 function RichFix(D: TJSONData): TJSONData;
 var
   O, Src, Local: TJSONObject;
@@ -1601,12 +1607,12 @@ begin
   Result := O;
 end;
 
-{ Блоки богатого сообщения от страницы -> копия для TDLib: файл,
-  загруженный через POST /upload, страница помечает
-  объектом inputFileUpload с полем id (путь на диске она не знает) —
-  здесь он становится inputFileLocal. Неизвестный id — ошибка всей
-  отправки, как в message.sendFiles. Временные копии подчищает старт
-  сервера (uploads/). }
+{ Rich message blocks from the page -> a copy for TDLib: a file uploaded
+  through POST /upload is marked by the page with an inputFileUpload
+  object with an id field (it does not know the path on disk) — here it
+  becomes inputFileLocal. An unknown id fails the whole send, as in
+  message.sendFiles. The temporary copies are cleaned up by the server's
+  start (uploads/). }
 function RichInputFix(D: TJSONData): TJSONData;
 var
   O, Src: TJSONObject;
@@ -1652,7 +1658,7 @@ begin
   Result := O;
 end;
 
-{ Сырое содержимое -> richMessage для страницы, или nil — не богатое. }
+{ Raw content -> richMessage for the page, or nil — not a rich one. }
 function RichMessageJson(const ARaw: utf8string): TJSONObject;
 var
   Data: TJSONData;
@@ -1708,8 +1714,8 @@ begin
   end;
 end;
 
-{ Клавиатура над полем ввода из сырого reply_markup, или nil, если это
-  не replyMarkupShowKeyboard. }
+{ The keyboard above the input field from the raw reply_markup, or nil if
+  it is not replyMarkupShowKeyboard. }
 function ReplyKeyboardJson(const ARaw: utf8string; AMsgId: Int64): TJSONObject;
 var
   Data: TJSONData;
@@ -1729,8 +1735,8 @@ begin
       Exit;
     end;
     M := TJSONObject(Data);
-    { replyMarkupForceReply: кнопок нет, но поле ввода должно отвечать на
-      это сообщение, со своим плейсхолдером (td_api.tl). }
+    { replyMarkupForceReply: no buttons, but the input field must reply
+      to this message, with its own placeholder (td_api.tl). }
     if JGetStr(M, '@type') = 'replyMarkupForceReply' then begin
       Result := TJSONObject.Create;
       Result.Add('msgId', AMsgId);
@@ -1754,7 +1760,7 @@ begin
   end;
 end;
 
-{ Инлайн-кнопки сообщения из сырого reply_markup, или nil. }
+{ A message's inline buttons from the raw reply_markup, or nil. }
 function InlineKeyboardJson(const ARaw: utf8string): TJSONArray;
 var
   Data: TJSONData;
@@ -1778,8 +1784,7 @@ begin
   end;
 end;
 
-{ Имя пользователя для сервисных строк («X added Y»): модель
-  пользователей; '' — не знаем. }
+{ User name for service lines ("X added Y"): the user model; '' — unknown. }
 function ServiceUserName(AUserId: Int64): utf8string;
 var
   Users: TTdUsers;
@@ -1796,8 +1801,8 @@ begin
   end;
 end;
 
-{ Текст сервисного сообщения строки (servicetext) или ''. AActor — имя
-  отправителя; канал — по виду открытого чата. }
+{ Text of the row's service message (servicetext) or ''. AActor — the
+  sender's name; channel or not — by the kind of the open chat. }
 function RowServiceText(AMsgs: TTdMessages; ARow: TMsgRow; const AActor: utf8string): utf8string;
 var
   Data: TJSONData;
@@ -1830,11 +1835,11 @@ begin
   end;
 end;
 
-{ Карточка контакта — messageContact (td_api.tl коммита d1085f9:
-  contact — phone_number, first_name, last_name, vcard, user_id). Модель
-  держит её как mckOther; аватарка и цвет — из модели пользователей, если
-  человек в Telegram (user_id <> 0), фото докачивается там же. nil — не
-  контакт. }
+{ Contact card — messageContact (td_api.tl at commit d1085f9: contact —
+  phone_number, first_name, last_name, vcard, user_id). The model keeps it
+  as mckOther; avatar and colour come from the user model if the person
+  is on Telegram (user_id <> 0), the photo is downloaded there too. nil —
+  not a contact. }
 function ContactJson(const ARaw: utf8string): TJSONObject;
 var
   Data: TJSONData;
@@ -1891,12 +1896,12 @@ begin
   end;
 end;
 
-{ Звонок в истории — messageCall (is_video, discard_reason, duration) и
-  messageGroupCall (is_active, was_missed, is_video, duration) по
-  td_api.tl коммита d1085f9. Модель держит их как mckOther; без этого
-  страница рисовала пустой пузырь. reason — хвост типа
-  callDiscardReason* маленькими буквами (missed, declined,
-  disconnected, hungup, empty...). nil — не звонок. }
+{ A call in the history — messageCall (is_video, discard_reason, duration)
+  and messageGroupCall (is_active, was_missed, is_video, duration) per
+  td_api.tl at commit d1085f9. The model keeps them as mckOther; without
+  this the page drew an empty bubble. reason — the tail of the
+  callDiscardReason* type in lower case (missed, declined,
+  disconnected, hungup, empty...). nil — not a call. }
 function CallMessageJson(const ARaw: utf8string): TJSONObject;
 var
   Data: TJSONData;
@@ -1944,11 +1949,11 @@ begin
   end;
 end;
 
-{ Геопозиция сообщения — из сырого content (td_api.tl коммита d1085f9):
-  messageLocation (location), messageVenue (venue: location, title,
-  address), messageLiveLocation (location: liveLocation — его location,
-  live_period; expires_in). Модель держит такие сообщения как mckOther;
-  nil — не геопозиция. }
+{ A message's location — from the raw content (td_api.tl at commit
+  d1085f9): messageLocation (location), messageVenue (venue: location,
+  title, address), messageLiveLocation (location: liveLocation — its
+  location, live_period; expires_in). The model keeps such messages as
+  mckOther; nil — not a location. }
 function LocationJson(const ARaw: utf8string): TJSONObject;
 var
   Data: TJSONData;
@@ -1986,7 +1991,7 @@ begin
     Result := TJSONObject.Create;
     Result.Add('lat', Loc.Get('latitude', 0.0));
     Result.Add('lon', Loc.Get('longitude', 0.0));
-    { horizontal_accuracy — радиус неопределённости в метрах; 0 — неизвестен. }
+    { horizontal_accuracy — the uncertainty radius in metres; 0 — unknown. }
     Result.Add('accuracy', Loc.Get('horizontal_accuracy', 0.0));
     Result.Add('title', string(JGetStr(Venue, 'title')));
     Result.Add('address', string(JGetStr(Venue, 'address')));
@@ -2025,10 +2030,10 @@ begin
     Result.Add('albumId', '');
   end;
   Result.Add('kind',     string(ContentKindStr(ARow.Kind)));
-  { Эфемерное содержимое (видно только этому пользователю) — странице для
-    подписи «Only you can see this message». }
+  { Ephemeral content (visible to this user only) — for the page's
+    "Only you can see this message" caption. }
   Result.Add('ephemeral', ARow.HasEphemeral);
-  { Богатое сообщение (статья из блоков, с кнопками) — ui/richmessage.js. }
+  { A rich message (an article of blocks, with buttons) — ui/richmessage.js. }
   if ARow.Kind = mckOther then begin
     Loc := RichMessageJson(ARow.ContentRaw);
     if Loc <> nil then begin
@@ -2060,9 +2065,9 @@ begin
   Result.Add('receipt',  string(ReceiptStr(MessageReceipt(ARow, ALastReadOutbox))));
 
   ResolveSubject(ARow.SenderUserId, ARow.SenderChatId, Name, Color);
-  { Сервисное сообщение (создание группы, вход, закреп…): страница рисует
-    его строкой посередине, а не пузырём, и в меню оставляет только
-    удаление. Текст — servicetext, с именем отправителя. }
+  { A service message (group created, joined, pinned…): the page draws it
+    as a line in the middle rather than a bubble, and its menu offers
+    deletion only. Text — servicetext, with the sender's name. }
   if Result.Strings['kind'] = 'other' then begin
     ServiceLine := RowServiceText(AMsgs, ARow, Name);
     if ServiceLine <> '' then begin
@@ -2080,17 +2085,17 @@ begin
     is not loaded yet — it starts a getRepliedMessage of its own and
     the answer arrives through the ordinary change signal, so sending
     the ids alone now and the text later is correct rather than lossy. }
-  { В ветке комментариев ответ на сам пост цитатой не показывается: вся
-    ветка и так под ним (пост стоит сверху), а цитата выходила пустой
-    «…». TDLib называет пост двумя способами — сообщением канала
-    (ThreadChatId/ThreadPostId) или корневой копией в группе обсуждения,
-    чей id совпадает с message_thread_id. Ответы другим комментаторам
-    остаются. }
+  { In a comment thread a reply to the post itself is not shown as a
+    quote: the whole thread is under it anyway (the post is on top), and
+    the quote came out as an empty "…". TDLib names the post in two ways —
+    as the channel's message (ThreadChatId/ThreadPostId) or as the root
+    copy in the discussion group, whose id equals message_thread_id.
+    Replies to other commenters stay. }
   if (ARow.ReplyMessageId <> 0) and (AMsgs.ThreadId <> 0)
      and (((ARow.ReplyChatId = AMsgs.ThreadChatId)
            and (ARow.ReplyMessageId = AMsgs.ThreadPostId))
           or (ARow.ReplyMessageId = AMsgs.ThreadId)) then begin
-    { без цитаты }
+    { no quote }
   end else if ARow.ReplyMessageId <> 0 then begin
     Sub := TJSONObject.Create;
     Sub.Add('id', ARow.ReplyMessageId);
@@ -2181,11 +2186,11 @@ begin
   if Media <> nil then begin
     Result.Add('media', Media);
   end;
-  { Кнопки бота под сообщением (replyMarkupInlineKeyboard). }
+  { The bot's buttons under a message (replyMarkupInlineKeyboard). }
   Kb := InlineKeyboardJson(ARow.ReplyMarkupRaw);
   if Kb <> nil then begin
     Result.Add('keyboard', Kb);
-    { Для кнопок switchInline: «@имя запрос». }
+    { For switchInline buttons: "@name query". }
     if (ARow.SenderUserId <> 0) and (TdUserList <> nil) then begin
       BotUser := TdUserList.Find(ARow.SenderUserId);
       if (BotUser <> nil) and (BotUser.Username <> '') then begin
@@ -2371,9 +2376,9 @@ begin
   FBoundCalls := nil;
 end;
 
-{ Принадлежит ли модель какому-нибудь живому аккаунту. Модели
-  аккаунта, с которого переключились, живы и шлют свои изменения дальше;
-  модели удалённого — уже освобождены, трогать их нельзя. }
+{ Whether the model belongs to any live account. Models of the account
+  that was switched away from are alive and keep sending their changes;
+  models of a removed one are already freed and must not be touched. }
 function ModelAlive(AObj: TObject): boolean;
 var
   I: integer;
@@ -2394,14 +2399,14 @@ begin
   end;
 end;
 
-{ Отписка от моделей аккаунта, который перестал быть активным. Без неё
-  его списки чатов и сообщений продолжали дёргать мост и после
-  переключения: EnsureBindings подписывается на новые, но старые
-  отпустить не может — не знает, живы ли они. }
+{ Unsubscribing from the models of an account that stopped being active.
+  Without it, its chat and message lists kept poking the bridge after the
+  switch: EnsureBindings subscribes to the new ones but cannot let go of
+  the old ones — it does not know whether they are alive. }
 procedure TWebApi.UnbindStale;
 begin
-  { Открытый чат прежнего аккаунта закрывается: его больше никто не
-    видит, а для TDLib открытый чат — тот, что на экране. }
+  { The previous account's open chat is closed: nobody sees it any more,
+    and for TDLib the open chat is the one on screen. }
   if ModelAlive(FBoundMsgs) and (FBoundMsgs.ChatId <> 0) then begin
     FBoundMsgs.CloseChat;
   end;
@@ -2436,10 +2441,10 @@ begin
   FBoundCalls := nil;
 end;
 
-{ Сменился активный аккаунт. Модели — другие, снимки того, что видела
-  каждая страница, — от другого аккаунта: всё это сбрасывается, а
-  страницы перезагружаются по событию account (так их состояние
-  гарантированно не смешает двух аккаунтов). }
+{ The active account changed. The models are different, the snapshots of
+  what each page saw belong to another account: all of it is reset, and
+  the pages reload on the account event (so their state can never mix two
+  accounts). }
 procedure TWebApi.ActiveSwitched;
 var
   I: integer;
@@ -2450,7 +2455,7 @@ begin
     FSnaps.Data[I].Free;
   end;
   FSnaps.Clear;
-  { Реклама — по id чатов прежнего аккаунта. }
+  { Sponsored messages — keyed by the previous account's chat ids. }
   FAds.Clear;
   PushEvent('account', nil);
 end;
@@ -2469,8 +2474,8 @@ begin
   end;
 end;
 
-{ Аватарка аккаунта data-URI из файла (см. ACCOUNT_AVATAR_MAX_BYTES);
-  нет файла или он велик — minithumbnail; нет и её — ''. }
+{ Account avatar as a data URI from the file (see ACCOUNT_AVATAR_MAX_BYTES);
+  no file or too large — the minithumbnail; none either — ''. }
 function AccountAvatarUri(A: TTdAccount): utf8string;
 var
   F: TFileStream;
@@ -2499,9 +2504,9 @@ begin
   end;
 end;
 
-{ accounts.list — переключатель аккаунтов в статусной строке: все
-  аккаунты реестра (имя из getMe, телефон, username, аватарка, вошёл ли,
-  непрочитанные чаты основного списка) и номер активного. }
+{ accounts.list — the account switcher in the status bar: every account in
+  the registry (name from getMe, phone, username, avatar, signed in or
+  not, unread chats of the main list) and the number of the active one. }
 function TWebApi.CmdAccountsList: TJSONData;
 var
   Res, O: TJSONObject;
@@ -2518,8 +2523,8 @@ begin
     O.Add('title', A.Title);
     O.Add('phone', string(A.Phone));
     O.Add('username', string(A.Username));
-    { Строкой: id пользователя бывает за пределом точных целых JS.
-      До getMe — пусто. }
+    { As a string: a user id can be beyond JS's exact integers. Before
+      getMe — empty. }
     if A.UserId <> 0 then begin
       O.Add('userId', IntToStr(A.UserId));
     end else begin
@@ -2554,9 +2559,9 @@ begin
   Result := TJSONObject.Create;
 end;
 
-{ Новый аккаунт: в реестр, клиент TDLib запускается, аккаунт становится
-  активным — страница перезагрузится и покажет вход. Прежний активный
-  запоминается для accounts.cancel. }
+{ A new account: into the registry, its TDLib client starts, the account
+  becomes active — the page reloads and shows sign-in. The previously
+  active one is remembered for accounts.cancel. }
 function TWebApi.CmdAccountsAdd: TJSONData;
 var
   A: TTdAccount;
@@ -2574,9 +2579,10 @@ begin
   Result := TJSONObject.Create;
 end;
 
-{ Отмена входа в аккаунт, который ещё не вошёл, когда есть другие:
-  назад к запомненному (или любому другому), а этот закрывается без
-  выхода из сессии и уходит из реестра (DiscardAccount). }
+{ Cancelling sign-in to an account not signed in yet, when there are
+  others: back to the remembered one (or any other), and this one closes
+  without logging out of the session and leaves the registry
+  (DiscardAccount). }
 function TWebApi.CmdAccountsCancel: TJSONData;
 var
   A: TTdAccount;
@@ -2602,8 +2608,8 @@ begin
   Result := TJSONObject.Create;
 end;
 
-{ Выход из активного аккаунта. Как у Telegram: при других аккаунтах он
-  уходит из списка, последний остаётся и возвращается ко входу
+{ Signing out of the active account. As in Telegram: with other accounts
+  present it leaves the list, the last one stays and goes back to sign-in
   (TTdCore.LogOut). }
 function TWebApi.CmdAccountsLogout: TJSONData;
 begin
@@ -2821,14 +2827,15 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ звонки (tdcalls.pas; страница — ui/call.js, calls/*.js)            }
+{ calls (tdcalls.pas; page — ui/call.js, calls/*.js)                  }
 { ------------------------------------------------------------------ }
 
-{ Звонок для страницы. state — хвост типа callState* с маленькой буквы
-  (pending, exchangingKeys, ready, hangingUp, discarded, error). Для
-  ready — всё, что нужно WebRTC: ключ (base64, 256 байт), версия
-  протокола, серверы, эмодзи для сверки ключа, allowP2p. Имя и
-  аватарка собеседника — чтобы окно звонка не спрашивало их отдельно. }
+{ A call for the page. state — the tail of the callState* type with a
+  lower-case first letter (pending, exchangingKeys, ready, hangingUp,
+  discarded, error). For ready — everything WebRTC needs: the key
+  (base64, 256 bytes), protocol version, servers, emoji to compare the
+  key, allowP2p. The peer's name and avatar — so the call window does not
+  have to ask for them separately. }
 function CallToJson(ACall: TJSONObject): TJSONObject;
 var
   State, Proto, Srv, SrvType, Item: TJSONObject;
@@ -2887,9 +2894,9 @@ begin
       end;
     end;
     Result.Add('emojis', Emojis);
-    { Серверы: WebRTC-тип (STUN/TURN) годится браузеру как есть;
-      рефлекторы Telegram — свой протокол, страница их пропускает, но
-      они отдаются, чтобы было видно, что пришло. }
+    { Servers: the WebRTC kind (STUN/TURN) suits the browser as is;
+      Telegram's reflectors speak their own protocol, the page skips them,
+      but they are passed on so it is visible what arrived. }
     Out := TJSONArray.Create;
     Arr := JGetArr(State, 'servers');
     if Arr <> nil then begin
@@ -2953,8 +2960,8 @@ begin
   PushEvent('call.signal', D);
 end;
 
-{ call.list: звонки, которые идут сейчас, — для страницы, открытой или
-  перезагруженной посреди звонка (входящий ещё звонит). }
+{ call.list: calls in progress — for a page opened or reloaded in the
+  middle of a call (an incoming one still ringing). }
 function TWebApi.CmdCallList: TJSONData;
 var
   Calls: TTdCalls;
@@ -2974,8 +2981,8 @@ begin
   Result := Res;
 end;
 
-{ call.start (userId, video): createCall -> (id). Дальше звонок живёт
-  событиями call. }
+{ call.start (userId, video): createCall -> (id). From then on the call
+  lives in call events. }
 function TWebApi.CmdCallStart(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Calls: TTdCalls;
@@ -3015,7 +3022,7 @@ begin
 end;
 
 { call.accept (id), call.discard (id, duration, video, connectionId,
-  disconnected), call.signal (id, data в base64) — ответ (ok). }
+  disconnected), call.signal (id, data in base64) — the answer is (ok). }
 function TWebApi.CmdCallSimple(const ACmd: utf8string; AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -3081,12 +3088,13 @@ begin
   if ARow = nil then begin
     Exit;
   end;
-  { Только чаты, где человек состоит. TDLib присылает новые сообщения и
-    каналов, на которые он не подписан, — пока такой чат открыт (здесь,
-    в поиске, или в другом клиенте того же аккаунта), — а их
-    уведомления по умолчанию «не заглушены». Канал и супергруппа —
-    по собственному статусу (supergroup.status); пока его нет — по
-    месту в списке чатов: не в основном и не в архиве — не наш. }
+  { Only chats the person is a member of. TDLib sends new messages of
+    channels they have not joined too — while such a chat is open (here,
+    in search, or in another client of the same account) — and their
+    notifications are "not muted" by default. Channel and supergroup —
+    by one's own status (supergroup.status); until it is known — by the
+    place in the chat lists: neither in the main list nor in the archive
+    — not ours. }
   if ARow.SupergroupId <> 0 then begin
     if (TdSupergroupList <> nil)
        and TdSupergroupList.Membership(ARow.SupergroupId, Member) then begin
@@ -3105,7 +3113,7 @@ begin
   Data.Add('text', string(APreview));
   Data.Add('color', string(AccentKey(ARow)));
   Data.Add('avatar', string(FileUrl(ARow.PhotoFileId, ARow.PhotoPath)));
-  { Пока фото не скачано — размытая миниатюра, как у карточки звонка. }
+  { Until the photo is downloaded — a blurred thumbnail, as on the call card. }
   Data.Add('thumb', string(ThumbDataUri(ARow.Minithumb)));
   PushEvent('arrival', Data);
 end;
@@ -3144,8 +3152,8 @@ begin
     FStickersDirty := False;
     PushEvent('stickers', nil);
   end;
-  { Сменился чей-то статус в группе — страница перечитает список
-    сообщений, а с ним и join (вступили — кнопка уходит). }
+  { Somebody's status in a group changed — the page re-reads the message
+    list, and join with it (joined — the button goes away). }
   if FGroupsDirty or FUsersDirty then begin
     FGroupsDirty := False;
     FUsersDirty := False;
@@ -3338,9 +3346,9 @@ begin
   Result := nil;
 end;
 
-{ chats.rows (ids) — строки уже известных чатов, как в списке, без
-  запросов в TDLib: поиск (ui/search.js) так подбирает аватарки,
-  скачанные после того, как он нарисовал свои строки. }
+{ chats.rows (ids) — rows of chats already known, as in the list, without
+  requests to TDLib: search (ui/search.js) picks up this way the avatars
+  downloaded after it drew its rows. }
 function TWebApi.CmdChatsRows(AArgs: TJSONObject): TJSONData;
 var
   Chats: TTdChats;
@@ -3649,8 +3657,8 @@ begin
     list on a full answer and merges on a partial one. }
   Res.Add('full',         True);
   Res.Add('chatId',       Msgs.ChatId);
-  { Расшифровка голосовых — только у Premium (recognizeSpeech без него
-    отвечает ошибкой): без Premium страница кнопку не показывает. }
+  { Voice transcription — Premium only (recognizeSpeech answers with an
+    error without it): without Premium the page does not show the button. }
   Res.Add('canTranscribe', (TdApp.Active <> nil) and TdApp.Active.IsPremium);
   { The open chat's own row, for the bar above the history.
 
@@ -3670,8 +3678,8 @@ begin
       Chats.EnsureAvatar(CRow);
       Chats.EnsureAvatarAnim(CRow);
       Res.Add('chat', RowToJson(Chats, CRow));
-      { Клавиатура бота над полем ввода: своя разметка чата, а нет её —
-        у загруженного сообщения, на которое указывает чат. }
+      { The bot keyboard above the input field: the chat's own markup, and
+        failing that — the one of the loaded message the chat points to. }
       KbRaw := CRow.ReplyMarkupRaw;
       if (KbRaw = '') and (CRow.ReplyMarkupMsgId <> 0)
          and (Msgs.IndexOfId(CRow.ReplyMarkupMsgId) >= 0) then begin
@@ -3732,9 +3740,9 @@ begin
     end;
     Res.Add('thread', Sub);
   end;
-  { Канал или группа, в которых аккаунт не состоит (до них дошли по
-    пересылке или ссылке), — страница ставит на место поля ввода кнопку
-    вступления. В ветке комментариев своё правило — thread.mustJoin. }
+  { A channel or group the account is not a member of (reached through a
+    forward or a link) — the page puts a join button in place of the input
+    field. A comment thread has its own rule — thread.mustJoin. }
   Join := TJSONObject.Create;
   JoinOk := False;
   ByRequest := False;
@@ -3814,9 +3822,9 @@ begin
   Result := nil;
 end;
 
-{ thread.jump (messageId) — к сообщению внутри открытой ветки (цитата
-  в комментарии). chat.open с jumpTo тут не годится: он открыл бы группу
-  обсуждения обычным чатом и вывел из ветки. }
+{ thread.jump (messageId) — to a message inside the open thread (a quote
+  in a comment). chat.open with jumpTo does not fit here: it would open the
+  discussion group as an ordinary chat and leave the thread. }
 function TWebApi.CmdThreadJump(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -3835,10 +3843,10 @@ begin
   Result := CmdMessagesList;
 end;
 
-{ chat.typing (action) — своё действие в открытом чате (ui/sendaction.js):
-  typing, cancel, photo, video, document. Чат и ветку знает модель — туда
-  же уходит и сообщение. Условия Telegram API §1.3: индикатор набора
-  клиент обязан слать, а не глушить. }
+{ chat.typing (action) — one's own action in the open chat
+  (ui/sendaction.js): typing, cancel, photo, video, document. The model
+  knows the chat and the thread — the message goes there too. Telegram API
+  terms §1.3: a client must send the typing indicator, not suppress it. }
 function TWebApi.CmdChatTyping(AArgs: TJSONObject): TJSONData;
 var
   Action: utf8string;
@@ -3871,13 +3879,13 @@ end;
 { settings                                                           }
 { ------------------------------------------------------------------ }
 
-{ Всё, что показывает страница настроек, одним ответом. Пределы едут
-  вместе со значениями: они в constants.pas, и страница не должна
-  держать вторую их копию.
+{ Everything the settings page shows, in one answer. The limits travel
+  with the values: they live in constants.pas, and the page must not keep
+  a second copy of them.
 
-  Сетка автозагрузки — списком включённых клеток "media.chat", а виды
-  медиа и чатов — с подписями из тех же констант, что у нативного
-  диалога: добавленный вид появится на странице сам. }
+  The auto-download grid — as a list of enabled "media.chat" cells, and
+  the kinds of media and chats — with labels from the same constants as
+  the native dialog: a kind added there shows up on the page by itself. }
 function TWebApi.CmdSettingsGet: TJSONData;
 var
   Res, Downloads, Cache, AutoDl, Item, Notify: TJSONObject;
@@ -3899,7 +3907,7 @@ begin
   Notify.Add('fontMin', DESKNOTIFY_FONT_MIN);
   Notify.Add('fontMax', DESKNOTIFY_FONT_MAX);
   Res.Add('notify', Notify);
-  { Где открывать точку геопозиции; '' — спрашивать каждый раз. }
+  { Where a location point opens; '' — ask every time. }
   Res.Add('mapsProvider', TdMapsProvider);
 
   Downloads := TJSONObject.Create;
@@ -3951,10 +3959,10 @@ begin
   Result := Res;
 end;
 
-{ Одна настройка за вызов: key и value, у автозагрузки ещё media и
-  chat. Ответ — все настройки целиком, уже после зажима, так что поле,
-  в которое ввели 500 при пределе 20, покажет 20. Остальным открытым
-  страницам — то же самое событием. }
+{ One setting per call: key and value, plus media and chat for
+  auto-download. The answer is all the settings, already clamped, so a
+  field where 500 was typed against a limit of 20 shows 20. The other
+  open pages get the same as an event. }
 function TWebApi.CmdSettingsSet(AArgs: TJSONObject): TJSONData;
 var
   Key, Model, Code: utf8string;
@@ -3967,8 +3975,8 @@ begin
   if Key = 'closeToTray' then begin
     TdSetCloseToTray(AArgs.Get('value', True));
   end else if Key = 'deviceModel' then begin
-    { Пустое имя устройства TDLib не нужно — как и нативное поле, его
-      не сохраняем. Применяется к следующей сессии, см. SetDeviceModel. }
+    { An empty device name is of no use to TDLib — like the native field,
+      it is not saved. Applies to the next session, see SetDeviceModel. }
     Model := utf8string(Trim(string(AArgs.Get('value', utf8string('')))));
     if Model = '' then begin
       raise Exception.Create('Device name cannot be empty');
@@ -4024,9 +4032,9 @@ begin
   Result := CmdSettingsGet;
 end;
 
-{ Состояние кэша TDLib. Числа — последний известный ответ; свежие
-  запрашиваются в CmdStorageGet и приезжают событием 'storage', когда
-  TDLib ответит. }
+{ State of the TDLib cache. The numbers are the last known answer; fresh
+  ones are requested in CmdStorageGet and arrive as a 'storage' event when
+  TDLib answers. }
 function StorageJson: TJSONObject;
 var
   St: TTdStorageStats;
@@ -4044,11 +4052,10 @@ begin
   Result.Add('freedCount', TdCache.LastFreedCount);
 end;
 
-{ Подписка на TdCache.OnChanged ставится заново при каждом вопросе:
-  у события один слушатель, и нативная секция Storage, если её
-  открыть, забирает его себе, а при закрытии обнуляет. Страница
-  спрашивает при каждом заходе в раздел — этого хватает, чтобы
-  подписка была на месте, когда она нужна. }
+{ The subscription to TdCache.OnChanged is set again on every question:
+  the event has one listener, and the native Storage section, when opened,
+  takes it over and clears it on close. The page asks on every visit to
+  the section — enough for the subscription to be in place when needed. }
 function TWebApi.CmdStorageGet: TJSONData;
 begin
   TdCache.OnChanged := @StorageChanged;
@@ -4056,8 +4063,8 @@ begin
   Result := StorageJson;
 end;
 
-{ Те же пределы, что применяются на старте, — из файла, а не из полей
-  страницы: каждое поле уже сохранило себя при изменении. }
+{ The same limits as applied at start — from the file, not from the page's
+  fields: every field has already saved itself on change. }
 function TWebApi.CmdStorageCleanup: TJSONData;
 begin
   TdCache.OnChanged := @StorageChanged;
@@ -4108,9 +4115,10 @@ begin
   Result := nil;
 end;
 
-{ text + entities (textEntity TDLib, смещения в UTF-16 — как их считает
-  JS) -> formattedText. Сущности страница строит сама (ui/editor.js);
-  здесь — только тип узла: чужие поля TDLib всё равно отвергнет. }
+{ text + entities (TDLib textEntity, offsets in UTF-16 — as JS counts
+  them) -> formattedText. The page builds the entities itself
+  (ui/editor.js); here only the node type is set: TDLib rejects foreign
+  fields anyway. }
 function FormattedFromArgs(AArgs: TJSONObject): utf8string;
 var
   F: TJSONObject;
@@ -4153,7 +4161,7 @@ begin
   if Trim(Text) = '' then begin
     raise Exception.Create('empty message');
   end;
-  { Сущности от поля ввода (ui/editor.js) — разбирать нечего. }
+  { Entities from the input field (ui/editor.js) — nothing to parse. }
   if AArgs.Find('entities', jtArray) <> nil then begin
     Msgs.SendFormattedJson(FormattedFromArgs(AArgs), AArgs.Get('silent', False),
       StrToInt64Def(utf8string(AArgs.Get('replyTo', '')), 0));
@@ -4168,11 +4176,11 @@ begin
 end;
 
 { message.sendNote (kind: voice | video, file, duration, waveform,
-  length, thumb, tw, th, silent, replyTo) — голосовое или видеосообщение,
-  записанное страницей (ui/recorder.js) и принятое POST /upload: file и
-  thumb — id загрузок. Поля — td_api.tl коммита d1085f9: inputVoiceNote
-  (OGG/Opus, waveform — 5 бит на отсчёт, base64), inputVideoNote (MPEG4
-  H.264, квадрат length <= 640, до 60 с). }
+  length, thumb, tw, th, silent, replyTo) — a voice or video message
+  recorded by the page (ui/recorder.js) and received by POST /upload: file
+  and thumb are upload ids. Fields — td_api.tl at commit d1085f9:
+  inputVoiceNote (OGG/Opus, waveform — 5 bits per sample, base64),
+  inputVideoNote (MPEG4 H.264, square length <= 640, up to 60 s). }
 function TWebApi.CmdMessageSendNote(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -4235,8 +4243,8 @@ begin
   Result := nil;
 end;
 
-{ message.sendRich (blocks, silent, replyTo): богатое сообщение —
-  блоки InputPageBlock собирает страница (util/richcompose.js). }
+{ message.sendRich (blocks, silent, replyTo): a rich message — the page
+  builds the InputPageBlock blocks (util/richcompose.js). }
 function TWebApi.CmdMessageSendRich(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -4264,13 +4272,15 @@ begin
   Result := nil;
 end;
 
-{ Файлы, уже принятые через POST /upload: страница присылает их id
-  (не пути — путь на диске она не видит), сервер находит файлы и
-  отдаёт модели. asPhoto — сжатыми фото, иначе документами; caption —
-  разметка в том же синтаксисе, что текст сообщения (html — какой).
+{ Files already received through POST /upload: the page sends their ids
+  (not paths — it cannot see the path on disk), the server finds the files
+  and hands them to the model. asPhoto — as compressed photos, otherwise
+  as documents; caption — markup in the same syntax as message text (html
+  says which).
 
-  Неизвестный id — ошибка всей команды, а не тихий пропуск: иначе
-  ушла бы часть файлов, а человек думал бы, что все. }
+  An unknown id fails the whole command rather than being skipped
+  quietly: otherwise part of the files would go and the person would
+  think all of them did. }
 function TWebApi.CmdMessageSendFiles(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -4305,8 +4315,8 @@ begin
     end;
     Paths[I] := utf8string(Path);
   end;
-  { mode: media | document | audio (меню скрепки); прежнее asPhoto —
-    то же, что media. }
+  { mode: media | document | audio (the paperclip menu); the former
+    asPhoto is the same as media. }
   Mode := utf8string(AArgs.Get('mode', ''));
   if Mode = '' then begin
     if AArgs.Get('asPhoto', False) then begin
@@ -4315,9 +4325,9 @@ begin
       Mode := 'document';
     end;
   end;
-  { meta — на каждый файл сведения о видео от страницы (длительность,
-    размеры, миниатюра из кадра — загружена как отдельный файл) или null.
-    Превращаются в поля inputVideo / inputThumbnail (td_api.tl). }
+  { meta — per file, video details from the page (duration, size, a
+    thumbnail from a frame — uploaded as a separate file) or null. They
+    become inputVideo / inputThumbnail fields (td_api.tl). }
   SetLength(Extras, Arr.Count);
   Meta := TJSONArray(AArgs.Find('meta', jtArray));
   for I := 0 to Arr.Count - 1 do begin
@@ -4352,8 +4362,8 @@ begin
   Result := nil;
 end;
 
-{ Клик по кольцу хода: скачивание останавливается, исходящее с
-  незакончившейся закачкой удаляется (см. TTdMessages.CancelTransfer). }
+{ A click on the progress ring: a download stops, an outgoing message whose
+  upload has not finished is deleted (see TTdMessages.CancelTransfer). }
 function TWebApi.CmdCancelTransfer(AArgs: TJSONObject): TJSONData;
 begin
   if AArgs = nil then begin
@@ -4856,8 +4866,8 @@ begin
   { Drawn on the way out rather than kept: the link changes whenever
     TDLib renews it, and a stale square is worse than none. }
   O := TJSONObject(Result);
-  { Вход в аккаунт, добавленный к уже имеющимся, можно отменить
-    (accounts.cancel) — экран входа покажет для этого ссылку. }
+  { Signing in to an account added to existing ones can be cancelled
+    (accounts.cancel) — the sign-in screen shows a link for it. }
   O.Add('canCancel', TdApp.Count > 1);
   Link := utf8string(O.Get('qrLink', ''));
   if Link <> '' then begin
@@ -5129,16 +5139,17 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ к первому сообщению дня (чип даты в истории)                        }
+{ to the first message of a day (the date chip in the history)         }
 { ------------------------------------------------------------------ }
 
-{ chat.dateJump (id, date) -> messageId: первое сообщение дня; date —
-  полночь этого дня по часам страницы (unix). У TDLib (td_api.tl) есть
-  только getChatMessageByDate — последнее сообщение НЕ ПОЗЖЕ даты. Поэтому
-  два шага: последнее ДО дня (date - 1), потом getChatHistory от него с
-  offset -2 — следующие за ним, и из них первое с датой >= date. Ничего до
-  дня нет (404: чат начался в этот день) или следующие не пришли —
-  последнее сообщение самого дня: не первое, но в нужном дне. }
+{ chat.dateJump (id, date) -> messageId: the first message of the day;
+  date — midnight of that day by the page's clock (unix). TDLib
+  (td_api.tl) only has getChatMessageByDate — the last message NOT LATER
+  than the date. So two steps: the last one BEFORE the day (date - 1),
+  then getChatHistory from it with offset -2 — the ones after it, and of
+  those the first with a date >= date. Nothing before the day (404: the
+  chat began that day) or the next ones did not come — the last message
+  of the day itself: not the first, but in the right day. }
 function TWebApi.CmdChatDateJump(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -5160,7 +5171,7 @@ begin
   Result := True;
 end;
 
-{ Слот ещё ждёт: чат (Held) и полночь дня (MessageId). }
+{ The slot is still waiting: the chat (Held) and the day's midnight (MessageId). }
 function TWebApi.DateJumpSlot(ASlot: PtrInt; out AChat, ADay: Int64): boolean;
 begin
   Result := (ASlot >= 0) and (ASlot <= High(FDeferred)) and FDeferred[ASlot].Busy
@@ -5185,7 +5196,7 @@ begin
   ReleaseDeferred(ASlot);
 end;
 
-{ Запасной шаг: последнее сообщение дня. }
+{ The fallback step: the last message of the day. }
 procedure TWebApi.DateJumpLastOfDay(ASlot: PtrInt);
 var
   Msgs: TTdMessages;
@@ -5304,9 +5315,9 @@ end;
 { who reacted, who read                                              }
 { ------------------------------------------------------------------ }
 
-{ Один человек для всплывающего списка: имя, аватарка (или крошечное
-  превью из объекта, пока она качается — и качание начинается здесь
-  же), цвет на случай буквы и время (реакции, прочтения). }
+{ One person for a pop-up list: name, avatar (or the tiny preview from the
+  object while it downloads — and the download starts right here), a
+  colour in case of a letter, and the time (reactions, reads). }
 function UserPersonJson(AUserId, ADate: Int64): TJSONObject;
 var
   Users: TTdUsers;
@@ -5333,7 +5344,7 @@ begin
   Result.Add('date', ADate);
 end;
 
-{ Реакцию может поставить и чат — канал или анонимный админ группы. }
+{ A reaction can come from a chat too — a channel or an anonymous group admin. }
 function ChatPersonJson(AChatId, ADate: Int64): TJSONObject;
 var
   Chats: TTdChats;
@@ -5369,10 +5380,10 @@ begin
   end;
 end;
 
-{ «Печатает» и прочие действия в чате — событием typing (ui/typing.js).
-  Имя — сразу здесь: страница пользователей не знает, а собеседник в
-  группе может и не встречаться ей больше нигде. senderId — user_id или
-  chat_id, по нему страница отличает одного отправителя от другого. }
+{ "Typing" and other actions in a chat — as a typing event (ui/typing.js).
+  The name is resolved right here: the page does not know users, and a
+  group member may appear nowhere else for it. senderId — user_id or
+  chat_id; by it the page tells one sender from another. }
 procedure TWebApi.ChatAction(Sender: TObject; AChatId, AThreadId: Int64;
   ASender: TJSONObject; const AAction: utf8string);
 var
@@ -5401,11 +5412,11 @@ begin
   PushEvent('typing', Data);
 end;
 
-{ Кто поставил реакцию (what = reactions; emoji или customEmojiId — какую
-  именно) или кто прочитал (what = viewers). В личке «кто прочитал» —
-  это собеседник и время: getMessageReadDate, его id держится в слоте до
-  ответа. Ответ отложенный: TDLib спрашивается заново на каждое
-  наведение — это вопрос к серверу Telegram, и устаревает он сразу. }
+{ Who reacted (what = reactions; emoji or customEmojiId — which one) or who
+  read it (what = viewers). In a private chat "who read it" is the peer and
+  the time: getMessageReadDate, their id is kept in the slot until the
+  answer. The answer is deferred: TDLib is asked anew on every hover —
+  it is a question to Telegram's server and goes stale at once. }
 function TWebApi.CmdMessagePeople(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -5450,10 +5461,10 @@ begin
     if (Row <> nil) and (Row.Kind = ckPrivate) and (Row.UserId <> 0) then begin
       FDeferred[Slot].Held.Add('peer', Row.UserId);
     end;
-    { Сначала — можно ли (can_get_viewers / can_get_read_date в
-      getMessageProperties). Страница, которой это уже сказали, шлёт
-      checked и получает список сразу; та, которой сказали «нельзя»,
-      больше не спрашивает вовсе. }
+    { First — whether it is possible at all (can_get_viewers /
+      can_get_read_date in getMessageProperties). A page already told so
+      sends checked and gets the list right away; one told "no" never asks
+      again. }
     if AArgs.Get('checked', False) then begin
       PeopleQuery(Msgs, Id, Slot);
     end else begin
@@ -5463,8 +5474,8 @@ begin
   Result := True;
 end;
 
-{ Сам вопрос «кто прочитал»: личка — время прочтения собеседником,
-  группа — список прочитавших. }
+{ The "who read it" question itself: private chat — the peer's read time,
+  group — the list of readers. }
 procedure TWebApi.PeopleQuery(AMsgs: TTdMessages; AMessageId: Int64; ASlot: PtrInt);
 begin
   if (FDeferred[ASlot].Held <> nil) and (FDeferred[ASlot].Held.Get('peer', Int64(0)) <> 0) then begin
@@ -5551,7 +5562,7 @@ begin
     end;
     Res.Add('total', Items.Count);
   end else begin
-    { messageReadDate* — личка. }
+    { messageReadDate* — a private chat. }
     Peer := 0;
     if FDeferred[Slot].Held <> nil then begin
       Peer := FDeferred[Slot].Held.Get('peer', Int64(0));
@@ -5589,13 +5600,13 @@ begin
   end;
 end;
 
-{ Ссылка t.me (telegram.me, tg:) — открыть внутри приложения. Разбирает
-  её сам TDLib (getInternalLinkType), здесь только шаг по типу:
-    публичный чат  -> searchPublicChat           -> chatId
-    приглашение    -> checkChatInviteLink        -> chatId или invite
-    сообщение      -> getMessageLinkInfo         -> chatId, messageId
-    прочее         -> external: true, страница отдаёт ссылку браузеру.
-  Поля и методы — по td_api.tl. }
+{ A t.me (telegram.me, tg:) link — open inside the app. TDLib parses it
+  itself (getInternalLinkType), here is only the step by type:
+    public chat    -> searchPublicChat           -> chatId
+    invitation     -> checkChatInviteLink        -> chatId or invite
+    message        -> getMessageLinkInfo         -> chatId, messageId
+    anything else  -> external: true, the page hands the link to the browser.
+  Fields and methods — per td_api.tl. }
 function TWebApi.CmdLinkResolve(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -5652,8 +5663,8 @@ begin
     Msgs.Request('getMessageLinkInfo',
       '"url":' + JsonStr(JGetStr(AResp.Obj, 'url')), @LinkMessageDone, Slot);
   end else if T = 'internalLinkTypeInvoice' then begin
-    { Ссылка-счёт t.me/$имя (покупка звёзд и т.п.): странице — имя счёта,
-      дальше тот же путь, что у кнопки «Купить» (bot.buy/bot.pay с
+    { An invoice link t.me/$name (buying Stars and the like): the page gets
+      the invoice name, then the same path as the "Buy" button (bot.buy/bot.pay with
       invoiceName -> inputInvoiceName). }
     Res := TJSONObject.Create;
     Res.Add('invoice', string(JGetStr(AResp.Obj, 'invoice_name')));
@@ -5684,8 +5695,8 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ chat_id = 0 — до вступления доступа нет (td_api.tl): странице —
-  описание чата для вопроса «вступить?». }
+{ chat_id = 0 — no access before joining (td_api.tl): the page gets the
+  chat's description for the "join?" question. }
 procedure TWebApi.LinkInviteDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -5717,8 +5728,8 @@ begin
     Inv.Add('members', JGetInt(AResp.Obj, 'member_count'));
     Inv.Add('channel', Kind = 'inviteLinkChatTypeChannel');
     Inv.Add('request', JGetBool(AResp.Obj, 'creates_join_request'));
-    { Как окно нативного клиента: аватарка, описание, цвет буквы для
-      чата без фото. }
+    { As in the native client's window: avatar, description, the letter's
+      colour for a chat without a photo. }
     Inv.Add('description', string(JGetStr(AResp.Obj, 'description')));
     Inv.Add('color', string(AccentKeyFor(JGetInt(AResp.Obj, 'accent_color_id'), 0)));
     Photo := JGetObj(AResp.Obj, 'photo');
@@ -5738,10 +5749,11 @@ begin
     end;
     Res.Add('invite', Inv);
 
-    { Фото чата, куда доступа ещё нет: в модели чатов его строки нет, и
-      докачанное потом показать было бы некуда. Поэтому оно качается
-      СЕЙЧАС, а ответ ждёт: synchronous:true — ответ downloadFile
-      приходит, когда файл уже на диске (td_api.tl). Файл маленький. }
+    { The photo of a chat there is no access to yet: the chat model has no
+      row for it, so a photo downloaded later would have nowhere to show.
+      So it is downloaded NOW and the answer waits: synchronous:true — the
+      downloadFile answer comes when the file is on disk (td_api.tl). The
+      file is small. }
     if Small <> nil then begin
       FileId := JGetInt(Small, 'id');
       Local := JGetObj(Small, 'local');
@@ -5775,8 +5787,8 @@ begin
      or (FDeferred[Slot].Held = nil) then begin
     Exit;
   end;
-  { Ответ забирается из слота в собственность — Reply его отправит и
-    освободит; иначе ReleaseDeferred освободил бы его второй раз. }
+  { The answer is taken out of the slot into ownership — Reply sends and
+    frees it; otherwise ReleaseDeferred would free it a second time. }
   Res := TJSONObject(FDeferred[Slot].Held.Extract('reply'));
   if Res = nil then begin
     ReleaseDeferred(Slot);
@@ -5789,7 +5801,7 @@ begin
         string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path'))));
     end;
   end;
-  { Не скачалось — окно покажет размытое превью или букву. }
+  { Not downloaded — the window shows a blurred preview or a letter. }
   Reply(FDeferred[Slot].ConnId, FDeferred[Slot].ReqId, Res);
   ReleaseDeferred(Slot);
 end;
@@ -5804,8 +5816,8 @@ begin
     Exit;
   end;
   if (not AResp.Success) or (JGetInt64(AResp.Obj, 'chat_id') = 0) then begin
-    { Сообщение недоступно (закрытый чат без доступа и т.п.) — пусть
-      разбирается браузер и официальный клиент. }
+    { The message is unavailable (a private chat without access and the
+      like) — let the browser and the official client deal with it. }
     LinkExternal(Slot);
     Exit;
   end;
@@ -5819,8 +5831,8 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Вступление по приглашению. Ответ — chatJoinResult* в свежем TDLib и
-  просто chat в прежних; оба понимаются. }
+{ Joining by invitation. The answer is chatJoinResult* in recent TDLib and
+  a plain chat in older ones; both are understood. }
 function TWebApi.CmdLinkJoin(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -5869,9 +5881,9 @@ end;
 { bots: keyboards, callbacks, commands                               }
 { ------------------------------------------------------------------ }
 
-{ Нажатие callback-кнопки: getCallbackQueryAnswer, ответ бота — text,
-  alert (show_alert), url. Бот может и не ответить вовремя — тогда
-  TDLib вернёт ошибку, и страница её не показывает. }
+{ Pressing a callback button: getCallbackQueryAnswer, the bot's answer —
+  text, alert (show_alert), url. The bot may not answer in time — then
+  TDLib returns an error, and the page does not show it. }
 function TWebApi.CmdBotCallback(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -5884,9 +5896,9 @@ begin
   if (Id = 0) or (Msgs.ChatId = 0) then begin
     raise Exception.Create('bot.callback needs a message id');
   end;
-  { Три вида callbackQueryPayload (td_api.tl): Data, DataWithPassword
-    (пароль 2FA вводит человек на странице), Game (game_short_name из
-    messageGame самого сообщения). }
+  { Three kinds of callbackQueryPayload (td_api.tl): Data, DataWithPassword
+    (the person types the 2FA password on the page), Game (game_short_name
+    from the message's own messageGame). }
   if AArgs.Get('game', False) then begin
     Payload := '{"@type":"callbackQueryPayloadGame","game_short_name":' +
       JsonStr(GameShortName(Msgs, Id)) + '}';
@@ -5928,9 +5940,10 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Команды бота и его кнопка меню — из userFullInfo.bot_info (td_api.tl):
-  commands (command, description), menu_button (text, url). Только для
-  лички с ботом: в группах у каждого бота свои, это позже. }
+{ The bot's commands and its menu button — from userFullInfo.bot_info
+  (td_api.tl): commands (command, description), menu_button (text, url).
+  Only for a private chat with the bot: in groups every bot has its own,
+  that comes later. }
 function TWebApi.CmdBotInfo(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -5994,22 +6007,22 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Trim для utf8string без двух предупреждений о преобразовании. }
+{ Trim for utf8string without two conversion warnings. }
 function TrimU(const AValue: utf8string): utf8string;
 begin
   Result := utf8string(Trim(string(AValue)));
 end;
 
 { ------------------------------------------------------------------ }
-{ мой аккаунт (Settings -> My account)                               }
+{ my account (Settings -> My account)                                 }
 { ------------------------------------------------------------------ }
 
-{ account.get — цепочкой: getMe -> getUserFullInfo -> getOption
-  bio_length_max -> (downloadFile аватарки, если её нет на диске) ->
-  ответ. Поля — по td_api.tl коммита d1085f9: user (first_name,
+{ account.get — as a chain: getMe -> getUserFullInfo -> getOption
+  bio_length_max -> (downloadFile of the avatar if it is not on disk) ->
+  answer. Fields — per td_api.tl at commit d1085f9: user (first_name,
   last_name, usernames.editable_username, phone_number, profile_photo,
   accent_color_id, is_premium), userFullInfo (bio, birthdate,
-  personal_chat_id). Собираемый ответ живёт в Held['reply']. }
+  personal_chat_id). The answer being built lives in Held['reply']. }
 function TWebApi.CmdAccountGet(AConnId: Int64; AReqId: integer): boolean;
 var
   Msgs: TTdMessages;
@@ -6018,14 +6031,14 @@ begin
   Msgs := RequireMsgs;
   Slot := TakeDeferred(AConnId, AReqId, 0);
   FDeferred[Slot].Held := TJSONObject.Create;
-  { Какое поле ответа заполняет текущая докачка — см. AccountFinish. }
+  { Which answer field the current download fills — see AccountFinish. }
   FDeferred[Slot].Held.Add('want', '');
   Msgs.Request('getMe', '', @AccountMeDone, Slot);
   Result := True;
 end;
 
-{ Слот жив и цепочка не оборвалась; иначе — ошибка странице и слот
-  освобождается. }
+{ The slot is alive and the chain did not break; otherwise an error goes
+  to the page and the slot is freed. }
 function TWebApi.AccountSlot(const AResp: TTdResponse; out ASlot: PtrInt): boolean;
 begin
   Result := False;
@@ -6063,9 +6076,10 @@ begin
   Res.Add('phone', string(JGetStr(AResp.Obj, 'phone_number')));
   Res.Add('premium', JGetBool(AResp.Obj, 'is_premium'));
   Res.Add('color', string(AccentKeyFor(JGetInt(AResp.Obj, 'accent_color_id'), Id)));
-  { Для выбора цвета: id цвета имени и профиля (-1 — профиль без цвета)
-    и их фоновые эмодзи, которые setAccentColor/setProfileAccentColor
-    требуют передать заново, чтобы не сбросить. }
+  { For the colour picker: the colour ids of the name and the profile (-1 —
+    profile without a colour) and their background emoji, which
+    setAccentColor/setProfileAccentColor require to be passed again so as
+    not to reset them. }
   Res.Add('accentId', JGetInt(AResp.Obj, 'accent_color_id'));
   Res.Add('accentEmoji', string(IntToStr(JGetInt64(AResp.Obj, 'background_custom_emoji_id'))));
   Res.Add('profileAccentId', JGetInt(AResp.Obj, 'profile_accent_color_id'));
@@ -6083,7 +6097,7 @@ begin
         Thumb := DecodeStringBase64(string(B64));
         Res.Strings['avatarThumb'] := string(ThumbDataUri(Thumb));
       except
-        { Битое превью — просто без него. }
+        { A broken preview — simply without it. }
       end;
     end;
     Small := JGetObj(Photo, 'small');
@@ -6114,9 +6128,9 @@ begin
   end;
   Res := TJSONObject(FDeferred[Slot].Held.Objects['reply']);
   Res.Add('bio', string(JGetStr(JGetObj(AResp.Obj, 'bio'), 'text')));
-  { Анимированная аватарка — только в полной информации: фото
-    personal_photo / photo / public_photo (тот же порядок, что у чатов в
-    tdchats), файл — small_animation (160x160), иначе animation. }
+  { The animated avatar is only in the full info: photo personal_photo /
+    photo / public_photo (the same order as for chats in tdchats), the file
+    — small_animation (160x160), otherwise animation. }
   Photo := JGetObj(AResp.Obj, 'personal_photo');
   if Photo = nil then begin
     Photo := JGetObj(AResp.Obj, 'photo');
@@ -6144,7 +6158,7 @@ begin
     BirthOut := TJSONObject.Create;
     BirthOut.Add('day', JGetInt(Birth, 'day'));
     BirthOut.Add('month', JGetInt(Birth, 'month'));
-    { 0 — год не указан (birthdate.year, td_api.tl). }
+    { 0 — the year is not set (birthdate.year, td_api.tl). }
     BirthOut.Add('year', JGetInt(Birth, 'year'));
     Res.Add('birthdate', BirthOut);
   end else begin
@@ -6182,7 +6196,7 @@ begin
     Exit;
   end;
   Res := TJSONObject(FDeferred[Slot].Held.Objects['reply']);
-  { optionValueInteger.value — int64, в JSON строкой (живой лог:
+  { optionValueInteger.value — int64, a string in JSON (live log:
     "value":"140"). }
   BioMax := ACCOUNT_BIO_MAX_DEFAULT;
   V := AResp.Obj.Find('value');
@@ -6194,9 +6208,10 @@ begin
   AccountFinish(Slot);
 end;
 
-{ Докачка того, чего нет на диске: сначала картинка аватарки, потом её
-  анимация — downloadFile synchronous, ответ приходит, когда файл уже
-  скачан; файлы маленькие. Всё на месте — ответ странице. }
+{ Downloading what is not on disk: first the avatar picture, then its
+  animation — downloadFile synchronous, the answer arrives when the file is
+  downloaded; the files are small. Everything in place — the answer goes
+  to the page. }
 procedure TWebApi.AccountFinish(ASlot: PtrInt);
 var
   Res: TJSONObject;
@@ -6240,8 +6255,8 @@ begin
     ReleaseDeferred(Slot);
     Exit;
   end;
-  { Не скачалось — страница покажет превью, буквы или неподвижную
-    картинку вместо анимации. }
+  { Not downloaded — the page shows a preview, letters or a still picture
+    instead of the animation. }
   if AResp.Success then begin
     Local := JGetObj(AResp.Obj, 'local');
     if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
@@ -6252,10 +6267,10 @@ begin
   AccountFinish(Slot);
 end;
 
-{ Изменения — по одному полю, ответ ok; свежие значения страница
-  берёт новым account.get. Методы — td_api.tl: setName, setBio,
-  setUsername, setBirthdate (null — убрать), setPersonalChat (0 —
-  убрать), setProfilePhoto (inputChatPhotoStatic из файла /upload). }
+{ Changes — one field at a time, the answer is ok; the page takes the
+  fresh values with a new account.get. Methods — td_api.tl: setName,
+  setBio, setUsername, setBirthdate (null — remove), setPersonalChat (0 —
+  remove), setProfilePhoto (inputChatPhotoStatic from an /upload file). }
 function TWebApi.CmdAccountSet(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -6329,10 +6344,11 @@ begin
   Msgs.Request(Method, Body, @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ Галерея своих аватарок: getUserProfilePhotos (td_api.tl: до 100 за
-  раз; personal и public фото в ответ не входят) -> по каждому фото
-  самый крупный photoSize качается синхронно, по одному, -> ответ.
-  Превью сразу — minithumbnail, чтобы полоса снизу не была пустой. }
+{ The gallery of one's own avatars: getUserProfilePhotos (td_api.tl: up to
+  100 at a time; personal and public photos are not in the answer) -> for
+  each photo the largest photoSize is downloaded synchronously, one by one,
+  -> answer. Previews right away — the minithumbnail, so the strip at the
+  bottom is not empty. }
 function TWebApi.CmdAccountPhotos(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -6369,8 +6385,8 @@ begin
         Continue;
       end;
       Photo := TJSONObject(Arr.Items[I]);
-      { Самый крупный размер — по ширине: у типов ('a', 'b', 'c') нет
-        гарантированного порядка в массиве. }
+      { The largest size — by width: the types ('a', 'b', 'c') have no
+        guaranteed order in the array. }
       Best := nil;
       Sizes := JGetArr(Photo, 'sizes');
       if Sizes <> nil then begin
@@ -6388,7 +6404,7 @@ begin
         Continue;
       end;
       Item := TJSONObject.Create;
-      { id — int64, строкой: в JS число такой длины теряет точность. }
+      { id — int64, as a string: in JS a number this long loses precision. }
       Item.Add('id', string(IntToStr(JGetInt64(Photo, 'id'))));
       Item.Add('date', JGetInt64(Photo, 'added_date'));
       Item.Add('w', JGetInt(Best, 'width'));
@@ -6402,15 +6418,15 @@ begin
           Thumb := DecodeStringBase64(string(B64));
           Item.Strings['thumb'] := string(ThumbDataUri(Thumb));
         except
-          { Битое превью — без него. }
+          { A broken preview — without it. }
         end;
       end;
-      { «Скачан» — только если файл и правда на диске. После
-        optimizeStorage (tdstorage.pas: пустой file_types чистит и файлы
-        типа photo, а полноразмерные фото профиля — они) TDLib ещё
-        отдаёт is_downloading_completed с путём, которого нет:
-        проверено живьём, 9 из 10 файлов галереи. Такой файл — stale:
-        сначала deleteFile, чтобы TDLib забыл запись, потом докачка. }
+      { "Downloaded" — only if the file really is on disk. After
+        optimizeStorage (tdstorage.pas: an empty file_types cleans photo
+        files too, and full-size profile photos are those) TDLib still
+        reports is_downloading_completed with a path that does not exist:
+        checked live, 9 of 10 gallery files. Such a file is stale: first
+        deleteFile so TDLib forgets the record, then the download. }
       Item.Add('stale', False);
       Item.Add('animStale', False);
       Local := JGetObj(JGetObj(Best, 'photo'), 'local');
@@ -6421,9 +6437,9 @@ begin
           Item.Booleans['stale'] := True;
         end;
       end;
-      { Анимированная аватарка: chatPhoto.animation — animatedChatPhoto
-        (length — сторона квадрата, file — MPEG4; td_api.tl). Качается
-        следом за картинкой, картинка остаётся постером. }
+      { Animated avatar: chatPhoto.animation — animatedChatPhoto (length —
+        the side of the square, file — MPEG4; td_api.tl). Downloaded right
+        after the picture, the picture stays as the poster. }
       Item.Add('animFileId', 0);
       Item.Add('animUrl', '');
       Anim := JGetObj(Photo, 'animation');
@@ -6449,7 +6465,7 @@ begin
   AccountPhotosNext(Slot);
 end;
 
-{ Чего у фото ещё нет: 'url' (картинка), 'animUrl' (анимация) или ''. }
+{ What a photo still lacks: 'url' (the picture), 'animUrl' (the animation) or ''. }
 function PhotoMissing(AItem: TJSONObject): string;
 begin
   if AItem.Strings['url'] = '' then begin
@@ -6461,8 +6477,9 @@ begin
   end;
 end;
 
-{ Следующий нескачанный файл — downloadFile synchronous; когда скачано
-  всё (или что смогло), ответ странице. Какое поле заполняется —
+{ The next file not downloaded — downloadFile synchronous; when everything
+  is downloaded (or whatever could be), the answer goes to the page. Which
+  field is being filled —
   Held['field']. }
 procedure TWebApi.AccountPhotosNext(ASlot: PtrInt);
 var
@@ -6493,7 +6510,7 @@ begin
     FDeferred[ASlot].Held.Strings['field'] := Field;
     if ((Field = 'url') and Item.Booleans['stale'])
        or ((Field = 'animUrl') and Item.Booleans['animStale']) then begin
-      { Запись устарела (файла нет) — сначала забыть её, докачка — в
+      { The record is stale (no file) — forget it first, the download is in
         AccountPhotoStaleDone. }
       if Field = 'url' then begin
         Item.Booleans['stale'] := False;
@@ -6516,8 +6533,8 @@ begin
   ReleaseDeferred(ASlot);
 end;
 
-{ deleteFile устаревшей записи прошёл (или нет — всё равно пробуем):
-  теперь та же докачка, что для нескачанного файла. }
+{ deleteFile of the stale record went through (or not — we try anyway):
+  now the same download as for a file never downloaded. }
 procedure TWebApi.AccountPhotoStaleDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -6555,18 +6572,19 @@ begin
         Item.Strings[Field] := string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
       end;
     end;
-    { Не скачалось — '-': поле больше не ждёт, а страница такой адрес
-      пропускает (картинку — слайдом, анимацию — оставляя картинку). }
+    { Not downloaded — '-': the field waits no more, and the page skips such
+      an address (a picture — as a slide, an animation — keeping the picture). }
     if Item.Strings[Field] = '' then begin
       Item.Strings[Field] := '-';
     end;
   end;
-  { Тот же индекс: у фото может не хватать ещё анимации. }
+  { The same index: the photo may still lack its animation. }
   AccountPhotosNext(Slot);
 end;
 
-{ Свободно ли имя пользователя: checkChatUsername с chat_id своей лички
-  (= свой user id; так велит td_api.tl для «private chat with self»). }
+{ Whether a username is free: checkChatUsername with the chat_id of the
+  chat with oneself (= one's own user id; td_api.tl prescribes this for
+  "private chat with self"). }
 function TWebApi.CmdAccountCheckUsername(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -6595,7 +6613,7 @@ begin
     ReleaseDeferred(Slot);
     Exit;
   end;
-  { checkChatUsernameResult* — td_api.tl; хвост имени типа и есть ответ. }
+  { checkChatUsernameResult* — td_api.tl; the tail of the type name is the answer. }
   T := JGetStr(AResp.Obj, '@type');
   if T = 'checkChatUsernameResultOk' then begin
     T := 'ok';
@@ -6616,8 +6634,9 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Каналы, годные в «личный канал»: getSuitablePersonalChats -> chats
-  (chat_ids). Названия — из модели чатов: это свои каналы, они в списке. }
+{ Channels that qualify as the "personal channel": getSuitablePersonalChats
+  -> chats (chat_ids). Titles — from the chat model: these are one's own
+  channels, they are in the list. }
 function TWebApi.CmdAccountPersonalChats(AConnId: Int64; AReqId: integer): boolean;
 var
   Msgs: TTdMessages;
@@ -6675,13 +6694,13 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ остальные виды кнопок ботов (td_api.tl коммита d1085f9)             }
+{ other kinds of bot buttons (td_api.tl at commit d1085f9)             }
 { ------------------------------------------------------------------ }
 
 { inlineKeyboardButtonTypeLoginUrl: getLoginUrlInfo -> loginUrlInfoOpen
-  (url, skip_confirmation) — открыть сразу; loginUrlInfoRequestConfirmation
-  (url, domain, bot_user_id, request_write_access) — спросить человека,
-  затем getLoginUrl (bot.loginUrlConfirm). }
+  (url, skip_confirmation) — open right away; loginUrlInfoRequestConfirmation
+  (url, domain, bot_user_id, request_write_access) — ask the person, then
+  getLoginUrl (bot.loginUrlConfirm). }
 function TWebApi.CmdBotLoginUrl(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -6738,7 +6757,7 @@ begin
     @WebAppOpenUrlDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ Ответ httpUrl -> url странице. }
+{ The httpUrl answer -> url for the page. }
 procedure TWebApi.WebAppOpenUrlDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -6759,7 +6778,7 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ orderInfo TDLib -> странице (name, phone, email, address(...)); nil -> null. }
+{ TDLib orderInfo -> for the page (name, phone, email, address(...)); nil -> null. }
 function OrderInfoToPage(AInfo: TJSONObject): TJSONData;
 var
   O, A, Addr: TJSONObject;
@@ -6786,8 +6805,8 @@ begin
   Result := O;
 end;
 
-{ Данные заказа со страницы -> JSON orderInfo для TDLib (через fpjson, с
-  экранированием); адрес — только если страница его прислала. }
+{ Order data from the page -> orderInfo JSON for TDLib (through fpjson,
+  with escaping); the address — only if the page sent one. }
 function OrderInfoFromPage(AOrder: TJSONObject): utf8string;
 var
   O, A, Src: TJSONObject;
@@ -6816,9 +6835,10 @@ begin
   end;
 end;
 
-{ Какой счёт оплачивается: по имени из ссылки t.me/$имя
-  (inputInvoiceName, args.invoiceName) или счёт-сообщение открытого чата
-  (inputInvoiceMessage, args.msgId). Поля — td_api.tl коммита d1085f9. }
+{ Which invoice is being paid: by name from a t.me/$name link
+  (inputInvoiceName, args.invoiceName) or an invoice message of the open
+  chat (inputInvoiceMessage, args.msgId). Fields — td_api.tl at commit
+  d1085f9. }
 function InvoiceJson(AMsgs: TTdMessages; AArgs: TJSONObject): utf8string;
 var
   Name: utf8string;
@@ -6834,10 +6854,10 @@ begin
 end;
 
 { inlineKeyboardButtonTypeBuy: getPaymentForm(inputInvoiceMessage).
-  paymentFormTypeStars (star_count) — странице цена и id формы, она
-  спрашивает подтверждение и зовёт bot.pay; paymentFormTypeRegular с
-  paymentProviderOther (url) — ссылка на оплату у провайдера; прочее
-  (Stripe, Smart Glocal, подписки) — не поддержано. }
+  paymentFormTypeStars (star_count) — the page gets the price and the form
+  id, asks for confirmation and calls bot.pay; paymentFormTypeRegular with
+  paymentProviderOther (url) — a link to pay at the provider; the rest
+  (Stripe, Smart Glocal, subscriptions) — not supported. }
 function TWebApi.CmdBotBuy(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -6883,11 +6903,11 @@ begin
       Res.Add('kind', 'url');
       Res.Add('url', string(JGetStr(Provider, 'url')));
     end else begin
-      { Оплата картой (td_api.tl коммита d1085f9): что нужно спросить
-        (данные заказа — invoice.need_*, доставка — is_flexible), чем
-        платить (saved_credentials, need_password), куда токенизировать
-        новую карту (payment_provider). Сама карта уходит провайдеру со
-        страницы (ui/payments.js) — сюда приходит только токен. }
+      { Card payment (td_api.tl at commit d1085f9): what to ask for (order
+        data — invoice.need_*, shipping — is_flexible), what to pay with
+        (saved_credentials, need_password), where to tokenize a new card
+        (payment_provider). The card itself goes to the provider from the
+        page (ui/payments.js) — only the token arrives here. }
       Res.Add('kind', 'card');
       Res.Add('currency', string(JGetStr(Inv, 'currency')));
       PartsOut := TJSONArray.Create;
@@ -6956,9 +6976,9 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ bot.validateOrder — данные заказа (validateOrderInfo, td_api.tl коммита
-  d1085f9): order_info_id для sendPaymentForm и варианты доставки
-  гибкого счёта (сумма каждого — по price_parts). }
+{ bot.validateOrder — order data (validateOrderInfo, td_api.tl at commit
+  d1085f9): order_info_id for sendPaymentForm and the shipping options of
+  a flexible invoice (each one's sum — from price_parts). }
 function TWebApi.CmdBotValidateOrder(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7026,9 +7046,9 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ bot.tmpPassword — временный пароль для оплаты сохранённой картой
-  (createTemporaryPassword; пароль — облачный пароль аккаунта, его
-  вводит человек). }
+{ bot.tmpPassword — a temporary password for paying with a saved card
+  (createTemporaryPassword; the password is the account's cloud password,
+  typed by the person). }
 function TWebApi.CmdBotTmpPassword(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 begin
@@ -7039,13 +7059,14 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ bot.tmpPasswordState — есть ли действующий временный пароль
+{ bot.tmpPasswordState — whether there is a valid temporary password
   (getTemporaryPasswordState -> temporaryPasswordState: has_password,
-  valid_for). Нужен ВСЕГДА перед оплатой сохранённой картой
-  (inputCredentialsSaved, td_api.tl). Не путать с need_password формы:
-  оно значит «смог бы сохранить карту, если заведёт облачный пароль»
-  (живой tdlib_raw.log: need_password false у всех форм, а оплата
-  отвечала «Temporary password required to use saved credentials»). }
+  valid_for). Needed ALWAYS before paying with a saved card
+  (inputCredentialsSaved, td_api.tl). Not to be confused with the form's
+  need_password: that means "could save the card if a cloud password is
+  set up" (live tdlib_raw.log: need_password false on every form, while
+  the payment answered "Temporary password required to use saved
+  credentials"). }
 function TWebApi.CmdBotTmpPasswordState(AConnId: Int64; AReqId: integer): boolean;
 begin
   Result := True;
@@ -7074,8 +7095,8 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Оплата звёздами — только после явного подтверждения на странице:
-  sendPaymentForm, credentials null (так велит td_api.tl для Stars). }
+{ Paying with Stars — only after explicit confirmation on the page:
+  sendPaymentForm, credentials null (as td_api.tl prescribes for Stars). }
 function TWebApi.CmdBotPay(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7084,8 +7105,8 @@ var
 begin
   Result := True;
   Msgs := RequireMsgs;
-  { Звёзды — credentials null; сохранённая карта — inputCredentialsSaved;
-    новая — inputCredentialsNew с JSON-токеном провайдера (data). }
+  { Stars — credentials null; a saved card — inputCredentialsSaved; a new
+    one — inputCredentialsNew with the provider's JSON token (data). }
   Creds := 'null';
   if AArgs.Get('savedId', utf8string('')) <> '' then begin
     Creds := '{"@type":"inputCredentialsSaved","saved_credentials_id":' +
@@ -7118,7 +7139,7 @@ begin
     ReleaseDeferred(Slot);
     Exit;
   end;
-  { paymentResult: success, verification_url (3-D Secure и т.п.). }
+  { paymentResult: success, verification_url (3-D Secure and the like). }
   Res := TJSONObject.Create;
   Res.Add('success', JGetBool(AResp.Obj, 'success'));
   Res.Add('url', string(JGetStr(AResp.Obj, 'verification_url')));
@@ -7126,9 +7147,10 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ keyboardButtonTypeRequestLocation: координаты дал браузер (страница
-  спросила разрешение), сюда — уже согласие человека. inputMessageLocation
-  в этой схеме — только location (latitude, longitude, horizontal_accuracy). }
+{ keyboardButtonTypeRequestLocation: the browser gave the coordinates (the
+  page asked for permission), what arrives here is the person's consent.
+  inputMessageLocation in this schema is location only (latitude,
+  longitude, horizontal_accuracy). }
 function TWebApi.CmdBotSendLocation(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7148,10 +7170,10 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ keyboardButtonTypeRequestPoll: опрос, собранный на странице.
-  inputMessagePoll (question, options из inputPollOption, is_anonymous,
+{ keyboardButtonTypeRequestPoll: a poll put together on the page.
+  inputMessagePoll (question, options of inputPollOption, is_anonymous,
   allows_multiple_answers, type: inputPollTypeRegular | inputPollTypeQuiz
-  с correct_option_ids) — прочие поля TDLib берёт по умолчанию. }
+  with correct_option_ids) — TDLib takes the other fields by default. }
 function TWebApi.CmdBotSendPoll(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7191,7 +7213,8 @@ begin
 end;
 
 { keyboardButtonTypeRequestManagedBot: createBot (manager_bot_user_id —
-  бот этой лички: id лички с пользователем равен его user id). }
+  the bot of this private chat: the id of a private chat with a user
+  equals their user id). }
 function TWebApi.CmdBotCreateBot(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7208,13 +7231,13 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ меню скрепки: список задач, статья, боты меню вложений             }
+{ the paperclip menu: checklist, article, attachment menu bots         }
 { ------------------------------------------------------------------ }
 
-{ Список задач: inputMessageChecklist / inputChecklist (title, tasks из
-  inputChecklistTask с id от 1, others_can_add_tasks,
-  others_can_mark_tasks_as_done) — td_api.tl коммита d1085f9. Только для
-  Premium и не в каналы — откажет сам TDLib. }
+{ Checklist: inputMessageChecklist / inputChecklist (title, tasks of
+  inputChecklistTask with ids from 1, others_can_add_tasks,
+  others_can_mark_tasks_as_done) — td_api.tl at commit d1085f9. Premium
+  only and not into channels — TDLib refuses by itself. }
 function TWebApi.CmdSendChecklist(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7247,18 +7270,18 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ Текст как RichText: richTextPlain (td_api.tl). }
+{ Text as RichText: richTextPlain (td_api.tl). }
 function RichPlain(const AText: utf8string): utf8string;
 begin
   Result := '{"@type":"richTextPlain","text":' + JsonStr(AText) + '}';
 end;
 
-{ Статья: inputMessageRichMessage -> inputRichMessage с
-  richMessageSourceBlocks (Markdown и HTML у TDLib — только для ботов).
-  Блоки собирает страница простыми описаниями, здесь — их перевод в
+{ Article: inputMessageRichMessage -> inputRichMessage with
+  richMessageSourceBlocks (Markdown and HTML in TDLib are for bots only).
+  The page builds the blocks as simple descriptions, here they become
   InputPageBlock: heading (inputPageBlockSectionHeading, size 1..6),
-  paragraph, list (inputPageBlockList из inputPageBlockListItem), quote
-  (inputPageBlockBlockQuote с абзацем внутри), divider. }
+  paragraph, list (inputPageBlockList of inputPageBlockListItem), quote
+  (inputPageBlockBlockQuote with a paragraph inside), divider. }
 function TWebApi.CmdSendArticle(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7321,7 +7344,7 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ Боты меню вложений, годные для открытого чата (supports_*_chats). }
+{ Attachment menu bots suitable for the open chat (supports_*_chats). }
 function TWebApi.CmdAttachBots: TJSONData;
 var
   Bots: TTdAttachBots;
@@ -7367,9 +7390,9 @@ begin
   end;
 end;
 
-{ Картинка карты: getMapThumbnailFile (td_api.tl: PNG, zoom 13..20,
-  ширина и высота 16..1024 до scale, scale 1..3) -> файл; нет на диске —
-  downloadFile synchronous. Странице — адрес файла. }
+{ Map picture: getMapThumbnailFile (td_api.tl: PNG, zoom 13..20, width and
+  height 16..1024 before scale, scale 1..3) -> file; not on disk —
+  downloadFile synchronous. The page gets the file's address. }
 function TWebApi.CmdMapThumb(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7414,7 +7437,7 @@ begin
     ReleaseDeferred(Slot);
     Exit;
   end;
-  { Тот же обработчик и для ответа downloadFile: он тоже File. }
+  { The same handler for the downloadFile answer too: it is a File as well. }
   RequireMsgs.Request('downloadFile',
     '"file_id":' + utf8string(IntToStr(JGetInt(AResp.Obj, 'id'))) +
     ',"priority":16,"offset":0,"limit":0,"synchronous":true',
@@ -7443,15 +7466,16 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ упоминания: подсказка при наборе «@»                               }
+{ mentions: suggestions while typing "@"                               }
 { ------------------------------------------------------------------ }
 
-{ mention.search (query) — кого предложить после «@» в поле ввода.
-  Чат — тот, куда пишет поле: открытый в модели (в ветке комментариев
-  это группа обсуждения, не канал со страницы). Группа — участники
-  searchChatMembers с chatMembersFilterMention (в ветке — её topic_id:
-  messageTopicThread); личка и прочее — контакты searchContacts; канал —
-  никого. Поля сверены с td_api.tl коммита d1085f9. }
+{ mention.search (query) — whom to suggest after "@" in the input field.
+  The chat is the one the field writes to: the one open in the model (in a
+  comment thread that is the discussion group, not the page's channel).
+  Group — members via searchChatMembers with chatMembersFilterMention (in
+  a thread — its topic_id: messageTopicThread); a private chat and the
+  rest — contacts via searchContacts; a channel — nobody. Fields checked
+  against td_api.tl at commit d1085f9. }
 function TWebApi.CmdMentionSearch(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -7551,12 +7575,12 @@ begin
   MentionReply(Slot, Ids);
 end;
 
-{ Люди по id — из модели пользователей (TDLib присылает updateUser до
-  ответа поиска): имя, username, цвет, аватарка (на диске — адрес, нет —
-  minithumbnail и докачка). Себя не предлагаем. }
-{ Один пользователь -> карточка для страницы (подсказка «@», поиск):
-  userId, name, username, color, avatar / avatarThumb. nil — удалённый
-  аккаунт или сам пользователь (AMe). }
+{ People by id — from the user model (TDLib sends updateUser before the
+  search answer): name, username, colour, avatar (on disk — an address, not
+  — a minithumbnail and a download). Oneself is not suggested. }
+{ One user -> a card for the page (the "@" suggestion, search): userId,
+  name, username, color, avatar / avatarThumb. nil — a deleted account or
+  the user themself (AMe). }
 function UserItemJson(AId, AMe: Int64): TJSONObject;
 var
   Users: TTdUsers;
@@ -7627,19 +7651,20 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ глобальный поиск (ui/search.js)                                    }
+{ global search (ui/search.js)                                         }
 { ------------------------------------------------------------------ }
 
-{ Поиск — как у Telegram Desktop: фокус в поле над списком открывает
-  панель с вкладками Chats / Channels / Apps. Пустой запрос —
-  search.home (частые и недавние/рекомендуемые), запрос — search.query
-  (известные чаты, публичные, сообщения). Каждая — короткий план запросов
-  TDLib по очереди на одном отложенном ответе: в Held — plan (шаги:
-  key, method, params, kind), i (текущий шаг) и out (ответ). Ошибка шага — пустой список под его
-  ключом, не ошибка всего ответа (searchPublicChats, например, отвечает
-  ошибкой на слишком короткий запрос). Поля сверены с td_api.tl коммита
-  d1085f9 (там нет getRecentlyFoundChats — недавние даёт
-  searchRecentlyFoundChats с пустым запросом). }
+{ Search as in Telegram Desktop: focusing the field above the list opens a
+  panel with Chats / Channels / Apps tabs. An empty query — search.home
+  (frequent and recent/recommended), a query — search.query (known chats,
+  public ones, messages). Each is a short plan of TDLib requests run in
+  turn on one deferred answer: Held keeps plan (steps: key, method,
+  params, kind), i (the current step) and out (the answer). A step error
+  is an empty list under its key, not an error of the whole answer
+  (searchPublicChats, for instance, errors on a too short query). Fields
+  checked against td_api.tl at commit d1085f9 (it has no
+  getRecentlyFoundChats — recent ones come from searchRecentlyFoundChats
+  with an empty query). }
 
 procedure SearchStep(AHeld: TJSONObject; const AKey, AMethod, AParams, AKind: utf8string);
 var
@@ -7661,8 +7686,8 @@ begin
   Result.Add('out', TJSONObject.Create);
 end;
 
-{ Фильтр вида чатов для searchMessages по вкладке поиска ('' — вкладка
-  без сообщений). }
+{ The chat kind filter of searchMessages for a search tab ('' — a tab
+  without messages). }
 function SearchMessagesFilter(const ATab: utf8string): utf8string;
 begin
   if ATab = 'channels' then begin
@@ -7758,7 +7783,7 @@ begin
   SearchNext(Slot);
 end;
 
-{ Следующий шаг плана, или ответ странице, когда шаги кончились. }
+{ The next step of the plan, or the answer to the page when the steps are over. }
 procedure TWebApi.SearchNext(ASlot: PtrInt);
 var
   Held, Step, Res: TJSONObject;
@@ -7779,11 +7804,11 @@ begin
     @SearchStepDone, ASlot);
 end;
 
-{ Ответ TDLib на шаг -> список для страницы:
-    chats — chat_ids -> строки, как в списке чатов (RowToJson);
-    users — user_ids -> карточки (UserItemJson);
-    messages — сообщения -> chat (строка), id, date, text (превью, как
-      в списке — MessagePreview), sender, outgoing. }
+{ TDLib's answer to a step -> a list for the page:
+    chats — chat_ids -> rows as in the chat list (RowToJson);
+    users — user_ids -> cards (UserItemJson);
+    messages — messages -> chat (a row), id, date, text (a preview, as in
+      the list — MessagePreview), sender, outgoing. }
 function GiftSenderName(ASender: TJSONObject): utf8string; forward;
 
 function SearchItems(const AKind: utf8string; AObj: TJSONObject): TJSONArray;
@@ -7868,7 +7893,7 @@ begin
     Items := TJSONArray.Create;
   end;
   TJSONObject(Held.Find('out', jtObject)).Add(Step.Get('key', ''), Items);
-  { Сообщения листаются дальше (search.messages): их next_offset. }
+  { Messages page further (search.messages): their next_offset. }
   if AResp.Success and (Step.Get('kind', '') = 'messages') then begin
     TJSONObject(Held.Find('out', jtObject)).Add(Step.Get('key', '') + 'Next',
       JGetStr(AResp.Obj, 'next_offset'));
@@ -7877,8 +7902,8 @@ begin
   SearchNext(Slot);
 end;
 
-{ search.messages (tab, query, offset) — «Show more» под найденными
-  сообщениями: следующая страница searchMessages. }
+{ search.messages (tab, query, offset) — "Show more" under the messages
+  found: the next page of searchMessages. }
 function TWebApi.CmdSearchMessages(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -7902,12 +7927,12 @@ begin
   SearchNext(Slot);
 end;
 
-{ ---- публичные посты (вкладка Posts) ----
-  Поиск по всем публичным каналам: несколько запросов в день бесплатно,
-  дальше — за звёзды (td_api.tl: getPublicPostSearchLimits,
-  searchPublicPosts, star_count — сколько человек согласился заплатить;
-  0 — бесплатно). Страница сначала спрашивает лимиты и показывает их, а
-  ищет — только по нажатию, платный поиск — по отдельной кнопке с ценой. }
+{ ---- public posts (the Posts tab) ----
+  Search across all public channels: a few queries a day for free, then
+  for Stars (td_api.tl: getPublicPostSearchLimits, searchPublicPosts,
+  star_count — how much the person agreed to pay; 0 — free). The page
+  first asks for the limits and shows them, and searches only on a press,
+  a paid search — by a separate button with the price. }
 
 function PostLimitsJson(L: TJSONObject): TJSONObject;
 begin
@@ -7919,7 +7944,7 @@ begin
   Result.Add('currentFree', JGetBool(L, 'is_current_query_free'));
 end;
 
-{ search.postLimits (query) -> лимиты для этого запроса. }
+{ search.postLimits (query) -> the limits for this query. }
 function TWebApi.CmdSearchPostLimits(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -7975,8 +8000,8 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ search.recent (op: add | remove | clear, id) — недавние найденные:
-  открытый из поиска чат встаёт в них, крестик и Clear — убирают. }
+{ search.recent (op: add | remove | clear, id) — recently found: a chat
+  opened from search joins them, the cross and Clear remove them. }
 function TWebApi.CmdSearchRecent(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Op, Body: utf8string;
@@ -7999,12 +8024,12 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ контакты (кнопка Contacts над списком чатов)                       }
+{ contacts (the Contacts button above the chat list)                   }
 { ------------------------------------------------------------------ }
 
-{ contacts.list: getContacts (td_api.tl: users — user_ids) -> getUser по
-  каждому id, все сразу; ответы собираются в Held['items'], счётчик —
-  Held['left']. Дошёл до нуля — ответ странице; порядок наводит она. }
+{ contacts.list: getContacts (td_api.tl: users — user_ids) -> getUser for
+  every id, all at once; the answers gather in Held['items'], the counter
+  is Held['left']. At zero — the answer to the page; the page orders them. }
 function TWebApi.CmdContactsList(AConnId: Int64; AReqId: integer): boolean;
 var
   Msgs: TTdMessages;
@@ -8044,9 +8069,9 @@ begin
   end;
 end;
 
-{ Один контакт: имя, имя пользователя, телефон, аватарка (на диске — адрес,
-  нет — minithumbnail и докачка через модель пользователей), цвет, статус
-  (userStatus* — хвост имени типа и was_online для Offline). }
+{ One contact: name, username, phone, avatar (on disk — an address, not —
+  a minithumbnail and a download through the user model), colour, status
+  (userStatus* — the tail of the type name and was_online for Offline). }
 procedure TWebApi.ContactUserDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -8078,8 +8103,9 @@ begin
     Item.Add('color', string(AccentKeyFor(JGetInt(AResp.Obj, 'accent_color_id'), Id)));
     Item.Add('avatar', '');
     Item.Add('avatarThumb', '');
-    { Фото есть, но ещё качается — страница перезапросит список
-      (OnChanged модели пользователей занят нативным окном истории). }
+    { There is a photo, but it is still downloading — the page asks for the
+      list again (the user model's OnChanged is taken by the native
+      history window). }
     Item.Add('photoPending', False);
     Photo := JGetObj(AResp.Obj, 'profile_photo');
     if Photo <> nil then begin
@@ -8089,7 +8115,7 @@ begin
           Thumb := DecodeStringBase64(string(B64));
           Item.Strings['avatarThumb'] := string(ThumbDataUri(Thumb));
         except
-          { Битое превью — без него. }
+          { A broken preview — without it. }
         end;
       end;
       Small := JGetObj(Photo, 'small');
@@ -8097,8 +8123,9 @@ begin
       if (Local <> nil) and JGetBool(Local, 'is_downloading_completed') then begin
         Item.Strings['avatar'] := string(FileUrl(JGetInt(Small, 'id'), JGetStr(Local, 'path')));
       end else begin
-        { Докачка — модель пользователей (как для людей в окне реакций);
-          картинка появится при следующем запросе списка. }
+        { The download goes through the user model (as for the people in
+          the reactions window); the picture shows up with the next list
+          request. }
         Item.Booleans['photoPending'] := True;
         Users := TdUserList;
         if Users <> nil then begin
@@ -8109,9 +8136,10 @@ begin
         end;
       end;
     end;
-    { Папка лички с человеком — тот же чип, что в списке чатов. Id лички
-      равен id пользователя; чата может ещё не быть (никогда не писали) —
-      тогда «без папки», а меню сперва создаст личку (main.js). }
+    { The folder of the private chat with the person — the same chip as in
+      the chat list. The private chat's id equals the user id; the chat may
+      not exist yet (never written to) — then "no folder", and the menu
+      creates the private chat first (main.js). }
     Chats := TdChatList;
     FolderId := 0;
     CRow := nil;
@@ -8120,12 +8148,12 @@ begin
       FolderId := Chats.RowFolderId(CRow);
     end;
     Item.Add('folderId', FolderId);
-    { В папку попадает только чат, у которого есть место в списке (main
-      или archive). Личка без переписки там не стоит: addChatToList
-      отвечает "Chat is not in a chat list" (живой tdlib_raw.log), а
-      editChatFolder такую принимает, но TDLib потом сам выкидывает её
-      из папки (DialogFilterManager: "Skip nonjoined"). Странице — чтобы
-      меню не обещало невозможного. }
+    { Only a chat with a place in a list (main or archive) gets into a
+      folder. A private chat without messages is not there: addChatToList
+      answers "Chat is not in a chat list" (live tdlib_raw.log), and
+      editChatFolder accepts it, but TDLib then drops it from the folder by
+      itself (DialogFilterManager: "Skip nonjoined"). For the page — so the
+      menu does not promise the impossible. }
     Item.Add('inList', (CRow <> nil) and (CRow.InList or CRow.InArchive));
     if FolderId <> 0 then begin
       Item.Add('folder', string(Chats.FolderTitle(FolderId)));
@@ -8135,9 +8163,9 @@ begin
     Status := JGetObj(AResp.Obj, 'status');
     Item.Add('status', string(JGetStr(Status, '@type')));
     Item.Add('wasOnline', JGetInt64(Status, 'was_online'));
-    { Бот: вместо «в сети» строка пишет «bot», как у Desktop. }
+    { A bot: the line says "bot" instead of "online", as in Desktop. }
     Item.Add('bot', JGetStr(JGetObj(AResp.Obj, 'type'), '@type') = 'userTypeBot');
-    { Участник группы (chat.members): роль из статуса участника. }
+    { A group member (chat.members): the role from the member's status. }
     if FDeferred[Slot].Held.Find('roles') is TJSONObject then begin
       Item.Add('role', TJSONObject(FDeferred[Slot].Held.Objects['roles']).Get(
         string(IntToStr(Id)), ''));
@@ -8160,16 +8188,17 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ создание групп и каналов, управление ими (ui/newchat.js, manage.js) }
+{ creating groups and channels, managing them (ui/newchat.js, manage.js) }
 { ------------------------------------------------------------------ }
 
-{ Экраны управления повторяют Telegram Desktop и читают поля TDLib сами
-  (td_api.tl коммита d1085f9), поэтому сервер здесь тонкий: admin
-  (steps: key, method, params) выполняет шаги по очереди и отдаёт ответы
-  TDLib как есть, под их ключами. Только методы из списка ниже — чтение
-  и правка групп и каналов; файл (фото группы) страница передаёт
-  inputFileUpload с id загрузки (RichInputFix). Ошибка шага — ошибка всей
-  команды: это правки, и молча пропущенная хуже явной. }
+{ The management screens copy Telegram Desktop and read TDLib's fields
+  themselves (td_api.tl at commit d1085f9), so the server is thin here:
+  admin (steps: key, method, params) runs the steps in turn and returns
+  TDLib's answers as is, under their keys. Only the methods listed below —
+  reading and editing groups and channels; a file (the group photo) the
+  page passes as inputFileUpload with an upload id (RichInputFix). A step
+  error fails the whole command: these are edits, and a silently skipped
+  one is worse than an explicit failure. }
 const
   ADMIN_METHODS: array[0..38] of string = (
     'getChat', 'getSupergroup', 'getSupergroupFullInfo', 'getBasicGroup',
@@ -8187,10 +8216,10 @@ const
     'upgradeBasicGroupChatToSupergroupChat', 'processChatJoinRequest',
     'toggleSupergroupJoinByRequest', 'setChatMemberTag');
 
-  { Настройки аккаунта (ui/settings.js — разделы как у Telegram
-    Desktop): приватность, сеансы, уведомления, папки, Premium, звёзды,
-    подарки, прокси, Telegram Business. Тот же admin, тот же принцип:
-    страница читает поля TDLib сама. }
+  { Account settings (ui/settings.js — sections as in Telegram Desktop):
+    privacy, sessions, notifications, folders, Premium, Stars, gifts,
+    proxy, Telegram Business. The same admin, the same principle: the page
+    reads TDLib's fields itself. }
   SETTINGS_METHODS: array[0..92] of string = (
     'getMe', 'getUser', 'getUserFullInfo', 'getContacts',
     'getUserPrivacySettingRules', 'setUserPrivacySettingRules',
@@ -8227,8 +8256,8 @@ const
     'createBusinessChatLink', 'editBusinessChatLink', 'deleteBusinessChatLink', 'searchPublicChat',
     'loadSavedMessagesTopics');
 
-  { setOption — только эти: остальные опции TDLib — устройство самого
-    сервера (online, пути, сеть), странице их не трогать. }
+  { setOption — only these: the other TDLib options are the server's own
+    setup (online, paths, network), not for the page to touch. }
   SETTINGS_OPTIONS: array[0..5] of string = (
     'disable_top_chats', 'disable_contact_registered_notifications',
     'ignore_sensitive_content_restrictions', 'disable_animated_emoji',
@@ -8255,7 +8284,7 @@ begin
   end;
 end;
 
-{ Ответ TDLib без служебных полей запроса. }
+{ TDLib's answer without the request's service fields. }
 function AdminClean(AObj: TJSONObject): TJSONObject;
 var
   I: integer;
@@ -8305,16 +8334,17 @@ begin
         finally
           Fixed.Free;
         end;
-        { Объект без внешних скобок — тело запроса (tdreq.SendRequest). }
+        { An object without its outer braces — a request body (tdreq.SendRequest). }
         Body := Trim(Copy(Body, 2, Length(Body) - 2));
       end;
       Step := TJSONObject.Create;
       Step.Add('key', Src.Get('key', IntToStr(I)));
       Step.Add('method', Src.Get('method', ''));
       Step.Add('params', Body);
-      { soft: ошибка этого шага — не ошибка команды, в ответе под его
-        ключом объект error с message (чтение: метод, недоступный
-        без Premium, не должен гасить весь раздел). }
+      { soft: an error of this step is not an error of the command; the
+        answer has an error object with message under its key (reading: a
+        method unavailable without Premium must not take down the whole
+        section). }
       Step.Add('soft', Src.Get('soft', False));
       Plan.Add(Step);
     end;
@@ -8380,8 +8410,8 @@ begin
   AdminNext(Slot);
 end;
 
-{ td.kept (types) — последние обновления TDLib этих типов
-  (KEPT_UPDATE_TYPES): объект «тип - JSON обновления строкой или пусто». }
+{ td.kept (types) — the latest TDLib updates of these types
+  (KEPT_UPDATE_TYPES): an object "type - the update's JSON as a string or empty". }
 function TWebApi.CmdTdKept(AArgs: TJSONObject): TJSONData;
 var
   Types: TJSONArray;
@@ -8399,7 +8429,7 @@ begin
   end;
   for I := 0 to Types.Count - 1 do begin
     T := Types.Items[I].AsString;
-    { «тип:» — все хранимые этого типа по ключам «тип:id». }
+    { "type:" — everything kept of this type under "type:id" keys. }
     if (T <> '') and (T[Length(T)] = ':') then begin
       Found := TStringList.Create;
       try
@@ -8413,16 +8443,16 @@ begin
       Continue;
     end;
     Raw := TdApp.Active.KeptUpdate(T);
-    { Строкой, как пришло от TDLib, — страница разберёт сама. Не
-      GetJSON: эмодзи там суррогатными парами, и fpjson собирает из
-      некоторых невалидный UTF-8 — браузер на таком кадре рвёт
-      веб-сокет (живьём: updateActiveEmojiReactions). }
+    { As a string, as it came from TDLib — the page parses it itself. Not
+      GetJSON: emoji there are surrogate pairs, and fpjson builds invalid
+      UTF-8 from some of them — the browser drops the web socket on such a
+      frame (live: updateActiveEmojiReactions). }
     Res.Add(T, string(Raw));
   end;
 end;
 
-{ users.cards (ids) — карточки людей для списков управления: те же, что
-  у контактов (ContactUserDone: имя, аватарка, статус «в сети»). }
+{ users.cards (ids) — cards of people for the management lists: the same
+  as for contacts (ContactUserDone: name, avatar, "online" status). }
 function TWebApi.CmdUsersCards(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -8460,15 +8490,16 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ приветствие в пустом личном чате                                   }
+{ greeting in an empty private chat                                    }
 { ------------------------------------------------------------------ }
 
-{ chat.greeting — что показать в пустой личке (td_api.tl коммита
-  d1085f9): userFullInfo.bot_info (description, short_description) —
-  карточка бота с кнопкой Start; business_info.start_page (title,
-  message, sticker) — стартовая страница бизнес-аккаунта; иначе —
-  случайный стикер из getGreetingStickers, как у нативного клиента.
-  Стикер качается до ответа (synchronous), чтобы его было чем показать. }
+{ chat.greeting — what to show in an empty private chat (td_api.tl at
+  commit d1085f9): userFullInfo.bot_info (description, short_description)
+  — a bot card with a Start button; business_info.start_page (title,
+  message, sticker) — the start page of a business account; otherwise — a
+  random sticker from getGreetingStickers, as in the native client. The
+  sticker is downloaded before the answer (synchronous) so there is
+  something to show. }
 function TWebApi.CmdChatGreeting(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -8490,9 +8521,9 @@ begin
     @GreetingFullDone, Slot);
 end;
 
-{ Стикер для страницы: id файла, размеры, эмодзи, формат (stickerFormat*
-  хвостом) и адрес, если файл уже на диске; иначе — Held['fileId'] для
-  докачки. }
+{ A sticker for the page: file id, size, emoji, format (the stickerFormat*
+  tail) and the address if the file is on disk already; otherwise
+  Held['fileId'] for the download. }
 procedure TWebApi.GreetingSticker(ASlot: PtrInt; ARes, ASticker: TJSONObject);
 var
   S, FileObj, Local: TJSONObject;
@@ -8522,7 +8553,7 @@ begin
   ARes.Add('sticker', S);
 end;
 
-{ Ответ — или после докачки стикера. }
+{ The answer — or after the sticker has downloaded. }
 procedure TWebApi.GreetingFinish(ASlot: PtrInt);
 var
   Res: TJSONObject;
@@ -8616,7 +8647,7 @@ begin
   GreetingFinish(Slot);
 end;
 
-{ Клик по приветственному стикеру — он уходит в открытый чат. }
+{ A click on the greeting sticker — it goes to the open chat. }
 function TWebApi.CmdGreetingSend(AArgs: TJSONObject): TJSONData;
 var
   Msgs: TTdMessages;
@@ -8628,11 +8659,11 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ панель информации о чате (кнопка «i» над историей)                 }
+{ the chat info panel (the "i" button above the history)               }
 { ------------------------------------------------------------------ }
 
-{ Виды медиа для счётчиков панели — searchMessagesFilter* (td_api.tl);
-  ключи — те, что ждёт страница. }
+{ Media kinds for the panel's counters — searchMessagesFilter* (td_api.tl);
+  the keys are the ones the page expects. }
 const
   INFO_COUNT_FILTERS: array[0..7] of string = ('searchMessagesFilterPhoto',
     'searchMessagesFilterVideo', 'searchMessagesFilterDocument',
@@ -8641,13 +8672,14 @@ const
     'searchMessagesFilterPoll');
   INFO_COUNT_KEYS: array[0..7] of string = ('photo', 'video', 'document',
     'audio', 'url', 'voice', 'animation', 'poll');
-  { Счётчик кодирует в теге и слот, и вид: Slot * INFO_TAG_MUL + индекс. }
+  { The counter encodes both the slot and the kind in the tag: Slot * INFO_TAG_MUL + index. }
   INFO_TAG_MUL = 16;
 
-{ chat.info: строка чата (название, аватарка, цвет, звук) + по виду чата
-  getUser/getUserFullInfo, getSupergroup/getSupergroupFullInfo или
-  getBasicGroup/getBasicGroupFullInfo + getChatMessageCount по семи видам
-  медиа — всё параллельно; Held['left'] считает ответы, на нуле — ответ. }
+{ chat.info: the chat row (title, avatar, colour, sound) + by the chat's
+  kind getUser/getUserFullInfo, getSupergroup/getSupergroupFullInfo or
+  getBasicGroup/getBasicGroupFullInfo + getChatMessageCount for seven media
+  kinds — all in parallel; Held['left'] counts the answers, at zero — the
+  answer. }
 function TWebApi.CmdChatInfo(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -8685,7 +8717,7 @@ begin
   end else if Row.BasicGroupId <> 0 then begin
     Inc(Left, 2);
   end;
-  { Канал — ещё число похожих каналов (getChatSimilarChatCount). }
+  { A channel — also the number of similar channels (getChatSimilarChatCount). }
   if Row.Kind = ckChannel then begin
     Inc(Left);
   end;
@@ -8719,7 +8751,7 @@ begin
   end;
 end;
 
-{ Ещё один ответ пришёл: счётчик вниз, на нуле — ответ странице. }
+{ One more answer arrived: the counter goes down, at zero — the answer to the page. }
 procedure TWebApi.InfoStep(ASlot: PtrInt);
 var
   Left: integer;
@@ -8746,7 +8778,7 @@ begin
   end;
 end;
 
-{ user: телефон, имя пользователя, статус, контакт ли, бот ли. }
+{ user: phone, username, status, whether a contact, whether a bot. }
 procedure TWebApi.InfoUserDone(Sender: TObject; const AResp: TTdResponse);
 var
   Res, Status: TJSONObject;
@@ -8770,8 +8802,7 @@ begin
   InfoStep(AResp.Tag);
 end;
 
-{ userFullInfo: «о себе», день рождения, блокировка, подарки, описание
-  бота. }
+{ userFullInfo: bio, birthday, blocking, gifts, the bot's description. }
 procedure TWebApi.InfoUserFullDone(Sender: TObject; const AResp: TTdResponse);
 var
   Res, Birth, B, Bot: TJSONObject;
@@ -8789,7 +8820,7 @@ begin
       B.Add('year', JGetInt(Birth, 'year'));
       Res.Add('birthdate', B);
     end;
-    { block_list: null — не заблокирован (td_api.tl). }
+    { block_list: null — not blocked (td_api.tl). }
     Res.Add('isBlocked', JGetObj(AResp.Obj, 'block_list') <> nil);
     Res.Add('giftCount', JGetInt(AResp.Obj, 'gift_count'));
     Bot := JGetObj(AResp.Obj, 'bot_info');
@@ -8800,7 +8831,7 @@ begin
   InfoStep(AResp.Tag);
 end;
 
-{ supergroup / basicGroup: число участников, публичная ссылка. }
+{ supergroup / basicGroup: member count, public link. }
 procedure TWebApi.InfoGroupDone(Sender: TObject; const AResp: TTdResponse);
 var
   Res: TJSONObject;
@@ -8813,8 +8844,8 @@ begin
     if Res.Find('memberCount') = nil then begin
       Res.Add('memberCount', JGetInt(AResp.Obj, 'member_count'));
     end;
-    { Собственный статус: состоит ли аккаунт — панели решать, «Join» или
-      «Leave». Restricted — по is_member. }
+    { One's own status: whether the account is a member — for the panel to
+      decide between "Join" and "Leave". Restricted — by is_member. }
     if JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusRestricted' then begin
       Res.Add('isMember', JGetBool(JGetObj(AResp.Obj, 'status'), 'is_member'));
     end else begin
@@ -8822,7 +8853,7 @@ begin
         or (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusAdministrator')
         or (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusMember'));
     end;
-    { Управлять (ui/manage.js) — владелец или администратор. }
+    { Manage (ui/manage.js) — the owner or an administrator. }
     Res.Add('isCreator', JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusCreator');
     Res.Add('canManage', (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusCreator')
       or (JGetStr(JGetObj(AResp.Obj, 'status'), '@type') = 'chatMemberStatusAdministrator'));
@@ -8835,8 +8866,8 @@ begin
   InfoStep(AResp.Tag);
 end;
 
-{ supergroupFullInfo / basicGroupFullInfo: описание, участники, ссылка-
-  приглашение (если публичной нет), можно ли смотреть участников. }
+{ supergroupFullInfo / basicGroupFullInfo: description, members, the
+  invite link (if there is no public one), whether members can be viewed. }
 procedure TWebApi.InfoGroupFullDone(Sender: TObject; const AResp: TTdResponse);
 var
   Res: TJSONObject;
@@ -8854,8 +8885,8 @@ begin
         Res.Add('memberCount', JGetInt(AResp.Obj, 'member_count'));
       end;
     end;
-    { У basicGroupFullInfo поля can_get_members нет — список участников
-      приходит в нём же. }
+    { basicGroupFullInfo has no can_get_members field — the member list
+      comes in it directly. }
     if JGetStr(AResp.Obj, '@type') = 'basicGroupFullInfo' then begin
       Res.Add('canGetMembers', True);
     end else begin
@@ -8865,8 +8896,8 @@ begin
     if Invite <> '' then begin
       Res.Add('inviteLink', string(Invite));
     end;
-    { Группа обсуждения канала (у группы — её канал): кнопка Chat в
-      сведениях о канале ведёт туда. 0 — нет. }
+    { The channel's discussion group (for a group — its channel): the Chat
+      button in the channel info leads there. 0 — none. }
     if JGetInt64(AResp.Obj, 'linked_chat_id') <> 0 then begin
       Res.Add('linkedChatId', JGetInt64(AResp.Obj, 'linked_chat_id'));
     end;
@@ -8891,8 +8922,8 @@ begin
   InfoStep(Slot);
 end;
 
-{ getChatSimilarChatCount -> similarCount (примерное число похожих
-  каналов; ошибка — без числа). }
+{ getChatSimilarChatCount -> similarCount (an approximate number of
+  similar channels; an error — no number). }
 procedure TWebApi.InfoSimilarDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -8908,8 +8939,8 @@ begin
   InfoStep(Slot);
 end;
 
-{ chat.similar (chatId) — похожие каналы (getChatSimilarChats), строками
-  списка чатов, как результаты поиска. }
+{ chat.similar (chatId) — similar channels (getChatSimilarChats), as chat
+  list rows, like search results. }
 function TWebApi.CmdChatSimilar(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -8926,7 +8957,7 @@ begin
 end;
 
 { chat.similarOpened (chatId, openedId) — openChatSimilarChat: Telegram
-  учитывает, какие из предложенных каналов открывают. }
+  counts which of the suggested channels get opened. }
 function TWebApi.CmdChatSimilarOpened(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 begin
   Result := True;
@@ -8936,10 +8967,10 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ chat.members: участники группы — getSupergroupMembers (последние,
-  до INFO_MEMBERS_MAX) или members из basicGroupFullInfo; затем getUser
-  по каждому тем же путём, что контакты (ContactUserDone), с ролью из
-  статуса участника. }
+{ chat.members: group members — getSupergroupMembers (recent, up to
+  INFO_MEMBERS_MAX) or members from basicGroupFullInfo; then getUser for
+  each one the same way as contacts (ContactUserDone), with the role from
+  the member's status. }
 function TWebApi.CmdChatMembers(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -8973,8 +9004,8 @@ begin
   end;
 end;
 
-{ chatMembers.members или basicGroupFullInfo.members: chatMember
-  (member_id, status). Роль — по типу статуса: Creator / Administrator. }
+{ chatMembers.members or basicGroupFullInfo.members: chatMember
+  (member_id, status). The role — by the status type: Creator / Administrator. }
 procedure TWebApi.MembersListDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -8989,10 +9020,10 @@ begin
     Exit;
   end;
   Roles := TJSONObject(FDeferred[Slot].Held.Objects['roles']);
-  { Подпись участника (chatMember.tag, td_api.tl): кастомный титул
-    администратора или тег участника — официальный клиент показывает её
-    вместо «owner»/«admin». Живой tdlib_raw.log: у создателя группы
-    tag "Админ", у обычного участника тоже бывает. }
+  { The member's label (chatMember.tag, td_api.tl): an administrator's
+    custom title or a member tag — the official client shows it instead of
+    "owner"/"admin". Live tdlib_raw.log: the group creator had a tag
+    ("Admin" in Russian), an ordinary member can have one too. }
   Tags := TJSONObject.Create;
   FDeferred[Slot].Held.Add('tags', Tags);
   Arr := JGetArr(AResp.Obj, 'members');
@@ -9034,11 +9065,11 @@ begin
   end;
 end;
 
-{ Действия панели — по одному методу TDLib, ответ ok (SimpleDone):
-  contact.add — addContact (importedContact: имя и фамилия; телефон не
-  делим), contact.remove — removeContacts, user.block — setMessageSender-
-  BlockList (blockListMain / null), chat.leave — leaveChat, contact.share
-  — карточка контакта (inputMessageContact) в выбранный чат. }
+{ Panel actions — one TDLib method each, the answer is ok (SimpleDone):
+  contact.add — addContact (importedContact: first and last name; the
+  phone is not shared), contact.remove — removeContacts, user.block —
+  setMessageSenderBlockList (blockListMain / null), chat.leave — leaveChat,
+  contact.share — a contact card (inputMessageContact) into a chosen chat. }
 function TWebApi.CmdInfoAction(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -9088,11 +9119,11 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ подарки профиля                                                    }
+{ profile gifts                                                        }
 { ------------------------------------------------------------------ }
 
-{ Стикер подарка для страницы: id файла, формат (stickerFormat*) и адрес,
-  если уже на диске. }
+{ A gift sticker for the page: file id, format (stickerFormat*) and the
+  address if it is on disk already. }
 function GiftStickerJson(ASticker: TJSONObject): TJSONObject;
 var
   FileObj, Local: TJSONObject;
@@ -9116,8 +9147,8 @@ begin
   end;
 end;
 
-{ Имя отправителя подарка: messageSenderUser — модель пользователей,
-  messageSenderChat — название чата; нет отправителя — ''. }
+{ The gift sender's name: messageSenderUser — the user model,
+  messageSenderChat — the chat title; no sender — ''. }
 function GiftSenderName(ASender: TJSONObject): utf8string;
 var
   Users: TTdUsers;
@@ -9148,10 +9179,10 @@ begin
   end;
 end;
 
-{ Аватарка отправителя подарка — как в нативном клиенте, кружок в углу
-  плитки: человек — модель пользователей (фото докачивается там же),
-  канал или группа — строка чата. Пишет avatar, avatarThumb, color в
-  AItem; без отправителя — пусто. }
+{ The gift sender's avatar — as in the native client, a circle in the
+  tile's corner: a person — the user model (the photo is downloaded there
+  too), a channel or group — the chat row. Writes avatar, avatarThumb,
+  color into AItem; no sender — empty. }
 procedure GiftSenderAvatar(AItem, ASender: TJSONObject);
 var
   Users: TTdUsers;
@@ -9163,7 +9194,7 @@ begin
   AItem.Add('senderAvatar', '');
   AItem.Add('senderThumb', '');
   AItem.Add('senderColor', 'a5');
-  { Куда вести клик по имени отправителя: личка с человеком или сам чат. }
+  { Where a click on the sender's name leads: the private chat with the person or the chat itself. }
   AItem.Add('senderUserId', '');
   AItem.Add('senderChatId', '');
   if ASender = nil then begin
@@ -9206,11 +9237,12 @@ begin
   end;
 end;
 
-{ gifts.list: getReceivedGifts (td_api.tl коммита d1085f9) для владельца
-  чата — человек (messageSenderUser) или канал (messageSenderChat). Вид
-  (kind) — флаги exclude_*: unlimited, limited (с улучшением и без),
-  unique (улучшенные); sortByPrice — sort_by_price; offset — для «ещё».
-  Стикеры подарков докачиваются до ответа — по одному на разный файл. }
+{ gifts.list: getReceivedGifts (td_api.tl at commit d1085f9) for the
+  chat's owner — a person (messageSenderUser) or a channel
+  (messageSenderChat). The kind — exclude_* flags: unlimited, limited
+  (upgradable or not), unique (upgraded); sortByPrice — sort_by_price;
+  offset — for "more". Gift stickers are downloaded before the answer —
+  one per distinct file. }
 function TWebApi.CmdGiftsList(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -9320,8 +9352,8 @@ begin
   GiftsNext(Slot);
 end;
 
-{ Следующий нескачанный стикер (один файл на все подарки с ним) —
-  downloadFile synchronous; всё на месте — ответ. }
+{ The next sticker not downloaded (one file for all gifts that use it) —
+  downloadFile synchronous; everything in place — the answer. }
 procedure TWebApi.GiftsNext(ASlot: PtrInt);
 var
   Res, S: TJSONObject;
@@ -9379,8 +9411,8 @@ begin
       Url := string(FileUrl(JGetInt(AResp.Obj, 'id'), JGetStr(Local, 'path')));
     end;
   end;
-  { Тот же файл у других подарков — тем же адресом; '-' — не скачалось,
-    дальше не ждём. }
+  { The same file in other gifts — the same address; '-' — did not
+    download, we wait no more. }
   for I := 0 to Arr.Count - 1 do begin
     S := TJSONObject(TJSONObject(Arr.Items[I]).Objects['sticker']);
     if S.Integers['fileId'] = FileId then begin
@@ -9391,13 +9423,13 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ медиа чата в панели информации: фото, видео, GIF, музыка, ссылки   }
+{ chat media in the info panel: photos, videos, GIFs, music, links      }
 { ------------------------------------------------------------------ }
 
-{ photoSize для превью: первый не меньше ASide по длинной стороне (размеры
-  в photo.sizes идут по возрастанию), нет такого — самый большой. Файл
-  выбранного размера (поле photo); нет размеров — nil. Годится и для
-  chatPhoto — у него тот же sizes. }
+{ The photoSize for a preview: the first one at least ASide on its longer
+  side (the sizes in photo.sizes go in ascending order), no such one — the
+  largest. The file of the chosen size (the photo field); no sizes — nil.
+  Works for chatPhoto too — it has the same sizes. }
 function PickPhotoFile(APhoto: TJSONObject; ASide: integer): TJSONObject;
 var
   Sizes: TJSONArray;
@@ -9426,9 +9458,9 @@ begin
   Result := JGetObj(Size, 'photo');
 end;
 
-{ Картинка предпросмотра ссылки (linkPreviewType*, td_api.tl коммита
-  d1085f9): photo у статьи, фото, приложения, чата и прочих, thumbnail у
-  встроенных плееров, cover у видео. Нет ничего — nil. }
+{ The picture of a link preview (linkPreviewType*, td_api.tl at commit
+  d1085f9): photo for an article, photo, app, chat and others, thumbnail
+  for embedded players, cover for a video. Nothing — nil. }
 function LinkPreviewPhoto(APreview: TJSONObject): TJSONObject;
 var
   T: TJSONObject;
@@ -9443,9 +9475,9 @@ begin
   end;
 end;
 
-{ Превью-файл thumbnail (видео, GIF, обложка альбома): JPEG — картинкой,
-  MPEG4 — роликом (у GIF обычно так); прочие форматы не показать — nil.
-  AKind получает 'img' или 'video'. }
+{ A thumbnail preview file (video, GIF, album cover): JPEG — as a picture,
+  MPEG4 — as a clip (usually so for a GIF); other formats cannot be shown
+  — nil. AKind receives 'img' or 'video'. }
 function ThumbFile(AThumb: TJSONObject; out AKind: utf8string): TJSONObject;
 var
   Fmt: utf8string;
@@ -9462,9 +9494,9 @@ begin
   end;
 end;
 
-{ Адреса из текста: сущности textEntityTypeUrl (offset/length — в UTF-16,
-  режет страница: у неё строки в той же единице) и textEntityTypeTextUrl
-  (адрес в самой сущности). }
+{ Addresses from the text: textEntityTypeUrl entities (offset/length in
+  UTF-16, the page cuts them: its strings use the same unit) and
+  textEntityTypeTextUrl (the address in the entity itself). }
 function UrlEntitiesJson(AText: TJSONObject): TJSONArray;
 var
   Ents: TJSONArray;
@@ -9495,12 +9527,12 @@ begin
   end;
 end;
 
-{ media.list: медиа чата для панели информации, как у нативного клиента —
-  searchChatMessages (td_api.tl коммита d1085f9) с фильтром по виду
-  (filter: photo, video, gif, audio, link, voice, file, pinned), от
-  новых к старым; from —
-  next_from_message_id прошлой страницы (0 — с начала). Историю это не
-  трогает: фильтр модели (search.set) остаётся каким был. }
+{ media.list: the chat's media for the info panel, as in the native
+  client — searchChatMessages (td_api.tl at commit d1085f9) with a kind
+  filter (filter: photo, video, gif, audio, link, voice, file, pinned),
+  newest first; from —
+  next_from_message_id of the previous page (0 — from the start). It does
+  not touch the history: the model's filter (search.set) stays as it was. }
 function TWebApi.CmdMediaList(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -9542,24 +9574,26 @@ begin
     @MediaListDone, Slot);
 end;
 
-{ Запись на сообщение: id, date, вид, minithumbnail (размытая подложка
-  сразу), превью (fileId, url, если файл уже на диске; thumbKind — img
-  или video) и поля вида:
-    photo — превью: photoSize от MEDIA_GRID_THUMB_SIDE;
-    video, gif — thumbnail (JPEG или MPEG4), duration;
-    audio — title, performer, fileName, duration, обложка альбома;
-    voice — duration, isListened, отправитель (sender и аватарка, как у
-      подарков: GiftSenderName / GiftSenderAvatar);
-    file — fileName, size, mime, превью документа (только картинкой);
-    pinned — любое сообщение: text (превью, как в списке чатов —
-      MessagePreview), отправитель и картинка, если она есть (фото —
-      photoSize от MEDIA_LINK_THUMB_SIDE, видео, GIF, документ — их
-      JPEG-превью);
-    link — text и urls (сущности-адреса из текста или подписи), preview
-      (url, siteName, title, description) и его картинка — photoSize от
-      MEDIA_LINK_THUMB_SIDE; нет предпросмотра — картинка самого фото.
-  Нескачанные превью качаются все разом (downloadFile synchronous);
-  Held['left'] считает ответы, на нуле — ответ странице. }
+{ An entry per message: id, date, kind, minithumbnail (a blurred backdrop
+  right away), preview (fileId, url if the file is on disk already;
+  thumbKind — img or video) and the kind's fields:
+    photo — preview: a photoSize from MEDIA_GRID_THUMB_SIDE;
+    video, gif — thumbnail (JPEG or MPEG4), duration;
+    audio — title, performer, fileName, duration, album cover;
+    voice — duration, isListened, sender (sender and avatar, as for gifts:
+      GiftSenderName / GiftSenderAvatar);
+    file — fileName, size, mime, the document's preview (pictures only);
+    pinned — any message: text (a preview, as in the chat list —
+      MessagePreview), sender and a picture if there is one (photo — a
+      photoSize from MEDIA_LINK_THUMB_SIDE, video, GIF, document — their
+      JPEG preview);
+    link — text and urls (address entities from the text or caption),
+      preview (url, siteName, title, description) and its picture — a
+      photoSize from MEDIA_LINK_THUMB_SIDE; no preview — the picture of the
+      photo itself.
+  Previews not downloaded are downloaded all at once (downloadFile
+  synchronous); Held['left'] counts the answers, at zero — the answer to
+  the page. }
 procedure TWebApi.MediaListDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -9591,7 +9625,7 @@ begin
       FileObj := nil;
       Mini := nil;
       TKind := 'img';
-      { Опрос — строкой, как закреплённое: «Poll: вопрос» и автор. }
+      { A poll — as a line, like a pinned one: "Poll: question" and the author. }
       if (Want = 'pinned') or (Want = 'poll') then begin
         Item.Add('text', string(MessagePreview(Content, Glyphs)));
         Item.Add('sender', string(GiftSenderName(JGetObj(M, 'sender_id'))));
@@ -9612,7 +9646,7 @@ begin
           Media := nil;
         end;
         Mini := JGetObj(Media, 'minithumbnail');
-        { В строке — только картинка. }
+        { Only a picture in a row. }
         if TKind <> 'img' then begin
           FileObj := nil;
           TKind := 'img';
@@ -9657,7 +9691,7 @@ begin
         Media := JGetObj(Content, 'audio');
         Mini := JGetObj(Media, 'album_cover_minithumbnail');
         FileObj := ThumbFile(JGetObj(Media, 'album_cover_thumbnail'), TKind);
-        { Обложка-ролик в строке списка ни к чему. }
+        { A cover clip in a list row is of no use. }
         if TKind <> 'img' then begin
           FileObj := nil;
           TKind := 'img';
@@ -9699,7 +9733,7 @@ begin
           Thumb := DecodeStringBase64(string(B64));
           Item.Strings['thumb'] := string(ThumbDataUri(Thumb));
         except
-          { Битая подложка — без неё. }
+          { A broken backdrop — without it. }
         end;
       end;
       Item.Add('thumbKind', string(TKind));
@@ -9749,8 +9783,8 @@ begin
      or (FDeferred[Slot].Held = nil) then begin
     Exit;
   end;
-  { '-' — не скачалось: плитка остаётся с подложкой. Ответ ошибкой не
-    называет файл, поэтому '-' получает первый ещё ждущий. }
+  { '-' — did not download: the tile keeps its backdrop. An error answer
+    does not name the file, so '-' goes to the first one still waiting. }
   Url := '-';
   FileId := 0;
   if AResp.Success then begin
@@ -9788,11 +9822,11 @@ begin
   ReleaseDeferred(ASlot);
 end;
 
-{ message.translate (id, lang) — перевод текста или подписи сообщения
-  открытого чата на стороне Telegram: translateMessageText (td_api.tl
-  коммита d1085f9; tone "" — нейтральный). Ответ — formattedText;
-  форматирование Telegram сохраняет только у Premium. Странице — text и
-  entities в том же виде, что у сообщения. }
+{ message.translate (id, lang) — translation of the text or caption of a
+  message of the open chat on Telegram's side: translateMessageText
+  (td_api.tl at commit d1085f9; tone "" — neutral). The answer is a
+  formattedText; Telegram keeps formatting only for Premium. To the page —
+  text and entities in the same shape as a message's. }
 function TWebApi.CmdMessageTranslate(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -9814,12 +9848,12 @@ begin
     @MessageTranslateDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ Без Premium Telegram отдаёт перевод БЕЗ сущностей (проверено живым
-  tdlib_raw.log: "entities":[] при ссылке в тексте) — ссылки, упоминания
-  и хэштеги переставали быть ссылками. Тогда текст ещё раз проходит
-  getTextEntities (находит URL, почту, @упоминания, #хэштеги — td_api.tl
-  коммита d1085f9), и найденное ставится на свои места. Перевод с
-  форматированием (Premium) остаётся как есть. }
+{ Without Premium Telegram returns a translation WITHOUT entities (checked
+  with a live tdlib_raw.log: "entities":[] with a link in the text) —
+  links, mentions and hashtags stopped being links. Then the text goes
+  once more through getTextEntities (it finds URLs, e-mail, @mentions,
+  #hashtags — td_api.tl at commit d1085f9), and what it finds is put in
+  place. A translation with formatting (Premium) stays as is. }
 procedure TWebApi.MessageTranslateDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -9891,9 +9925,9 @@ begin
   ReleaseDeferred(ASlot);
 end;
 
-{ message.forward (id, toChatId) — пересылка из открытого чата:
-  forwardMessages (td_api.tl коммита d1085f9) без topic_id и options,
-  обычной пересылкой (send_copy false), с подписью. }
+{ message.forward (id, toChatId) — forwarding from the open chat:
+  forwardMessages (td_api.tl at commit d1085f9) without topic_id and
+  options, an ordinary forward (send_copy false), with the caption. }
 function TWebApi.CmdMessageForward(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -9915,7 +9949,7 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ Кнопка «пользователь»: личка с ним (createPrivateChat), чтобы её открыть. }
+{ The "user" button: the private chat with them (createPrivateChat), to open it. }
 function TWebApi.CmdBotUserChat(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 begin
@@ -9930,13 +9964,13 @@ end;
 { ------------------------------------------------------------------ }
 
 
-{ Запуск мини-приложения. source: inline (кнопка под сообщением — бот
-  это отправитель сообщения), menu (кнопка меню бота в личке), keyboard
-  (кнопка клавиатуры — getWebAppUrl, без launch_id; данные приложения
-  уходят боту через sendWebAppData). theme — цвета страницы под именами
-  themeParameters ('#rrggbb'): TDLib получает их целыми RGB, а само
-  приложение — в theme_changed под своими именами (bg_color и т.д.).
-  Методы и поля — td_api.tl коммита d1085f9 (TDLib 1.8.67). }
+{ Launching a mini app. source: inline (a button under a message — the bot
+  is the message's sender), menu (the bot's menu button in a private chat),
+  keyboard (a keyboard button — getWebAppUrl, without launch_id; the app's
+  data goes to the bot through sendWebAppData). theme — the page's colours
+  under themeParameters names ('#rrggbb'): TDLib gets them as integer RGB,
+  and the app itself — in theme_changed under its own names (bg_color and
+  so on). Methods and fields — td_api.tl at commit d1085f9 (TDLib 1.8.67). }
 function TWebApi.CmdWebAppOpen(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -9959,7 +9993,7 @@ begin
       Bot := Msgs.Rows[Idx].SenderUserId;
     end;
   end else if Source = 'attach' then begin
-    { Бот меню вложений (tdattachbots): openWebApp с пустым url. }
+    { An attachment menu bot (tdattachbots): openWebApp with an empty url. }
     Bot := StrToInt64Def(utf8string(AArgs.Get('botId', '')), 0);
   end else begin
     Chats := RequireChats;
@@ -10014,10 +10048,11 @@ begin
   Result := True;
 end;
 
-{ Ответ — webAppInfo (launch_id, url: webAppUrl) у openWebApp или сам
-  webAppUrl у getWebAppUrl. Окно открывает не сервер: странице уходит
-  всё, что нужно окну мини-приложения, — в нашем окне она отдаёт это
-  оболочке (miniapp.pas), в браузере открывает адрес вкладкой. }
+{ The answer — webAppInfo (launch_id, url: webAppUrl) for openWebApp or a
+  bare webAppUrl for getWebAppUrl. The server does not open the window:
+  the page gets everything the mini app window needs — in our window it
+  hands it to the shell (miniapp.pas), in a browser it opens the address
+  in a tab. }
 procedure TWebApi.WebAppOpenDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -10052,7 +10087,7 @@ begin
   Res := TJSONObject.Create;
   Res.Add('url', string(Url));
   Res.Add('title', Held.Get('title', ''));
-  { Строками: int53/int64 в JS без потерь. }
+  { As strings: int53/int64 without loss in JS. }
   Res.Add('bot', IntToStr(Held.Get('bot', Int64(0))));
   Res.Add('launch', IntToStr(Launch));
   Res.Add('buttonText', Held.Get('buttonText', ''));
@@ -10061,9 +10096,9 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Запросы окна мини-приложения к TDLib (их передаёт страница: окно —
-  в другом процессе и, может быть, на другой машине). Только эти четыре
-  метода и только с этими полями — не общий проход к TDLib. }
+{ The mini app window's requests to TDLib (the page relays them: the window
+  is in another process and perhaps on another machine). Only these four
+  methods and only with these fields — not a general passage to TDLib. }
 function TWebApi.CmdWebAppClose(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 begin
@@ -10084,7 +10119,7 @@ begin
   Result := True;
 end;
 
-{ customRequestResult.result — JSON строкой; разбирает её окно. }
+{ customRequestResult.result — JSON as a string; the window parses it. }
 procedure TWebApi.WebAppCustomDone(Sender: TObject; const AResp: TTdResponse);
 var
   Slot: PtrInt;
@@ -10125,10 +10160,10 @@ begin
   Result := True;
 end;
 
-{ Кнопки-запросы клавиатуры бота: поделиться пользователями, чатом,
-  своим номером. Источник кнопки — сообщение с клавиатурой
-  (keyboardButtonSourceMessage, td_api.tl 1.8.67: в этой версии
-  shareUsersWithBot/shareChatWithBot принимают source, а не
+{ Request buttons of a bot keyboard: share users, a chat, one's own
+  number. The button's source is the message with the keyboard
+  (keyboardButtonSourceMessage, td_api.tl 1.8.67: in this version
+  shareUsersWithBot/shareChatWithBot take a source, not
   chat_id/message_id). }
 function KeyboardSource(AChatId, AMsgId: Int64): utf8string;
 begin
@@ -10136,15 +10171,15 @@ begin
     utf8string(IntToStr(AChatId)) + ',"message_id":' + utf8string(IntToStr(AMsgId)) + '}';
 end;
 
-{ Общий ответ «сделано / ошибка» для отложенных команд без данных. }
+{ A common "done / error" answer for deferred commands without data. }
 { ------------------------------------------------------------------ }
-{ видеочаты (групповые звонки чатов): tdcalls.pas; страница —         }
+{ video chats (group calls of chats): tdcalls.pas; page —              }
 { ui/videochat.js, calls/group.js                                    }
 { ------------------------------------------------------------------ }
 
-{ groupCall для страницы — то, что нужно окну видеочата. }
-{ Последние говорившие (groupCall.recent_speakers) — аватарки на плашке
-  трансляции; не больше VCHAT_BAR_SPEAKERS. }
+{ groupCall for the page — what the video chat window needs. }
+{ The latest speakers (groupCall.recent_speakers) — avatars on the live
+  stream bar; no more than VCHAT_BAR_SPEAKERS. }
 function SpeakersJson(AList: TJSONArray): TJSONArray;
 var
   I: integer;
@@ -10184,7 +10219,7 @@ begin
   Result.Add('speakers', SpeakersJson(JGetArr(AGroup, 'recent_speakers')));
 end;
 
-{ Видеоканал участника: endpoint и группы SSRC (SIM/FID). nil — нет. }
+{ A participant's video channel: endpoint and SSRC groups (SIM/FID). nil — none. }
 function PartVideoJson(AInfo: TJSONObject): TJSONData;
 var
   Res, G, Src: TJSONObject;
@@ -10211,8 +10246,8 @@ begin
       Ids := TJSONArray.Create;
       if JGetArr(Src, 'source_ids') <> nil then begin
         for J := 0 to JGetArr(Src, 'source_ids').Count - 1 do begin
-          { SSRC — беззнаковые 32 бита, TDLib отдаёт int32: на странице
-            приводятся к беззнаковым (>>> 0). }
+          { SSRC are unsigned 32 bits, TDLib gives int32: the page turns
+            them unsigned (>>> 0). }
           Ids.Add(JGetArr(Src, 'source_ids').Integers[J]);
         end;
       end;
@@ -10224,7 +10259,7 @@ begin
   Result := Res;
 end;
 
-{ Участник видеочата для страницы. }
+{ A video chat participant for the page. }
 function PartToJson(APart: TJSONObject): TJSONObject;
 var
   Sender: TJSONObject;
@@ -10282,7 +10317,7 @@ begin
   Result.Add('order', string(JGetStr(APart, 'order')));
 end;
 
-{ 'u123' / 'c-100...' -> MessageSender JSON для запросов TDLib. }
+{ 'u123' / 'c-100...' -> MessageSender JSON for TDLib requests. }
 function SenderFromKey(const AKey: utf8string): utf8string;
 begin
   Result := '';
@@ -10334,15 +10369,15 @@ begin
   PushEvent('chat.videochat', D);
 end;
 
-{ vchat.info (chatId): getChat -> video_chat.group_call_id; есть —
-  getGroupCall. Ответ (groupCallId, call или null). }
+{ vchat.info (chatId): getChat -> video_chat.group_call_id; if there is
+  one — getGroupCall. The answer (groupCallId, call or null). }
 function TWebApi.CmdVchatInfo(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
 begin
   Result := True;
   Slot := TakeDeferred(AConnId, AReqId, 0);
-  { Held — признак слота для AccountSlot. }
+  { Held marks the slot for AccountSlot. }
   FDeferred[Slot].Held := TJSONObject.Create;
   RequireMsgs.Request('getChat', '"chat_id":' + utf8string(IntToStr(ArgId(AArgs, 'chatId'))),
     @VchatChatDone, Slot);
@@ -10386,8 +10421,9 @@ begin
 end;
 
 { vchat.join (groupCallId, ssrc, payload, muted, video): joinVideoChat ->
-  Text с ответом SFU (payload). Сразу после — loadGroupCallParticipants:
-  участники приходят обновлениями (событие vchat.participant). }
+  Text with the SFU's answer (payload). Right after —
+  loadGroupCallParticipants: participants arrive as updates (the
+  vchat.participant event). }
 function TWebApi.CmdVchatJoin(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 const
   B: array[boolean] of utf8string = ('false', 'true');
@@ -10432,9 +10468,10 @@ begin
     nil, 0);
 end;
 
-{ file.ensure (fileId): файл по id — скачать (downloadFile synchronous)
-  и вернуть адрес. Для файлов внутри богатых сообщений: их там много на
-  сообщение, а media.ensure качает одно — по виду сообщения. }
+{ file.ensure (fileId): a file by id — download it (downloadFile
+  synchronous) and return the address. For files inside rich messages:
+  there are many per message, while media.ensure downloads one — by the
+  message's kind. }
 function TWebApi.CmdFileEnsure(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -10469,8 +10506,8 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ rich.full (id): богатое сообщение пришло не целиком (richMessage.is_full
-  false) — getFullRichMessage в открытом чате -> rich, как в сообщении. }
+{ rich.full (id): a rich message arrived incomplete (richMessage.is_full
+  false) — getFullRichMessage in the open chat -> rich, as in a message. }
 function TWebApi.CmdRichFull(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -10498,10 +10535,10 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Истории (ui/stories.js).
+{ Stories (ui/stories.js).
 
-  story.list (chatId): getChatActiveStories -> stories: массив (id,
-  date) по возрастанию id, maxRead — max_read_story_id. }
+  story.list (chatId): getChatActiveStories -> stories: an array (id,
+  date) in ascending id order, maxRead — max_read_story_id. }
 function TWebApi.CmdStoryList(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -10545,11 +10582,11 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ story.open (chatId, storyId): getStory -> что показать (фото — самый
-  крупный размер, видео — сам файл) -> downloadFile synchronous ->
-  id, date, kind (photo | video | unsupported), url, thumb (размытая
-  миниатюра), duration, caption. И openStory: так TDLib считает
-  историю просмотренной (max_read_story_id, кольцо в списке). }
+{ story.open (chatId, storyId): getStory -> what to show (photo — the
+  largest size, video — the file itself) -> downloadFile synchronous ->
+  id, date, kind (photo | video | unsupported), url, thumb (a blurred
+  thumbnail), duration, caption. And openStory: that is how TDLib counts
+  the story as viewed (max_read_story_id, the ring in the list). }
 function TWebApi.CmdStoryOpen(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -10657,12 +10694,13 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Трансляция (видеочат в режиме stream — ответ SFU с "stream":true —
-  или RTMP): медиа не по WebRTC, а сегментами (ui/livestream.js).
+{ Live stream (a video chat in stream mode — the SFU answers with
+  "stream":true — or RTMP): media not over WebRTC but in segments
+  (ui/livestream.js).
 
-  vchat.streams (groupCallId): getGroupCallStreams -> streams: массив
-  (channelId, scale, timeOffset); timeOffset — где поток сейчас
-  кончается, unix-время в мс, строкой (int53). }
+  vchat.streams (groupCallId): getGroupCallStreams -> streams: an array
+  (channelId, scale, timeOffset); timeOffset — where the stream currently
+  ends, unix time in ms, as a string (int53). }
 function TWebApi.CmdVchatStreams(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -10708,10 +10746,10 @@ begin
 end;
 
 { vchat.segment (groupCallId, timeOffset, scale, channelId, quality):
-  getGroupCallStreamSegment -> data (base64, как TDLib отдаёт bytes).
-  quality: thumbnail | medium | full | '' (худшее доступное).
-  channelId 0 и quality '' — звук (OGG), иначе — видео (MPEG-4); у
-  обоих свой заголовок tgcalls впереди. }
+  getGroupCallStreamSegment -> data (base64, as TDLib gives bytes).
+  quality: thumbnail | medium | full | '' (the worst available).
+  channelId 0 and quality '' — audio (OGG), otherwise video (MPEG-4); both
+  have their own tgcalls header in front. }
 function TWebApi.CmdVchatSegment(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 var
   Slot: PtrInt;
@@ -10753,8 +10791,8 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ vchat.participants (groupCallId): известные модели участники — для
-  страницы, открытой посреди видеочата. }
+{ vchat.participants (groupCallId): the participants the model knows — for
+  a page opened in the middle of a video chat. }
 function TWebApi.CmdVchatParticipants(AArgs: TJSONObject): TJSONData;
 var
   Calls: TTdCalls;
@@ -10780,7 +10818,7 @@ begin
   Result := Res;
 end;
 
-{ Простые команды видеочата — ответ (ok) или (groupCallId) у create:
+{ Simple video chat commands — the answer is (ok), or (groupCallId) for create:
     vchat.create (chatId)              createVideoChat
     vchat.leave (groupCallId)          leaveGroupCall
     vchat.end (groupCallId)            endGroupCall
@@ -10872,12 +10910,12 @@ begin
 end;
 
 { ------------------------------------------------------------------ }
-{ рекламные сообщения (ads.*)                                         }
+{ sponsored messages (ads.*)                                            }
 { ------------------------------------------------------------------ }
 
-{ Официальная реклама Telegram в каналах и чатах с ботами — условие
-  Telegram API ToS 3.3 для любого клиента, показывающего каналы
-  (core.telegram.org/api/sponsored-messages). Схема — td_api.tl TDLib
+{ Telegram's official ads in channels and chats with bots — a requirement
+  of the Telegram API ToS 3.3 for any client that shows channels
+  (core.telegram.org/api/sponsored-messages). Schema — td_api.tl of TDLib
   1.8.67:
     getChatSponsoredMessages chat_id = SponsoredMessages
       (messages:vector of sponsoredMessage, messages_between)
@@ -10889,17 +10927,18 @@ end;
     reportChatSponsoredMessage chat_id message_id option_id:bytes
       = reportSponsoredResultOk / Failed / OptionRequired (title, options)
         / AdsHidden / PremiumRequired
-  Содержимое — messageText/Photo/Video/Animation, и показывать его можно
-  только целиком скачанным: файлы качаются здесь, до ответа странице,
-  по одному (downloadFile synchronous), как стикер приветствия.
+  Content — messageText/Photo/Video/Animation, and it may only be shown
+  fully downloaded: the files are downloaded here, before the answer to the
+  page, one by one (downloadFile synchronous), like the greeting sticker.
 
-  Ответ TDLib держится FAds по чату SPONSORED_CACHE_MS — уже с путями
-  скачанных файлов (PatchFileLocal), так что повторное открытие канала
-  отвечает сразу. Строка сообщения для страницы — тот же MsgToJson, что
-  у истории, по строке ВНЕ модели (TTdMessages.DetachedRow). }
+  TDLib's answer is kept in FAds per chat for SPONSORED_CACHE_MS — already
+  with the paths of the downloaded files (PatchFileLocal), so opening the
+  channel again answers at once. The message row for the page is the same
+  MsgToJson as the history's, over a row OUTSIDE the model
+  (TTdMessages.DetachedRow). }
 
-{ Подменяет local у всех file с этим id внутри узла (их может быть
-  несколько: один файл бывает и превью, и оригиналом). }
+{ Replaces local in every file with this id inside the node (there may be
+  several: one file can be both the preview and the original). }
 procedure PatchFileLocal(ANode: TJSONData; AFileId: integer; ALocal: TJSONObject);
 var
   I: integer;
@@ -10925,18 +10964,18 @@ begin
   end;
 end;
 
-{ Файл на диске: «скачан» и путь существует (то же правило, что у
-  tdmessages.CompletedLocal — после чистки кеша TDLib ещё зовёт файл
-  скачанным). }
+{ A file on disk: "downloaded" and the path exists (the same rule as
+  tdmessages.CompletedLocal — after a cache clean-up TDLib still calls the
+  file downloaded). }
 function AdLocalOk(ALocal: TJSONObject): boolean;
 begin
   Result := (ALocal <> nil) and JGetBool(ALocal, 'is_downloading_completed')
     and (JGetStr(ALocal, 'path') <> '') and FileExists(string(JGetStr(ALocal, 'path')));
 end;
 
-{ Файл, без которого рекламу показывать нельзя и которого ещё нет на
-  диске; 0 — всё на месте. ATried — уже запрошенные (неудачная докачка
-  не крутится по кругу: такая реклама просто не показывается). }
+{ A file the ad cannot be shown without and that is not on disk yet; 0 —
+  everything in place. ATried — already requested (a failed download does
+  not loop: such an ad is simply not shown). }
 function AdTried(ATried: TJSONArray; AFileId: integer): boolean;
 var
   I: integer;
@@ -10978,7 +11017,7 @@ begin
   end;
 end;
 
-{ Всё ли у рекламы скачано: без этого её не показывают вовсе. }
+{ Whether everything of the ad is downloaded: without it the ad is not shown at all. }
 function AdComplete(ARow: TMsgRow): boolean;
 begin
   case ARow.Kind of
@@ -10992,13 +11031,13 @@ begin
     mckVideo:
       Result := ARow.VideoLocalPath <> '';
   else
-    { Другие виды схема не обещает — и нарисовать их здесь нечем. }
+    { The schema promises no other kinds — and there is nothing to draw them with here. }
     Result := False;
   end;
 end;
 
-{ Самая маленькая копия фото спонсора (sizes по возрастанию) — его
-  аватарка. nil, если фото нет. }
+{ The smallest copy of the sponsor's photo (sizes ascending) — its avatar.
+  nil if there is no photo. }
 function SponsorPhotoFile(AAd: TJSONObject): TJSONObject;
 var
   Sizes: TJSONArray;
@@ -11010,7 +11049,7 @@ begin
   end;
 end;
 
-{ Вид чата для рекламы: channel и bot — где она бывает; иначе ''. }
+{ The chat kind for ads: channel and bot — where they occur; otherwise ''. }
 function AdsChatKind(AChatId: Int64): utf8string;
 var
   CRow: TChatRow;
@@ -11028,8 +11067,9 @@ begin
   end;
 end;
 
-{ Ответ странице из (уже докачанного) sponsoredMessages. kind — где
-  показывать: channel — после постов, bot — полосой над полем ввода. }
+{ The answer to the page from the (already downloaded) sponsoredMessages.
+  kind — where to show it: channel — after the posts, bot — as a strip
+  above the input field. }
 function AdsToJson(AMsgs: TTdMessages; AChatId: Int64; ARaw: TJSONObject): TJSONObject;
 var
   Arr: TJSONArray;
@@ -11099,7 +11139,7 @@ begin
   Result := True;
   Msgs := RequireMsgs;
   ChatId := ArgId(AArgs, 'chatId');
-  { Только каналы и чаты с ботами — в остальных TDLib рекламы не даёт. }
+  { Only channels and chats with bots — TDLib gives no ads in the others. }
   if (ChatId = 0) or (AdsChatKind(ChatId) = '') then begin
     Empty := TJSONObject.Create;
     Empty.Add('chatId', ChatId);
@@ -11118,7 +11158,7 @@ begin
     end;
     FAds.Delete(Idx);
   end;
-  { MessageId слота — id чата: он нужен и в конце цепочки. }
+  { The slot's MessageId is the chat id: it is needed at the end of the chain too. }
   Slot := TakeDeferred(AConnId, AReqId, ChatId);
   FDeferred[Slot].Held := TJSONObject.Create;
   FDeferred[Slot].Held.Add('tried', TJSONArray.Create);
@@ -11136,9 +11176,9 @@ begin
      or (FDeferred[Slot].Held = nil) then begin
     Exit;
   end;
-  { Отказ (реклама в этом чате не положена, нет сети) — не ошибка для
-    страницы, а пустой список; кэшируется так же, чтобы каждое открытие
-    не спрашивало заново. }
+  { A refusal (ads are not due in this chat, no network) is not an error
+    for the page but an empty list; it is cached the same way, so every
+    opening does not ask again. }
   if AResp.Success and (AResp.Obj <> nil) then begin
     Raw := TJSONObject(AResp.Obj.Clone);
   end else begin
@@ -11167,8 +11207,8 @@ begin
   AdsNext(Slot);
 end;
 
-{ Следующий недостающий файл — или, когда качать больше нечего, ответ и
-  запись в кэш. }
+{ The next missing file — or, when there is nothing left to download, the
+  answer and the cache entry. }
 procedure TWebApi.AdsNext(ASlot: PtrInt);
 var
   Msgs: TTdMessages;
@@ -11198,7 +11238,7 @@ begin
         finally
           Row.Free;
         end;
-        { Аватарка спонсора — не обязательна, но раз уж качаем. }
+        { The sponsor's avatar — not required, but since we are downloading anyway. }
         if FileId = 0 then begin
           PhotoFile := SponsorPhotoFile(Ad);
           if (PhotoFile <> nil) and not AdLocalOk(JGetObj(PhotoFile, 'local'))
@@ -11234,8 +11274,8 @@ begin
   end;
 end;
 
-{ Показ: весь текст рекламы на экране (решает страница). viewMessages с
-  id рекламного сообщения — так в td_api.tl, отдельного метода нет. }
+{ A view: the whole ad text is on screen (the page decides). viewMessages
+  with the ad message's id — so in td_api.tl, there is no separate method. }
 function TWebApi.CmdAdsView(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 begin
   Result := True;
@@ -11246,7 +11286,7 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ Клик по рекламе (кнопка, заголовок, медиа). Ссылку открывает страница. }
+{ A click on an ad (button, title, media). The page opens the link. }
 function TWebApi.CmdAdsClick(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 begin
   Result := True;
@@ -11261,8 +11301,8 @@ begin
     @SimpleDone, TakeDeferred(AConnId, AReqId, 0));
 end;
 
-{ Жалоба: первый запрос — с пустым option_id; дальше страница
-  присылает выбранный вариант (id — base64, как его отдал TDLib). }
+{ A report: the first request — with an empty option_id; then the page
+  sends the chosen option (id — base64, as TDLib gave it). }
 function TWebApi.CmdAdsReport(AConnId: Int64; AReqId: integer; AArgs: TJSONObject): boolean;
 begin
   Result := True;
@@ -11320,7 +11360,7 @@ begin
   end else begin
     Res.Add('result', 'failed');
   end;
-  { Пожаловались или скрыли рекламу — кэш чата больше не верен. }
+  { Reported or hid the ads — the chat's cache is no longer valid. }
   if (T = 'reportSponsoredResultOk') or (T = 'reportSponsoredResultAdsHidden') then begin
     Idx := FAds.IndexOf(IntToStr(FDeferred[Slot].MessageId));
     if Idx >= 0 then begin
@@ -11376,9 +11416,9 @@ begin
   Result := True;
 end;
 
-{ «Поделиться номером»: как у клиентов Telegram — свой контакт
-  сообщением в чат с ботом. Сначала getMe (номер и имя), потом
-  sendMessage с inputMessageContact. }
+{ "Share my number": as in Telegram clients — one's own contact as a
+  message in the chat with the bot. First getMe (number and name), then
+  sendMessage with inputMessageContact. }
 function TWebApi.CmdBotSharePhone(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 begin
@@ -11415,9 +11455,9 @@ end;
 { inline mode: "@bot query" in the composer                          }
 { ------------------------------------------------------------------ }
 
-{ Результат инлайн-запроса для страницы: id, вид, заголовок, описание.
-  Поля — по td_api.tl (inlineQueryResult*). Картинок пока нет: список
-  текстом, как у нативного клиента для статей. }
+{ An inline query result for the page: id, kind, title, description.
+  Fields — per td_api.tl (inlineQueryResult*). No pictures yet: a text
+  list, as in the native client for articles. }
 function InlineResultJson(AItem: TJSONObject): TJSONObject;
 var
   T, Title, Desc: utf8string;
@@ -11447,14 +11487,14 @@ begin
   end;
   Result := TJSONObject.Create;
   Result.Add('id', string(JGetStr(AItem, 'id')));
-  { inlineQueryResultArticle -> article и т.д. }
+  { inlineQueryResultArticle -> article and so on. }
   Result.Add('kind', LowerCase(Copy(string(T), Length('inlineQueryResult') + 1, MaxInt)));
   Result.Add('title', string(Title));
   Result.Add('description', string(Desc));
 end;
 
-{ Имя бота -> id: searchPublicChat, у лички id чата = id пользователя.
-  Кэш — чтобы не искать заново на каждую набранную букву. }
+{ Bot name -> id: searchPublicChat, for a private chat the chat id = the
+  user id. Cached — so it is not looked up again on every typed letter. }
 function TWebApi.CmdInlineQuery(AConnId: Int64; AReqId: integer;
   AArgs: TJSONObject): boolean;
 var
@@ -11542,7 +11582,7 @@ begin
     end;
   end;
   Res := TJSONObject.Create;
-  { inline_query_id — int64, у TDLib строкой; странице — тоже строкой. }
+  { inline_query_id — int64, a string in TDLib; a string for the page too. }
   Res.Add('queryId', string(JGetStr(AResp.Obj, 'inline_query_id')));
   if Res.Get('queryId', '') = '' then begin
     Res.Strings['queryId'] := IntToStr(JGetInt64(AResp.Obj, 'inline_query_id'));
@@ -11553,8 +11593,8 @@ begin
   ReleaseDeferred(Slot);
 end;
 
-{ Выбранный результат — в открытый чат (sendInlineQueryResultMessage,
-  уже готовый TTdMessages.SendInlineResult). }
+{ The chosen result — into the open chat (sendInlineQueryResultMessage,
+  the ready TTdMessages.SendInlineResult). }
 function TWebApi.CmdInlineSend(AArgs: TJSONObject): TJSONData;
 begin
   RequireMsgs.SendInlineResult(StrToInt64Def(utf8string(AArgs.Get('queryId', '')), 0),
@@ -11662,9 +11702,10 @@ begin
       that would otherwise do it. }
     EnsureBindings;
 
-    { Отложенная отправка (ui/schedule.js): schedule у message.send* —
-      дата unix или -1 («когда будет в сети»). Ставится модели на одну
-      эту команду: все её sendMessage строятся синхронно внутри неё. }
+    { Scheduled sending (ui/schedule.js): schedule of message.send* — a
+      unix date or -1 ("when they come online"). Set on the model for this
+      one command: all its sendMessage requests are built synchronously
+      inside it. }
     Sched := TdMsgList;
     if Sched <> nil then begin
       if (Copy(Cmd, 1, 12) = 'message.send') and (Args <> nil) then begin
@@ -11694,8 +11735,8 @@ begin
         Reply(AConnId, ReqId, CmdApiConfig);
       end else if Cmd = 'api.save' then begin
         Reply(AConnId, ReqId, CmdApiSave(Args));
-      { Аккаунты — до моделей: отмена добавления и выход работают и
-        тогда, когда активный аккаунт ещё не вошёл. }
+      { Accounts — before the models: cancelling an add and signing out
+        work even when the active account has not signed in yet. }
       end else if Cmd = 'accounts.list' then begin
         Reply(AConnId, ReqId, CmdAccountsList);
       end else if Cmd = 'accounts.switch' then begin
@@ -11832,8 +11873,8 @@ begin
         CmdBotSendPoll(AConnId, ReqId, Args);
       end else if Cmd = 'bot.createBot' then begin
         CmdBotCreateBot(AConnId, ReqId, Args);
-      { Меню скрепки: опрос и геопозиция — те же команды, что у кнопок
-        бота (в открытый чат), плюс список задач и статья. }
+      { The paperclip menu: poll and location — the same commands as the
+        bot buttons (into the open chat), plus checklist and article. }
       end else if Cmd = 'message.sendPoll' then begin
         CmdBotSendPoll(AConnId, ReqId, Args);
       end else if Cmd = 'message.sendLocation' then begin
@@ -11885,9 +11926,10 @@ begin
       end else if Cmd = 'contacts.list' then begin
         CmdContactsList(AConnId, ReqId);
       end else if Cmd = 'message.transcribe' then begin
-        { recognizeSpeech (chat_id, message_id) — открытого чата (в ветке
-          это группа обсуждения, как у остальных команд сообщения).
-          Ответ (ok); текст приходит обновлением сообщения. }
+        { recognizeSpeech (chat_id, message_id) — of the open chat (in a
+          thread it is the discussion group, as for the other message
+          commands). The answer is (ok); the text arrives as a message
+          update. }
         if TdMsgList = nil then begin
           raise Exception.Create('no chat open');
         end;
@@ -11917,7 +11959,7 @@ begin
       end else if Cmd = 'story.open' then begin
         CmdStoryOpen(AConnId, ReqId, Args);
       end else if Cmd = 'story.close' then begin
-        { Просмотр кончился (td_api.tl: closeStory) — без ответа TDLib. }
+        { Viewing is over (td_api.tl: closeStory) — no answer from TDLib. }
         RequireMsgs.Request('closeStory', '"story_poster_chat_id":'
           + utf8string(IntToStr(ArgId(Args, 'chatId'))) + ',"story_id":'
           + utf8string(IntToStr(integer(Args.Get('storyId', 0)))), nil, 0);
@@ -11972,7 +12014,7 @@ begin
         Reply(AConnId, ReqId, CmdMessageEdit(Args));
       end else if Cmd = 'message.pin' then begin
         Reply(AConnId, ReqId, CmdMessagePin(Args));
-      { Реклама в каналах и чатах с ботами — см. «рекламные сообщения». }
+      { Ads in channels and chats with bots — see "sponsored messages". }
       end else if Cmd = 'ads.get' then begin
         CmdAdsGet(AConnId, ReqId, Args);
       end else if Cmd = 'ads.view' then begin
@@ -11982,7 +12024,7 @@ begin
       end else if Cmd = 'ads.report' then begin
         CmdAdsReport(AConnId, ReqId, Args);
       end else if Cmd = 'ads.enabled' then begin
-        { Только для Premium: без него реклама включена всегда. }
+        { Premium only: without it ads are always on. }
         FAds.Clear;
         RequireMsgs.Request('toggleHasSponsoredMessagesEnabled',
           '"has_sponsored_messages_enabled":' + BoolJson((Args <> nil) and Args.Get('enabled', False)),
@@ -11995,8 +12037,9 @@ begin
         if E.ClassType = Exception then begin
           Fail(AConnId, ReqId, utf8string(E.Message));
         end else begin
-          { Сбой, не отказ: в журнал и с именем команды — по одному
-            «Access violation» в тосте не понять, что упало. }
+          { A crash, not a refusal: into the log and with the command's
+            name — a lone "Access violation" in a toast does not say what
+            broke. }
           LogCommandCrash(Cmd, Args, E);
           Fail(AConnId, ReqId, Cmd + ': ' + utf8string(E.Message));
         end;

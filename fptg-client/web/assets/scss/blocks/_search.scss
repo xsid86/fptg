@@ -1,8 +1,8 @@
 @use "../abstracts" as *;
 
-// Поиск над списком чатов (ui/search.js), как у Telegram Desktop: пока
-// он открыт, вместо списка — панель с вкладками; частые — лентой,
-// прокручиваемой вбок («All» — сеткой), ниже — строки.
+// Search above the chat list (ui/search.js), as in Telegram Desktop: while
+// it is open, instead of the list — a panel with tabs; frequent ones as a
+// strip scrolling sideways ("All" — as a grid), rows below.
 .sidebar.is-searching {
   .chat-list,
   .chat-list__to-top {
@@ -10,8 +10,8 @@
   }
 }
 
-// Кнопка закрытия поиска — в поле, вместо крестика type=search (тот
-// есть, только пока набран текст).
+// The search close button — in the field, instead of the type=search cross
+// (that one is there only while text is typed).
 .search__close {
   flex: 0 0 auto;
 
@@ -93,7 +93,7 @@
   padding: 0;
 }
 
-// Частые: одна строка, прокрутка вбок; развёрнутая — сетка.
+// Frequent ones: one row, scrolling sideways; expanded — a grid.
 .search__strip {
   @include flex(row, flex-start, flex-start, $space-2);
   overflow-x: auto;
@@ -224,7 +224,7 @@
   }
 }
 
-// Posts: лимиты бесплатных поисков и кнопка поиска (платного — с ценой).
+// Posts: the free search limits and the search button (a paid one — with the price).
 .search__posts-head {
   @include flex(column, center, flex-start, $space-3);
   padding: 0 $space-5;

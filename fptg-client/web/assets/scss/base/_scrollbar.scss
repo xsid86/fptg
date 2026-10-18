@@ -2,9 +2,9 @@
 
 .u-scroll { @include scroll-area; }
 
-// Все полосы прокрутки — тонкие и без стрелок, и у тех областей, что
-// не подключили миксин сами. Свой миксин (другой размер, scrollbar-width:
-// none у полосок) специфичнее и перекрывает это.
+// All scrollbars — thin and without arrows, including in the areas that
+// did not include the mixin themselves. An own mixin (another size,
+// scrollbar-width: none for strips) is more specific and overrides this.
 * {
   @include scrollbar;
 }

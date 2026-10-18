@@ -2,41 +2,42 @@
 @use "sass:string";
 @use "../abstracts" as *;
 
-// Простые темы — «Dark» и «Light» в меню тем (кисточка в статусной
-// строке, ui/theme.js), рядом с цветными «Dark colored» / «Light colored».
+// Plain themes — "Dark" and "Light" in the theme menu (the brush in the
+// status bar, ui/theme.js), next to the colour "Dark colored" / "Light colored".
 //
-// КАК УСТРОЕНО. Выбор темы раскладывается на два атрибута <html>:
-//   data-theme — dark | light, как и у цветных тем: все токены, палитры
-//                и акценты (base/_root, _palette, _accent) работают как
-//                прежде, ничего из них не продублировано;
-//   data-style — "plain" только у простых тем.
-// Всё ниже — поверх, с селекторами :root[data-style="plain"] …: их
-// специфичность выше, чем у правил блоков, поэтому цветные темы не
-// трогаются вовсе, а простые не правят ни одного файла блоков.
+// HOW IT WORKS. The theme choice is split into two <html> attributes:
+//   data-theme — dark | light, as for the colour themes: all the tokens,
+//                palettes and accents (base/_root, _palette, _accent) work
+//                as before, nothing of them is duplicated;
+//   data-style — "plain" only for the plain themes.
+// Everything below is on top, with :root[data-style="plain"] … selectors:
+// their specificity is higher than the block rules', so the colour themes
+// are not touched at all, and the plain ones edit no block file.
 //
-// Правила простых тем:
-//   * заголовки и подвалы карточек — прозрачные;
-//   * панели, карточки и чипы — каждые своей заливкой (градиент сверху
-//     вниз или сплошной цвет, свой флаг у каждых) и границей; ни
-//     прозрачности, ни backdrop-filter нигде;
-//   * свои сообщения — та же заливка и граница, смешанные с акцентом
-//     (доля — own-mix);
-//   * карточки чатов и контактов не красятся в цвет контакта: этим цветом
-//     остаются только имена в истории и их цитаты (и буквенные аватарки);
-//   * чипы — свой градиент (на тёмной — светлый, на светлой — тёмный);
-//   * кнопки поиска и на карточках при наведении и включённые — акцент.
+// The plain themes' rules:
+//   * card headers and footers — transparent;
+//   * panels, cards and chips — each with their own fill (a top-to-bottom
+//     gradient or a solid colour, each with its own flag) and border; no
+//     transparency and no backdrop-filter anywhere;
+//   * own messages — the same fill and border mixed with the accent (the
+//     share — own-mix);
+//   * chat and contact cards are not painted in the contact's colour: only
+//     the names in the history and their quotes (and letter avatars) keep
+//     that colour;
+//   * chips — their own gradient (on dark — light, on light — dark);
+//   * the search buttons and those on cards, on hover and when on — the accent.
 
-// --------------------------------------------------------------- токены
-// Значения — abstracts/_variables.scss ($plain-dark, $plain-light и три
-// флага градиентов); здесь только сборка из них custom properties:
-//   --plain-panel / --plain-panel-border           панели;
-//   --plain-card / --plain-card-border             карточки;
-//   --plain-card-own / --plain-card-border-own     свои сообщения;
-//   --plain-chip / --plain-chip-text               чипы.
+// --------------------------------------------------------------- tokens
+// The values — abstracts/_variables.scss ($plain-dark, $plain-light and
+// three gradient flags); here only the custom properties assembled from them:
+//   --plain-panel / --plain-panel-border           panels;
+//   --plain-card / --plain-card-border             cards;
+//   --plain-card-own / --plain-card-border-own     own messages;
+//   --plain-chip / --plain-chip-text               chips.
 
-// Заливка сущности: градиент *-top -> *-bottom или сплошной *-solid.
-// CSS-функции — готовой строкой: в @function Sass вычисляет выражения, а
-// разбирать linear-gradient и color-mix ему незачем.
+// An entity's fill: a gradient *-top -> *-bottom or a solid *-solid. CSS
+// functions — as a ready string: in an @function Sass evaluates expressions,
+// and it need not parse linear-gradient and color-mix.
 @function plain-fill($t, $what, $gradient) {
   @if $gradient {
     @return string.unquote("linear-gradient(to bottom, #{map.get($t, '#{$what}-top')}, #{map.get($t, '#{$what}-bottom')})");
@@ -44,7 +45,7 @@
   @return map.get($t, "#{$what}-solid");
 }
 
-// Цвет, смешанный с акцентом: $rest — доля самого цвета.
+// A colour mixed with the accent: $rest — the share of the colour itself.
 @function with-accent($color, $rest) {
   @return string.unquote("color-mix(in srgb, #{$color} #{$rest}, var(--c-accent))");
 }
@@ -81,12 +82,12 @@
 }
 
 :root[data-style="plain"] {
-  // Панели из миксина card (abstracts/_mixins.scss) читают эти три.
+  // Panels from the card mixin (abstracts/_mixins.scss) read these three.
   --card-bg: var(--plain-panel);
   --card-border: 1px solid var(--plain-panel-border);
   --card-blur: none;
 
-  // ------------------------------------------------------- глобально
+  // ------------------------------------------------------- global
   *,
   *::before,
   *::after,
@@ -99,7 +100,7 @@
     background-image: none;
   }
 
-  // Слои поверх приложения — непрозрачные.
+  // Layers over the app — opaque.
   .dropzone,
   .attach-layer,
   .pswp .pswp__bg {
@@ -111,7 +112,7 @@
     background: var(--c-bg);
   }
 
-  // Панели, которые были полупрозрачными или своего цвета.
+  // Panels that were semi-transparent or of their own colour.
   .info-panel,
   .settings__window,
   .dropzone__zone {
@@ -122,14 +123,14 @@
     border-left-color: var(--plain-panel-border);
   }
 
-  // Карточки вне истории и списка чатов.
+  // Cards outside the history and the chat list.
   .greeting,
   .history__loader-pill,
   .contact-row {
     background: var(--plain-card);
   }
 
-  // ------------------------------------- заголовки и подвалы карточек
+  // ------------------------------------- card headers and footers
   .chat-header,
   .sidebar__head,
   .composer,
@@ -139,7 +140,7 @@
     background: transparent;
   }
 
-  // ------------------------------------------------------ список чатов
+  // ------------------------------------------------------ chat list
   .chat-item {
     background: var(--plain-card);
     border: 1px solid var(--plain-card-border);
@@ -172,7 +173,7 @@
     background: var(--c-accent);
   }
 
-  // -------------------------------------------------------------- чипы
+  // -------------------------------------------------------------- chips
   .chat-item__folder,
   .chat-item__folder--none,
   .comments,
@@ -190,7 +191,7 @@
     color: var(--plain-chip-text);
   }
 
-  // Кнопки на карточках сообщений: наведение и включённое — акцент.
+  // Buttons on message cards: hover and on — the accent.
   .reaction,
   .comments {
     border: 1px solid transparent;
@@ -204,7 +205,7 @@
     border-color: var(--c-accent);
   }
 
-  // ------------------------------------------------------- шапка чата
+  // ------------------------------------------------------- chat header
   .chat-header__title {
     color: var(--c-text);
   }
@@ -220,7 +221,7 @@
     }
   }
 
-  // --------------------------------------------------------- сообщения
+  // --------------------------------------------------------- messages
   .message {
     background: var(--plain-card);
     border: 1px solid var(--plain-card-border);
@@ -232,8 +233,8 @@
     border-color: var(--plain-card-border-own);
   }
 
-  // Стикер и гифка без подписи — без карточки, как и в цветных темах;
-  // своя карточка — у одной шапки над ними.
+  // A sticker and a GIF without a caption — without a card, as in the colour
+  // themes; the card is the header's alone above them.
   .message:has(.media--sticker),
   .message:has(.media--round),
   .message:has(.media--gif):not(:has(b)) {

@@ -2,21 +2,23 @@ unit tlscert;
 
 {$mode objfpc}{$H+}
 
-{ Сертификат TLS сервера. TLS у сервера всегда (и на 127.0.0.1): один
-  путь для своей машины и для VPS, проверяется на каждом запуске.
+{ The server's TLS certificate. The server always uses TLS (on 127.0.0.1
+  too): one path for one's own machine and for a VPS, checked on every
+  start.
 
-  Два источника:
-  - свой файл (--cert=ФАЙЛ --key=ФАЙЛ, PEM; например Let's Encrypt для
-    сервера с доменом) — браузер и окно примут его без вопросов;
-  - иначе самоподписанный, сделанный сервером при первом запуске и
-    хранимый в conf.dat (зашифрованным, как и всё там; закрытый ключ
-    открытым файлом на диске не лежит). Срок — 10 лет: окно запоминает
-    отпечаток (pinning), и смена сертификата для него — повод не
-    доверять, поэтому сам он меняться не должен. Штатный
-    CreateSelfSignedCert Synapse не годится: у него 60 дней.
+  Two sources:
+  - one's own file (--cert=FILE --key=FILE, PEM; Let's Encrypt for a
+    server with a domain, for instance) — the browser and the window
+    accept it without questions;
+  - otherwise a self-signed one, made by the server on the first start and
+    kept in conf.dat (encrypted, like everything there; the private key
+    does not lie on disk as a plain file). Its term is 10 years: the window
+    remembers the fingerprint (pinning), and a certificate change is a
+    reason for it not to trust, so it must not change by itself. Synapse's
+    stock CreateSelfSignedCert does not fit: it gives 60 days.
 
-  Отпечаток — SHA-256 сертификата (DER), как его показывают браузеры:
-  сервер печатает его при запуске, окно сверяет с ним. }
+  The fingerprint is the SHA-256 of the certificate (DER), as browsers show
+  it: the server prints it at start, the window checks against it. }
 
 interface
 
@@ -25,18 +27,18 @@ uses
 
 type
   TServerTls = record
-    { Из файлов (--cert/--key) — пути; иначе DER в памяти. }
+    { From files (--cert/--key) — paths; otherwise DER in memory. }
     CertFile, KeyFile: string;
     CertDer, KeyDer: RawByteString;
     Fingerprint: string;
   end;
 
-{ Готовит сертификат: из файлов, если заданы, иначе свой (создаёт при
-  первом запуске). False — с AError, почему. }
+{ Prepares the certificate: from files if set, otherwise our own (created
+  on the first start). False — with AError saying why. }
 function PrepareServerTls(const ACertFile, AKeyFile: string; out ATls: TServerTls;
   out AError: string): boolean;
 
-{ PEM -> DER первого блока ('' — не PEM). }
+{ PEM -> DER of the first block ('' — not PEM). }
 function PemToDer(const APem: string): RawByteString;
 
 implementation
@@ -93,8 +95,8 @@ begin
   Result := S;
 end;
 
-{ То же, что TSSLOpenSSL3.CreateSelfSignedCert (ssl_openssl3.pas), но на
-  TLS_SELF_SIGNED_DAYS и со своим именем. }
+{ The same as TSSLOpenSSL3.CreateSelfSignedCert (ssl_openssl3.pas), but
+  for TLS_SELF_SIGNED_DAYS and with our own name. }
 function MakeSelfSigned(out ACert, AKey: RawByteString): boolean;
 var
   Pk: EVP_PKEY;

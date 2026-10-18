@@ -11,8 +11,8 @@
   @include flex(column, stretch, flex-end, $space-3);
   inset-block-end: $space-6;
   inset-inline-end: $space-6;
-  // Одна ширина на всю стопку: карточки и кнопка над ними тянутся по
-  // ней (stretch), а не по своему тексту. На узком окне — по окну.
+  // One width for the whole stack: the cards and the button above them
+  // stretch to it (stretch), not to their own text. In a narrow window — to the window.
   max-width: calc(100vw - #{2 * $space-6});
   pointer-events: none;
   position: fixed;
@@ -20,8 +20,8 @@
   z-index: 40;
 }
 
-// «Hide all» над карточками. `hidden` прописан явно: свой display
-// перебил бы правило UA для атрибута.
+// "Hide all" above the cards. `hidden` is spelled out explicitly: our own
+// display would override the UA rule for the attribute.
 .toast-stack__clear {
   @include card($radius-md);
   background: var(--c-surface);
@@ -64,8 +64,8 @@
   flex: 0 0 auto;
 }
 
-// Тело занимает всё, что осталось от аватара и крестика, — иначе при
-// одной ширине крестик короткой карточки стоял бы посередине.
+// The body takes everything left by the avatar and the cross — otherwise,
+// at one width, a short card's cross would stand in the middle.
 .toast__body {
   @include flex(column, stretch, flex-start, 2px);
   flex: 1 1 auto;

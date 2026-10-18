@@ -81,8 +81,8 @@ const link = (label, onClick) => el('button', {
 function screenApiConfig() {
   const id = field('api_id', { inputMode: 'numeric', autofocus: true });
   const hash = field('api_hash');
-  // Ссылка уходит в системный браузер: окно WebView2 отдаёт ему любой
-  // target=_blank через NewWindowRequested.
+  // The link goes to the system browser: the WebView2 window hands it any
+  // target=_blank through NewWindowRequested.
   return card('Connect this app to Telegram',
     ['Telegram gives every application its own api_id and api_hash. '
     + 'Create one at ',
@@ -259,8 +259,8 @@ export function showAuth(info) {
     const draw = SCREENS[state];
     root.append(el('div', { class: 'auth__backdrop' },
       draw ? draw(info) : screenWaiting(state)));
-    // Аккаунт добавлен к уже имеющимся — вход можно отменить и вернуться
-    // к прежнему (accounts.cancel).
+    // An account added to the existing ones — the sign-in can be cancelled
+    // to return to the previous one (accounts.cancel).
     if (info?.canCancel && state !== 'apiConfig') {
       qs('.auth__card', root)?.append(
         link('Cancel and go back to the other account', () => hooks.send('accounts.cancel')));

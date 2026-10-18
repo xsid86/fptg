@@ -23,16 +23,16 @@ import { holdImage } from './offscreen.js';
  * fresh one per row.
  */
 // ------------------------------------------------- animated avatars
-// Анимированная аватарка (MPEG4 160x160, chat.avatarAnim) — <video>
-// поверх картинки, и ТОЛЬКО пока аватарка в зоне видимости: за её
-// пределами плеер уничтожается целиком, вместе с декодером (снять src и
-// load() — иначе элемент его не отдаёт). Списку в сотню строк иначе
-// пришлось бы держать по декодеру на каждую анимированную.
+// An animated avatar (MPEG4 160x160, chat.avatarAnim) — a <video> over the
+// picture, and ONLY while the avatar is in view: outside it the player is
+// destroyed whole, together with the decoder (remove src and load() —
+// otherwise the element does not give it up). A list of a hundred rows
+// would otherwise have to hold a decoder for every animated one.
 //
-// Один наблюдатель на все аватарки — и в списке, и в шапке (шапка всегда
-// на экране, значит, играет постоянно).
+// One observer for all avatars — both in the list and in the header (the
+// header is always on screen, so it plays all the time).
 
-const animated = new Set();   // .avatar с анимацией, за которыми следим
+const animated = new Set();   // the .avatar elements with animation being watched
 let watcher = null;
 
 function startAnim(box) {
@@ -54,7 +54,7 @@ function stopAnim(box) {
 
 function observer() {
   if (!watcher) {
-    // Без запаса: ровно «в кадре» или нет.
+    // Without a margin: exactly "in view" or not.
     watcher = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting && entry.target.isConnected) startAnim(entry.target);
@@ -72,11 +72,11 @@ function forgetAnim(box) {
 }
 
 /**
- * Аватарки, выпавшие из документа: видео в отцепленном узле продолжало
- * бы декодировать, поэтому оно уничтожается. А наблюдение — НЕТ: список
- * кэширует строки (chat-list.js, rowNode) и при фильтре возвращает ту же
- * строку обратно без нового fillAvatar; вернётся в кадр — наблюдатель
- * сам поднимет видео снова.
+ * Avatars that dropped out of the document: a video in a detached node
+ * would keep decoding, so it is destroyed. But the observation is NOT: the
+ * list caches rows (chat-list.js, rowNode) and with a filter returns the
+ * same row back without a new fillAvatar; when it comes back into view, the
+ * observer raises the video again itself.
  */
 function sweepAnim() {
   for (const box of animated) {
@@ -84,15 +84,14 @@ function sweepAnim() {
   }
 }
 
-/** Что сейчас нарисовано — чтобы не перерисовывать то же самое. */
+/** What is drawn now — so as not to redraw the same. */
 const avatarKey = (chat) => [chat.avatar || '', chat.avatarThumb ? 't' : '',
   chat.avatarAnim || '', chat.deleted ? 'd' : '', chat.avatar || chat.avatarThumb ? '' : chat.title || ''].join('|');
 
 export function fillAvatar(box, chat) {
   sweepAnim();
-  // Список чатов перерисовывает строки на каждое изменение где угодно в
-  // нём; без этой проверки анимированная аватарка начиналась бы заново
-  // каждый раз, а картинка — декодировалась.
+  // The chat list redraws rows on every change anywhere in it; without this
+  // check an animated avatar would restart every time, and a picture be decoded.
   const key = avatarKey(chat);
   if (box.dataset.avatarKey === key) return;
   box.dataset.avatarKey = key;
@@ -113,13 +112,14 @@ export function fillAvatar(box, chat) {
     box.textContent = chat.deleted ? '×' : initial(chat.title);
   }
 
-  // Картинка остаётся под видео: она и есть кадр до первого кадра
-  // видео, и то, что видно, когда аватарка вне экрана.
+  // The picture stays under the video: it is the frame before the video's
+  // first frame, and what is seen when the avatar is off screen.
   if (chat.avatarAnim) {
     box.dataset.anim = chat.avatarAnim;
-    // Список строит строку заново, когда меняется её чат, и прежняя
-    // аватарка того же чата больше не вернётся — её забываем совсем,
-    // иначе набор и наблюдатель копили бы такие узлы часами.
+    // The list builds a row anew when its chat changes, and the previous
+    // avatar of the same chat will not come back — it is forgotten
+    // completely, otherwise the set and the observer would pile up such
+    // nodes for hours.
     const owner = String(chat.id ?? '');
     if (owner) {
       for (const old of [...animated]) {

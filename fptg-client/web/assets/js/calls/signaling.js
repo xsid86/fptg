@@ -1,29 +1,29 @@
-// Сигнальный канал звонка: шифрование и кадры протокола tgcalls 10.0.0.
+// The call's signalling channel: encryption and frames of the tgcalls 10.0.0 protocol.
 //
-// TDLib только пересылает байты (sendCallSignalingData /
-// updateNewCallSignalingData); что в них — дело клиентов. Здесь — то,
-// что делает tgcalls (EncryptedConnection, тип Signaling), написанное по
-// его описанию заново:
+// TDLib only forwards the bytes (sendCallSignalingData /
+// updateNewCallSignalingData); what is in them is the clients' business.
+// Here is what tgcalls does (EncryptedConnection, the Signaling type),
+// written anew from its description:
 //
-//   пакет на проводе:  msg_key(16) | AES-256-CTR(открытый текст)
-//   открытый текст:    одно или несколько сообщений подряд
-//   сообщение:         seq(4, BE) | тип(1) | тело
-//     тип 0x7F — данные:  длина(4, BE) | байты (JSON сигналинга)
-//     тип 0xFF — подтверждение сообщения с этим seq (не первым в пакете)
-//     тип 0xFE — пустое (открывает служебный пакет из одних подтверждений)
-//   seq: младшие 30 бит — счётчик, бит 30 — «нужно подтверждение»,
-//        бит 31 — «в пакете одно сообщение».
+//   a packet on the wire: msg_key(16) | AES-256-CTR(plaintext)
+//   plaintext:            one or several messages in a row
+//   a message:            seq(4, BE) | type(1) | body
+//     type 0x7F — data:  length(4, BE) | bytes (the signalling JSON)
+//     type 0xFF — an acknowledgement of the message with this seq (not first in the packet)
+//     type 0xFE — empty (opens a service packet of acknowledgements only)
+//   seq: the low 30 bits — a counter, bit 30 — "needs acknowledgement",
+//        bit 31 — "one message in the packet".
 //
-// Ключи (ключ звонка — 256 байт от TDLib, encryption_key):
-//   x = 128 + (8, если пакет идёт ОТ принимающей стороны звонка)
-//   msg_key   = SHA256(key[88+x .. +32] | текст)[8..24]
+// Keys (the call key — 256 bytes from TDLib, encryption_key):
+//   x = 128 + (8 if the packet comes FROM the call's receiving side)
+//   msg_key   = SHA256(key[88+x .. +32] | text)[8..24]
 //   a = SHA256(msg_key | key[x .. +36]),  b = SHA256(key[40+x .. +36] | msg_key)
 //   aes_key   = a[0..8] | b[8..24] | a[24..32]
-//   iv        = b[0..4] | a[8..16] | b[24..28]   (счётчик CTR — все 128 бит)
+//   iv        = b[0..4] | a[8..16] | b[24..28]   (the CTR counter — all 128 bits)
 //
-// Данные требуют подтверждения и повторяются, пока его нет (tgcalls:
-// не раньше 3 с после прошлой отправки). Повторы приходят с прежним seq —
-// уже доставленное подтверждается снова, но наверх не отдаётся.
+// Data needs acknowledgement and is repeated until it comes (tgcalls: not
+// earlier than 3 s after the previous send). Repeats come with the same seq
+// — what was delivered already is acknowledged again but not passed up.
 
 const SEQ_SINGLE = 0x80000000;
 const SEQ_NEEDS_ACK = 0x40000000;
@@ -34,14 +34,14 @@ const T_EMPTY = 0xfe;
 
 const RESEND_MS = 3000;          // minDelayBeforeMessageResend (Signaling)
 const RESEND_TICK_MS = 500;
-const ACK_FLUSH_MS = 50;         // подтверждения без попутного пакета
+const ACK_FLUSH_MS = 50;         // acknowledgements without a passing packet
 const REPLAY_WINDOW = 64;        // kKeepIncomingCountersCount
 const DELIVERED_KEEP = 512;
-const MIN_PACKET = 21;           // 16 msg_key + 4 seq + 1 тип
+const MIN_PACKET = 21;           // 16 msg_key + 4 seq + 1 type
 const MAX_PACKET = 128 * 1024;   // kMaxIncomingPacketSize
 const MAX_SIGNALING_PACKET = 16 * 1024;
 
-// ------------------------------------------------------------ байты
+// ------------------------------------------------------------ bytes
 export function b64ToBytes(s) {
   const bin = atob(s);
   const out = new Uint8Array(bin.length);
@@ -72,8 +72,8 @@ const readU32 = (b, at) => ((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8)
 
 const sha256 = async (data) => new Uint8Array(await crypto.subtle.digest('SHA-256', data));
 
-// ------------------------------------------------------------ шифр
-/** Шифрование пакетов одного звонка. outgoing — call.is_outgoing. */
+// ------------------------------------------------------------ cipher
+/** Encryption of one call's packets. outgoing — call.is_outgoing. */
 export class SignalingCipher {
   constructor(key, outgoing) {
     if (key.length !== 256) throw new Error('call key must be 256 bytes');
@@ -81,8 +81,8 @@ export class SignalingCipher {
     this.outgoing = outgoing;
   }
 
-  // x — смещение в ключе по направлению: свои пакеты и пакеты
-  // собеседника шифруются разными частями ключа.
+  // x — the offset in the key by direction: own packets and the other
+  // side's packets are encrypted with different parts of the key.
   x(mine) {
     const fromCallee = mine ? !this.outgoing : this.outgoing;
     return 128 + (fromCallee ? 8 : 0);
@@ -111,7 +111,7 @@ export class SignalingCipher {
     return concat(msgKey, body);
   }
 
-  /** Открытый текст или null (чужой, битый, подделанный пакет). */
+  /** The plaintext or null (someone else's, broken or forged packet). */
   async decrypt(packet) {
     if (packet.length < MIN_PACKET || packet.length > MAX_PACKET) return null;
     const x = this.x(false);
@@ -126,10 +126,10 @@ export class SignalingCipher {
   }
 }
 
-// ------------------------------------------------------------ канал
+// ------------------------------------------------------------ channel
 /**
- * Канал сигналинга поверх шифра: send(строка) уходит пакетом через
- * emit(base64); receive(base64) отдаёт пришедшие строки в onMessage.
+ * The signalling channel on top of the cipher: send(string) goes out as a
+ * packet through emit(base64); receive(base64) passes incoming strings to onMessage.
  */
 export class SignalingChannel {
   constructor(cipher, { emit, onMessage, log = () => {} }) {
@@ -139,13 +139,13 @@ export class SignalingChannel {
     this.log = log;
     this.counter = 0;
     this.unacked = [];          // { seq, bytes, sent }
-    this.acks = [];             // seq сообщений собеседника к подтверждению
-    this.seen = [];             // счётчики пришедших пакетов (окно повторов)
-    this.delivered = new Set(); // счётчики отданных наверх сообщений
+    this.acks = [];             // seq of the other side's messages to acknowledge
+    this.seen = [];             // counters of incoming packets (the replay window)
+    this.delivered = new Set(); // counters of messages passed up
     this.ackTimer = 0;
     this.resendTimer = setInterval(() => this.resendDue(), RESEND_TICK_MS);
     this.closed = false;
-    // Пакеты шифруются асинхронно — очередь держит их порядок.
+    // Packets are encrypted asynchronously — the queue keeps their order.
     this.chain = Promise.resolve();
   }
 
@@ -170,7 +170,7 @@ export class SignalingChannel {
     this.flush([bytes], item);
   }
 
-  // Подтверждения и сообщения, которым пора повториться, — в хвост пакета.
+  // Acknowledgements and messages due for a repeat — into the packet's tail.
   extras(size, except = null) {
     const out = [];
     let total = size;
@@ -200,7 +200,7 @@ export class SignalingChannel {
       .catch((error) => this.log('signaling encrypt failed', error));
   }
 
-  // Служебный пакет: пустое сообщение и следом подтверждения/повторы.
+  // A service packet: an empty message followed by acknowledgements/repeats.
   service() {
     const seq = this.nextSeq(false, false);
     this.flush([concat(u32(seq), new Uint8Array([T_EMPTY]))]);
@@ -217,7 +217,7 @@ export class SignalingChannel {
     if (!this.ackTimer) this.ackTimer = setTimeout(() => this.service(), ACK_FLUSH_MS);
   }
 
-  // Окно повторов по счётчику пакета (registerIncomingCounter).
+  // The replay window by the packet counter (registerIncomingCounter).
   registerCounter(counter) {
     if (this.seen.includes(counter)) return false;
     const largest = this.seen.length ? Math.max(...this.seen) : 0;
@@ -260,16 +260,16 @@ export class SignalingChannel {
       const counter = seq & SEQ_COUNTER;
       if (first) {
         single = (seq & SEQ_SINGLE) !== 0;
-        // Пакет, начатый уже виденным сообщением, — повтор целиком,
-        // но если это данные с просьбой подтвердить, подтверждение
-        // могло потеряться: ответить ещё раз.
+        // A packet starting with an already seen message is a repeat whole,
+        // but if it is data asking for acknowledgement, the acknowledgement
+        // may have been lost: answer once more.
         if (!this.registerCounter(counter)) {
           if (type === T_DATA && (seq & SEQ_NEEDS_ACK)) this.queueAck(seq);
           return;
         }
       }
       if (type === T_EMPTY) {
-        // ничего
+        // nothing
       } else if (type === T_ACK) {
         if (first) return;
         this.unacked = this.unacked.filter((item) => (item.seq & SEQ_COUNTER) !== counter);

@@ -189,28 +189,27 @@ function TdUserList: TTdUsers;
 function TdAccentColorList: TTdAccentColors;
 { Same unit-name pitfall (tdsupergroups) as TdMsgList/TdUserList above. }
 function TdSupergroupList: TTdSupergroups;
-{ Звонки активного аккаунта (то же совпадение имени с юнитом tdcalls). }
+{ Calls of the active account (the same unit-name clash with tdcalls). }
 function TdCallList: TTdCalls;
 { Same unit-name pitfall (tdstickers) once more. }
 function TdStickerList: TTdStickers;
-{ Боты меню вложений активного аккаунта (tdattachbots). }
+{ Attachment menu bots of the active account (tdattachbots). }
 function TdAttachBotList: TTdAttachBots;
 function TdRequests: TTdRequests;
 
-{ Присутствие: клиент всегда «в сети» (setOption online = true).
+{ Presence: the client is always "online" (setOption online = true).
 
-  Режима «Невидимка» больше нет (2026-10-12): он не слал viewMessages и
-  прятал онлайн — прямое нарушение условий Telegram API (§1.4, «ghost
-  mode»), за которое отзывают api_id. Кто видит «был(а) в сети» и время
-  прочтения — официальные настройки приватности (webapi privacy.*).
+  There is no "Invisible" mode any more (2026-10-12): it did not send
+  viewMessages and hid online status — a direct breach of the Telegram API
+  terms (§1.4, "ghost mode"), for which api_id is revoked. Who sees "last
+  seen" and the read time — the official privacy settings.
 
-  Убирает строку [ui] invisible из conf.dat, если её оставила прежняя
-  версия. Один раз при старте, до клиентов. }
+  Removes the [ui] invisible line from conf.dat if an earlier version left
+  it. Once at start, before the clients. }
 procedure TdLoadPresence;
-{ Говорит TDLib, что клиент в сети. На каждом переходе в Ready, а не
-  один раз: опция online у каждого клиента своя, так что смена
-  аккаунта или переподключение должны услышать её заново. Повтор
-  того же значения безвреден. }
+{ Tells TDLib the client is online. On every transition to Ready, not
+  once: the online option is per client, so an account switch or a
+  reconnect must hear it again. Repeating the same value is harmless. }
 procedure TdApplyPresence;
 
 { The other two settings that shape how the app behaves rather than how
@@ -232,35 +231,35 @@ procedure TdLoadDownloadLimits;
   to whichever account just became ready. }
 procedure TdApplyCacheLimit;
 
-{ Сеттеры тех же настроек, что пишет диалог настроек. Здесь, а не на
-  TFormMain, по тому же правилу: окна может не быть, а страница
-  настроек есть всегда. Каждый сеттер зажимает значение в допустимые
-  пределы, пишет в config.ini то, что реально действует, и применяет
-  его сразу (кроме потолка кэша — см. TdSetCacheLimitMB). }
+{ Setters of the same settings the settings dialog writes. Here, not on
+  TFormMain, by the same rule: there may be no window, while the settings
+  page is always there. Each setter clamps the value to its limits,
+  writes to config.ini what actually applies, and applies it right away
+  (except the cache ceiling — see TdSetCacheLimitMB). }
 function  TdCloseToTray: boolean;
 procedure TdSetCloseToTray(AValue: boolean);
 procedure TdSetDownloadConcurrency(AValue: integer);
 procedure TdSetDownloadSpeedKB(AValue: integer);
 function  TdCacheLimitMB: integer;
-{ Сохраняется, но НЕ применяется: протащить значение вниз по шагам
-  значило бы удалять кэш на каждом промежуточном числе. Действует со
-  следующего старта или по кнопке очистки. }
+{ Saved but NOT applied: walking the value down step by step would mean
+  deleting cache at every intermediate number. Takes effect from the next
+  start or with the clean-up button. }
 procedure TdSetCacheLimitMB(AValue: integer);
 function  TdCacheTtlDays: integer;
 procedure TdSetCacheTtlDays(AValue: integer);
-{ Уведомления на рабочем столе (desknotify.pas): включены ли и в каком
-  углу экрана — индекс в DESKNOTIFY_CORNERS. }
-{ Сервис карт по умолчанию — код из MAPS_PROVIDERS; '' — спрашивать. }
+{ Desktop notifications (desknotify.pas): whether they are on and in which
+  screen corner — an index in DESKNOTIFY_CORNERS. }
+{ The default map service — a code from MAPS_PROVIDERS; '' — ask. }
 function  TdMapsProvider: string;
 procedure TdSetMapsProvider(const AValue: string);
 function  TdDeskNotify: boolean;
 procedure TdSetDeskNotify(AValue: boolean);
 function  TdDeskNotifyCorner: integer;
 procedure TdSetDeskNotifyCorner(AValue: integer);
-{ Сколько карточек одновременно, DESKNOTIFY_LIMIT_MIN..MAX. }
+{ How many cards at once, DESKNOTIFY_LIMIT_MIN..MAX. }
 function  TdDeskNotifyLimit: integer;
 procedure TdSetDeskNotifyLimit(AValue: integer);
-{ Размер шрифта заголовка и текста, DESKNOTIFY_FONT_MIN..MAX. }
+{ Font size of the title and the text, DESKNOTIFY_FONT_MIN..MAX. }
 function  TdDeskNotifyTitleFont: integer;
 procedure TdSetDeskNotifyTitleFont(AValue: integer);
 function  TdDeskNotifyTextFont: integer;
@@ -409,8 +408,8 @@ procedure TdLoadPresence;
 begin
   with OpenConfig do begin
     try
-      { Пишется только когда строка и правда была: запись — это
-        перешифровка всего conf.dat. }
+      { Written only when the line really was there: writing re-encrypts
+        the whole conf.dat. }
       if ValueExists('ui', 'invisible') then begin
         DeleteKey('ui', 'invisible');
         UpdateFile;
@@ -471,9 +470,10 @@ begin
   TdCache.Cleanup(LimitMB, TtlDays);
 end;
 
-{ Все чтения — из файла, а не из кэша в памяти: файл пишут обе стороны
-  (страница и нативный диалог), и только он знает текущий ответ.
-  Читаются редко — при открытии настроек и при закрытии окна. }
+{ All reads — from the file, not from an in-memory cache: both sides (the
+  page and the native dialog) write the file, and only it knows the
+  current answer. Read rarely — when the settings open and when the window
+  closes. }
 function ConfigIni: TIniFile;
 begin
   Result := OpenConfig;
@@ -504,7 +504,7 @@ end;
 procedure TdSetDownloadConcurrency(AValue: integer);
 begin
   tdmessages.SetDownloadConcurrency(AValue);
-  { В файл — то, что оставил зажим, а не то, что попросили. }
+  { Into the file — what the clamp left, not what was asked for. }
   with ConfigIni do begin
     try
       WriteInteger('downloads', 'concurrency', tdmessages.DownloadConcurrency);
@@ -617,8 +617,8 @@ begin
   end;
 end;
 
-{ В файле — код угла, а не индекс: файл читают и руками. Неизвестный
-  код — угол по умолчанию. }
+{ The file holds the corner's code, not an index: people read the file
+  too. An unknown code — the default corner. }
 function TdDeskNotifyCorner: integer;
 var
   Code: string;
@@ -786,7 +786,7 @@ begin
   inherited Create;
   FAccounts := TFPList.Create;
   FActive := -1;
-  { Данные — в профиле пользователя (appdirs.pas): tdlib/, conf.dat. }
+  { Data lives in the user profile (appdirs.pas): tdlib/, conf.dat. }
   FBaseDir := ServerDataDir;
   SecureConfigSetDir(FBaseDir);
 
@@ -847,8 +847,9 @@ begin
     Ini.Free;
   end;
 
-  { Своих ключей в настройках нет — вшитые в сборку (apikeys.inc;
-    в публичной сборке их нет, и сервер попросит свои). }
+  { No keys of one's own in the settings — the ones built into the build
+    (apikeys.inc; a public build has none, and the server asks for one's
+    own). }
   if (FApiId = 0) and (BUILTIN_API_ID <> 0) then begin
     FApiId := BUILTIN_API_ID;
     FApiHash := BUILTIN_API_HASH;
@@ -1021,9 +1022,10 @@ begin
     Exit;
   end;
 
-  { Активным остаётся тот же аккаунт, а не тот же номер: удаление
-    стоящего ВЫШЕ активного сдвигало список, и активным молча
-    становился соседний (отмена добавления, выход из неактивного). }
+  { The same account stays active, not the same number: removing one
+    standing ABOVE the active one shifted the list, and the neighbour
+    silently became active (cancelling an add, signing out of an inactive
+    one). }
   Keep := GetActive;
   FAccounts.Delete(Idx);
   AAccount.Free;

@@ -1,7 +1,7 @@
 @use "../abstracts" as *;
 
-// Кто поставил реакцию, кто прочитал (ui/people.js): всплывающий список
-// у чипа реакции или у галочки прочтения.
+// Who reacted, who read (ui/people.js): a pop-up list at a reaction chip or
+// at the read tick.
 .people {
   @include card($radius-md, var(--c-surface));
   background: var(--c-surface);
@@ -34,7 +34,7 @@
   padding: $space-2 $space-4;
 }
 
-// 16x16 и цвет круга с буквой — цвет человека (класс .accent-*).
+// 16x16, and the colour of the letter circle is the person's colour (the .accent-* class).
 .people__avatar {
   --avatar-color: var(--accent-color);
   @include size(16px);
@@ -61,13 +61,13 @@
   padding: 0 $space-4;
 }
 
-// У галочки прочтения — своя цель для наведения: у самой иконки
+// The read tick has its own hover target: the icon itself has
 // pointer-events: none (components/_icon.scss).
 .message__receipt-hit {
   display: inline-flex;
 }
 
-// Место — над тем, на что навели, как у панели эмодзи.
+// The place — above what was hovered, as for the emoji panel.
 @supports (anchor-name: --probe) {
   .is-people-anchor {
     anchor-name: --people-anchor;

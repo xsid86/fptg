@@ -123,9 +123,9 @@ async function copyLink(msg) {
 }
 
 /**
- * Выделенный текст, если выделение лежит в этом сообщении. Берётся ДО
- * запроса message.menu: пока он идёт, выделение ещё то, что видел
- * человек, когда нажимал правую кнопку.
+ * The selected text, if the selection lies in this message. It is taken
+ * BEFORE the message.menu request: while it runs, the selection is still
+ * what the person saw when pressing the right button.
  */
 function selectionIn(node) {
   const sel = window.getSelection();
@@ -134,7 +134,7 @@ function selectionIn(node) {
   return sel.toString();
 }
 
-// Сколько чатов можно выбрать для пересылки за раз.
+// How many chats can be chosen for forwarding at once.
 const FORWARD_MAX = 10;
 
 async function forward(msg) {
@@ -171,7 +171,7 @@ async function blockSender(msg) {
 
 export async function openMessageMenu(anchor, msg, at) {
   const selected = selectionIn(anchor);
-  // Отправитель — человек (id чатов отрицательные) и не мы сами.
+  // The sender is a person (chat ids are negative) and not ourselves.
   const person = !msg.outgoing && Number(msg.senderId) > 0;
   let info;
   try {
@@ -182,7 +182,7 @@ export async function openMessageMenu(anchor, msg, at) {
   }
 
   const items = [];
-  // Сервисное сообщение: из всего меню — только удаление.
+  // A service message: of the whole menu — only deletion.
   if (msg.service) {
     if (info.canDeleteSelf || info.canDeleteAll) {
       items.push({ label: 'Delete', onSelect: () => confirmDelete(msg, info) });
@@ -243,9 +243,9 @@ export async function openMessageMenu(anchor, msg, at) {
 
   if (info.canDeleteSelf || info.canDeleteAll) {
     if (items.length) items.push('-');
-    // Один пункт и подтверждение, как у нативного клиента: у кого
-    // пропадёт сообщение — у себя или у всех — решается в диалоге, а не
-    // выбором между двумя похожими пунктами без вопроса.
+    // One item and a confirmation, as in the native client: for whom the
+    // message disappears — for oneself or for everyone — is decided in the
+    // dialog, not by choosing between two similar items without a question.
     items.push({
       label: 'Delete',
       onSelect: () => confirmDelete(msg, info),
@@ -257,8 +257,8 @@ export async function openMessageMenu(anchor, msg, at) {
 }
 
 // ------------------------------------------------------ delete confirm
-// Выбор «удалить и у собеседника» с «Remember my choice» — в этом
-// браузере: у нативного окна своего такого диалога нет, делить нечего.
+// The "delete for the other side too" choice with "Remember my choice" — in
+// this browser: the native window has no such dialog of its own, nothing to share.
 const REVOKE_KEY = 'tg.delete.revoke';
 
 function rememberedRevoke() {
@@ -272,18 +272,19 @@ function rememberedRevoke() {
 function rememberRevoke(on) {
   try {
     window.localStorage.setItem(REVOKE_KEY, on ? '1' : '0');
-  } catch { /* приватный режим — просто не запомнится */ }
+  } catch { /* private mode — it simply will not be remembered */ }
 }
 
 /**
- * Подтверждение удаления. Три вида, по тому, что разрешает сообщение
+ * The deletion confirmation. Three kinds, by what the message allows
  * (messageProperties):
- *   * только у себя — вопрос и Cancel / Delete;
- *   * только у всех (супергруппа, канал — revoke там всегда) — вопрос и
- *     пояснение, что удалится у всех;
- *   * и так, и так (личка, свои в обычной группе) — галочка «Also delete
- *     for <собеседник>» (в группе — «for everyone») и «Remember my choice».
- * Модальный <dialog>: Escape и клик мимо — Cancel.
+ *   * only for oneself — the question and Cancel / Delete;
+ *   * only for everyone (a supergroup, a channel — revoke is always there) —
+ *     the question and a note that it is deleted for everyone;
+ *   * either way (a private chat, own messages in a basic group) — the "Also
+ *     delete for <the other side>" checkbox (in a group — "for everyone")
+ *     and "Remember my choice".
+ * A modal <dialog>: Escape and a click outside — Cancel.
  */
 function confirmDelete(msg, info) {
   const chat = store.activeChat;
@@ -319,7 +320,7 @@ function confirmDelete(msg, info) {
   dialog.append(...body, el('div', { class: 'confirm__buttons' },
     el('button', { class: 'btn confirm__button', type: 'button', onclick: close }, 'Cancel'),
     del));
-  // Клик по затемнению вокруг окна — сам <dialog>.
+  // A click on the dimming around the window — the <dialog> itself.
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) close();
   });

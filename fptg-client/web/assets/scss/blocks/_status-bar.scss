@@ -10,7 +10,7 @@
 
 .status-bar__spacer { flex: 1 1 auto; }
 
-// «transport check» и под ним состояние соединения.
+// "transport check" and the connection state under it.
 .status-bar__transport {
   @include flex(column, flex-start, center, $space-1);
 }
@@ -23,8 +23,8 @@
 // The presence switch, next to the connection dot: both answer "what
 // is this client doing right now", and the native window keeps them in
 // the same corner for the same reason.
-// Переключатель аккаунтов: аватарка и имя активного; точка — есть
-// непрочитанное в других аккаунтах.
+// The account switcher: the active one's avatar and name; a dot — there is
+// unread in other accounts.
 .status-bar__account {
   @include flex(row, center, flex-start, $space-2);
   background: none;
@@ -49,7 +49,7 @@
   font-size: 9px;
 }
 
-// Имя и под ним Telegram ID — как «transport check» с состоянием.
+// The name and the Telegram ID under it — like "transport check" with the state.
 .status-bar__account-text {
   @include flex(column, flex-start, center, $space-1);
   min-width: 0;
@@ -65,7 +65,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-// Тот же размер, что у точек соединения и «Online» (.conn__dot).
+// The same size as the connection dots and "Online" (.conn__dot).
 .status-bar__account-dot {
   @include size(8px);
   background: var(--c-accent);
@@ -86,13 +86,13 @@
   &:disabled { cursor: default; }
   &:focus-visible { @include focus-ring(var(--c-accent), -2px); }
 
-  // Online borrows the connection dot's own green. Клик — в Settings →
-  // Privacy («Невидимки» больше нет, 2026-10-12).
+  // Online borrows the connection dot's own green. A click — to Settings →
+  // Privacy (there is no "Invisible" any more, 2026-10-12).
   .conn__dot { background: var(--c-ok); }
 }
 
-// Online и под ним трафик окна — как «transport check» с
-// состоянием соединения.
+// Online and the window's traffic under it — like "transport check" with
+// the connection state.
 .status-bar__presence-box {
   @include flex(column, flex-start, center, $space-1);
 }
@@ -109,8 +109,8 @@
 // The theme switch. It sits at the right-hand end of the status bar,
 // which is where it belongs: a setting that is always reachable but
 // never in the way of the chat.
-// Кнопка настроек — та же иконка без подписи, только в левом углу,
-// перед индикатором соединения.
+// The settings button — the same icon without a label, only in the left
+// corner, before the connection indicator.
 .status-bar__theme,
 .status-bar__settings {
   @include flex(row, center, center, 0);

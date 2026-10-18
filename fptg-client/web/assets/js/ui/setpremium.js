@@ -10,11 +10,11 @@ import {
 } from './setkit.js';
 import { peerCards, chatPicker } from './setpeers.js';
 
-// Платные разделы — как у Telegram Desktop: «Telegram Premium» (что
-// даёт, лимиты, подписка — ссылкой оплаты TDLib), «My stars» (баланс,
-// операции, подписки), «Telegram Business» (адрес, часы работы,
-// приветственная страница, ссылки на чат; без Premium — неактивно) и
-// «Send a gift» (кому, какой подарок, подпись).
+// Paid sections — as in Telegram Desktop: "Telegram Premium" (what it
+// gives, limits, the subscription — via TDLib's payment link), "My stars"
+// (balance, transactions, subscriptions), "Telegram Business" (location,
+// opening hours, the intro page, chat links; inactive without Premium) and
+// "Send a gift" (to whom, which gift, a caption).
 
 // ------------------------------------------------------------ Premium
 
@@ -70,7 +70,7 @@ const LIMITS = {
 
 const humanize = (type, prefix) => type.replace(prefix, '').replace(/([a-z])([A-Z])/g, '$1 $2');
 
-/** Сумма в мелких единицах валюты -> «$4.99». */
+/** An amount in the currency's small units -> "$4.99". */
 export function price(amount, currency) {
   try {
     const f = new Intl.NumberFormat('en-US', { style: 'currency', currency });
@@ -81,7 +81,7 @@ export function price(amount, currency) {
   }
 }
 
-/** InternalLinkType оплаты -> ссылка t.me (её открывает links.js). */
+/** A payment InternalLinkType -> a t.me link (links.js opens it). */
 function paymentHref(link) {
   switch (link?.['@type']) {
     case 'internalLinkTypeBotStart':

@@ -25,16 +25,16 @@ type
       written for — so without this the history would label every
       deleted account by its raw id. }
     Deleted: boolean;
-    { Маленькое фото профиля (user.profile_photo.small) — для списков
-      людей на странице: кто поставил реакцию, кто прочитал. Качается
-      по требованию (TTdUsers.EnsurePhoto); пока его нет — Minithumb,
-      крошечный jpeg прямо из объекта пользователя. }
+    { The small profile photo (user.profile_photo.small) — for the page's
+      lists of people: who reacted, who read. Downloaded on demand
+      (TTdUsers.EnsurePhoto); until then — Minithumb, the tiny jpeg right
+      from the user object. }
     PhotoFileId: integer;
     PhotoPath: utf8string;
     Minithumb: RawByteString;
     PhotoRequested: boolean;
-    { Первое активное имя (usernames.active_usernames[0]) или '' — для
-      «@бот запрос» кнопок switchInline. }
+    { The first active username (usernames.active_usernames[0]) or '' — for
+      the "@bot query" of switchInline buttons. }
     Username: utf8string;
     function DisplayName: utf8string;
   end;
@@ -85,10 +85,10 @@ type
       (also issues getUser on a miss, independently — it does not rely
       on DisplayName having already been called for the same id). }
     function AccentColorId(AUserId: Int64): integer;
-    { Строка пользователя или nil; на промахе — getUser, ответ придёт
-      через OnChanged. }
+    { The user's row or nil; on a miss — getUser, the answer comes through
+      OnChanged. }
     function Find(AUserId: Int64): TUserRow;
-    { Скачивает маленькое фото профиля, если его ещё нет. }
+    { Downloads the small profile photo if it is not there yet. }
     procedure EnsurePhoto(ARow: TUserRow);
 
     { ITdUpdateListener }
@@ -234,8 +234,8 @@ begin
     R.Username := utf8string(Names.Items[0].AsString);
   end;
 
-  { profile_photo: small (file) и minithumbnail (base64 jpeg), поля по
-    td_api.tl. Другое фото — прежний запрос уже не о нём. }
+  { profile_photo: small (a file) and minithumbnail (base64 jpeg), fields
+    per td_api.tl. Another photo — the previous request is no longer about it. }
   Photo := JGetObj(AUser, 'profile_photo');
   if Photo = nil then begin
     R.PhotoFileId := 0;
@@ -308,7 +308,7 @@ begin
     Exit;
   end;
   ARow.PhotoRequested := True;
-  { Приоритет 1, как у аватарок чатов: не мешать сообщениям. }
+  { Priority 1, as for chat avatars: not to get in the way of messages. }
   FReq.SendRequest('downloadFile',
     '"file_id":' + utf8string(IntToStr(ARow.PhotoFileId)) +
     ',"priority":1,"offset":0,"limit":0,"synchronous":false',
@@ -319,7 +319,7 @@ procedure TTdUsers.PhotoDone(Sender: TObject; const AResp: TTdResponse);
 var
   I: integer;
 begin
-  { Уже скачанный файл приходит прямо в ответе. }
+  { An already downloaded file comes right in the answer. }
   if AResp.Success then begin
     ApplyFile(AResp.Obj);
     Exit;
@@ -331,8 +331,8 @@ begin
   end;
 end;
 
-{ Путь — всем пользователям с этим файлом (см. «Один файл TDLib бывает у
-  нескольких чатов» — здесь то же правило). }
+{ The path — to all users with this file (see "One TDLib file can belong to
+  several chats" — the same rule here). }
 procedure TTdUsers.ApplyFile(AFile: TJSONObject);
 var
   FileId, I: integer;

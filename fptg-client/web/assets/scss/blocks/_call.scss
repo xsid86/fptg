@@ -1,11 +1,11 @@
 @use "../abstracts" as *;
 
-// Окно звонка (ui/call.js): карточка поверх приложения у верхнего края.
-// Без видео — компактная (аватарка, имя, состояние, кнопки); с видео
-// (call--video) — шире, видео собеседника во всю карточку, своя камера
-// маленьким окошком в углу.
-// Пять кнопок разговора (Mute, Camera, Devices, Full screen, End) по
-// $call-btn-slot с промежутком $space-4 + поля карточки.
+// The call window (ui/call.js): a card over the app at the top edge.
+// Without video — compact (avatar, name, state, buttons); with video
+// (call--video) — wider, the other side's video over the whole card, one's
+// own camera as a small window in the corner.
+// The five conversation buttons (Mute, Camera, Devices, Full screen, End)
+// at $call-btn-slot with a $space-4 gap + the card's margins.
 $call-width: 420px;
 $call-btn-slot: 64px;
 $call-video-width: 640px;
@@ -75,7 +75,7 @@ $call-local-w: 160px;
   }
 }
 
-// Эмодзи ключа: совпадают у обоих — разговор не подслушан.
+// The key emoji: they match on both sides — the conversation is not overheard.
 .call__emojis {
   flex: 0 0 auto;
   font-size: $fs-lg;
@@ -122,7 +122,7 @@ $call-local-w: 160px;
     display: none;
   }
 
-  // Своё видео без собеседника — во всю ширину, не уголком.
+  // One's own video without the other side — full width, not in a corner.
   .call__remote[hidden] + & {
     border: 0;
     position: static;
@@ -146,7 +146,7 @@ $call-local-w: 160px;
 
 .call__actions {
   @include flex(row, flex-start, center, $space-4);
-  // На узком окне кнопки уходят на вторую строку, а не за край карточки.
+  // In a narrow window the buttons move to a second line, not past the card's edge.
   flex-wrap: wrap;
 }
 
@@ -189,8 +189,8 @@ $call-local-w: 160px;
   color: var(--c-light);
 }
 
-// Микрофон выключен — кнопка залита предупреждением; камера включена —
-// акцентом.
+// The microphone is off — the button is filled with the warning colour; the
+// camera is on — with the accent.
 .call__btn--toggle.is-off .icon {
   background: var(--c-warn);
   color: var(--c-dark);
@@ -201,17 +201,17 @@ $call-local-w: 160px;
   color: var(--c-light);
 }
 
-// Знак ⛶ вместо иконки спрайта — в том же кружке.
+// The ⛶ sign instead of a sprite icon — in the same circle.
 .call__glyph {
   @include flex(row, center, center);
   font-size: 22px;
   line-height: 1;
 }
 
-// ------------------------------------------------------ во весь экран
-// .call целиком в полноэкранном режиме (ui/call.js, toggleFull): UA сам
-// растягивает элемент на экран и снимает transform; карточка — во весь
-// экран, видео собеседника занимает всё, что осталось над кнопками.
+// ------------------------------------------------------ full screen
+// .call whole in full-screen mode (ui/call.js, toggleFull): the UA itself
+// stretches the element over the screen and removes the transform; the
+// card — full screen, the other side's video takes all that is left above the buttons.
 .call:fullscreen {
   background: #000;
 
@@ -239,10 +239,10 @@ $call-local-w: 160px;
   }
 }
 
-// ============================================================ видеочат
-// ui/videochat.js: то же окно-карточка, что у звонка (.call), но с
-// сеткой плиток участников. Плитка — видео или аватарка, внизу имя и
-// микрофон; говорящий — рамка акцентом.
+// ============================================================ video chat
+// ui/videochat.js: the same card window as the call's (.call), but with a
+// grid of participant tiles. A tile — video or an avatar, the name and
+// microphone at the bottom; the speaker — an accent frame.
 $vchat-width: 720px;
 $vchat-tile-h: 150px;
 $vchat-tile-h-many: 110px;
@@ -380,10 +380,10 @@ $vchat-avatar: 64px;
   }
 }
 
-// ------------------------------------------------------ громкость
-// Панель устройств и громкости (calls/devices.js, devicePanel): кнопка
-// Devices в окне звонка и раздел Calls в настройках. Строка — подпись,
-// список устройств или ползунок с процентами (микрофон 0..200%, выход
+// ------------------------------------------------------ volume
+// The device and volume panel (calls/devices.js, devicePanel): the Devices
+// button in the call window and the Calls section in the settings. A row —
+// a label, a device list or a slider with percent (microphone 0..200%, output
 // 0..100%).
 .call-levels {
   @include flex(column, stretch, flex-start, $space-3);
@@ -411,9 +411,10 @@ $vchat-avatar: 64px;
   text-align: right;
 }
 
-// Стрелка своя: у родной браузер не даёт сдвинуть отступ. Две
-// половинки «галочки» — градиенты цветом текста (следует за темой);
-// правый край стрелки — на том же отступе, что текст слева ($space-3).
+// Our own arrow: with the native one the browser does not let the padding
+// move. The two halves of the "tick" are gradients in the text colour
+// (follows the theme); the arrow's right edge is at the same padding as the
+// text on the left ($space-3).
 $select-arrow: 5px;
 
 .call-levels__select {
@@ -437,7 +438,7 @@ $select-arrow: 5px;
   padding: $space-2 calc(#{$space-3} * 2 + #{$select-arrow} * 2) $space-2 $space-3;
 }
 
-// Браузер не называет устройства без разрешения на микрофон/камеру.
+// The browser does not name devices without microphone/camera permission.
 .call-levels__allow {
   align-self: flex-start;
   font-size: $fs-sm;

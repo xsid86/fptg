@@ -2,10 +2,10 @@ unit guiconst;
 
 {$mode objfpc}{$H+}
 
-{ Именованные константы окна (fptg-client): карточки на рабочем
-  столе, окошко входящего звонка, окно мини-приложения, WebView2.
-  Отделены от серверного constants.pas 2026-10-07; общие с сервером
-  значения окно пока берёт оттуда. }
+{ Named constants of the window (fptg-client): desktop cards, the incoming
+  call pop-up, the mini app window, WebView2. Separated from the server's
+  constants.pas on 2026-10-07; values shared with the server the window
+  still takes from there. }
 
 interface
 
@@ -16,16 +16,16 @@ const
 
   { ================= the application itself ================= }
 
-  { Прежнее название (до 2026-10-06): ярлык в «Пуске» с ним удаляется
-    при старте (appid.pas), папка профиля WebView2 с ним переезжает в
-    новую (webview2.pas). }
+  { The former name (before 2026-10-06): a Start menu shortcut with it is
+    removed at start (appid.pas), the WebView2 profile folder with it moves
+    to the new one (webview2.pas). }
   APP_TITLE_LEGACY = 'TG Orchestrator';
-  { Установщик WebView2 Runtime (Evergreen Bootstrapper, Microsoft): на
-    Windows 11 он уже есть, на Windows 10 — бывает, что нет. }
+  { The WebView2 Runtime installer (Evergreen Bootstrapper, Microsoft):
+    Windows 11 has it already, Windows 10 sometimes does not. }
   WEBVIEW2_DOWNLOAD_URL = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
   WEBVIEW2_NEEDED_TEXT = 'The Microsoft Edge WebView2 Runtime is needed to show the interface. '
     + 'Windows 11 has it built in; on Windows 10 it may have to be installed.';
-  { Папки данных в %LOCALAPPDATA%: нынешняя и прежняя. }
+  { Data folders in %LOCALAPPDATA%: the current one and the former one. }
   APP_DATA_DIR = 'fptg';
   APP_DATA_DIR_LEGACY = 'tgorchestrator';
 
@@ -35,41 +35,43 @@ const
     TColor($5B8BE3), TColor($5FBF6B), TColor($4B5FE8),
     TColor($C77BD8), TColor($D8B24B), TColor($5BC2D8), TColor($6B6BE8));
 
-  { ================= подключение к серверу ================= }
+  { ================= connection to the server ================= }
 
-  { Секция подключения в conf.dat окна (SECURE_CONFIG_FILE рядом с
-    fptg-client.exe — тот же файл и формат, что у сервера). }
+  { The connection section in the window's conf.dat (SECURE_CONFIG_FILE —
+    the same file and format as the server's). }
   GUI_CONFIG_SECTION = 'connection';
-  { Папка страницы рядом с fptg-client.exe — сайт https://WEB_APP_HOST/
-    (WebView2, виртуальный хост). }
+  { The page folder next to fptg-client.exe — the site https://WEB_APP_HOST/
+    (WebView2, virtual host). }
   GUI_WEB_DIR = 'web';
-  { Окно входа — страница из файлов окна (до входа сервер ничего не
-    отдаёт). }
+  { The sign-in window — a page from the window's files (before sign-in the
+    server gives nothing). }
   CONNECT_PAGE = 'connect.html';
 
-  { ================= рамка окна (DWM) ================= }
+  { ================= window frame (DWM) ================= }
 
-  { Последние цвета рамки от страницы — в conf.dat окна: рамку красить
-    ещё до загрузки страницы, иначе первый кадр не того цвета. }
+  { The latest frame colours from the page — in the window's conf.dat: the
+    frame is painted before the page loads, otherwise the first frame has
+    the wrong colour. }
   GUI_WINDOW_SECTION = 'window';
   GUI_FRAME_KEY = 'frame';
-  { DWMWINDOWATTRIBUTE (dwmapi.h; в dwmapi.pp FPC 3.2.2 их ещё нет).
-    Сверено по docs Microsoft, 2026-10-11. Тёмный режим — Windows 11
-    22000 и Windows 10 20H1+; цвета — только Windows 11 22000+, на
-    старых DwmSetWindowAttribute просто откажет. }
+  { DWMWINDOWATTRIBUTE (dwmapi.h; FPC 3.2.2's dwmapi.pp lacks them yet).
+    Checked against Microsoft's docs, 2026-10-11. Dark mode — Windows 11
+    22000 and Windows 10 20H1+; colours — Windows 11 22000+ only, on older
+    ones DwmSetWindowAttribute simply refuses. }
   FRAME_ATTR_DARK_MODE = 20;     { DWMWA_USE_IMMERSIVE_DARK_MODE, BOOL }
   FRAME_ATTR_BORDER = 34;        { DWMWA_BORDER_COLOR, COLORREF }
   FRAME_ATTR_CAPTION = 35;       { DWMWA_CAPTION_COLOR }
   FRAME_ATTR_TEXT = 36;          { DWMWA_TEXT_COLOR }
-  { DWMWA_COLOR_DEFAULT: вернуть системный цвет. }
+  { DWMWA_COLOR_DEFAULT: back to the system colour. }
   FRAME_COLOR_DEFAULT = $FFFFFFFF;
 
   { ================= WebView2 ================= }
 
-  { Журнал leveldb localStorage профиля (lsrepair.pas): блок и заголовок
-    записи — leveldb doc/log_format.md; папка — внутри папки данных. }
-  { Длина пути в системном диалоге «Сохранить как» (webview2.AskSavePath),
-    в символах: длинные пути Windows, не MAX_PATH. }
+  { The leveldb journal of the profile's localStorage (lsrepair.pas): the
+    record's block and header — leveldb doc/log_format.md; the folder is
+    inside the data folder. }
+  { Path length in the system "Save as" dialog (webview2.AskSavePath), in
+    characters: Windows long paths, not MAX_PATH. }
   SAVE_DIALOG_PATH_MAX = 32767;
 
   LS_LOG_BLOCK = 32768;
@@ -77,7 +79,7 @@ const
   LS_LEVELDB_SUBDIR = 'EBWebView\Default\Local Storage\leveldb\';
 
   { WebView2.h: COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION (UNKNOWN 0,
-    MICROPHONE 1, CAMERA 2, GEOLOCATION 3) и
+    MICROPHONE 1, CAMERA 2, GEOLOCATION 3) and
     COREWEBVIEW2_PERMISSION_STATE_ALLOW (DEFAULT 0, ALLOW 1, DENY 2). }
   WEBVIEW2_PERMISSION_KIND_GEOLOCATION = 3;
   WEBVIEW2_PERMISSION_KIND_MICROPHONE = 1;
@@ -86,51 +88,53 @@ const
 
   { ================= mini-app window, desktop cards ================= }
 
-  { Окно мини-приложения бота (miniapp.pas): размер — как у окна
-    Telegram Desktop, высоты полос — шапки с Back/Settings/Reload и
-    кнопок приложения внизу. MINIAPP_APP_NAME — application_name в
-    webAppOpenParameters (td_api.tl: 0-64 латинских букв, цифр и _). }
+  { The bot's mini app window (miniapp.pas): size — as Telegram Desktop's
+    window, the heights of the strips — the header with Back/Settings/
+    Reload and the app's buttons at the bottom. MINIAPP_APP_NAME —
+    application_name in webAppOpenParameters (td_api.tl: 0-64 Latin
+    letters, digits and _). }
   MINIAPP_WIDTH = 420;
   MINIAPP_HEIGHT = 720;
-  { Шапка: отступ MINIAPP_BAR_PAD по краям и между кнопками, кнопки
-    высотой MINIAPP_BAR_BUTTON_H, по бокам текста — MINIAPP_BAR_BUTTON_PAD. }
+  { Header: MINIAPP_BAR_PAD margin at the edges and between buttons,
+    buttons MINIAPP_BAR_BUTTON_H high, MINIAPP_BAR_BUTTON_PAD at the sides
+    of the text. }
   MINIAPP_BAR_PAD = 8;
   MINIAPP_BAR_BUTTON_H = 28;
   MINIAPP_BAR_BUTTON_PAD = 12;
-  MINIAPP_BAR_BUTTON_RADIUS = 4;   { скругление кнопок шапки (TBCButton) }
+  MINIAPP_BAR_BUTTON_RADIUS = 4;   { rounding of the header buttons (TBCButton) }
 
-  { desknotify.pas — карточки уведомлений на рабочем столе. Размеры —
-    в пикселях при 96 dpi, модуль масштабирует их сам. }
+  { desknotify.pas — desktop notification cards. Sizes — in pixels at
+    96 dpi, the unit scales them itself. }
   DESKNOTIFY_CLASS: PWideChar = 'TGODeskNotifyCard';
   DESKNOTIFY_WIDTH = 320;
   DESKNOTIFY_HEIGHT = 80;
-  DESKNOTIFY_PAD = 10;             { край карточки -> аватарка }
+  DESKNOTIFY_PAD = 10;             { card edge -> avatar }
   DESKNOTIFY_AVATAR = 60;
-  DESKNOTIFY_TEXT_GAP = 12;        { аватарка -> текст }
+  DESKNOTIFY_TEXT_GAP = 12;        { avatar -> text }
   DESKNOTIFY_FONT = 'Segoe UI';
-  DESKNOTIFY_LINE_GAP = 6;         { заголовок -> текст }
-  DESKNOTIFY_CLOSE_ZONE = 28;      { квадрат клика по крестику в углу }
-  DESKNOTIFY_CLOSE_SIZE = 9;       { сам нарисованный крестик }
-  DESKNOTIFY_CLOSE_ALPHA = 150;    { крестик без наведения — приглушён }
-  DESKNOTIFY_MARGIN = 8;           { от края рабочей области }
-  DESKNOTIFY_GAP = 8;              { между карточками }
+  DESKNOTIFY_LINE_GAP = 6;         { title -> text }
+  DESKNOTIFY_CLOSE_ZONE = 28;      { the click square of the cross in the corner }
+  DESKNOTIFY_CLOSE_SIZE = 9;       { the drawn cross itself }
+  DESKNOTIFY_CLOSE_ALPHA = 150;    { the cross without hover — dimmed }
+  DESKNOTIFY_MARGIN = 8;           { from the edge of the work area }
+  DESKNOTIFY_GAP = 8;              { between cards }
   DESKNOTIFY_LIFE_MS = 6000;
   DESKNOTIFY_FADE_MS = 150;
   DESKNOTIFY_SLIDE_PX_PER_S = 900;
   DESKNOTIFY_TICK_MS = 15;
-  DESKNOTIFY_TICK_MAX_MS = 100;    { после зависания — не прыгать скачком }
-  DESKNOTIFY_TEXT_MAX = 200;       { символов до подгонки по ширине }
-  DESKNOTIFY_ELLIPSIS = #$E2#$80#$A6;   { «…» байтами UTF-8: литерал при codepage utf8 стал бы WideString }
-  { Окошко входящего звонка (callpopup.pas): высота при 96 dpi. Ширина,
-    угол и отступ от края — как у обычных уведомлений (DESKNOTIFY_WIDTH,
-    настройка угла, DESKNOTIFY_MARGIN). Вёрстка callcard.html
-    рассчитана на этот размер. }
+  DESKNOTIFY_TICK_MAX_MS = 100;    { after a freeze — no jumping ahead }
+  DESKNOTIFY_TEXT_MAX = 200;       { characters before fitting to the width }
+  DESKNOTIFY_ELLIPSIS = #$E2#$80#$A6;   { "…" as UTF-8 bytes: a literal under codepage utf8 would become a WideString }
+  { The incoming call pop-up (callpopup.pas): height at 96 dpi. Width,
+    corner and margin from the edge — as ordinary notifications'
+    (DESKNOTIFY_WIDTH, the corner setting, DESKNOTIFY_MARGIN). The layout of
+    callcard.html is made for this size. }
   CALLPOPUP_HEIGHT = 164;
-  { Текст образца карточек (настройки уведомлений). }
+  { The text of the sample cards (notification settings). }
   DESKNOTIFY_SAMPLE_TEXT = 'This is how notifications will look';
   DESKNOTIFY_THEME_KEY = 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize';
   DESKNOTIFY_THEME_VALUE = 'AppsUseLightTheme';
-  { Цвета — как у Telegram Desktop: дневная и ночная (синяя) темы. }
+  { Colours — as in Telegram Desktop: the day and night (blue) themes. }
   DESKNOTIFY_LIGHT_BG = $FFFFFF;
   DESKNOTIFY_LIGHT_BORDER = $DEDEDE;
   DESKNOTIFY_LIGHT_TITLE = $222222;

@@ -37,8 +37,8 @@
 
 .chat-header__avatar {
   --avatar-color: var(--chat-color);
-  // .avatar режет всё за кругом (overflow: hidden) - кольцо загрузки
-  // галереи идёт по краю внутри.
+  // .avatar clips everything outside the circle (overflow: hidden) - the
+  // gallery's loading ring goes along the edge inside.
   --ring-inset: 0;
   cursor: pointer;
 
@@ -65,7 +65,7 @@
   color: var(--c-text-dim);
   font-size: $fs-sm;
 
-  // «Печатает…» (ui/typing.js) — акцентом, как у официальных клиентов.
+  // "Typing…" (ui/typing.js) — in the accent, as in the official clients.
   &.is-typing {
     color: var(--c-accent);
   }
@@ -108,8 +108,8 @@
     @include size($icon-sm);
   }
 
-  // Наведение и включённый фильтр — цвет контакта (цветные темы);
-  // простые темы и Aurora перекрывают акцентом (themes/).
+  // Hover and an active filter — the contact's colour (colour themes); the
+  // plain themes and Aurora override it with the accent (themes/).
   &:hover:not(:disabled) {
     color: var(--accent-color);
   }
@@ -127,8 +127,8 @@
   }
 }
 
-// Показан один источник «Избранного» (ui/chat-header.js): чип с его
-// именем над поиском, крестик — вся история.
+// One Saved Messages source is shown (ui/chat-header.js): a chip with its
+// name above the search, the cross — the whole history.
 .chat-header__topic {
   @include flex(row, center, flex-start, $space-2);
   @include chat-tint(background, 15%);

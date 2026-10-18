@@ -1,8 +1,8 @@
 @use "../abstracts" as *;
 
-// Подтверждение действия (сейчас — удаления сообщения, ui/msgmenu.js):
-// маленькое окно посередине, вопрос, при необходимости галочки,
-// кнопки справа внизу. Модальный <dialog> — Escape и клик мимо = отмена.
+// An action confirmation (now — deleting a message, ui/msgmenu.js): a small
+// window in the middle, a question, checkboxes if needed, buttons at the
+// bottom right. A modal <dialog> — Escape and a click outside = cancel.
 .confirm {
   @include flex(column, stretch, flex-start, $space-4);
   background: var(--c-surface);
@@ -66,8 +66,8 @@
 }
 
 // ---------------------------------------------------------- invite
-// Окно вступления по приглашению (ui/links.js) — как у нативного
-// клиента: всё по центру, аватарка сверху, описание с переносами.
+// The join-by-invite window (ui/links.js) — as in the native client:
+// everything centred, the avatar on top, the description with line breaks.
 .confirm--invite {
   align-items: center;
   max-height: calc(100vh - #{2 * $space-6});
@@ -99,7 +99,7 @@
   margin: (-$space-3) 0 0;
 }
 
-// Переносы строк — те, что у канала в описании.
+// Line breaks — the ones the channel has in its description.
 .confirm__description {
   font-size: $fs-base;
   line-height: $lh-base;

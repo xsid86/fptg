@@ -1,16 +1,16 @@
 import { fileSize } from './format.js';
 
-// Ход передачи файла — скачивания или закачки: кольцо вокруг значка и
-// «сколько из скольких».
+// A file transfer's progress — a download or an upload: a ring around the
+// icon and "how much of how much".
 //
-// Данные — поле xfer у медиа сообщения ({done, total, up}), которое
-// сервер присылает, только пока передача идёт (MediaJson в webapi.pas,
-// ApplyXferFile в tdmessages.pas).
+// The data — the xfer field of a message's media ({done, total, up}), which
+// the server sends only while the transfer runs (MediaJson in webapi.pas,
+// ApplyXferFile in tdmessages.pas).
 //
-// Кольцо — SVG, и долю задаёт АТРИБУТ stroke-dashoffset, а не style:
-// у окружности pathLength="100", так что смещение — прямо проценты, и
-// кольцо движется плавно, без лестницы классов .w-*. Та же уловка, что
-// <progress value> у аудио.
+// The ring is SVG, and the share is set by the stroke-dashoffset ATTRIBUTE,
+// not style: the circle has pathLength="100", so the offset is straight
+// percent, and the ring moves smoothly, without the .w-* class ladder. The
+// same trick as <progress value> for audio.
 
 const SVG = 'http://www.w3.org/2000/svg';
 
@@ -26,7 +26,7 @@ function circle(cls) {
   return c;
 }
 
-/** SVG-кольцо для доли x. Кладётся внутрь значка — см. addRing. */
+/** An SVG ring for the share x. It goes inside the icon — see addRing. */
 export function ringNode(x) {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('class', 'xfer__ring');
@@ -40,9 +40,8 @@ export function ringNode(x) {
 }
 
 /**
- * Надевает кольцо на значок (диск файла, кнопку аудио, кнопку загрузки
- * на картинке). При закачке стрелка значка разворачивается вверх
- * (.is-up в стилях).
+ * Puts the ring on an icon (a file disc, an audio button, a download button
+ * on a picture). On upload the icon's arrow turns upwards (.is-up in the styles).
  */
 export function addRing(node, x) {
   if (!node || !x) return node;

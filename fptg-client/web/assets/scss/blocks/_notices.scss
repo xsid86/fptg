@@ -1,11 +1,12 @@
 @use "../abstracts" as *;
 
-// Уведомления (ui/notices.js): стопка сверху по центру окна, каждое —
-// акцентная плашка, скругление 16px, без рамки, крестик 16x16 в правом
-// верхнем углу в 8px от краёв. Сами не исчезают.
+// Notices (ui/notices.js): a stack at the top centre of the window, each —
+// an accent plate, 16px rounding, no frame, a 16x16 cross in the top right
+// corner 8px from the edges. They do not disappear by themselves.
 //
-// Ловят указатель только сами плашки: стопка — колонка через всё окно,
-// и ловить клики ею значило бы мёртвую полосу посреди приложения.
+// Only the plates themselves catch the pointer: the stack is a column
+// across the whole window, and catching clicks with it would mean a dead
+// band in the middle of the app.
 .notices {
   @include flex(column, center, flex-start, $space-3);
   inset-block-start: $space-6;
@@ -22,15 +23,15 @@
   box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .5);
   color: var(--c-accent-text);
   max-width: 480px;
-  // Справа — место под крестик: 8px отступа + 16px крестика + 8px до текста.
+  // On the right — room for the cross: 8px margin + 16px cross + 8px to the text.
   padding: $space-4 32px $space-4 $space-6;
   pointer-events: all;
   position: relative;
   width: max-content;
 }
 
-// Ошибка запроса (ui:error, ui/notices.js): тот же вид, цвет опасности;
-// исчезает сама.
+// A request error (ui:error, ui/notices.js): the same look, the danger
+// colour; disappears by itself.
 .notice.is-error {
   background: linear-gradient(to bottom, color-mix(in srgb, var(--c-danger) 80%, white), color-mix(in srgb, var(--c-danger) 80%, black));
   color: var(--c-light);

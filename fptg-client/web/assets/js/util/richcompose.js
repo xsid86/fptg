@@ -1,50 +1,50 @@
-// Богатое сообщение из поля ввода -> блоки InputPageBlock для
+// A rich message from the input field -> InputPageBlock blocks for
 // message.sendRich (td_api.tl: inputRichMessage, richMessageSourceBlocks).
 //
-// Markdown/HTML-источники TDLib — только для ботов, поэтому блоки
-// собирает страница. Вход — модель поля (ui/editor.js): текст и
-// сущности. Строчное оформление (жирный, ссылка, кастомный эмодзи…) —
-// сущности; блоки — начало строки, привычный Markdown:
+// TDLib's Markdown/HTML sources are for bots only, so the page assembles
+// the blocks. The input is the field's model (ui/editor.js): text and
+// entities. Inline formatting (bold, a link, a custom emoji…) — entities;
+// blocks — the start of a line, the familiar Markdown:
 //
-//   # Заголовок … ###### (размер 1–6)
-//   - пункт / * пункт / 1. пункт / - [ ] задача / - [x] сделано
-//     (вложенность — отступом в два пробела и больше)
-//   > цитата (строки подряд; последняя «> — Автор» — подпись)
-//   ```язык … ```          код (или строки, целиком оформленные кодом)
-//   $$ … $$                формула (LaTeX)
-//   ---                    разделитель
-//   | a | b |              таблица; строка |---|:-:|--:| — шапка и выравнивание
-//   +++ Заголовок … +++    раскрывающийся блок (+++! — открытый)
-//   ![подпись](photo:id)   фото, видео (video:), GIF (gif:), аудио (audio:),
-//                          файл (file:) — id загрузки POST /upload; строку
-//                          вставляет поле ввода, когда файл прикреплён в
-//                          режиме Rich. Несколько строк подряд — коллаж.
-//   [[Текст|https://…]]    кнопка-ссылка; [[Текст|copy:текст]] — копирует
-//                          текст; третьим полем стиль: primary, danger,
-//                          success, link. Строка из одних кнопок — ряд кнопок,
-//                          внутри абзаца — кнопка в тексте.
+//   # Heading … ###### (size 1–6)
+//   - item / * item / 1. item / - [ ] task / - [x] done
+//     (nesting — by an indent of two spaces or more)
+//   > quote (consecutive lines; the last "> — Author" is the caption)
+//   ```language … ```      code (or lines formatted as code whole)
+//   $$ … $$                a formula (LaTeX)
+//   ---                    a divider
+//   | a | b |              a table; the row |---|:-:|--:| — header and alignment
+//   +++ Heading … +++      a collapsible block (+++! — open)
+//   ![caption](photo:id)   a photo, video (video:), GIF (gif:), audio (audio:),
+//                          file (file:) — the POST /upload id; the input field
+//                          inserts the line when a file is attached in Rich
+//                          mode. Several consecutive lines — a collage.
+//   [[Text|https://…]]     a link button; [[Text|copy:text]] — copies the
+//                          text; the third field is the style: primary,
+//                          danger, success, link. A line of buttons only — a
+//                          row of buttons, inside a paragraph — a button in the text.
 //
-// В тексте ещё $$формула$$. Цитата и код, оформленные кнопками на целые
-// строки, — тоже блоки.
+// In the text there is also $$formula$$. A quote and code formatted by the
+// buttons on whole lines are blocks too.
 //
-// Обычный пользователь может только кнопки-ссылки, «пользователь» и
-// «скопировать текст» (td_api.tl, inlineButton).
+// An ordinary user can only have link, "user" and "copy text" buttons
+// (td_api.tl, inlineButton).
 
 const plain = (text) => ({ '@type': 'richTextPlain', text });
 
-// Сведения о загруженном файле (длительность, размеры, миниатюра видео)
-// — на время одного composeRich, см. его параметр.
+// Info about an uploaded file (duration, size, the video thumbnail) — for
+// the duration of one composeRich, see its parameter.
 let mediaInfo = () => null;
 
 const MEDIA_RE = /^!\[([^\]]*)\]\((photo|video|gif|audio|file|uploading):([^)\s]+)\)$/;
 const upload = (id) => ({ '@type': 'inputFileUpload', id });
 
-// ------------------------------------------------------------ строки
-// Строка — { text, ents, block }: сущности со смещениями от начала
-// строки; block — { pre, quote }: id сущностей-блоков, покрывающих
-// строку целиком.
+// ------------------------------------------------------------ lines
+// A line is { text, ents, block }: entities with offsets from the start of
+// the line; block — { pre, quote }: the ids of block entities covering the
+// whole line.
 
-/** Модель поля -> строки. */
+/** The field's model -> lines. */
 function toLines(doc) {
   const text = String(doc?.text ?? '').replace(/\r\n?/g, '\n');
   const all = (doc?.entities ?? []).map((e, id) => ({ ...e, id }));
@@ -71,7 +71,7 @@ function toLines(doc) {
   return out;
 }
 
-/** Кусок строки [from, to). */
+/** A piece of a line [from, to). */
 function slice(line, from, to = line.text.length) {
   const ents = [];
   for (const e of line.ents) {
@@ -82,7 +82,7 @@ function slice(line, from, to = line.text.length) {
   return { text: line.text.slice(from, to), ents, block: line.block };
 }
 
-/** Без пробелов по краям. */
+/** Without spaces at the edges. */
 function trimmed(line) {
   const lead = /^\s*/.exec(line.text)[0].length;
   const tail = /\s*$/.exec(line.text)[0].length;
@@ -91,9 +91,9 @@ function trimmed(line) {
 
 const indentOf = (line) => /^\s*/.exec(line.text)[0].length;
 
-// ------------------------------------------------------------ строчное
+// ------------------------------------------------------------ inline
 
-/** Узлы RichText -> один RichText (соседние простые склеены). */
+/** RichText nodes -> one RichText (adjacent plain ones are merged). */
 function joinTexts(nodes) {
   const out = [];
   for (const n of nodes) {
@@ -111,7 +111,7 @@ function joinTexts(nodes) {
 
 const BUTTON_STYLES = new Set(['default', 'primary', 'danger', 'success', 'link']);
 
-/** «Текст|цель|стиль» -> inlineButton, или null — не кнопка. */
+/** "Text|target|style" -> inlineButton, or null — not a button. */
 function parseButton(body) {
   const parts = body.split('|').map((p) => p.trim());
   if (parts.length < 2 || !parts[0] || !parts[1]) return null;
@@ -136,7 +136,7 @@ function parseButton(body) {
   };
 }
 
-/** Простой кусок текста: кнопки [[…]] и формулы $$…$$ внутри. */
+/** A plain piece of text: [[…]] buttons and $$…$$ formulas inside. */
 function plainNodes(str) {
   const out = [];
   const re = /\[\[([^\]]+)\]\]|\$\$([^$]+)\$\$/g;
@@ -158,7 +158,7 @@ function plainNodes(str) {
   return out;
 }
 
-// Вложение оформления: внутренние — первыми.
+// Formatting nesting: inner ones first.
 const WRAP_ORDER = ['code', 'pre', 'spoiler', 'strike', 'underline', 'italic', 'bold', 'mentionName', 'textUrl'];
 
 function wrapRich(node, e) {
@@ -176,7 +176,7 @@ function wrapRich(node, e) {
   }
 }
 
-/** Строка -> RichText по её сущностям. */
+/** A line -> RichText by its entities. */
 function rich(line) {
   const { text, ents } = line;
   const cuts = new Set([0, text.length]);
@@ -194,7 +194,7 @@ function rich(line) {
     const emoji = covering.find((e) => e.kind === 'customEmoji');
     let node;
     if (emoji) {
-      // Кастомный эмодзи заменяет свой текст (запасной обычный эмодзи).
+      // A custom emoji replaces its text (the fallback ordinary emoji).
       if (s !== emoji.offset) continue;
       node = {
         '@type': 'richTextCustomEmoji',
@@ -213,7 +213,7 @@ function rich(line) {
   return joinTexts(nodes);
 }
 
-/** Несколько строк -> один RichText через перевод строки. */
+/** Several lines -> one RichText joined with line breaks. */
 function richLines(lines) {
   const parts = [];
   lines.forEach((l, i) => {
@@ -223,9 +223,9 @@ function richLines(lines) {
   return joinTexts(parts);
 }
 
-// ------------------------------------------------------------ медиа
+// ------------------------------------------------------------ media
 
-/** Строка медиа -> блок InputPageBlock. */
+/** A media line -> an InputPageBlock block. */
 function mediaBlock(kind, id, capLine) {
   if (kind === 'uploading') throw new Error('Wait until the files finish uploading');
   const caption = capLine.text.trim()
@@ -278,7 +278,7 @@ function mediaBlock(kind, id, capLine) {
   }
 }
 
-/** Строка медиа -> блок, или null — не медиа. */
+/** A media line -> a block, or null — not media. */
 function mediaLine(line) {
   const t = trimmed(line);
   const m = MEDIA_RE.exec(t.text);
@@ -286,7 +286,7 @@ function mediaLine(line) {
   return mediaBlock(m[2], m[3], slice(t, 2, 2 + m[1].length));
 }
 
-// ------------------------------------------------------------ блоки
+// ------------------------------------------------------------ blocks
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 const ALIGN = {
@@ -295,11 +295,11 @@ const ALIGN = {
   right: { '@type': 'pageBlockHorizontalAlignmentRight' },
 };
 
-// Нумерованный и маркированный списки подряд — два списка, не один.
+// A numbered and a bulleted list in a row — two lists, not one.
 const isNumbered = (text) => /^\d/.test(LIST_RE.exec(text)?.[2] ?? '');
 const sameKind = (a, b) => isNumbered(a) === isNumbered(b);
 
-/** Строка из одних кнопок [[…]] -> их список, иначе null. */
+/** A line of [[…]] buttons only -> their list, otherwise null. */
 function buttonRow(text) {
   const t = text.trim();
   if (!/^(\[\[[^\]]+\]\]\s*)+$/.test(t)) return null;
@@ -312,7 +312,7 @@ function buttonRow(text) {
   return out;
 }
 
-/** Ячейки строки таблицы: куски между «|», без краёв. */
+/** The cells of a table row: the pieces between "|", without the edges. */
 function splitRow(line) {
   const t = trimmed(line);
   const bars = [];
@@ -362,8 +362,8 @@ function dedent(lines) {
 }
 
 function listBlock(lines) {
-  // Пункт — строка-маркер на базовом отступе, всё глубже — его
-  // продолжение (абзац или вложенный список).
+  // An item is a marker line at the base indent; everything deeper is its
+  // continuation (a paragraph or a nested list).
   const base = indentOf(lines[0]);
   const items = [];
   let cur = null;
@@ -414,7 +414,7 @@ function quoteBlock(lines) {
   return { '@type': 'inputPageBlockBlockQuote', blocks: parseBlocks(body), credit };
 }
 
-/** Строки -> блоки InputPageBlock. */
+/** Lines -> InputPageBlock blocks. */
 function parseBlocks(lines) {
   const out = [];
   let para = [];
@@ -428,7 +428,7 @@ function parseBlocks(lines) {
     const line = lines[i];
     const t = line.text.trim();
 
-    // Код и цитата, оформленные в поле на целые строки.
+    // Code and a quote formatted in the field on whole lines.
     if (line.block.pre) {
       flushPara();
       const id = line.block.pre.id;
@@ -524,8 +524,8 @@ function parseBlocks(lines) {
       continue;
     }
 
-    // Медиа; строки подряд — коллаж (только фото и видео — в коллаже
-    // TDLib другого не показывает), остальное — блоками по одному.
+    // Media; consecutive lines — a collage (only photos and videos — TDLib
+    // shows nothing else in a collage), the rest — as blocks one by one.
     if (MEDIA_RE.test(t)) {
       flushPara();
       const group = [];
@@ -556,7 +556,7 @@ function parseBlocks(lines) {
       continue;
     }
 
-    // «||спойлер||» в начале строки — не таблица.
+    // "||spoiler||" at the start of a line is not a table.
     if (t.startsWith('|') && !t.startsWith('||')) {
       flushPara();
       const body = [];
@@ -572,8 +572,8 @@ function parseBlocks(lines) {
       const body = [line];
       const base = indentOf(line);
       i += 1;
-      // Пункты и всё, что глубже базового отступа; пустая строка
-      // внутри не рвёт список, если за ней он продолжается.
+      // Items and everything deeper than the base indent; an empty line
+      // inside does not break the list if it continues after it.
       for (; i < lines.length; i += 1) {
         const l = lines[i];
         if (!l.text.trim()) {
@@ -604,10 +604,10 @@ function parseBlocks(lines) {
 }
 
 /**
- * Модель поля ({ text, entities }, ui/editor.js) -> блоки; пустой
- * массив — отправлять нечего. info(id) — сведения о загруженном файле
- * ({duration, w, h, thumb, tw, th}) или null. Бросает, если файл ещё
- * грузится.
+ * The field's model ({ text, entities }, ui/editor.js) -> blocks; an empty
+ * array — nothing to send. info(id) — info about an uploaded file
+ * ({duration, w, h, thumb, tw, th}) or null. Throws if a file is still
+ * uploading.
  */
 export function composeRich(doc, info = () => null) {
   mediaInfo = info;

@@ -36,11 +36,11 @@ import { watchTyping, typingLine } from './typing.js';
 // constants.pas; they travel as strings because the server takes the
 // constructor name straight through to the request.
 const FILTERS = [
-  // Фото, видео, GIF, музыка, ссылки, голосовые, файлы и закреплённые — не фильтр
-  // истории, а сетка или
-  // список в панели информации, как у нативного клиента (ui/infopanel.js,
-  // media.list): в один экран влезает куда больше, а клик по плитке
-  // прокручивает к сообщению полную историю.
+  // Photos, videos, GIFs, music, links, voice messages, files and pinned —
+  // not a history filter but a grid or a
+  // list in the info panel, as in the native client (ui/infopanel.js,
+  // media.list): far more fits on one screen, and a click on a tile scrolls
+  // the full history to the message.
   ['image', 'Photos', '@photo'],
   ['video', 'Videos', '@video'],
   ['gif', 'GIFs', '@gif'],
@@ -50,8 +50,8 @@ const FILTERS = [
   ['link', 'Links', '@link'],
   ['poll', 'Polls', 'searchMessagesFilterPoll'],
   ['pin', 'Pinned', '@pinned'],
-  // Не фильтр истории: у TDLib нет searchMessagesFilter для подарков —
-  // кнопка открывает подарки профиля в панели информации (ui/infopanel.js).
+  // Not a history filter: TDLib has no searchMessagesFilter for gifts — the
+  // button opens the profile's gifts in the info panel (ui/infopanel.js).
   ['gift', 'Gifts', '@gifts'],
   ['bookmark', 'Saved', ''],
 ];
@@ -61,11 +61,11 @@ const STUB_NOTE = 'answered by TDLib with something that is not a list of messag
 let root = null;
 let parts = null;
 let activeFilter = '';
-// Источник «Избранного», чьи сообщения показаны (ui/infopanel.js):
-// { id, title } или null — чип в полосе фильтров с крестиком.
+// The Saved Messages source whose messages are shown (ui/infopanel.js):
+// { id, title } or null — a chip with a cross in the filter strip.
 let savedTopic = null;
-// Что показывает сетка медиа в панели информации ('photo' | 'video' | ''):
-// её кнопка в полосе подсвечена, пока сетка открыта.
+// What the media grid in the info panel shows ('photo' | 'video' | ''):
+// its button in the strip is highlighted while the grid is open.
 let mediaView = '';
 let lastChatId = null;
 // What the bar last drew for the thread - title, picture, colour and
@@ -123,12 +123,12 @@ function onSearchKey(e) {
 }
 
 function build() {
-  // Клик — галерея аватарок собеседника; у группы и канала — панель
-  // информации (ui/infopanel.js, ui:chat-photos).
+  // A click — the other side's avatar gallery; for a group and channel —
+  // the info panel (ui/infopanel.js, ui:chat-photos).
   const avatar = el('span', {
     class: 'avatar avatar--lg chat-header__avatar',
     role: 'button', tabindex: '0', title: 'Photos',
-    // anchor — на неё вешается кольцо загрузки, пока галерея качается.
+    // anchor — the loading ring is hung on it while the gallery downloads.
     onclick: (event) => emit('ui:chat-photos', { anchor: event.currentTarget }),
     onkeydown: (event) => {
       if (event.key === 'Enter') emit('ui:chat-photos', { anchor: event.currentTarget });
@@ -209,18 +209,18 @@ function commentLabel(n) {
   return n === 1 ? '1 comment' : `${n} comments`;
 }
 
-// Подзаголовок без «печатает»: к нему шапка возвращается, когда все
-// замолчали.
+// The subtitle without "typing": the header returns to it when everyone
+// has gone quiet.
 let baseSubtitle = '';
 
-// Личка — «typing…» без имени: собеседник там один.
+// A private chat — "typing…" without a name: there is only one other side.
 const PERSONAL = ['private', 'bot', 'secret', 'self'];
 
 /**
- * Подзаголовок: «кто-то печатает», пока это так, иначе обычный.
+ * The subtitle: "someone is typing" while that is so, otherwise the usual one.
  *
- * Чат действий — тот, чья история открыта (store.messages.chatId): в
- * ветке комментариев это группа обсуждения, а не канал из шапки.
+ * The actions' chat is the one whose history is open (store.messages.chatId):
+ * in a comment thread that is the discussion group, not the channel in the header.
  */
 function paintSubtitle() {
   if (!parts) return;
@@ -269,9 +269,9 @@ function render(chat) {
   parts.back.hidden = !thread;
   // Same palette class the list row carries, so the header and the row
   // for one chat can never disagree about its colour.
-  // В ветке шапка — по-прежнему канал (решение пользователя,
-  // 2026-10-10): читают комментарии к ЕГО посту, а аватар группы
-  // обсуждения сбивал. Группа — в подзаголовке, если её имя другое.
+  // In a thread the header is still the channel (the user's decision,
+  // 2026-10-10): people read the comments on ITS post, and the discussion
+  // group's avatar confused. The group — in the subtitle, if its name differs.
   const face = chat;
   root.className = `chat-header accent-${face.color ?? chat.color}`;
   // The same picture the row in the list shows - see util/avatar.js.
@@ -352,9 +352,9 @@ export function mountChatHeader(node) {
     const open = store.messages?.chatId ?? store.activeChatId;
     if (Number(chatId) === Number(open)) paintSubtitle();
   });
-  // Клик по счётчику медиа в панели информации (ui/infopanel.js) — тот же
-  // фильтр, что кнопка в полосе фильтров.
-  // Источник «Избранного» из панели сведений — история только его.
+  // A click on a media counter in the info panel (ui/infopanel.js) — the
+  // same filter as the button in the filter strip.
+  // A Saved Messages source from the info panel — the history of it only.
   on('ui:saved-topic', ({ id, title }) => {
     savedTopic = { id, title };
     syncTopic();
@@ -367,8 +367,8 @@ export function mountChatHeader(node) {
   });
   on('info:media-view', (filter) => {
     mediaView = filter;
-    // Сетка листает полную историю — фильтр истории ей мешал бы (откуда
-    // бы сетку ни открыли: кнопкой здесь или счётчиком в панели).
+    // The grid scrolls the full history — a history filter would get in its
+    // way (wherever the grid was opened from: a button here or a counter in the panel).
     if (filter && activeFilter) {
       activeFilter = '';
       apply();

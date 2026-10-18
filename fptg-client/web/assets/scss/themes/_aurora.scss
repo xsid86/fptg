@@ -3,37 +3,39 @@
 @use "sass:string";
 @use "../abstracts" as *;
 
-// «Aurora» из меню тем (кисточка, ui/theme.js; id dark-aurora). Вид
-// макета окна на сайте проекта (website/assets/scss/sections/_mockup):
-// стеклянные панели на синем фоне с «авророй».
+// "Aurora" from the theme menu (the brush, ui/theme.js; id dark-aurora).
+// The look of the window mockup on the project site
+// (website/assets/scss/sections/_mockup): glass panels on a blue background
+// with an "aurora".
 //
-// Как и простые темы (themes/_plain), это слой поверх тёмной схемы:
-// data-theme="dark" даёт все токены и палитры, data-style="aurora" —
-// правила ниже, с селекторами :root[data-style="aurora"] … — они
-// специфичнее правил блоков, и файлы блоков не правятся.
+// Like the plain themes (themes/_plain), this is a layer over the dark
+// scheme: data-theme="dark" gives all the tokens and palettes,
+// data-style="aurora" — the rules below, with :root[data-style="aurora"] …
+// selectors — they are more specific than the block rules, and the block
+// files are not edited.
 //
-// ВСЕ числа и цвета — карта $aurora (abstracts/_variables.scss); здесь
-// только сборка из них.
+// ALL the numbers and colours are the $aurora map (abstracts/_variables.scss);
+// here only assembly from them.
 //
-// Аврора — не картинка, а слои градиентов из var(--c-accent): сайт
-// рисует её SVG-файлом, но цвет внешнего SVG из CSS не поменять, а здесь
-// она идёт за акцентом из Settings → General.
+// The aurora is not a picture but layers of gradients from var(--c-accent):
+// the site draws it with an SVG file, but an external SVG's colour cannot be
+// changed from CSS, while here it follows the accent from Settings → General.
 //
-// Правила:
-//   * фон — градиент, сияния и луч акцентного цвета, сетка точек;
-//   * панели (боковая, рабочая область) — стекло с размытием;
-//   * карточки чатов не красятся в цвет чата: прозрачные, выбранная —
-//     акцентной полосой, как в макете;
-//   * входящие сообщения — стеклянные, свои — акцентный градиент; углы
-//     у всех одинаковые;
-//   * поиск, поле ввода, плашки дат — тёмные «таблетки».
+// Rules:
+//   * the background — a gradient, auroras and a beam of the accent colour, a dot grid;
+//   * panels (the side one, the workspace) — glass with blur;
+//   * chat cards are not painted in the chat colour: transparent, the
+//     selected one — with an accent band, as in the mockup;
+//   * incoming messages — glass, own ones — an accent gradient; the corners
+//     are the same for all;
+//   * search, the input field, date plates — dark "pills".
 
 @function a($key) {
   @return map.get($aurora, $key);
 }
 
-// Акцент в доле $share на прозрачном; $dark — сколько в нём чёрного,
-// $white — сколько белого. Строкой: color-mix Sass вычислять незачем.
+// The accent in the share $share on transparent; $dark — how much black is
+// in it, $white — how much white. As a string: Sass need not compute color-mix.
 @function accent($share, $dark: 0%, $white: 0%) {
   $c: "var(--c-accent)";
   @if $dark > 0% {
@@ -44,27 +46,27 @@
   @return string.unquote("color-mix(in srgb, #{$c} #{$share}, transparent)");
 }
 
-// Тёмное из акцента: $black — доля чёрного.
+// Dark from the accent: $black — the share of black.
 @function aur-shade($black) {
   @return string.unquote("color-mix(in srgb, var(--c-accent), black #{$black})");
 }
 
-// Светлое из акцента: $white — доля белого.
+// Light from the accent: $white — the share of white.
 @function aur-light($white) {
   @return string.unquote("color-mix(in srgb, var(--c-accent), white #{$white})");
 }
 
-// Полупрозрачное: (доля белого, доля на прозрачном).
+// Semi-transparent: (the share of white, the share on transparent).
 @function aur-tint($spec) {
   @return accent(list.nth($spec, 2), 0%, list.nth($spec, 1));
 }
 
-// Приглушённое: (доля акцента, серый).
+// Muted: (the accent's share, a grey).
 @function aur-grey($spec) {
   @return string.unquote("color-mix(in srgb, var(--c-accent) #{list.nth($spec, 1)}, #{list.nth($spec, 2)})");
 }
 
-// --------------------------------------------------------------- токены
+// --------------------------------------------------------------- tokens
 :root[data-style="aurora"] {
   --c-bg: #{aur-shade(a("bg"))};
   --c-surface: #{aur-shade(a("surface"))};
@@ -82,13 +84,13 @@
   --aurora-glow: #{accent(a("glow"))};
   --aurora-border: var(--c-border);
 
-  // Панели из миксина card (abstracts/_mixins.scss) читают эти три.
+  // Panels from the card mixin (abstracts/_mixins.scss) read these three.
   --card-bg: linear-gradient(#{a("glass-angle")}, #{aur-tint(a("glass-top"))}, #{aur-tint(a("glass-bottom"))});
   --card-border: 1px solid var(--c-border);
   --card-blur: #{a("glass-blur")};
 }
 
-// Акцент — свой, пока в настройках не выбран другой (base/_app-accent).
+// The accent — our own, until another one is chosen in the settings (base/_app-accent).
 :root[data-style="aurora"]:not([data-accent]) {
   --c-accent: #{a("accent")};
   --c-accent-hover: #{a("accent-hover")};
@@ -96,12 +98,12 @@
 }
 
 :root[data-style="aurora"] {
-  // ---------------------------------------------------------------- фон
-  // Снизу вверх: градиент фона, четыре сияния, луч, диагональная полоса.
-  // Всё — слоями фона body, без своих слоёв с filter: размытый
-  // фиксированный слой под панелями с backdrop-filter — главный
-  // подозреваемый в мерцающей вертикальной полосе в WebView2 (на стенде
-  // в браузере её не было).
+  // ---------------------------------------------------------------- background
+  // From the bottom up: the background gradient, four auroras, the beam, the
+  // diagonal streak. All as layers of the body background, without layers of
+  // their own with filter: a blurred fixed layer under panels with
+  // backdrop-filter is the main suspect in a flickering vertical band in
+  // WebView2 (on the bench in a browser it was not there).
   body {
     background:
       linear-gradient(#{a("streak-angle")},
@@ -117,7 +119,7 @@
     background-color: var(--c-bg);
   }
 
-  // Сетка точек — фактура под стеклом; гаснет к низу окна.
+  // A dot grid — texture under the glass; it fades towards the bottom of the window.
   body::before {
     background-image: radial-gradient(#{aur-tint(a("dots"))} 1px, transparent 1px);
     background-size: a("dots-step") a("dots-step");
@@ -129,7 +131,7 @@
     z-index: -1;
   }
 
-  // -------------------------------------------------------------- панели
+  // -------------------------------------------------------------- panels
   .app {
     gap: a("panel-gap");
     padding: a("panel-gap");
@@ -165,7 +167,7 @@
     border-color: var(--aurora-border);
   }
 
-  // Вкладки списка — «таблетки», выбранная подсвечена, как в макете.
+  // The list tabs — "pills", the selected one highlighted, as in the mockup.
   .sidebar__tab {
     border-radius: a("tab-radius");
 
@@ -176,7 +178,7 @@
     }
   }
 
-  // Поиск — тёмная таблетка.
+  // Search — a dark pill.
   .sidebar__search .field,
   .chat-header__search {
     background: var(--c-surface-2);
@@ -189,7 +191,7 @@
     }
   }
 
-  // -------------------------------------------------------- список чатов
+  // -------------------------------------------------------- chat list
   .chat-item {
     backdrop-filter: none;
     background: transparent;
@@ -216,8 +218,8 @@
     fill: var(--c-text-dim);
   }
 
-  // Наведение на кнопки строки и фильтры шапки — акцент, не цвет
-  // контакта: карточки здесь цветом контакта не красятся.
+  // Hover on the row's buttons and the header's filters — the accent, not
+  // the contact's colour: cards are not painted in the contact's colour here.
   .chat-item__action {
     &:hover,
     &:active,
@@ -250,12 +252,12 @@
     }
   }
 
-  // Непрочитанное: свой счётчик — акцент, без звука — приглушённый.
+  // Unread: an own counter — the accent, muted — subdued.
   .badge--muted {
     background: color-mix(in srgb, var(--c-text-dim) 40%, transparent);
   }
 
-  // ----------------------------------------------------------- сообщения
+  // ----------------------------------------------------------- messages
   .message {
     background: #{aur-tint(a("msg-in"))};
     border: 1px solid var(--aurora-border);
@@ -283,11 +285,11 @@
     box-shadow: 0 8px 24px -10px #{accent(a("own-glow"))};
     color: a("own-text");
 
-    // На акцентной заливке имя отправителя — цвета текста своих.
+    // On the accent fill the sender's name is in the colour of own text.
     --sender-color: #{a("own-text")};
   }
 
-  // Стикер и гифка без подписи — без карточки; карточка — у шапки.
+  // A sticker and a GIF without a caption — without a card; the card is the header's.
   .message:has(.media--sticker),
   .message:has(.media--round),
   .message:has(.media--gif):not(:has(b)) {
@@ -300,9 +302,9 @@
       border: 1px solid var(--aurora-border);
       border-radius: a("msg-radius");
       box-shadow: none;
-      // Отдельная плашка, а не верх карточки: отступы симметричные, иначе
-      // текст в ней садился к низу (у msg-head-padding снизу 0 — дальше
-      // идёт тело карточки).
+      // A separate pill, not the top of the card: the paddings are
+      // symmetrical, otherwise the text in it sank to the bottom
+      // (msg-head-padding has 0 at the bottom — the card body follows).
       padding: a("pill-head-padding");
     }
   }
@@ -333,7 +335,7 @@
     color: var(--c-text);
   }
 
-  // Даты и служебные сообщения — тёмные таблетки.
+  // Dates and service messages — dark pills.
   .history__date > span,
   .history__float-date > span,
   .message-service__text {
@@ -343,7 +345,7 @@
     padding: a("pill-padding");
   }
 
-  // Плавающая — поверх сообщений: под ней размытие, иначе не прочесть.
+  // The floating one is over the messages: blur under it, otherwise it cannot be read.
   .history__float-date > span {
     backdrop-filter: #{a("glass-blur")};
   }
@@ -355,7 +357,7 @@
     border: 1px solid var(--aurora-border);
   }
 
-  // ------------------------------------------------------------- композер
+  // ------------------------------------------------------------- composer
   .composer__input {
     background: var(--c-surface-2);
     border: 1px solid var(--aurora-border);

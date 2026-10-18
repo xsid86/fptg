@@ -57,8 +57,8 @@
   @include ellipsis;
 }
 
-// Строка аккаунта в переключателе (ui/status-bar.js): аватарка, имя и
-// username или телефон, справа непрочитанные чаты.
+// An account row in the switcher (ui/status-bar.js): the avatar, the name
+// and username or phone, unread chats on the right.
 .menu__item--account {
   padding-bottom: $space-2;
   padding-top: $space-2;
@@ -122,10 +122,10 @@
   border-color: var(--c-accent);
 }
 
-// Разделитель — акцент на прозрачном ($menu-sep-share): одинаково
-// неконтрастен на тёмных и светлых темах. border: 0 — сброс рамки <hr>
-// из стилей браузера (inset, яркая), которая и рисовалась, пока здесь
-// была опечатка «botder-top».
+// The separator — the accent on transparent ($menu-sep-share): equally
+// low-contrast on dark and light themes. border: 0 — resetting the <hr>
+// frame from the browser styles (inset, bright), which was what got drawn
+// while there was a "botder-top" typo here.
 .menu__sep {
   border: 0;
   border-top: 1px solid color-mix(in srgb, var(--c-accent) $menu-sep-share, transparent);

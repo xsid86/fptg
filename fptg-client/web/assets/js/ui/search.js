@@ -5,27 +5,26 @@ import { setActiveChat } from '../core/store.js';
 import { fillAvatar } from '../util/avatar.js';
 import { icon } from '../util/icons.js';
 
-// Поиск над списком чатов — как у Telegram Desktop.
+// Search above the chat list — as in Telegram Desktop.
 //
-// Фокус в поле меняет вид боковой панели: вместо списка — панель поиска
-// с вкладками Chats / Channels / Apps / Posts. Пустое поле — «домашний» вид
-// вкладки (search.home): частые — лентой, которая прокручивается вбок
-// («All» разворачивает её в сетку), ниже недавние (Chats; Clear и
-// крестик у строки), рекомендуемые каналы или популярные приложения.
-// Запрос (search.query) — известные чаты, публичные и сообщения
-// («Show more» — следующая страница, search.messages).
+// Focus in the field changes the side panel's look: instead of the list — a
+// search panel with the Chats / Channels / Apps / Posts tabs. An empty
+// field — the tab's "home" view (search.home): frequent ones as a strip
+// that scrolls sideways ("All" expands it into a grid), below them the
+// recent ones (Chats; Clear and a cross on a row), recommended channels or
+// popular apps. A query (search.query) — known chats, public ones and
+// messages ("Show more" — the next page, search.messages).
 //
-// Posts — поиск по всем публичным каналам: несколько запросов в день
-// бесплатно, дальше за звёзды. Ищется только по нажатию (Search или
-// Enter); платный — только отдельной кнопкой с ценой, Enter его не
-// запускает.
+// Posts — search across all public channels: a few queries a day for free,
+// then for stars. It searches only on a press (Search or Enter); a paid one
+// — only with a separate button with the price, Enter does not start it.
 //
-// Стрелки вверх/вниз в поле ходят по строкам и ленте, Enter — открыть.
+// The up/down arrows in the field walk the rows and the strip, Enter opens.
 //
-// Панель открыта, пока её не закроют: кнопкой «×» в поле или Escape.
-// Выбор результата (чат, сообщение, приложение) открывает его справа, а
-// панель остаётся — можно открыть следующий. В режиме Contacts поле по-прежнему фильтрует контакты (main.js) —
-// панель тогда не открывается.
+// The panel is open until it is closed: with the "×" button in the field or
+// Escape. Choosing a result (a chat, a message, an app) opens it on the
+// right, and the panel stays — one can open the next. In Contacts mode the field still filters contacts (main.js) —
+// the panel does not open then.
 
 const TABS = [
   { id: 'chats', label: 'Chats' },
@@ -33,12 +32,12 @@ const TABS = [
   { id: 'apps', label: 'Apps' },
   { id: 'posts', label: 'Posts' },
 ];
-// Пауза набора перед запросом: каждый — поиск в Telegram.
+// The typing pause before a query: each one is a search on Telegram.
 const DEBOUNCE_MS = 250;
-// Аватарки, которых ещё нет на диске, сервер качает по chats.avatars.
-// Готовые подбираются по сигналу srv:chats (chats.rows — только эти
-// строки) и встают на место, без перерисовки панели; пауза — чтобы
-// пачка скачиваний дала один запрос.
+// The server downloads avatars not yet on disk on chats.avatars. Ready ones
+// are picked up on the srv:chats signal (chats.rows — only these rows) and
+// go into place without redrawing the panel; the pause — so a batch of
+// downloads gives one request.
 const AVATAR_REFRESH_MS = 600;
 const KIND_LABEL = {
   channel: 'channel', group: 'group', bot: 'bot', private: 'private chat',
@@ -58,12 +57,12 @@ let active = false;
 let seq = 0;
 let timer = 0;
 let avatarTimer = 0;
-// id чата -> его аватарки в панели, и те, что ещё без картинки.
+// chat id -> its avatars in the panel, and those still without a picture.
 let boxes = new Map();
 const missing = new Set();
-// Выбранный стрелками пункт (индекс среди .search__row и .search__peer).
+// The item chosen with the arrows (an index among .search__row and .search__peer).
 let cursor = -1;
-// Вкладка Posts: лимиты текущего запроса и найденное.
+// The Posts tab: the current query's limits and what was found.
 let posts = null;
 
 const query = () => input.value.trim();
@@ -88,7 +87,7 @@ function close() {
   topExpanded = false;
 }
 
-/** Выйти из поиска совсем: поле пустое, фокус — вон. */
+/** Leave search completely: the field empty, focus away. */
 function exit() {
   input.value = '';
   close();
@@ -146,7 +145,7 @@ async function loadPostLimits(my, q) {
   renderPosts();
 }
 
-/** Бесплатен ли поиск этого запроса прямо сейчас. */
+/** Whether searching this query is free right now. */
 const postsFree = (l) => l.currentFree || (l.remainingFree > 0 && !l.nextFreeIn);
 
 async function searchPosts({ paid = false, more = false } = {}) {
@@ -209,7 +208,7 @@ function renderPosts() {
   clear(body).append(...parts);
 }
 
-// ------------------------------------------------------------ вид
+// ------------------------------------------------------------ view
 
 function section(title, action, ...children) {
   return el('section', { class: 'search__section' },
@@ -223,15 +222,15 @@ const headButton = (label, onclick) => el('button', {
   class: 'search__head-btn', type: 'button', onmousedown: keepFocus, onclick,
 }, label);
 
-// Кнопки панели не забирают фокус у поля: иначе blur закрыл бы панель
-// раньше клика.
+// The panel's buttons do not take focus from the field: otherwise blur
+// would close the panel before the click.
 function keepFocus(event) {
   event.preventDefault();
 }
 
 function avatarFor(item, cls) {
   const box = el('span', { class: `avatar ${cls} accent-${item.color || 'a5'}` });
-  // Чаты — по id, чтобы догрузившаяся аватарка встала на место.
+  // Chats — by id, so an avatar that finished downloading goes into place.
   if (item.id) {
     if (!boxes.has(item.id)) boxes.set(item.id, new Set());
     boxes.get(item.id).add(box);
@@ -245,7 +244,7 @@ function avatarFor(item, cls) {
   return box;
 }
 
-/** Чат лентой: аватарка и короткое имя. */
+/** A chat in the strip: the avatar and a short name. */
 function peer(chat) {
   return el('button', {
     class: 'search__peer', type: 'button', title: chat.title,
@@ -256,7 +255,7 @@ function peer(chat) {
 
 const firstName = (title = '') => title.split(/\s+/)[0] || title;
 
-/** Строка чата: аватарка, название, вид. */
+/** A chat row: the avatar, the title, the kind. */
 function chatRow(chat, { removable = false } = {}) {
   const row = el('div', { class: 'search__row', role: 'button', tabindex: '-1' },
     avatarFor(chat, 'search__row-avatar'),
@@ -278,7 +277,7 @@ function chatRow(chat, { removable = false } = {}) {
   return row;
 }
 
-/** Строка пользователя (популярные приложения — боты). */
+/** A user row (popular apps — bots). */
 function userRow(user) {
   const row = el('div', { class: 'search__row', role: 'button', tabindex: '-1' },
     avatarFor(user, 'search__row-avatar'),
@@ -292,7 +291,7 @@ function userRow(user) {
   return row;
 }
 
-/** Найденное сообщение: чат, дата, «отправитель: текст». */
+/** A found message: the chat, the date, "sender: text". */
 function messageRow(m) {
   const date = new Date(m.date * 1000);
   const sameDay = date.toDateString() === new Date().toDateString();
@@ -321,7 +320,7 @@ function strip(title, chats) {
   if (!chats?.length) return null;
   const list = el('div', { class: `search__strip${topExpanded ? ' is-expanded' : ''}` },
     ...chats.map(peer));
-  // Колесо мыши листает ленту вбок — как у Desktop.
+  // The mouse wheel scrolls the strip sideways — as in Desktop.
   list.addEventListener('wheel', (event) => {
     if (topExpanded || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
     list.scrollLeft += event.deltaY;
@@ -390,7 +389,7 @@ const moreButton = (onclick) => el('button', {
   class: 'search__more', type: 'button', onmousedown: keepFocus, onclick,
 }, 'Show more');
 
-// ------------------------------------------------------------ стрелки
+// ------------------------------------------------------------ arrows
 
 const pickable = () => [...body.querySelectorAll('.search__row, .search__peer')];
 
@@ -406,7 +405,7 @@ function moveCursor(delta) {
 
 function show(parts, emptyText) {
   const real = parts.filter(Boolean);
-  // Старые аватарки уходят вместе с прежним видом.
+  // Old avatars go away together with the previous view.
   boxes = new Map([...boxes].map(([id, set]) => [id, new Set([...set].filter((b) => real.some((p) => p.contains(b))))]));
   clear(body).append(...(real.length ? real : [el('p', { class: 'search__empty' }, emptyText)]));
 }
@@ -419,14 +418,14 @@ function report(err) {
   emit('ui:error', err instanceof Error ? err.message : String(err));
 }
 
-/** Открыть чат из поиска: он встаёт в недавние. */
+/** Open a chat from search: it goes into the recent ones. */
 function openChat(chat) {
   call('search.recent', { op: 'add', id: chat.id }).catch(() => {});
   opts.beforeOpen?.();
   setActiveChat(chat.id);
 }
 
-/** Аватарки, которых ещё нет: сервер их качает (chats.avatars). */
+/** Avatars not here yet: the server downloads them (chats.avatars). */
 function askAvatars(answer) {
   const ids = [];
   for (const list of Object.values(answer ?? {})) {
@@ -442,7 +441,7 @@ function askAvatars(answer) {
   if (ids.length) call('chats.avatars', { ids }).catch(() => {});
 }
 
-/** Скачанные с тех пор — на место (по сигналу srv:chats). */
+/** Those downloaded since — into place (on the srv:chats signal). */
 async function refreshAvatars() {
   if (!active || !missing.size) return;
   let answer;
@@ -461,9 +460,9 @@ async function refreshAvatars() {
 }
 
 /**
- * input — поле над списком; hostNode — боковая панель (ей класс
- * is-searching: CSS прячет список); bodyNode — куда встаёт панель.
- * options: { disabled(): не открывать (режим Contacts), beforeOpen() }.
+ * input — the field above the list; hostNode — the side panel (it gets the
+ * is-searching class: CSS hides the list); bodyNode — where the panel goes.
+ * options: { disabled(): do not open (Contacts mode), beforeOpen() }.
  */
 export function mountSearch(inputNode, hostNode, bodyNode, options = {}) {
   input = inputNode;
@@ -482,8 +481,8 @@ export function mountSearch(inputNode, hostNode, bodyNode, options = {}) {
   bodyNode.append(panel);
 
   input.addEventListener('focus', open);
-  // Поле могло остаться в фокусе (после закрытия поиска фокус уходит,
-  // но не всегда) — щелчок по нему тоже открывает.
+  // The field may have stayed focused (after search closes focus leaves,
+  // but not always) — a click on it opens too.
   input.addEventListener('mousedown', open);
   input.addEventListener('input', () => {
     if (opts.disabled?.()) return;
@@ -505,14 +504,14 @@ export function mountSearch(inputNode, hostNode, bodyNode, options = {}) {
         event.preventDefault();
         item.click();
       } else if (tab === 'posts' && posts?.query && !posts.searched && postsFree(posts.limits)) {
-        // Только бесплатный: платный — кнопкой с ценой.
+        // Only a free one: a paid one — with the price button.
         event.preventDefault();
         searchPosts();
       }
     }
   });
-  // Закрыть поиск — своя кнопка в поле: у type=search крестик есть,
-  // только пока набран текст, а панель бывает открыта и с пустым полем.
+  // Close search — a button of its own in the field: type=search has a
+  // cross only while text is typed, and the panel can be open with an empty field too.
   closeBtn = el('button', {
     class: 'btn btn--icon search__close', type: 'button', title: 'Close search', hidden: true,
     onmousedown: keepFocus,
@@ -520,10 +519,9 @@ export function mountSearch(inputNode, hostNode, bodyNode, options = {}) {
   }, icon('close'),
   el('span', { class: 'u-sr-only' }, 'Close search'));
   input.after(closeBtn);
-  // Вкладки Archive / Contacts над списком — не поиск.
+  // The Archive / Contacts tabs above the list are not search.
   on('ui:search-close', exit);
-  // Сервер сообщает об изменениях в чатах — в том числе о скачанных
-  // аватарках.
+  // The server reports changes in chats — including downloaded avatars.
   on('srv:chats', () => {
     if (!active || !missing.size) return;
     clearTimeout(avatarTimer);

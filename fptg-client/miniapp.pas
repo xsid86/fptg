@@ -1,32 +1,33 @@
 unit miniapp;
 
-{ Окно мини-приложения бота (Telegram Mini App / Web App).
+{ The bot's mini app window (Telegram Mini App / Web App).
 
-  ОТДЕЛЬНОЕ ОКНО WebView2, А НЕ <iframe> В СТРАНИЦЕ — и это проверено,
-  а не выбрано: самые ходовые приложения запрещают показ во фрейме
-  чужого сайта. walletbot.me отдаёт frame-ancestors 'self'
+  A SEPARATE WebView2 WINDOW, NOT AN <iframe> IN THE PAGE — and this was
+  checked rather than chosen: the most popular apps forbid being shown in
+  a frame of a foreign site. walletbot.me sends frame-ancestors 'self'
   https://web.telegram.org, webappinternal.telegram.org (BotFather) —
-  X-Frame-Options: ALLOW-FROM https://web.telegram.org. Во фрейме
-  страницы с 127.0.0.1 они были бы пустыми. В своём окне приложение
-  открывается обычной страницей, без фрейма — так же делает Telegram
-  Desktop.
+  X-Frame-Options: ALLOW-FROM https://web.telegram.org. In a frame of a
+  page from 127.0.0.1 they would be blank. In its own window the app opens
+  as an ordinary page, without a frame — Telegram Desktop does the same.
 
-  МОСТ — window.TelegramWebviewProxy: telegram-web-app.js, найдя этот
-  объект, шлёт через него каждое событие (postEvent(тип, JSON-строка)),
-  а события от клиента принимает через Telegram.WebView.receiveEvent.
-  Объект подкладывает стартовый скрипт (BRIDGE_JS) до скриптов самой
-  страницы; он переправляет события в chrome.webview.postMessage, а
-  ответы этого окна (PostJson) — в receiveEvent.
+  THE BRIDGE — window.TelegramWebviewProxy: telegram-web-app.js, finding
+  this object, sends every event through it (postEvent(type, JSON string)),
+  and receives events from the client through
+  Telegram.WebView.receiveEvent. The object is put in place by a startup
+  script (BRIDGE_JS) before the page's own scripts; it relays events into
+  chrome.webview.postMessage, and this window's answers (PostJson) into
+  receiveEvent.
 
-  Запросы к TDLib (свои методы приложения — CloudStorage и т.п., права
-  писать пользователю, данные кнопки клавиатуры) идут на сервер через
-  главную страницу: окно — в другом процессе, чем TDLib, и, может быть,
-  на другой машине. Окно шлёт странице (t: miniappReq, id, cmd, args),
-  она — команду серверу (webapp.custom и т.д.), ответ возвращается
-  (t: miniappResp) в MiniAppResponse. В id — серийный номер окна:
-  ответ уже закрытому окну не достаётся новому.
+  Requests to TDLib (the app's own methods — CloudStorage and the like,
+  permission to write to the user, keyboard button data) go to the server
+  through the main page: the window is in a different process from TDLib
+  and maybe on another machine. The window sends the page (t: miniappReq,
+  id, cmd, args), the page sends the server a command (webapp.custom and
+  so on), the answer comes back (t: miniappResp) into MiniAppResponse. The
+  id carries the window's serial number: an answer to an already closed
+  window does not reach a new one.
 
-  Окно одно: новое приложение заменяет открытое. }
+  There is one window: a new app replaces the open one. }
 
 {$mode objfpc}{$H+}
 
@@ -36,15 +37,15 @@ uses
   Classes, SysUtils, Forms, Controls, ExtCtrls, StdCtrls, Graphics, Dialogs,
   LCLIntf, LCLType, fpjson, jsonparser, BCButton, BCTypes;
 
-{ Открывает приложение (или заменяет открытое). ALaunchId — из
-  openWebApp, 0 для приложения с кнопки клавиатуры (getWebAppUrl);
-  AButtonText — текст этой кнопки, нужен sendWebAppData. AThemeParams —
-  theme_params для события theme_changed; переходит во владение окна. }
+{ Opens an app (or replaces the open one). ALaunchId — from openWebApp, 0
+  for an app from a keyboard button (getWebAppUrl); AButtonText — that
+  button's text, sendWebAppData needs it. AThemeParams — theme_params for
+  the theme_changed event; ownership passes to the window. }
 procedure OpenMiniApp(const AUrl, ATitle: utf8string; ABotUserId, ALaunchId: Int64;
   const AButtonText: utf8string; AThemeParams: TJSONObject);
 
-{ Ответ сервера на запрос окна (страница передала t: miniappResp).
-  AResult — объект ответа команды или nil; не забирается. }
+{ The server's answer to the window's request (the page passed on t:
+  miniappResp). AResult — the command's answer object or nil; not taken over. }
 procedure MiniAppResponse(AId: Int64; AOk: boolean; AResult: TJSONObject;
   const AError: string);
 
@@ -54,11 +55,11 @@ uses
   constants, guiconst, webview2, webui, winframe;
 
 const
-  { Вид запроса в id (см. MiniAppResponse). }
+  { The kind of request in the id (see MiniAppResponse). }
   REQ_CUSTOM = 1;
   REQ_WRITE_ACCESS = 2;
 
-  { Только в главном документе: во фреймах chrome.webview нет. }
+  { Only in the main document: frames have no chrome.webview. }
   BRIDGE_JS =
     '(function () {' +
     '  if (window !== window.top || window.TelegramWebviewProxy) return;' +
@@ -87,20 +88,20 @@ type
     FView: TWebView2;
     FHost: TPanel;
     FBar: TPanel;
-    { TBCButton (BGRAControls), а не TButton: системную кнопку Windows
-      рисует темой, и её цвет из LCL не задать, — а шапка должна быть в
-      цветах темы приложения (светлой или тёмной), со скруглением. }
+    { TBCButton (BGRAControls), not TButton: Windows draws the system button
+      with its theme, and its colour cannot be set from LCL — while the
+      header must be in the app's theme colours (light or dark), rounded. }
     FBack: TBCButton;
     FSettings: TBCButton;
     FReload: TBCButton;
-    FBarColor: TColor;      { фон шапки }
-    FButtonColor: TColor;   { фон кнопок }
-    FHoverColor: TColor;    { фон кнопки под курсором }
-    FPressColor: TColor;    { фон нажатой кнопки }
+    FBarColor: TColor;      { header background }
+    FButtonColor: TColor;   { button background }
+    FHoverColor: TColor;    { background of the button under the cursor }
+    FPressColor: TColor;    { background of a pressed button }
     FTextColor: TColor;
     FMainBtn: TPanel;
     FSecondBtn: TPanel;
-    FReqIds: TStringList;     { req_id приложения по индексу запроса к серверу }
+    FReqIds: TStringList;     { the app's req_id by the index of the request to the server }
     procedure HostResize(Sender: TObject);
     procedure ApplyTheme;
     function MakeBarButton(const ACaption: string; AAlign: TAlign;
@@ -134,8 +135,8 @@ var
   GForm: TFormMiniApp = nil;
   GSerial: integer = 0;
 
-{ Команда серверу через главную страницу. AArgs забирается. AId = 0 —
-  ответ не нужен. }
+{ A command to the server through the main page. AArgs is taken over. AId =
+  0 — no answer needed. }
 procedure ServerCall(const ACmd: string; AArgs: TJSONObject; AId: Int64);
 var
   O: TJSONObject;
@@ -152,7 +153,7 @@ begin
   end;
 end;
 
-{ id запроса: (серийный номер окна shl 20) or (вид shl 16) or индекс. }
+{ Request id: (the window's serial number shl 20) or (kind shl 16) or index. }
 function RequestId(AKind, AIndex: integer): Int64;
 begin
   Result := (Int64(GForm.FSerial) shl 20) or (Int64(AKind) shl 16) or (AIndex and $FFFF);
@@ -180,7 +181,7 @@ begin
   end;
 end;
 
-{ '#rrggbb' -> TColor (BGR); clNone для всего остального. }
+{ '#rrggbb' -> TColor (BGR); clNone for anything else. }
 function HexColor(const AHex: string): TColor;
 var
   V: integer;
@@ -250,9 +251,9 @@ begin
   Caption := string(ATitle);
   Width := MINIAPP_WIDTH;
   Height := MINIAPP_HEIGHT;
-  { Над главным окном и без своей кнопки на панели задач: владелец —
-    главное веб-окно. ДО первого Handle — владелец входит в параметры
-    создания окна. }
+  { Above the main window and without its own taskbar button: the owner is
+    the main web window. BEFORE the first Handle — the owner goes into the
+    window's creation parameters. }
   if WebUiForm <> nil then begin
     PopupMode := pmExplicit;
     PopupParent := WebUiForm;
@@ -274,7 +275,7 @@ begin
   FSettings := MakeBarButton('Settings', alRight, @SettingsClick);
   FSettings.Visible := False;
 
-  { Снизу вверх: главная кнопка у самого края, дополнительная над ней. }
+  { Bottom up: the main button at the very edge, the secondary one above it. }
   FMainBtn := MakeAppButton(Self, Self, @MainClick);
   FSecondBtn := MakeAppButton(Self, Self, @SecondClick);
 
@@ -285,7 +286,7 @@ begin
   FHost.OnResize := @HostResize;
 
   FView := TWebView2.Create(FHost.Handle);
-  { Рамка в цвет темы приложения (winframe), до показа окна. }
+  { The frame in the app's theme colour (winframe), before the window shows. }
   FrameAttach(Handle);
   FView.StartupScript := UnicodeString(BRIDGE_JS);
   FView.OnWebMessage := @ViewMessage;
@@ -297,8 +298,8 @@ destructor TFormMiniApp.Destroy;
 var
   A: TJSONObject;
 begin
-  { Telegram должен знать, что приложение закрыто (td_api.tl:
-    closeWebApp по launch_id из openWebApp). }
+  { Telegram must know the app is closed (td_api.tl: closeWebApp by the
+    launch_id from openWebApp). }
   if FLaunchId <> 0 then begin
     A := TJSONObject.Create;
     A.Add('launch', IntToStr(FLaunchId));
@@ -324,15 +325,15 @@ end;
 function TFormMiniApp.CloseQuery: boolean;
 begin
   Result := inherited CloseQuery;
-  { web_app_setup_closing_behavior: приложение просило подтверждать. }
+  { web_app_setup_closing_behavior: the app asked for confirmation. }
   if Result and FNeedConfirm then begin
     Result := MessageDlg(Caption, 'Changes that you made may not be saved. Close anyway?',
       mtConfirmation, [mbYes, mbNo], 0) = mrYes;
   end;
 end;
 
-{ Смесь двух цветов RGB: APercent второго. Системные (clBtnFace и т.п.)
-  не смешиваются — их значения не RGB. }
+{ A mix of two RGB colours: APercent of the second one. System colours
+  (clBtnFace and the like) do not mix — their values are not RGB. }
 function MixColor(A, B: TColor; APercent: integer): TColor;
 begin
   if (A and $FF000000 <> 0) or (B and $FF000000 <> 0) then begin
@@ -345,11 +346,11 @@ begin
     (Blue(A) * (100 - APercent) + Blue(B) * APercent) div 100);
 end;
 
-{ Цвета шапки — из темы, которую окно и так получило для theme_changed
-  (страница, светлая или тёмная): фон — фон приложения
-  (secondary_bg_color), кнопки — поверхность (bg_color), текст —
-  text_color. Под курсором кнопка смешивается с текстом на 12%, нажатая —
-  на 20%. }
+{ The header colours — from the theme the window gets anyway for
+  theme_changed (the page's, light or dark): background — the app's
+  background (secondary_bg_color), buttons — the surface (bg_color), text —
+  text_color. Under the cursor a button mixes with the text at 12%, a
+  pressed one at 20%. }
 procedure TFormMiniApp.ApplyTheme;
 var
   TextColor: TColor;
@@ -375,7 +376,7 @@ begin
   FBar.Font.Color := TextColor;
 end;
 
-{ Одно состояние кнопки: сплошной фон, без рамки, текст цвета темы. }
+{ One state of a button: a solid background, no border, text in the theme colour. }
 procedure StyleState(AState: TBCButtonState; ABack, AText: TColor);
 begin
   AState.Background.Style := bbsColor;
@@ -401,8 +402,9 @@ begin
   StyleState(Result.StateNormal, FButtonColor, FTextColor);
   StyleState(Result.StateHover, FHoverColor, FTextColor);
   StyleState(Result.StateClicked, FPressColor, FTextColor);
-  { Отступы 8px: сверху и снизу у всех, у левой кнопки — слева, у правых
-    — справа (так и до края, и между соседями ровно 8). }
+  { 8px margins: top and bottom for all, on the left for the left button,
+    on the right for the right ones (so it is exactly 8 both to the edge and
+    between neighbours). }
   Result.BorderSpacing.Top := MINIAPP_BAR_PAD;
   Result.BorderSpacing.Bottom := MINIAPP_BAR_PAD;
   if AAlign = alLeft then begin
@@ -410,7 +412,7 @@ begin
   end else begin
     Result.BorderSpacing.Right := MINIAPP_BAR_PAD;
   end;
-  { Ширина — по тексту: холст битмапа меряет без окна. }
+  { Width — by the text: the bitmap canvas measures without a window. }
   Bmp := TBitmap.Create;
   try
     Bmp.Canvas.Font.Assign(FBar.Font);
@@ -464,8 +466,8 @@ end;
 
 procedure TFormMiniApp.ViewExternal(Sender: TObject; const AUri: utf8string);
 begin
-  { Новое окно, о котором просит приложение, — в браузер, как и из
-    главного окна. }
+  { A new window the app asks for — into the browser, as from the main
+    window. }
   OpenURL(string(AUri));
 end;
 
@@ -521,8 +523,9 @@ begin
   end;
 end;
 
-{ web_app_open_popup: title, message, buttons (id, type, text). Ответ —
-  popup_closed с button_id нажатой (пустой — окно закрыли). }
+{ web_app_open_popup: title, message, buttons (id, type, text). The answer —
+  popup_closed with the button_id of the pressed one (empty — the window
+  was closed). }
 procedure TFormMiniApp.Popup(AData: TJSONObject);
 var
   Dlg: TForm;
@@ -580,7 +583,7 @@ begin
         Btn.BorderSpacing.Left := 6;
       end;
     end;
-    { Рамка в цвет темы, как у самого приложения (winframe). }
+    { The frame in the theme colour, as the app itself (winframe). }
     FrameAttach(Dlg.Handle);
     try
       R := Dlg.ShowModal;
@@ -598,9 +601,9 @@ begin
   end;
 end;
 
-{ web_app_invoke_custom_method: req_id, method, params — свои методы
-  приложения у его бота (CloudStorage и т.п.): sendWebAppCustomRequest,
-  ответ — custom_method_invoked с result (разобранный JSON) или error. }
+{ web_app_invoke_custom_method: req_id, method, params — the app's own
+  methods at its bot (CloudStorage and the like): sendWebAppCustomRequest,
+  the answer — custom_method_invoked with result (parsed JSON) or error. }
 procedure TFormMiniApp.CustomMethod(AData: TJSONObject);
 var
   A: TJSONObject;
@@ -647,8 +650,8 @@ begin
   Send('custom_method_invoked', D);
 end;
 
-{ web_app_request_write_access: спросить человека; согласие — Telegram
-  (allowBotToSendMessages), ответ — write_access_requested. }
+{ web_app_request_write_access: ask the person; consent goes to Telegram
+  (allowBotToSendMessages), the answer — write_access_requested. }
 procedure TFormMiniApp.WriteAccess;
 var
   A, D: TJSONObject;
@@ -678,9 +681,9 @@ begin
   Send('write_access_requested', D);
 end;
 
-{ События приложения — имена по протоколу telegram-web-app.js. Всё, что
-  не названо, молча пропускается: так поступают и клиенты Telegram с
-  тем, чего не умеют. }
+{ The app's events — names per the telegram-web-app.js protocol.
+  Everything not named is silently skipped: Telegram clients do the same
+  with what they cannot do. }
 procedure TFormMiniApp.HandleEvent(const AType: utf8string; AData: TJSONObject);
 var
   D, A: TJSONObject;
@@ -724,7 +727,7 @@ begin
       OpenURL(Url);
     end;
   end else if AType = 'web_app_open_tg_link' then begin
-    { Открывает страница — тем же разбором, что ссылку в сообщении. }
+    { The page opens it — with the same parsing as a link in a message. }
     D := TJSONObject.Create;
     try
       D.Add('t', 'openLink');
@@ -736,8 +739,8 @@ begin
   end else if AType = 'web_app_open_popup' then begin
     Popup(AData);
   end else if AType = 'web_app_data_send' then begin
-    { Только у приложения с кнопки клавиатуры: данные уходят боту, окно
-      закрывается (td_api.tl: sendWebAppData). }
+    { Only for an app from a keyboard button: the data goes to the bot, the
+      window closes (td_api.tl: sendWebAppData). }
     if (FLaunchId = 0) and (FButtonText <> '') then begin
       A := TJSONObject.Create;
       A.Add('bot', IntToStr(FBotUserId));
@@ -756,7 +759,7 @@ begin
     D.Add('status', 'cancelled');
     Send('phone_requested', D);
   end else if AType = 'web_app_read_text_from_clipboard' then begin
-    { Буфер обмена приложению не отдаётся. }
+    { The clipboard is not given to the app. }
     D := TJSONObject.Create;
     D.Add('req_id', JStr(AData, 'req_id'));
     Send('clipboard_text_received', D);
@@ -784,7 +787,7 @@ begin
       Exit;
     end;
     T := JStr(TJSONObject(Msg), 't');
-    { d — JSON-строка: так её отдаёт postEvent (JSON.stringify). }
+    { d — a JSON string: that is how postEvent gives it (JSON.stringify). }
     DText := JStr(TJSONObject(Msg), 'd');
     if DText <> '' then begin
       try

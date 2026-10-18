@@ -35,12 +35,12 @@ type
       same way FApiId/FApiHash already are. }
     FDeviceModel: utf8string;
     FUserId:   Int64;
-    { Telegram Premium у этого аккаунта: getMe.is_premium, дальше —
-      updateOption is_premium. Нужен странице, чтобы прятать то, что
-      без Premium недоступно (расшифровка голосовых). }
+    { Telegram Premium of this account: getMe.is_premium, then updateOption
+      is_premium. The page needs it to hide what is unavailable without
+      Premium (voice transcription). }
     FIsPremium: boolean;
-    { Последнее обновление каждого типа из KEPT_UPDATE_TYPES (constants):
-      Name — @type, Value — JSON как пришёл. }
+    { The latest update of each type from KEPT_UPDATE_TYPES (constants):
+      Name — the @type, Value — the JSON as it came. }
     FKept: TStringList;
     FPhone:    utf8string;
     FUsername: utf8string;
@@ -142,10 +142,10 @@ type
     property Slot: integer read FSlot;
     property UserId: Int64 read FUserId;
     property IsPremium: boolean read FIsPremium;
-    { Последнее обновление типа AType (KEPT_UPDATE_TYPES) — JSON, или ''. }
+    { The latest update of type AType (KEPT_UPDATE_TYPES) — JSON, or ''. }
     function KeptUpdate(const AType: string): utf8string;
-    { Все хранимые с именем на APrefix (быстрые ответы — по одному на
-      шорткат: «тип:id») — в AOut строками «имя=JSON». }
+    { Everything kept with a name starting with APrefix (quick replies —
+      one per shortcut: "type:id") — into AOut as "name=JSON" lines. }
     procedure KeptMatching(const APrefix: string; AOut: TStrings);
     property Phone: utf8string read FPhone;
     property Username: utf8string read FUsername;
@@ -170,7 +170,7 @@ type
     { Sticker sets and saved animations. Fetches nothing until asked
       — see TTdStickers.EnsureLoaded. }
     property Stickers: TTdStickers read FStickers;
-    { Личные звонки: сигнальная часть (tdcalls.pas). }
+    { Private calls: the signalling part (tdcalls.pas). }
     property Calls: TTdCalls read FCalls;
     property Requests: TTdRequests read FReq;
     property Auth: TTdAuth read FAuth;
@@ -182,26 +182,26 @@ type
 
 implementation
 
-{ Версия из ресурса VERSIONINFO самого exe — те же числа, что дают
-  UseVersionInfo/BuildNr проекта и показывает Проводник в свойствах
-  файла. Читается из ресурсов программы, а не ведётся руками, чтобы
-  строка для setTdlibParameters (CreateEngine ниже) не разошлась с
-  тем, что реально собрано. Растёт только BuildNr; уходят все четыре
-  числа.
+{ The version from the exe's own VERSIONINFO resource — the same numbers
+  the project's UseVersionInfo/BuildNr give and Explorer shows in the file
+  properties. Read from the program's resources rather than kept by hand,
+  so that the string for setTdlibParameters (CreateEngine below) cannot
+  drift from what was actually built. Only BuildNr grows; all four numbers
+  go out.
 
-  fileinfo (fcl-extra), а не Win32 API версий: ресурсы FPC хранит в
-  своём формате на любой платформе, и тот же вызов работает в сборке
-  сервера под Linux. Нет ресурса версии — '0.0.0.0': строка уходит
-  только серверам Telegram, пользователь её не видит. }
+  fileinfo (fcl-extra), not the Win32 version API: FPC keeps resources in
+  its own format on every platform, and the same call works in the server
+  build under Linux. No version resource — '0.0.0.0': the string goes
+  only to Telegram's servers, the user does not see it. }
 function AppVersionString: utf8string;
 var
   Quad: TVersionQuad;
 begin
   Result := '0.0.0.0';
-  { Без ресурса fileinfo бросает EResNotFound — перехвачено ниже, но
-    отладчик IDE останавливается на любом исключении. Поэтому сперва
-    спросить, есть ли ресурс (тип 16 — RT_VERSION; в System он
-    объявлен только для не-Windows, в Windows — в модуле Windows). }
+  { Without the resource fileinfo raises EResNotFound — caught below, but
+    the IDE debugger stops on any exception. So first ask whether the
+    resource exists (type 16 — RT_VERSION; System declares it only for
+    non-Windows, on Windows it is in the Windows unit). }
   if System.FindResource(HInstance, MAKEINTRESOURCE(1), MAKEINTRESOURCE(16)) = 0 then begin
     Exit;
   end;
@@ -513,7 +513,7 @@ begin
      and (JGetStr(AData, '@type') = 'updateFile') then begin
     ApplyPhotoFile(JGetObj(AData, 'file'));
   end;
-  { Premium купили или он кончился — TDLib сообщает опцией
+  { Premium bought or expired — TDLib reports it with an option
     (td_api.tl: updateOption name value; value — optionValueBoolean). }
   if (AData <> nil) and (JGetStr(AData, '@type') = 'updateOption')
      and (JGetStr(AData, 'name') = 'is_premium') then begin
@@ -527,15 +527,15 @@ begin
         Break;
       end;
     end;
-    { Быстрые ответы Telegram Business (ui/setbusiness.js): геттеров у
-      TDLib нет, только load* и обновления — по одному на шорткат.
-      Values[...] := '' удаляет строку. }
+    { Quick replies of Telegram Business (ui/setbusiness.js): TDLib has no
+      getters, only load* and updates — one per shortcut.
+      Values[...] := '' deletes the line. }
     if T = 'updateQuickReplyShortcut' then begin
       FKept.Values[T + ':' + IntToStr(JGetInt(JGetObj(AData, 'shortcut'), 'id'))] := string(AJson);
     end else if T = 'updateQuickReplyShortcutMessages' then begin
       FKept.Values[T + ':' + IntToStr(JGetInt(AData, 'shortcut_id'))] := string(AJson);
     end else if T = 'updateSavedMessagesTopic' then begin
-      { Источники «Избранного» (ui/infopanel.js) — тоже без геттера. }
+      { Saved Messages sources (ui/infopanel.js) — no getter either. }
       FKept.Values[T + ':' + IntToStr(JGetInt64(JGetObj(AData, 'topic'), 'id'))] := string(AJson);
     end else if T = 'updateQuickReplyShortcutDeleted' then begin
       Id := IntToStr(JGetInt(AData, 'shortcut_id'));

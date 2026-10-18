@@ -2,14 +2,14 @@ unit servicetext;
 
 {$mode objfpc}{$H+}{$codepage utf8}
 
-{ Сервисные сообщения: создание группы, вход и выход участников,
-  закреп, смена названия и фото и т.п. — по списку MessageContent из
-  td_api.tl коммита d1085f9. Такое сообщение рисуется не пузырём, а
-  строкой посередине истории; в превью списка чатов — тем же текстом без
-  имени того, кто сделал действие.
+{ Service messages: group created, members joining and leaving, a pin, a
+  title or photo change and so on — per the MessageContent list of
+  td_api.tl at commit d1085f9. Such a message is drawn not as a bubble but
+  as a line in the middle of the history; in the chat list preview — with
+  the same text without the name of who did it.
 
-  Сервисным считается всё, что НЕ входит в USER_CONTENT: новые виды из
-  будущих версий TDLib попадут сюда сами, с текстом из имени типа. }
+  Service is everything NOT in USER_CONTENT: new kinds from future TDLib
+  versions land here by themselves, with a text from the type name. }
 
 interface
 
@@ -17,14 +17,15 @@ uses
   SysUtils, fpjson;
 
 type
-  { Имя пользователя по id — для «X added Y». nil — имена не известны. }
+  { A user name by id — for "X added Y". nil — names are unknown. }
   TServiceNameOf = function(AUserId: Int64): utf8string;
 
 function IsServiceContent(const AType: utf8string): boolean;
 
-{ Текст сервисного сообщения. AActor — кто сделал действие ('' — без
-  имени, для превью: «Pinned a message»). AIsChannel — сообщение в
-  канале (там действует сам канал, и слова другие). '' — не сервисное. }
+{ Text of a service message. AActor — who did it ('' — without a name, for
+  the preview: "Pinned a message"). AIsChannel — a message in a channel
+  (the channel itself acts there, and the words differ). '' — not a
+  service one. }
 function ServiceMessageText(AContent: TJSONObject; const AActor: utf8string;
   AIsChannel: boolean; ANameOf: TServiceNameOf): utf8string;
 
@@ -34,7 +35,7 @@ uses
   tdreq;
 
 const
-  { Содержимое, которое рисуется обычным сообщением. }
+  { Content drawn as an ordinary message. }
   USER_CONTENT: array[0..24] of string = (
     'messageText', 'messageRichMessage', 'messageAnimation', 'messageAudio',
     'messageDocument', 'messagePaidMedia', 'messagePhoto', 'messageSticker',
@@ -63,7 +64,7 @@ begin
   Result := QUOTE_OPEN + AText + QUOTE_CLOSE;
 end;
 
-{ «X сделал …» с именем или без: без имени первая буква глагола — заглавная. }
+{ "X did …" with or without a name: without a name the verb's first letter is a capital. }
 function Act(const AActor, AVerb: utf8string): utf8string;
 begin
   if AActor <> '' then begin
@@ -83,7 +84,7 @@ begin
   end;
 end;
 
-{ Имена через запятую; хоть одно неизвестно — «N members». }
+{ Names separated by commas; if even one is unknown — "N members". }
 function Names(ANameOf: TServiceNameOf; AIds: TJSONArray): utf8string;
 var
   I: integer;
@@ -123,7 +124,7 @@ begin
   end;
 end;
 
-{ Новый вид без своего текста: «messageChatSetSomething» -> «Chat set
+{ A new kind without its own text: "messageChatSetSomething" -> "Chat set
   something». }
 function Humanize(const AType: utf8string): utf8string;
 var

@@ -40,11 +40,11 @@ let canSend = false;
 // would be sent to the wrong place.
 let pending = null;
 
-// Богатое сообщение (Rich): блоки по началу строк (util/richcompose.js),
-// строчное оформление и эмодзи — сущности поля.
+// A rich message (Rich): blocks by line starts (util/richcompose.js),
+// inline formatting and emoji — the field's entities.
 const isRich = () => Boolean(richBox?.checked);
 
-// Кнопка панели -> вид сущности поля (ui/editor.js).
+// A panel button -> the field's entity kind (ui/editor.js).
 const FORMAT_KIND = {
   bold: 'bold', italic: 'italic', underline: 'underline', strike: 'strike',
   mono: 'code', code: 'pre', spoiler: 'spoiler', quote: 'quote', clear: 'clear',
@@ -53,21 +53,20 @@ const FORMAT_KIND = {
 /** The Silent toggle, for anything sent from outside this module. */
 export const isSilent = () => Boolean(silentBox?.checked);
 
-/** Подпись к файлам (окно отправки) пишется в MarkdownV2. */
+/** The caption for files (the send window) is written in MarkdownV2. */
 export const htmlMode = () => false;
 
 /**
- * Можно ли сейчас что-то отправить в открытый чат — для отправки
- * файлов (перетаскивание, вставка, скрепка). Тот же ответ, что
- * включает поле ввода.
+ * Whether anything can be sent to the open chat now — for sending files
+ * (dragging, pasting, the paperclip). The same answer that enables the
+ * input field.
  */
 export const canCompose = () => canSend;
 
 /**
- * Забирает ответ, если он есть: id сообщения, на которое отвечают, или
- * ''. Плашка ответа при этом гаснет — файл и есть этот ответ, как
- * сообщение из поля. Правка (edit) не забирается: к ней файлы не
- * относятся.
+ * Takes the reply if there is one: the id of the message replied to, or
+ * ''. The reply plate goes out — the file is that reply, like a message
+ * from the field. An edit is not taken: files have nothing to do with it.
  */
 export function takeReply() {
   if (pending?.mode !== 'reply') return '';
@@ -127,15 +126,15 @@ export function editMessage(msg) {
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
-// Сколько своих сообщений (от новых к старым) перебирает стрелка вверх в
-// поиске того, которое ещё можно править.
+// How many own messages (from newest to oldest) the up arrow goes through
+// looking for one that can still be edited.
 const EDIT_LAST_LOOKBACK = 5;
 
 /**
- * Стрелка вверх в пустом поле — правка последнего своего сообщения, как
- * у Telegram Desktop. Можно ли его править, решает Telegram
- * (message.menu -> canEdit: срок, права), поэтому кандидаты проверяются
- * по очереди, от новых к старым.
+ * The up arrow in an empty field — editing the last own message, as in
+ * Telegram Desktop. Whether it can be edited is decided by Telegram
+ * (message.menu -> canEdit: time limit, rights), so the candidates are
+ * checked in turn, from newest to oldest.
  */
 async function editLastOwn() {
   const items = store.messages?.items ?? [];
@@ -148,7 +147,7 @@ async function editLastOwn() {
     try {
       const info = await call('message.menu', { id: String(m.id) });
       if (info?.canEdit) {
-        // Пока шёл вопрос, человек мог начать печатать — не затирать.
+        // While the question was running, the person may have started typing — do not overwrite.
         if (!input.value && !pending) editMessage(m);
         return;
       }
@@ -159,7 +158,7 @@ async function editLastOwn() {
 }
 
 function updateEnabled(chat) {
-  // Другой чат или ветка — подсказка упоминаний прежнего ни к чему.
+  // Another chat or thread — the previous one's mention suggestions are of no use.
   closeMentions();
   // In a comment thread the row to ask is the discussion group's, and
   // there may not be one - see openThread. Commenting on a channel
@@ -169,8 +168,8 @@ function updateEnabled(chat) {
   // Some discussion groups want you in before you may write. That is
   // not "you may not write here" - it is a different answer and it
   // gets different words, see below.
-  // Канал или группа, где аккаунт не состоит (пришёл по пересылке):
-  // та же кнопка вместо поля ввода — «Join channel» / «Join group».
+  // A channel or group the account is not a member of (came via a forward):
+  // the same button instead of the input field — "Join channel" / "Join group".
   const join = thread ? null : chatJoin();
   const joinChat = !!join?.can;
   const mustJoin = !!thread?.mustJoin || joinChat;
@@ -194,7 +193,7 @@ function updateEnabled(chat) {
   // answer. The input row gives way to the button that does it.
   box.classList.toggle('composer--join', mustJoin);
   joinBtn.hidden = !mustJoin;
-  // Нажатая кнопка гаснет до ответа; новое состояние её возвращает.
+  // A pressed button goes out until the answer; the new state brings it back.
   if (!mustJoin) joinBtn.disabled = false;
   if (joinChat) {
     const what = join.channel ? 'channel' : 'group';
@@ -219,7 +218,7 @@ function updateEnabled(chat) {
 }
 
 // ------------------------------------------------------- formatting
-/** Текст у курсора, вместо выделенного (панель эмодзи и т.п.). */
+/** Text at the caret, instead of the selection (the emoji panel and the like). */
 export function insertAtCaret(text) {
   if (!canSend || !text) return;
   input.insertText(text);
@@ -227,9 +226,9 @@ export function insertAtCaret(text) {
 }
 
 /**
- * Кастомный эмодзи — картинкой в поле, сущностью в сообщении. file —
- * ячейка панели ({ format, url }): её адрес становится известен полю
- * (util/emoji.js), иначе оно показало бы запасной символ.
+ * A custom emoji — a picture in the field, an entity in the message. file —
+ * the panel cell ({ format, url }): its address becomes known to the field
+ * (util/emoji.js), otherwise it would show the fallback character.
  */
 export function insertCustomEmoji(id, emoji, file) {
   if (!canSend || !/^\d+$/.test(String(id)) || !emoji) return;
@@ -239,15 +238,15 @@ export function insertCustomEmoji(id, emoji, file) {
 }
 
 /**
- * Разметка кастомного эмодзи для подписи в окне отправки файлов (там
- * простое поле с MarkdownV2), или '' для негодных id.
+ * The markup of a custom emoji for the caption in the file send window
+ * (a plain field with MarkdownV2 there), or '' for invalid ids.
  */
 export function customEmojiMarkup(id, emoji) {
   if (!/^\d+$/.test(String(id)) || !emoji) return '';
   return `![${emoji}](tg://emoji?id=${id})`;
 }
 
-/** Ссылка на выделенное (кнопка Link, Ctrl+K); пустой адрес — снять. */
+/** A link on the selection (the Link button, Ctrl+K); an empty address — remove it. */
 function linkSelection() {
   if (input.selectionStart === input.selectionEnd) return;
   const url = window.prompt('Link target (https://...), empty to remove') ?? null;
@@ -256,8 +255,8 @@ function linkSelection() {
   input.focus();
 }
 
-// ------------------------------------------- блоки богатого сообщения
-/** Префикс каждой строке выделения (или текущей строке). */
+// ------------------------------------------- rich message blocks
+/** A prefix to every line of the selection (or the current line). */
 function prefixLines(prefix) {
   const value = input.value;
   const a = input.selectionStart;
@@ -265,13 +264,13 @@ function prefixLines(prefix) {
   const start = value.lastIndexOf('\n', a - 1) + 1;
   const starts = [start];
   for (let i = value.indexOf('\n', start); i >= 0 && i < b; i = value.indexOf('\n', i + 1)) starts.push(i + 1);
-  // С конца: так смещения ещё не тронутых строк остаются верными.
+      // From the end: so the offsets of lines not yet touched stay correct.
   for (const at of starts.reverse()) input.replaceRange(at, at, prefix);
   input.setSelectionRange(a + prefix.length, b + prefix.length * starts.length);
   input.focus();
 }
 
-/** Блок с новой строки: до и после — перевод строки, если его нет. */
+/** A block from a new line: a line break before and after, if there is none. */
 function insertBlock(text, selectFrom = 0, selectLen = 0) {
   const value = input.value;
   const start = input.selectionStart;
@@ -291,8 +290,8 @@ function richFormat(kind) {
     case 'list': return prefixLines('- ');
     case 'divider': return insertBlock('---', 3);
     case 'media': {
-      // Тот же выбор файлов, что у скрепки, только фото и видео; ответ
-      // приходит в richAttach (ui/attach.js).
+      // The same file choice as the paperclip, only photos and videos; the
+      // answer comes into richAttach (ui/attach.js).
       const picker = qs('#composer-files', box);
       if (!picker) return undefined;
       picker.accept = 'image/*,video/*';
@@ -310,26 +309,26 @@ function richFormat(kind) {
     case 'button': {
       const label = chosen || 'Button';
       const url = 'https://';
-      // Курсор — сразу за «https://»: подпись уже есть.
+      // The caret — right after "https://": the label is there already.
       return insertBlock('[[' + label + '|' + url + ']]', 3 + label.length + url.length, 0);
     }
     default: return undefined;
   }
 }
 
-// Файлы богатого сообщения: строка «![](вид:id)» в тексте, сведения о
-// видео — здесь, по id загрузки (их ждёт composeRich).
+// Rich message files: the line "![](kind:id)" in the text, video info —
+// here, by the upload id (composeRich waits for them).
 const richMedia = new Map();
 let richQueue = Promise.resolve();
 let richSeq = 0;
 
 /**
- * Файлы в режиме Rich — строкой у курсора, а не через окно отправки
- * (зовёт ui/attach.js). false — режим не тот, пусть решает окно.
+ * Files in Rich mode — as a line at the caret rather than through the send
+ * window (called by ui/attach.js). false — not that mode, let the window decide.
  */
 export function richAttach(files, mode) {
   if (!isRich() || !canSend || !files.length) return false;
-  // Все строки разом (подряд — коллаж); курсор — в подпись первой.
+  // All lines at once (consecutive — a collage); the caret goes into the first one's caption.
   const marks = files.map(() => {
     richSeq += 1;
     return `(uploading:${richSeq})`;
@@ -337,7 +336,7 @@ export function richAttach(files, mode) {
   insertBlock(marks.map((mark) => `![]${mark}`).join('\n'), 2, 0);
   files.forEach((file, n) => {
     const mark = marks[n];
-    // По одной (uploadRichFile), в порядке вставки.
+    // One at a time (uploadRichFile), in insertion order.
     richQueue = richQueue.then(async () => {
       try {
         const { id, kind, info } = await uploadRichFile(file, mode);
@@ -353,7 +352,7 @@ export function richAttach(files, mode) {
   return true;
 }
 
-/** Замена куска текста поля без сброса курсора (догрузился файл). */
+/** Replacing a piece of the field's text without resetting the caret (a file finished uploading). */
 function replaceInInput(from, to) {
   const at = input.value.indexOf(from);
   if (at < 0) return;
@@ -374,9 +373,8 @@ function applyFormat(kind) {
 
 // ------------------------------------------------------------- send
 /**
- * schedule — отложенная отправка (ui/schedule.js): дата unix или -1
- * («когда будет в сети»); 0 — сразу. Правка своего сообщения — всегда
- * сразу.
+ * schedule — scheduled sending (ui/schedule.js): a unix date or -1 ("when
+ * online"); 0 — at once. Editing an own message — always at once.
  */
 function send(schedule = 0) {
   if (!canSend) return;
@@ -435,10 +433,10 @@ export function mountComposer(node) {
   qs('.composer__row', box).append(joinBtn);
   emojiBtn = qs('.composer__emoji', box);
   attachBtn = qs('.composer__attach', box);
-  // Скрепка: обычный выбор файлов. Картинки по умолчанию уходят сжатыми,
-  // как у нативного клиента; переключается в диалоге.
+  // The paperclip: an ordinary file choice. Pictures go compressed by
+  // default, as in the native client; this is switched in the dialog.
   const picker = qs('#composer-files', box);
-  // Фильтр мог остаться от кнопки Media (только фото и видео).
+  // A filter may have stayed from the Media button (only photos and videos).
   attachBtn?.addEventListener('click', () => {
     if (!picker) return;
     picker.accept = '';
@@ -446,13 +444,13 @@ export function mountComposer(node) {
   });
   picker?.addEventListener('change', () => {
     const files = [...picker.files];
-    // Сброс — иначе тот же файл, выбранный снова, не даст change.
+    // Reset — otherwise the same file chosen again would not fire change.
     picker.value = '';
     if (files.length) emit('ui:attach', { files });
   });
   richBox = qs('#composer-rich', box);
   silentBox = qs('#composer-silent', box);
-  // Rich: свой ряд кнопок панели (blocks/_composer.scss).
+  // Rich: its own row of panel buttons (blocks/_composer.scss).
   richBox?.addEventListener('change', () => {
     box.classList.toggle('composer--rich', isRich());
     updateEnabled(store.activeChat);
@@ -460,28 +458,28 @@ export function mountComposer(node) {
   });
   banner = qs('.composer__banner', box);
 
-  // Подсказка «@имя» (ui/mentions.js). До обработчика Enter ниже не
-  // важно: она слушает в фазе перехвата.
+  // The "@name" suggestion (ui/mentions.js). Before the Enter handler below
+  // does not matter: it listens in the capture phase.
   mountMentions(input, { enabled: () => canSend });
-  // Ctrl+K в поле — та же ссылка, что у кнопки Link.
+  // Ctrl+K in the field — the same link as the Link button.
   input.addEventListener('editor:link', linkSelection);
   sendBtn.addEventListener('click', () => send());
-  // Отложенная отправка — кнопка слева от записи голосовых.
+  // Scheduled sending — the button to the left of voice recording.
   mountSchedule(qs('.composer__row', box), {
     canSend: () => canSend,
     hasText: () => !!input.getFormatted().text.trim(),
     send: (schedule) => send(schedule),
     report: (error) => emit('ui:error', error?.message ?? String(error)),
   });
-  // «Печатает» собеседнику (ui/sendaction.js). Не при правке своего
-  // сообщения — там ничего нового не пишут, официальные клиенты молчат.
+  // "Typing" to the other side (ui/sendaction.js). Not while editing an own
+  // message — nothing new is written there, the official clients stay silent.
   input.addEventListener('input', () => {
     if (!canSend || pending?.mode === 'edit') return;
     noteTyping(!input.value.trim());
   });
   qs('.composer__banner-cancel', banner)?.addEventListener('click', cancelPending);
-  // Файлы из буфера обмена (снимок экрана, скопированный в проводнике
-  // файл) — в тот же диалог отправки. Текст вставляется как обычно.
+  // Files from the clipboard (a screenshot, a file copied in Explorer) — into
+  // the same send dialog. Text is pasted as usual.
   input.addEventListener('paste', (event) => {
     const files = [...(event.clipboardData?.files ?? [])];
     if (!files.length || !canSend) return;
@@ -502,8 +500,8 @@ export function mountComposer(node) {
     }
     // Enter sends, Ctrl+Enter inserts a newline - the same split the
     // native input uses, so muscle memory carries between the two.
-    // «Send messages with: Ctrl+Enter» (Chat settings) — наоборот: Enter
-    // — новая строка (её вставляет поле, ui/editor.js).
+    // "Send messages with: Ctrl+Enter" (Chat settings) — the other way round:
+    // Enter is a new line (the field inserts it, ui/editor.js).
     if (event.key !== 'Enter' || event.shiftKey) return;
     if (getPref('sendByCtrlEnter') ? !(event.ctrlKey || event.metaKey) : event.ctrlKey) return;
     event.preventDefault();
@@ -522,7 +520,7 @@ export function mountComposer(node) {
   // redraws from the message payload too, which is where the thread
   // lives.
   on('store:messages', (state) => {
-    // Ветка и «можно вступить» — оба едут со списком сообщений.
+    // The thread and "can join" — both come with the message list.
     const now = !!state?.thread;
     const joinKey = JSON.stringify(state?.join ?? null);
     if (now === inThread && joinKey === lastJoin) return;

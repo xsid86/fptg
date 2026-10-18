@@ -4,19 +4,19 @@ import { openBox, section, note, toggleRow } from './tgbox.js';
 import { one, td, failed, saving, refresh, group, navRow, switchRow } from './setkit.js';
 import { peerCards, peerLine } from './setpeers.js';
 
-// «Notifications and sounds» — часть аккаунта, как у Telegram Desktop:
-// уведомления для личных чатов, групп и каналов (getScopeNotificationSettings;
-// у каждого — показ текста, закреплённые, упоминания и исключения),
-// события («контакт в Telegram»), сброс всех настроек уведомлений.
-// Всплывающие карточки этого окна (угол, число, шрифт) — ниже, из
-// settings.js: это уже настройки сервера, не TDLib.
+// "Notifications and sounds" — part of the account, as in Telegram Desktop:
+// notifications for private chats, groups and channels
+// (getScopeNotificationSettings; each has showing the text, pinned ones,
+// mentions and exceptions), events ("a contact joined Telegram"), resetting
+// all notification settings. This window's pop-up cards (corner, count,
+// font) — below, from settings.js: those are server settings, not TDLib.
 
 const SCOPES = [
   { type: 'notificationSettingsScopePrivateChats', label: 'Private chats', title: 'Private chats' },
   { type: 'notificationSettingsScopeGroupChats', label: 'Groups', title: 'Groups' },
   { type: 'notificationSettingsScopeChannelChats', label: 'Channels', title: 'Channels' },
 ];
-// «Выключено» у TDLib — mute_for на годы вперёд; Desktop ставит так же.
+// "Off" in TDLib is mute_for years ahead; Desktop sets it the same way.
 const MUTE_FOREVER = 366 * 86400 * 10;
 
 const scope = (type) => ({ '@type': type });
@@ -130,7 +130,7 @@ export async function renderNotifyScopes() {
   return [chats, events, reset];
 }
 
-/** «Accept calls on this device» (Speakers and camera у Desktop). */
+/** "Accept calls on this device" (Speakers and camera in Desktop). */
 export async function renderAcceptCalls() {
   let sessions = null;
   try {

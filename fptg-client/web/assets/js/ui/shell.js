@@ -2,42 +2,42 @@ import { on, emit } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
 import { signOut, signedOut } from '../core/session.js';
 
-// Связь страницы с оболочкой — окном fptg (fptg-client).
+// The page's link with the shell — the fptg window (fptg-client).
 //
-// Окно и сервер — разные программы, и окно может быть на другой машине,
-// чем сервер. Поэтому всё, что окну нужно от сервера, идёт через эту
-// страницу: она уже подключена к серверу по веб-сокету, а с окном
-// говорит через chrome.webview (WebView2; на другой платформе — своя
-// оболочка с тем же протоколом).
+// The window and the server are different programs, and the window may be
+// on another machine than the server. So everything the window needs from
+// the server goes through this page: it is already connected to the
+// server over the WebSocket, and talks to the window through chrome.webview
+// (WebView2; on another platform — its own shell with the same protocol).
 //
-// Страница -> окно (postShell):
-//   config {closeToTray, notify}  настройки, которые исполняет окно;
-//   notify {chatId, title, text, photo, thumb}  карточка на рабочем
-//     столе (фото — data: URL: файлы на сервере, не у окна);
-//   notifySample                  образец карточек (настройки);
-//   miniapp {url, title, bot, launch, buttonText, theme}  открыть
-//     мини-приложение (ответ webapp.open);
-//   miniappResp {id, ok, result, error}  ответ сервера на miniappReq;
-//   callpopup — окошко звонка (ui/call.js);
-//   frame {caption, text, border, dark}  цвета рамки окна по теме,
-//     '#rrggbb' (ui/theme.js; окно — winframe.pas).
-// Окно -> страница:
-//   signOut             трей → Sign out;
-//   certificate {origin, fingerprint, changed}  сертификат сервера не
-//     тот, которому доверились (в приложении — назад к окну входа);
-//   openChat {chatId}   клик по карточке на рабочем столе;
-//   openLink {url}      ссылка t.me из мини-приложения;
-//   miniappReq {id, cmd, args}  запрос мини-приложения к серверу;
-//   call — нажатие на окошке звонка (ui/call.js);
-//   downloadFailed      файл из сообщения не скачался (webui.ViewDownloadDone;
-//     удачный окно само открывает внешним приложением).
+// Page -> window (postShell):
+//   config {closeToTray, notify}  the settings the window carries out;
+//   notify {chatId, title, text, photo, thumb}  a desktop card (the photo
+//     is a data: URL: the files are on the server, not with the window);
+//   notifySample                  a sample of the cards (settings);
+//   miniapp {url, title, bot, launch, buttonText, theme}  open a mini app
+//     (the webapp.open answer);
+//   miniappResp {id, ok, result, error}  the server's answer to miniappReq;
+//   callpopup — the call pop-up (ui/call.js);
+//   frame {caption, text, border, dark}  the window frame colours by theme,
+//     '#rrggbb' (ui/theme.js; the window — winframe.pas).
+// Window -> page:
+//   signOut             tray → Sign out;
+//   certificate {origin, fingerprint, changed}  the server certificate is
+//     not the trusted one (in the app — back to the sign-in window);
+//   openChat {chatId}   a click on a desktop card;
+//   openLink {url}      a t.me link from a mini app;
+//   miniappReq {id, cmd, args}  a mini app's request to the server;
+//   call — a press on the call pop-up (ui/call.js);
+//   downloadFailed      a file from a message did not download (webui.ViewDownloadDone;
+//     the window opens a successful one with an external app itself).
 //
-// В обычном браузере оболочки нет: всё здесь молчит, а мини-приложение
-// открывается вкладкой.
+// In an ordinary browser there is no shell: everything here is silent, and
+// a mini app opens as a tab.
 
 const host = window.chrome?.webview ?? null;
 
-// Только эти команды окно мини-приложения может просить у сервера.
+// Only these commands may a mini app window ask of the server.
 const MINIAPP_COMMANDS = new Set(['webapp.close', 'webapp.custom', 'webapp.allowWrite', 'webapp.sendData']);
 
 let hooks = {};
@@ -49,21 +49,21 @@ export function postShell(msg) {
   host?.postMessage(JSON.stringify(msg));
 }
 
-/** Настройки, которые исполняет окно: закрытие в трей и карточки. */
+/** The settings the window carries out: closing to the tray and the cards. */
 export function shellSettings(data) {
   if (!host || !data) return;
   notifyOn = !!data.notify?.enabled;
   postShell({ t: 'config', closeToTray: !!data.closeToTray, notify: data.notify ?? {} });
 }
 
-/** Ответ webapp.open: в нашем окне — окно мини-приложения, иначе вкладка. */
+/** The webapp.open answer: in our window — a mini app window, otherwise a tab. */
 export function openMiniApp(app) {
   if (!app?.url) return;
   if (host) postShell({ t: 'miniapp', ...app });
   else window.open(app.url, '_blank', 'noopener');
 }
 
-/** Файл с сервера (/media/…, cookie авторизует) — в data: URL для окна. */
+/** A file from the server (/media/…, the cookie authorizes) — into a data: URL for the window. */
 async function asDataUrl(url) {
   if (!url) return '';
   try {
@@ -83,7 +83,7 @@ async function asDataUrl(url) {
 
 async function arrived(data) {
   if (!host || !notifyOn || !data) return;
-  // Окно перед глазами и этот чат в нём открыт — сообщать не о чем.
+  // The window is in front of the eyes and this chat is open in it — nothing to report.
   if (!document.hidden && document.hasFocus() && data.chatId === store.activeChatId) return;
   postShell({
     t: 'notify',
@@ -126,8 +126,8 @@ export function mountShell(options) {
   host.addEventListener('message', (event) => onHostMessage(event.data));
   on('srv:arrival', (data) => { arrived(data).catch(() => {}); });
   on('srv:settings', shellSettings);
-  // Настройки — при каждом (пере)подключении: окно могло подключиться к
-  // другому серверу, или они поменялись, пока связи не было.
+  // The settings — on every (re)connection: the window may have connected to
+  // another server, or they changed while there was no connection.
   on('net:status', (status) => {
     if (status !== 'open') return;
     hooks.call('settings.get').then(shellSettings).catch(() => {});

@@ -2,24 +2,26 @@ unit instance;
 
 {$mode objfpc}{$H+}
 
-{ Единственный экземпляр программы и канал управления к нему.
+{ The program's single instance and the control channel to it.
 
-  Экземпляр — эксклюзивная блокировка файла ИМЯ.lock в папке программы
-  (FileOpen с fmShareExclusive: на Windows — запрет совместного доступа,
-  на Unix — flock LOCK_EX|LOCK_NB внутри RTL). Упала программа — ОС
-  снимает блокировку сама, «залипших» экземпляров не бывает. Оба сервера
-  (консольный и с окном) берут одну и ту же — у них общие данные.
+  The instance is an exclusive lock on the file NAME.lock in the program
+  folder (FileOpen with fmShareExclusive: on Windows — a ban on shared
+  access, on Unix — flock LOCK_EX|LOCK_NB inside the RTL). If the program
+  crashes, the OS releases the lock itself — there are no "stuck"
+  instances. Both servers (console and windowed) take the same one — they
+  share their data.
 
-  Канал управления — TCP на 127.0.0.1, порт выбирает ОС. Порт, случайный
-  ключ, вид программы и pid лежат в ИМЯ.instance рядом с блокировкой (на
-  Unix — права 600; на Windows файл наследует права папки программы —
-  папки пользователя). Запрос — одна строка JSON (key, cmd, args), ответ
-  — одна строка (ok, result или error), соединение закрывается. Команду
-  выполняет обработчик в ГЛАВНОМ потоке (Synchronize): в консольном
-  сервере его крутит srvloop, в окне — цикл LCL.
+  The control channel is TCP on 127.0.0.1, the OS picks the port. The
+  port, a random key, the program's kind and pid are in NAME.instance next
+  to the lock (on Unix — mode 600; on Windows the file inherits the
+  permissions of the program folder — the user's folder). A request is one
+  line of JSON (key, cmd, args), the answer — one line (ok, result or
+  error), the connection closes. The command is run by a handler on the
+  MAIN thread (Synchronize): in the console server srvloop drives it, in
+  the window — the LCL loop.
 
-  Модуль общий у всех трёх программ (окно клиента берёт его через
-  uses … in); сокеты — модуль sockets из RTL, без пакетов. }
+  The unit is shared by all three programs (the client window takes it
+  through uses … in); sockets — the RTL's sockets unit, no packages. }
 
 interface
 
@@ -27,30 +29,30 @@ uses
   Classes, SysUtils, fpjson;
 
 type
-  { Команда другого экземпляра. Возвращает результат (освобождает
-    вызывающий) или бросает исключение — оно уйдёт как error. }
+  { A command from another instance. Returns the result (the caller frees
+    it) or raises an exception — it goes back as error. }
   TInstanceCommand = function(const ACmd: string; AArgs: TJSONObject): TJSONObject of object;
 
-{ Захватить экземпляр ADir/AName.lock. False — уже запущен другой.
-  Сервер (INSTANCE_SERVER) — ещё и машинную блокировку: один на всю
-  машину. False с InstanceElsewhere = True — папка свободна, но сервер
-  уже работает из другой копии или у другого пользователя ОС: канала
-  управления к нему отсюда нет. }
+{ Take the instance ADir/AName.lock. False — another one is running
+  already. The server (INSTANCE_SERVER) also takes the machine lock: one
+  per machine. False with InstanceElsewhere = True — the folder is free,
+  but the server is already running from another copy or under another OS
+  user: there is no control channel to it from here. }
 function AcquireInstance(const ADir, AName: string): boolean;
 
-{ Последний AcquireInstance не прошёл из-за машинной блокировки. }
+{ The last AcquireInstance failed because of the machine lock. }
 function InstanceElsewhere: boolean;
-{ Открыть канал управления и записать AName.instance. AKind — вид
-  программы ('gui', 'console', 'client'): по нему второй запуск решает,
-  что делать. }
+{ Open the control channel and write AName.instance. AKind — the program's
+  kind ('gui', 'console', 'client'): a second start decides what to do by
+  it. }
 procedure PublishInstance(const AKind: string; AHandler: TInstanceCommand);
-{ Закрыть канал, отпустить блокировку (и при выходе — само). }
+{ Close the channel, release the lock (and on exit — by itself). }
 procedure ReleaseInstance;
 
-{ Вид запущенного экземпляра ('' — не отвечает). }
+{ The kind of the running instance ('' — not answering). }
 function InstanceKind(const ADir, AName: string): string;
-{ Команда запущенному экземпляру. AArgs не забирается. AResult —
-  вызывающему. }
+{ A command to the running instance. AArgs is not taken over. AResult — to
+  the caller. }
 function CallInstance(const ADir, AName, ACmd: string; AArgs: TJSONObject;
   out AResult: TJSONObject; out AError: string): boolean;
 
@@ -87,8 +89,8 @@ var
   GKind: string = '';
   GPort: word = 0;
   GThread: TControlThread = nil;
-  { Машинная блокировка сервера: мьютекс (Windows) или дескриптор файла
-    с flock (Unix); 0 / -1 — не взята. }
+  { The server's machine lock: a mutex (Windows) or a file descriptor with
+    flock (Unix); 0 / -1 — not taken. }
   {$IFDEF WINDOWS}
   GMachine: THandle = 0;
   {$ELSE}
@@ -111,7 +113,7 @@ begin
   end;
 end;
 
-{ ---------------- сокеты ---------------- }
+{ ---------------- sockets ---------------- }
 
 procedure SetTimeouts(ASock: longint);
 {$IFDEF WINDOWS}
@@ -141,7 +143,7 @@ begin
   Result.sin_addr := StrToNetAddr('127.0.0.1');
 end;
 
-{ Строка до перевода строки (без него), не длиннее INSTANCE_MAX_LINE. }
+{ A line up to the line feed (without it), no longer than INSTANCE_MAX_LINE. }
 function RecvLine(ASock: longint; out ALine: string): boolean;
 var
   Buf: array[0..4095] of char;
@@ -178,7 +180,7 @@ begin
   end;
 end;
 
-{ ---------------- сервер канала ---------------- }
+{ ---------------- channel server ---------------- }
 
 procedure TControlThread.Execute;
 var
@@ -238,14 +240,15 @@ begin
       Reply.Add('ok', False);
       Reply.Add('error', 'bad request');
     end else if not SameBytes(TJSONObject(D).Get('key', ''), GKey) then begin
-      { Тот же ответ на любой неверный ключ; и без подсказок. }
+      { The same answer to any wrong key; and no hints. }
       Reply.Add('ok', False);
       Reply.Add('error', 'forbidden');
     end else begin
       FCmd := TJSONObject(D).Get('cmd', '');
       if FCmd = 'kind' then begin
-        { Вид программы — без главного потока: им проверяют, жив ли
-          экземпляр, и ответ не должен ждать его занятости. }
+        { The program's kind — without the main thread: it is used to check
+          whether the instance is alive, and the answer must not wait for
+          it to be free. }
         Reply.Add('ok', True);
         FResult := TJSONObject.Create;
         FResult.Add('kind', GKind);
@@ -279,12 +282,12 @@ begin
   end;
 end;
 
-{ ---------------- экземпляр ---------------- }
+{ ---------------- instance ---------------- }
 
-{ Машинная блокировка. Windows: мьютекс уже есть — ERROR_ALREADY_EXISTS;
-  создан процессом ДРУГОГО пользователя — его права не пускают даже
-  открыть: ERROR_ACCESS_DENIED. Оба — «занято». Держится, пока жив
-  дескриптор: упал процесс — ОС закрыла его, мьютекс исчез. }
+{ The machine lock. Windows: the mutex exists already — ERROR_ALREADY_EXISTS;
+  created by a process of ANOTHER user — its permissions do not even let
+  it be opened: ERROR_ACCESS_DENIED. Both mean "taken". Held while the
+  handle lives: the process crashed — the OS closed it, the mutex is gone. }
 function AcquireMachine: boolean;
 {$IFDEF WINDOWS}
 var
@@ -294,7 +297,7 @@ begin
   Name := UnicodeString(INSTANCE_MACHINE_MUTEX);
   H := CreateMutexW(nil, False, PWideChar(Name));
   if H = 0 then begin
-    Exit(False);                        { ERROR_ACCESS_DENIED и прочее — занято }
+    Exit(False);                        { ERROR_ACCESS_DENIED and the rest — taken }
   end;
   if GetLastError = ERROR_ALREADY_EXISTS then begin
     CloseHandle(H);
@@ -309,15 +312,15 @@ var
 begin
   Fd := fpOpen(INSTANCE_MACHINE_LOCK_FILE, O_RDONLY or O_CREAT, &644);
   if Fd < 0 then begin
-    { Файл создан другим пользователем и не открывается — занято им. }
+    { The file was created by another user and does not open — taken by them. }
     Exit(False);
   end;
   if fpFlock(Fd, LOCK_EX or LOCK_NB) <> 0 then begin
     fpClose(Fd);
     Exit(False);
   end;
-  { Создал — открыть всем на чтение: flock другого пользователя берётся
-    и на дескрипторе только для чтения. }
+  { Created it — make it readable by all: another user's flock works on a
+    read-only descriptor too. }
   fpChmod(INSTANCE_MACHINE_LOCK_FILE, &644);
   GMachine := Fd;
   Result := True;
@@ -359,8 +362,8 @@ begin
   end;
   GLock := FileOpen(Path, fmOpenReadWrite or fmShareExclusive);
   Result := GLock <> THandle(-1);
-  { Папка свободна, но сервер на машине уже есть — из другой копии или у
-    другого пользователя: отпустить папку, второй не нужен. }
+  { The folder is free, but the machine already has a server — from another
+    copy or another user: release the folder, a second one is not needed. }
   if Result and (AName = INSTANCE_SERVER) and not AcquireMachine then begin
     FileClose(GLock);
     GLock := THandle(-1);
@@ -388,8 +391,8 @@ begin
     O.Add('port', GPort);
     O.Add('key', GKey);
     S := TStringStream.Create(O.AsJSON);
-    { Сначала пустой файл с правами только владельца, потом содержимое:
-      ключ ни мгновения не лежит в файле, открытом для чтения другим. }
+    { First an empty file readable by the owner only, then the contents:
+      the key never lies, even for a moment, in a file others can read. }
     SysUtils.DeleteFile(Path);
     FileClose(FileCreate(Path));
     {$IFNDEF WINDOWS}
@@ -439,7 +442,7 @@ var
   Addr: TInetSockAddr;
 begin
   if GThread <> nil then begin
-    { accept не прерывается флагом: разбудить его своим же соединением. }
+    { accept is not interrupted by a flag: wake it with a connection of our own. }
     GThread.Terminate;
     Sock := fpsocket(AF_INET, SOCK_STREAM, 0);
     if Sock >= 0 then begin
@@ -459,7 +462,7 @@ begin
   ReleaseMachine;
 end;
 
-{ ---------------- клиент канала ---------------- }
+{ ---------------- channel client ---------------- }
 
 function ReadInfo(const ADir, AName: string; out APort: word; out AKey, AKind: string): boolean;
 var
@@ -471,7 +474,7 @@ begin
   APort := 0;
   AKey := '';
   AKind := '';
-  { Только что запущенный экземпляр мог ещё не записать файл. }
+  { A just started instance may not have written the file yet. }
   for Tries := 1 to INSTANCE_INFO_WAIT_TRIES do begin
     if FileExists(InfoPath(ADir, AName)) then begin
       D := nil;

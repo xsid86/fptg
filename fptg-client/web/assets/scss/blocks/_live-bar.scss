@@ -1,11 +1,11 @@
 @use "../abstracts" as *;
 
-// Плашка видеочата / трансляции над историей (ui/livebar.js): значок,
-// «Live stream» и число участников, аватарки последних говоривших,
-// «Join». Как у официальных клиентов под шапкой чата.
+// The video chat / live stream plate above the history (ui/livebar.js): an
+// icon, "Live stream" and the participant count, the avatars of the last
+// speakers, "Join". As in the official clients under the chat header.
 .live-bar {
   @include flex(row, center, flex-start, $space-4);
-  // Цвет чата для tint: класс .accent-* ставит ui/livebar.js.
+  // The chat colour for tint: the .accent-* class is set by ui/livebar.js.
   --chat-color: var(--accent-color, var(--c-accent));
   background: color-mix(in srgb, var(--c-surface) 85%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
@@ -41,7 +41,7 @@
   font-size: $fs-sm;
 }
 
-// Аватарки внахлёст.
+// Overlapping avatars.
 .live-bar__faces {
   @include flex(row, center, flex-start, 0);
 

@@ -1,8 +1,9 @@
 @use "../abstracts" as *;
 
-// Просмотр историй (ui/stories.js): затемнение на всё окно, по центру
-// карточка 9:16 — медиа на всю карточку, сверху полоски прогресса и
-// шапка, снизу подпись; левая и правая трети — «назад» и «вперёд».
+// The story viewer (ui/stories.js): dimming over the whole window, a 9:16
+// card in the centre — media over the whole card, progress bars and the
+// header on top, the caption at the bottom; the left and right thirds —
+// "back" and "forward".
 .stories {
   @include flex(row, center, center);
   background: rgba(0, 0, 0, .85);
@@ -39,7 +40,7 @@
   width: 100%;
 }
 
-// Размытая миниатюра, пока грузится файл.
+// A blurred thumbnail while the file loads.
 .stories__thumb {
   filter: blur(12px);
   object-fit: cover;
@@ -124,7 +125,7 @@
   }
 }
 
-// Невидимые зоны «назад» / «вперёд» — по трети карточки.
+// Invisible "back" / "forward" zones — a third of the card each.
 .stories__nav {
   background: none;
   border: 0;

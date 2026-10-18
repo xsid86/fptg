@@ -368,8 +368,8 @@ span.picker__gif {
   }
 }
 
-// The account's installed custom (Premium) emoji. И для реакции, и для
-// композера: туда они вставляются разметкой сущности, см. pickCustom.
+// The account's installed custom (Premium) emoji. Both for a reaction and
+// for the composer: there they are inserted as entity markup, see pickCustom.
 
 // The image IS the label here, so the cell holds it rather than a
 // character.
@@ -383,22 +383,21 @@ span.picker__gif {
   }
 }
 
-// Неподвижный кадр кастомного эмодзи, стикера или значка набора: холст
-// или SVG-картинка, на которые плеер нарисовал один кадр и был
-// уничтожен.
+// A still frame of a custom emoji, a sticker or a set icon: a canvas or an
+// SVG picture the player drew one frame onto and was destroyed.
 .picker__still {
   display: block;
 
-  // Пока кадр не готов (src ещё нет), <img> рисовал бы значок битой
-  // картинки и alt — место держит, но не видно.
+  // While the frame is not ready (no src yet), <img> would draw a broken
+  // picture icon and alt — it holds the place but is invisible.
   &:not([src]) {
     visibility: hidden;
   }
 }
 
-// Под курсором поверх кадра играет живой плеер (goLive в picker.js) —
-// и в ячейке эмодзи, и в плитке стикера, — а кадр на это время
-// убирается, чтобы не просвечивал по краям.
+// Under the cursor a live player plays over the frame (goLive in
+// picker.js) — both in an emoji cell and in a sticker tile — and the frame
+// is removed meanwhile so it does not show through at the edges.
 .is-live > .picker__still {
   display: none;
 }

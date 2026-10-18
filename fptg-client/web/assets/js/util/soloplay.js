@@ -1,15 +1,15 @@
-// Одно воспроизведение со звуком за раз.
+// One playback with sound at a time.
 //
-// Видео в истории, в просмотрщике, голосовые и музыка — у каждого свой
-// плеер, и раньше они могли играть одновременно. Правило одно на весь
-// документ: как только что-то начинает играть со звуком, всё остальное
-// со звуком становится на паузу.
+// Videos in the history, in the viewer, voice messages and music — each
+// has its own player, and they used to be able to play at once. The rule
+// is one for the whole document: as soon as something starts playing with
+// sound, everything else with sound pauses.
 //
-// Немые (GIF, видео-стикеры, анимированные аватарки) не трогаются и сами
-// никого не останавливают: они зацикленные «картинки», их запуском и
-// остановкой ведает util/offscreen.js.
+// Muted ones (GIFs, video stickers, animated avatars) are not touched and
+// stop nobody themselves: they are looped "pictures", util/offscreen.js
+// handles starting and stopping them.
 //
-// `play` не всплывает — поэтому слушатель в фазе перехвата на документе.
+// `play` does not bubble — hence a listener in the capture phase on the document.
 
 const audible = (media) => !media.muted && media.volume > 0;
 
@@ -21,10 +21,10 @@ function onPlay(event) {
   }
 }
 
-/** Включить правило — один раз при старте страницы (main.js). */
+/** Turn the rule on — once at the page start (main.js). */
 export function mountSoloPlay() {
   document.addEventListener('play', onPlay, true);
-  // Включили звук у уже играющего видео — тоже «начало со звуком».
+  // Sound turned on for an already playing video — also a "start with sound".
   document.addEventListener('volumechange', (event) => {
     const media = event.target;
     if (media instanceof HTMLMediaElement && !media.paused) onPlay(event);

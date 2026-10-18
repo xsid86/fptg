@@ -2,33 +2,34 @@ unit winframe;
 
 {$mode objfpc}{$H+}
 
-{ Рамка окон в цвет темы страницы — родная рамка Windows, перекрашенная
-  через DWM (DwmSetWindowAttribute), а не своя: тень, скругления, Snap,
-  системное меню и кнопки остаются системными.
+{ Window frames in the page's theme colour — the native Windows frame,
+  recoloured through DWM (DwmSetWindowAttribute), not our own: shadow,
+  rounding, Snap, the system menu and buttons stay native.
 
-  Цвета решает страница (ui/theme.js -> shell, сообщение frame:
-  caption, text, border — '#rrggbb', dark); окно только исполняет и
-  помнит последние в conf.dat (guiconn), чтобы красить рамку ещё до
-  загрузки страницы.
+  The page decides the colours (ui/theme.js -> shell, a frame message:
+  caption, text, border — '#rrggbb', dark); the window only carries them
+  out and remembers the last ones in conf.dat (guiconn), so the frame is
+  painted before the page loads.
 
-  Окна приложения — главное, мини-приложения, их диалоги, окошко звонка
-  — подключаются FrameAttach и красятся все разом: новые цвета от
-  страницы доходят и до уже открытых. FrameDetach — до уничтожения окна.
+  The application's windows — the main one, mini apps, their dialogs, the
+  call pop-up — are attached with FrameAttach and painted all at once: new
+  colours from the page reach the windows already open too. FrameDetach —
+  before the window is destroyed.
 
-  Windows 11 (22000+): заголовок, текст и кайма — цветом. Windows 10
-  20H1+: только тёмный/светлый заголовок. Раньше — ничего, вызов просто
-  откажет. На другой платформе — своя оболочка. }
+  Windows 11 (22000+): the caption, text and border — in colour. Windows
+  10 20H1+: only a dark/light caption. Earlier — nothing, the call simply
+  refuses. On another platform — its own shell. }
 
 interface
 
 uses
   Windows, SysUtils, fpjson;
 
-{ Окно приложения: покрасить текущими цветами и красить при смене. }
+{ An application window: paint it with the current colours and on every change. }
 procedure FrameAttach(AWnd: HWND);
 procedure FrameDetach(AWnd: HWND);
-{ Сообщение страницы: перекрасить все окна и запомнить, если цвета
-  новые. }
+{ A message from the page: repaint all windows and remember the colours if
+  they are new. }
 procedure FrameFromPage(AMsg: TJSONObject);
 
 implementation
@@ -37,12 +38,12 @@ uses
   jsonparser, dwmapi, guiconst, guiconn;
 
 var
-  { Текущие цвета — JSON (FrameKey), '' — ещё не было. }
+  { The current colours — JSON (FrameKey), '' — none yet. }
   GCurrent: string = '';
   GCurrentRead: boolean = False;
   GWindows: array of HWND;
 
-{ '#rrggbb' -> COLORREF ($00BBGGRR). Иное — системный цвет. }
+{ '#rrggbb' -> COLORREF ($00BBGGRR). Anything else — the system colour. }
 function CssColor(const S: string): DWORD;
 var
   V: integer;
@@ -65,15 +66,15 @@ begin
      or not Assigned(DwmSetWindowAttribute) then begin
     Exit;
   end;
-  { BOOL — 4 байта: 1 / 0. }
+  { BOOL — 4 bytes: 1 / 0. }
   SetAttr(AWnd, FRAME_ATTR_DARK_MODE, DWORD(Ord(AMsg.Get('dark', False))));
   SetAttr(AWnd, FRAME_ATTR_CAPTION, CssColor(AMsg.Get('caption', '')));
   SetAttr(AWnd, FRAME_ATTR_TEXT, CssColor(AMsg.Get('text', '')));
   SetAttr(AWnd, FRAME_ATTR_BORDER, CssColor(AMsg.Get('border', '')));
 end;
 
-{ Только цвета — без поля t и в одном порядке: по этой строке решается,
-  писать ли conf.dat. }
+{ Only the colours — without the t field and in one order: this string
+  decides whether to write conf.dat. }
 function FrameKey(AMsg: TJSONObject): string;
 var
   O: TJSONObject;
@@ -98,7 +99,7 @@ begin
   end;
 end;
 
-{ Текущие цвета -> окно. }
+{ The current colours -> the window. }
 procedure ApplyCurrent(AWnd: HWND);
 var
   Data: TJSONData;
@@ -160,14 +161,14 @@ var
   I: integer;
 begin
   for I := 0 to High(GWindows) do begin
-    { Окно могли уничтожить, не сняв с учёта (смена Handle у LCL). }
+    { The window may have been destroyed without being unregistered (LCL changing Handle). }
     if IsWindow(GWindows[I]) then begin
       ApplyTo(GWindows[I], AMsg);
     end;
   end;
   EnsureCurrent;
-  { Страница шлёт цвета при каждой загрузке — conf.dat трогать, только
-    когда они поменялись. }
+  { The page sends colours on every load — touch conf.dat only when they
+    changed. }
   Key := FrameKey(AMsg);
   if Key <> GCurrent then begin
     GCurrent := Key;

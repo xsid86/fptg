@@ -7,15 +7,15 @@ import {
 import { peerCards, peerLine, chatPicker } from './setpeers.js';
 import { getPref, setPref } from '../util/prefs.js';
 
-// «Folders» — как у Telegram Desktop: свои папки (перетаскиванием —
-// порядок), новая папка и её правка (какие чаты входят и какие нет),
-// рекомендованные папки, цветные теги папок в списке чатов (Premium).
-// Список папок — последнее updateChatFolders (td.kept: метода-геттера у
-// TDLib нет), сама папка — getChatFolder.
+// "Folders" — as in Telegram Desktop: own folders (dragging — the order), a
+// new folder and editing it (which chats are in and which are not),
+// recommended folders, coloured folder tags in the chat list (Premium).
+// The folder list is the latest updateChatFolders (td.kept: TDLib has no
+// getter method), the folder itself — getChatFolder.
 
 const folderTitle = (f) => f?.name?.text?.text ?? '';
 
-// Цвет тега папки — color_id 0..6, та же палитра, что у имён (.accent-aN).
+// A folder tag's colour — color_id 0..6, the same palette as names (.accent-aN).
 const FOLDER_COLORS = [0, 1, 2, 3, 4, 5, 6];
 
 const INCLUDE_TYPES = [
@@ -43,7 +43,7 @@ function emptyFolder() {
   return f;
 }
 
-// ------------------------------------------------------- состав папки
+// ------------------------------------------------------- folder contents
 
 function chatsPage(f, include) {
   const types = include ? INCLUDE_TYPES : EXCLUDE_TYPES;
@@ -169,9 +169,9 @@ async function openFolder(id) {
   openBox().push(editPage(id, f));
 }
 
-// --------------------------------------------------- порядок папок
+// --------------------------------------------------- folder order
 
-/** Перетаскивание строк папок: отпустили — reorderChatFolders. */
+/** Dragging folder rows: released — reorderChatFolders. */
 function sortable(list, ids, position) {
   let dragged = null;
   for (const node of list.children) {
@@ -201,7 +201,7 @@ function sortable(list, ids, position) {
   }
 }
 
-// ----------------------------------------------------------- раздел
+// ----------------------------------------------------------- section
 
 export async function renderFolders() {
   const [k, rec] = await Promise.all([
@@ -238,8 +238,8 @@ export async function renderFolders() {
           el('p', { class: 'settings__hint' }, r.description)),
         el('div', { class: 'settings__control' },
           actionButton('Add', () => saving(() => one('createChatFolder', { folder: r.folder })), { primary: true }))))) : null,
-    // Чипы папок в строках — наши, локально (util/prefs.js); с Premium
-    // заодно и теги папок аккаунта (их показывают официальные клиенты).
+    // Folder chips in the rows are ours, local (util/prefs.js); with Premium
+    // also the account's folder tags (the official clients show them).
     group('Folder tags',
       switchRow('Show folder tags', 'Display folder names for each chat in the chat list.',
         getPref('folderTags'),

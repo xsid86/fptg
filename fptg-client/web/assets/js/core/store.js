@@ -136,13 +136,13 @@ export function setMessages(payload) {
 }
 
 /**
- * Принять ли строку чата, пришедшую с историей.
+ * Whether to accept the chat row that came with the history.
  *
- * Другой чат — да. Тот же — только если его нет в списке и строка
- * изменилась: у чата, до которого дошли по пересылке, аватарка
- * докачивается уже после первого ответа и приезжает со следующим, а
- * сравнение по одному id её отбрасывало — шапка так и стояла с размытым
- * превью. Для чата из списка главный — список (setChats).
+ * Another chat — yes. The same one — only if it is not in the list and the
+ * row changed: for a chat reached by a forward the avatar finishes
+ * downloading after the first answer and arrives with the next one, and
+ * comparing by id alone dropped it — the header kept the blurred preview.
+ * For a chat from the list the list is the master (setChats).
  */
 function rowChanged(row) {
   if (data.activeRow?.id !== row.id) return true;
@@ -150,7 +150,7 @@ function rowChanged(row) {
   return JSON.stringify(data.activeRow) !== JSON.stringify(row);
 }
 
-/** Открытый чат не из списка — до него дошли по пересылке или цитате. */
+/** The open chat is not from the list — reached by a forward or a quote. */
 export const activeOffList = () => data.activeChatId !== null
   && !data.chats.some((c) => c.id === data.activeChatId);
 
@@ -169,8 +169,8 @@ export function openThread() {
 }
 
 /**
- * Можно ли вступить в открытый чат: { can, byRequest, channel } или
- * null. Едет со списком сообщений, как и ветка.
+ * Whether one can join the open chat: { can, byRequest, channel } or null.
+ * It comes with the message list, as does the thread.
  */
 export function chatJoin() {
   return data.messages?.join ?? null;

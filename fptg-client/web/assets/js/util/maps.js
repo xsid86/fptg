@@ -2,23 +2,24 @@ import { emit } from '../core/bus.js';
 import { el } from '../core/dom.js';
 import { openLink } from '../ui/links.js';
 
-// Картинки карт для геопозиций в сообщениях.
+// Map pictures for locations in messages.
 //
-// Карту рисует сам Telegram (getMapThumbnailFile на сервере, map.thumb в
-// мосте), а сообщение строится синхронно — поэтому здесь кэш по
-// координатам: первый вызов просит картинку и возвращает null, а когда она
-// приехала, событие ui:map-ready перерисовывает историю (main.js).
+// Telegram itself draws the map (getMapThumbnailFile on the server,
+// map.thumb in the bridge), while a message is built synchronously — hence
+// a cache by coordinates here: the first call asks for the picture and
+// returns null, and when it has arrived, the ui:map-ready event redraws the
+// history (main.js).
 
-const cache = new Map();   // "lat,lon" -> адрес ('' — не вышло)
+const cache = new Map();   // "lat,lon" -> the address ('' — it failed)
 const asked = new Set();
 let fetcher = null;
 
-/** Чем просить картинку: (lat, lon) => Promise<url>. Ставит main.js. */
+/** How to ask for a picture: (lat, lon) => Promise<url>. Set by main.js. */
 export function setMapFetcher(fn) {
   fetcher = fn;
 }
 
-/** Адрес картинки карты или null, пока её нет. */
+/** The map picture's address or null while there is none. */
 export function mapUrl(lat, lon) {
   const key = `${Number(lat).toFixed(6)},${Number(lon).toFixed(6)}`;
   if (cache.has(key)) return cache.get(key) || null;
@@ -32,9 +33,9 @@ export function mapUrl(lat, lon) {
   return null;
 }
 
-// --------------------------------------------------------- сервисы
-// Где открыть точку. Коды — те же, что MAPS_PROVIDERS в constants.pas;
-// адреса — публичные ссылки «показать точку» каждого сервиса.
+// --------------------------------------------------------- services
+// Where to open a point. The codes are the same as MAPS_PROVIDERS in
+// constants.pas; the addresses — each service's public "show a point" links.
 export const MAP_PROVIDERS = [
   { id: 'google', label: 'Google Maps',
     url: (lat, lon) => `https://www.google.com/maps/search/?api=1&query=${lat},${lon}` },
@@ -52,22 +53,22 @@ export const MAP_PROVIDERS = [
     url: (lat, lon) => `https://wego.here.com/?map=${lat},${lon},17` },
 ];
 
-let provider = '';      // сервис по умолчанию; '' — спрашивать
-let saver = null;       // (id) => сохранить выбор (settings.set, main.js)
+let provider = '';      // the default service; '' — ask
+let saver = null;       // (id) => save the choice (settings.set, main.js)
 
-/** Сервис по умолчанию — из settings.get / события settings. */
+/** The default service — from settings.get / the settings event. */
 export function setMapProvider(id) {
   provider = MAP_PROVIDERS.some((p) => p.id === id) ? id : '';
 }
 
-/** Как сохранить выбор «запомнить». Ставит main.js. */
+/** How to save the "remember" choice. Set by main.js. */
 export function setMapSaver(fn) {
   saver = fn;
 }
 
 /**
- * Открыть точку во внешнем сервисе карт: в выбранном по умолчанию или —
- * если он не задан — после окна выбора с галочкой «Remember my choice».
+ * Open a point in an external map service: the default one or — if none is
+ * set — after the choice window with the "Remember my choice" checkbox.
  */
 export function openMapPoint(lat, lon) {
   const known = MAP_PROVIDERS.find((p) => p.id === provider);

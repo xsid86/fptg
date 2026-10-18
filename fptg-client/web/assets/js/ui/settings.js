@@ -22,26 +22,26 @@ import { renderPremium, renderStars, renderGift } from './setpremium.js';
 import { renderBusiness } from './setbusiness.js';
 import { openProxies } from './setproxy.js';
 
-// Настройки приложения.
+// The application settings.
 //
-// Значения живут на сервере (config.ini, владелец — tdcore), страница
-// их только показывает и отправляет по одному. Каждое изменение
-// сохраняется сразу, кнопки «Сохранить» нет: ответ сервера — это уже
-// зажатое значение, и поле показывает именно его, так что 500 при
-// пределе 20 тут же превращается в 20 у всех открытых страниц.
+// The values live on the server (config.ini, owned by tdcore); the page
+// only shows them and sends them one at a time. Every change is saved at
+// once, there is no "Save" button: the server's answer is the already
+// clamped value, and the field shows exactly that, so 500 with a limit of
+// 20 turns into 20 at once on all open pages.
 //
-// Раскладка как у нативного окна настроек: разделы слева, содержимое
-// раздела справа. Окно — модальный <dialog>, растянутый на всё окно
-// приложения с отступом 32px (см. blocks/_settings.scss).
+// The layout is like the native settings window: sections on the left, the
+// section's content on the right. The window is a modal <dialog> stretched
+// over the whole app window with a 32px margin (see blocks/_settings.scss).
 //
-// Разделы — в порядке и под именами Telegram Desktop. Наше, чего у
-// Desktop нет отдельным разделом (загрузки, кэш, сервис карт, закрытие в
-// трей, сервер), — внутри Advanced, как у него «Data and storage» и
-// «System integration». Раздел может быть async: старое содержимое
-// стоит, пока новое не готово (renderPane).
+// Sections — in the order and under the names of Telegram Desktop. Our own
+// things Desktop has no separate section for (downloads, cache, the map
+// service, closing to the tray, the server) — inside Advanced, as it has
+// "Data and storage" and "System integration". A section may be async: the
+// old content stays until the new one is ready (renderPane).
 //
-// Три пункта справки — пока пустые: это будут ссылки на сайт проекта
-// с вопросами о самом fptg, не о Telegram.
+// Three help items are empty for now: they will be links to the project
+// site with questions about fptg itself, not about Telegram.
 
 const SECTIONS = [
   { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
@@ -71,15 +71,15 @@ let hooks = {};
 let nav = null;
 let pane = null;
 let current = PAGES[0].id;
-let data = null;      // последний ответ settings.get / событие settings
-let storage = null;   // последний ответ storage.get / событие storage
+let data = null;      // the latest settings.get answer / settings event
+let storage = null;   // the latest storage.get answer / storage event
 let storageView = null;
-// Подстраница Advanced: null — сам раздел, иначе id подстраницы
+// The Advanced subpage: null — the section itself, otherwise the subpage id
 // (downloads, autodownload, storage, maps).
 let advancedView = null;
 let paneSeq = 0;
 
-// Углы экрана — коды те же, что у сервера (DESKNOTIFY_CORNERS).
+// Screen corners — the same codes as the server's (DESKNOTIFY_CORNERS).
 const CORNERS = [
   { id: 'tl', label: 'Top left' },
   { id: 'tr', label: 'Top right' },
@@ -88,8 +88,8 @@ const CORNERS = [
 ];
 
 /**
- * Выбор угла: схема экрана, в каждом углу — карточка в миниатюре, как
- * в Telegram Desktop. Выбранная — цвета акцента.
+ * The corner choice: a screen diagram with a miniature card in each corner,
+ * as in Telegram Desktop. The chosen one is in the accent colour.
  */
 function cornerControl(id, value, onCommit) {
   const box = el('div', {
@@ -116,33 +116,33 @@ function markCorner(box, value) {
 
 // ------------------------------------------------------------- saving
 /**
- * Одна настройка на сервер. Поле, из которого пришло значение, получает
- * назад то, что сервер реально сохранил; остальной раздел обновит
- * событие settings, которое сервер шлёт всем страницам.
+ * One setting to the server. The field the value came from gets back what
+ * the server actually saved; the rest of the section is updated by the
+ * settings event the server sends to all pages.
  */
 async function commit(args, input, read) {
   try {
     data = await hooks.load('settings.set', args);
     if (input && read) read(input, data);
-    // Закрытие в трей и карточки исполняет окно (ui/shell.js); поменяли
-    // карточки — показать образец, как Telegram Desktop.
+    // Closing to the tray and the cards are carried out by the window
+    // (ui/shell.js); the cards changed — show a sample, like Telegram Desktop.
     shellSettings(data);
     if (String(args?.key).startsWith('notify.') && data?.notify?.enabled) {
       postShell({ t: 'notifySample' });
     }
   } catch (error) {
     hooks.report(error);
-    // Отказ (например, пустое имя устройства) — вернуть поле к тому,
-    // что действует, а не оставлять в нём несохранённое.
+    // A refusal (for example, an empty device name) — return the field to
+    // what is in effect rather than leaving the unsaved value in it.
     if (input && read && data) read(input, data);
   }
 }
 
 // ---------------------------------------------------------- my account
-// Раздел «My account» — как «Мой аккаунт» нативного клиента: фото, имя,
-// «о себе», имя пользователя, телефон, личный канал, день рождения.
-// Данные — не из settings.get, а прямо из TDLib (account.get: getMe +
-// getUserFullInfo), и каждое поле сохраняется само по change.
+// The "My account" section — like the native client's "My account": photo,
+// name, bio, username, phone, personal channel, birthday. The data is not
+// from settings.get but straight from TDLib (account.get: getMe +
+// getUserFullInfo), and every field saves itself on change.
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
@@ -155,18 +155,18 @@ const USERNAME_HINTS = {
   unavailable: 'This username cannot be used.',
 };
 
-let account = null;     // последний ответ account.get
+let account = null;     // the latest account.get answer
 let accountLoading = false;
-// Внутри раздела — основной вид или выбор цвета (как отдельный экран
-// «Предпросмотр цвета» у нативного клиента).
+// Inside the section — the main view or the colour choice (like the
+// native client's separate "Color preview" screen).
 let accountView = 'main';
 let colorTab = 'profile';
-let pick = null;        // { accent, profile } — выбранное, ещё не сохранённое
+let pick = null;        // { accent, profile } — chosen, not yet saved
 
 /**
- * Окошко поверх настроек: текст и кнопки. Вложенный модальный <dialog>
- * встаёт в верхний слой над окном настроек. Те же классы, что у
- * подтверждения удаления сообщения (blocks/_confirm.scss).
+ * A small window over the settings: text and buttons. A nested modal
+ * <dialog> goes into the top layer above the settings window. The same
+ * classes as the message deletion confirmation (blocks/_confirm.scss).
  */
 function alertBox(text, buttons = []) {
   const box = el('dialog', { class: 'confirm' });
@@ -191,8 +191,8 @@ function alertBox(text, buttons = []) {
 }
 
 /**
- * Свои аватарки в просмотрщике: «Set as main» и «Delete» на верхней
- * полосе. Просмотрщик вешается внутрь окна настроек — см. openViewer.
+ * Own avatars in the viewer: "Set as main" and "Delete" on the top bar. The
+ * viewer is hung inside the settings window — see openViewer.
  */
 async function openGallery(a) {
   let answer;
@@ -202,11 +202,11 @@ async function openGallery(a) {
     hooks.report(error);
     return;
   }
-  // '-' — файл не скачался; такой слайд показать нечем.
+  // '-' — the file did not download; there is nothing to show such a slide with.
   const photos = answer.photos.filter((p) => p.url && p.url !== '-');
   if (!photos.length) return;
-  // Анимированная — зацикленным видео без звука, картинка постером и
-  // миниатюрой полосы (просмотрщик так же играет GIF).
+  // An animated one — as a looped video without sound, the picture as the
+  // poster and the strip thumbnail (the viewer plays GIFs the same way).
   const slides = photos.map((p) => (p.animUrl && p.animUrl !== '-'
     ? {
       id: p.id,
@@ -225,7 +225,7 @@ async function openGallery(a) {
         name: 'photo-main',
         title: 'Set as main',
         onClick: (i) => {
-          // Первое и есть основное.
+          // The first one is the main one.
           if (i <= 0 || !photos[i]) return;
           closeViewer();
           saveAccount({ key: 'photoMain', photoId: photos[i].id });
@@ -249,7 +249,7 @@ async function openGallery(a) {
   });
 }
 
-/** Кружок цвета: половинки — --swatch-1/2, точка — --swatch-3 (base/_palette.scss). */
+/** A colour circle: the halves — --swatch-1/2, the dot — --swatch-3 (base/_palette.scss). */
 function swatchGrid(ids, prefix, chosen, onPick, extraClass = '') {
   return el('div', { class: `color-grid${extraClass ? ` ${extraClass}` : ''}`, role: 'radiogroup' },
     ...ids.map((id) => el('button', {
@@ -337,7 +337,7 @@ function renderColors(a) {
   ];
 }
 
-/** Один файл на POST /upload (токен — core/session.js); ответ — id загрузки. */
+/** One file per POST /upload (the token — core/session.js); the answer is the upload id. */
 async function uploadFile(file) {
   const res = await fetch(await uploadUrl(file.name), { method: 'POST', body: file });
   const answer = (await res.text()).trim();
@@ -345,7 +345,7 @@ async function uploadFile(file) {
   return answer;
 }
 
-/** Поле аккаунта на сервер, потом раздел перечитывается целиком. */
+/** An account field to the server, then the section is re-read whole. */
 async function saveAccount(args) {
   try {
     await hooks.load('account.set', args);
@@ -371,11 +371,11 @@ async function reloadAccount() {
 
 function accountHeader(a) {
   const avatar = el('span', { class: `avatar settings__avatar accent-${a.color}` });
-  // avatarAnim — анимированная аватарка (<video>, util/avatar.js).
+  // avatarAnim — an animated avatar (<video>, util/avatar.js).
   fillAvatar(avatar, {
     id: a.id, title: a.title, avatar: a.avatar, avatarThumb: a.avatarThumb, avatarAnim: a.avatarAnim,
   });
-  // Клик по аватарке — галерея своих фото, как у нативного клиента.
+  // A click on the avatar — the gallery of own photos, as in the native client.
   const avatarBtn = el('button', {
     class: 'settings__avatar-btn', type: 'button', title: 'Your photos',
     onclick: () => openGallery(a),
@@ -429,7 +429,7 @@ function usernameControl(id, a, status) {
         status.textContent = '';
         return;
       }
-      // Проверка — когда набор замер, а не на каждую букву.
+      // The check — when typing has paused, not on every letter.
       timer = setTimeout(async () => {
         asked = name;
         try {
@@ -462,7 +462,7 @@ function nameControl(id, a, which) {
   return el('label', { class: 'field settings__field settings__field--wide' }, input);
 }
 
-/** Личный канал: «нет» и каналы из getSuitablePersonalChats. */
+/** The personal channel: "none" and the channels from getSuitablePersonalChats. */
 function personalControl(id, a) {
   const select = el('select', {
     class: 'settings__select', id,
@@ -481,7 +481,7 @@ function personalControl(id, a) {
   return select;
 }
 
-/** День и месяц обязательны, год — нет (0 у TDLib — «не указан»). */
+/** Day and month are required, the year is not (0 in TDLib — "not set"). */
 function birthdayControl(id, a) {
   const b = a.birthdate;
   const day = el('select', { class: 'settings__select', id, 'aria-label': 'Day' },
@@ -499,7 +499,7 @@ function birthdayControl(id, a) {
   const save = () => {
     const d = Number(day.value);
     const m = Number(month.value);
-    // Наполовину заполненное не сохраняется; оба пустые — убрать.
+    // A half-filled date is not saved; both empty — remove it.
     if ((d === 0) !== (m === 0)) return;
     saveAccount({ key: 'birthdate', day: d, month: m, year: Number(year.value) || 0 });
   };
@@ -542,7 +542,7 @@ function renderAccount() {
       row(uid(), 'Phone number', null,
         el('button', {
           class: 'btn settings__link u-tabular', type: 'button',
-          // Так же, как нативный клиент: номер меняется только с телефона.
+          // The same as the native client: the number changes only from the phone.
           onclick: () => alertBox('You can change your phone number only in the '
             + 'official Telegram app on your phone.'),
         }, a.phone ? `+${a.phone}` : '—'))),
@@ -565,8 +565,8 @@ function renderAccount() {
 }
 
 // ----------------------------------------------------------- sections
-// Устройства звонков и громкость — та же панель, что в окне звонка
-// (calls/devices.js). Хранится в браузере этой страницы, не на сервере.
+// Call devices and volume — the same panel as in the call window
+// (calls/devices.js). Kept in this page's browser, not on the server.
 async function renderCalls() {
   return [
     group('Devices and volume', devicePanel()),
@@ -577,7 +577,7 @@ async function renderCalls() {
   ];
 }
 
-/** Chat settings: масштаб, тема, акцент — вид окна; дальше аккаунт. */
+/** Chat settings: scale, theme, accent — the window's look; then the account. */
 function renderChats() {
   return chatSettingsParts(swatchGrid(ACCENTS, 'app-', currentAccent(), (key) => {
     setAccent(key);
@@ -585,7 +585,7 @@ function renderChats() {
   }, 'color-grid--inline'));
 }
 
-// Подстраницы Advanced: «Data and storage» и наше.
+// The Advanced subpages: "Data and storage" and our own.
 const ADVANCED_VIEWS = {
   downloads: { label: 'Downloads', render: () => renderDownloads() },
   autodownload: { label: 'Automatic media download', render: () => renderAutoDownload() },
@@ -634,7 +634,7 @@ function renderAdvanced() {
         switchControl(tray, data.closeToTray, (checked, input) => commit(
           { key: 'closeToTray', value: checked }, input,
           (node, d) => { node.checked = d.closeToTray; }))),
-      // Не сервер, а вид этого окна — без commit (ui/status-bar.js).
+      // Not the server but this window's look — without commit (ui/status-bar.js).
       row(traffic, 'Show connection traffic',
         'Under Online: what this window has received and sent, '
         + 'with the current speed.',
@@ -646,8 +646,8 @@ function renderAdvanced() {
         textControl(device, data.deviceModel, (value, input) => commit(
           { key: 'deviceModel', value }, input,
           (node, d) => { node.value = d.deviceModel; }))),
-      // Вход на сервер (core/session.js): кто и куда; выход гасит сеанс на
-      // сервере — в окне это ещё и трей → Sign out.
+      // Signing in to the server (core/session.js): who and where; signing out
+      // ends the session on the server — in the window it is also tray → Sign out.
       row(server, 'fptg server',
         `Signed in as ${currentUser() || '?'} on ${serverBase.replace(/^https?:\/\//, '')}.`,
         el('button', { id: server, class: 'btn settings__link', type: 'button',
@@ -701,7 +701,7 @@ async function renderNotifications() {
   ];
 }
 
-/** Где открывать точки геопозиции: сервис по умолчанию или спрашивать. */
+/** Where to open location points: the default service or ask. */
 function renderMaps() {
   const name = uid();
   const options = [{ id: '', label: 'Ask every time' }, ...MAP_PROVIDERS];
@@ -748,9 +748,9 @@ function renderDownloads() {
 }
 
 /**
- * Сетка «вид медиа × вид чата». Таблицей, а не группой флажков на
- * каждый вид медиа, как в нативном окне: ширины у страницы хватает, и
- * столбец читается как «что качается в группах» с одного взгляда.
+ * The "media kind × chat kind" grid. As a table rather than a group of
+ * checkboxes for every media kind, as in the native window: the page is
+ * wide enough, and a column reads as "what downloads in groups" at a glance.
  */
 function renderAutoDownload() {
   const a = data.autodownload;
@@ -790,7 +790,7 @@ function storageStatus(s) {
   return '';
 }
 
-/** Обновляет только цифры кэша — поля ввода при этом не трогаются. */
+/** Updates only the cache figures — the input fields are not touched. */
 function updateStorage() {
   if (!storageView || !storage) return;
   const s = storage;
@@ -824,8 +824,8 @@ function renderStorage() {
       },
     }, 'Clean up now'),
   };
-  // Цифры двигаются, пока приложение работает, поэтому спрашиваются при
-  // каждом заходе в раздел; свежие приедут событием storage.
+  // The figures move while the app runs, so they are asked on every visit to
+  // the section; fresh ones arrive with the storage event.
   hooks.load('storage.get')
     .then((s) => { storage = s; updateStorage(); })
     .catch(hooks.report);
@@ -868,10 +868,10 @@ function renderNav() {
 }
 
 /**
- * Раздел — в панель. Async-раздел (данные из TDLib) сначала готовится
- * целиком, старое содержимое тем временем на месте (панель «занята»),
- * и только потом подмена: так же, как переходы окон (ui/tgbox.js).
- * Первый показ раздела — «Loading…», пока готовится.
+ * A section into the panel. An async section (data from TDLib) is first
+ * prepared whole, the old content stays in place meanwhile (the panel is
+ * "busy"), and only then the swap: the same as window transitions
+ * (ui/tgbox.js). A section's first showing — "Loading…" while it prepares.
  */
 async function renderPane() {
   const section = PAGES.find((s) => s.id === current) ?? PAGES[0];
@@ -907,7 +907,7 @@ function paneHead(section) {
     }, icon('close'), el('span', { class: 'u-sr-only' }, 'Close')));
 }
 
-// Колонка содержимого — по центру панели (blocks/_settings.scss).
+// The content column — in the centre of the panel (blocks/_settings.scss).
 function paneBody(nodes) {
   return el('div', { class: 'settings__body' },
     el('div', { class: 'settings__content' }, ...nodes));
@@ -922,7 +922,7 @@ function select(id) {
 
 async function open() {
   if (dialog.open) return;
-  // Аккаунт меняется и с телефона — при каждом открытии спрашивается заново.
+  // The account changes from the phone too — it is asked anew on every open.
   account = null;
   accountView = 'main';
   advancedView = null;
@@ -932,7 +932,7 @@ async function open() {
   renderPane();
   dialog.showModal();
   try {
-    // Premium решает, какие настройки активны (ui/setkit.js).
+    // Premium decides which settings are active (ui/setkit.js).
     const [settings, me] = await Promise.all([
       hooks.load('settings.get'),
       hooks.load('account.get').catch(() => null),
@@ -952,7 +952,7 @@ function close() {
   dialog.close();
 }
 
-/** Открыть сразу на разделе (клик по «Online» в строке состояния). */
+/** Open right on a section (a click on "Online" in the status bar). */
 export function openSettings(id) {
   if (dialog.open) {
     select(id);
@@ -963,9 +963,9 @@ export function openSettings(id) {
 }
 
 /**
- * Пока фокус в поле этой страницы, раздел не перестраивается: иначе
- * чужое изменение (из другой вкладки или нативного окна) выбило бы
- * курсор из поля, в котором сейчас печатают.
+ * While focus is in a field of this page, the section is not rebuilt:
+ * otherwise someone else's change (from another tab or the native window)
+ * would knock the caret out of the field being typed in.
  */
 function editing() {
   const active = document.activeElement;
@@ -984,13 +984,13 @@ export function mountSettings(node, button, options) {
   dialog.append(el('div', { class: 'settings__window' }, nav, pane));
 
   opener.addEventListener('click', open);
-  // Esc при открытом просмотрщике (галерея аватарок живёт внутри этого
-  // диалога) закрывает только просмотрщик.
+  // Esc with the viewer open (the avatar gallery lives inside this dialog)
+  // closes only the viewer.
   dialog.addEventListener('cancel', (event) => {
     if (viewerOpen()) event.preventDefault();
   });
-  // Клик мимо окна — по самому <dialog>, который занимает весь экран
-  // вокруг него, — закрывает, как у любого модального слоя.
+  // A click outside the window — on the <dialog> itself, which takes the
+  // whole screen around it — closes it, as with any modal layer.
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) close();
   });

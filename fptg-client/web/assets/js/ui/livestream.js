@@ -3,39 +3,41 @@ import { on } from '../core/bus.js';
 import { icon } from '../util/icons.js';
 import { parseLocal, joinPayload } from '../calls/group.js';
 
-// Окно трансляции — RTMP-эфира канала или группы (groupCall.is_rtmp_stream).
-// Медиа идёт не по WebRTC, а секундными кусками через TDLib
-// (vchat.streams / vchat.segment, webapi.pas). Порядок — по документации
-// Telegram (core.telegram.org/api/group-calls, «RTMP mode») и tgcalls
+// The live stream window — an RTMP broadcast of a channel or group
+// (groupCall.is_rtmp_stream). The media goes not over WebRTC but in
+// one-second pieces through TDLib (vchat.streams / vchat.segment,
+// webapi.pas). The order is per the Telegram docs
+// (core.telegram.org/api/group-calls, "RTMP mode") and tgcalls
 // (StreamingMediaContext, VideoStreamingPart):
 //
-//  1. Вход как в видеочат (vchat.join): WebRTC-описание нужно только для
-//     join-payload, сам PeerConnection сразу закрывается — ответ сервера
-//     {"stream":true,"rtmp":true}.
-//  2. Список каналов (getGroupCallStreams): пустой или ошибка — эфир не
-//     идёт («… is not streaming right now»), спросить снова позже. У
-//     живого — time_offset, конец потока; старт на STREAM_BUFFER_MS
-//     раньше, по сетке STREAM_SEGMENT_MS.
-//  3. Куски канала 1 (в RTMP — видео и звук вместе), качество full,
-//     scale 0 (секунда), один за другим. «Не готов» (FLOOD_WAIT /
-//     TIME_TOO_BIG — у TDLib это 429) — тот же кусок через
-//     STREAM_RETRY_MS. Слишком долго не готов — назад к шагу 2.
+//  1. Join as a video chat (vchat.join): the WebRTC description is needed
+//     only for the join payload, the PeerConnection itself closes at once —
+//     the server answers {"stream":true,"rtmp":true}.
+//  2. The channel list (getGroupCallStreams): empty or an error — the
+//     broadcast is not on ("… is not streaming right now"), ask again later.
+//     A live one has time_offset, the end of the stream; the start is
+//     STREAM_BUFFER_MS earlier, on the STREAM_SEGMENT_MS grid.
+//  3. The pieces of channel 1 (in RTMP — video and sound together), quality
+//     full, scale 0 (a second), one after another. "Not ready" (FLOOD_WAIT /
+//     TIME_TOO_BIG — in TDLib that is 429) — the same piece after
+//     STREAM_RETRY_MS. Not ready for too long — back to step 2.
 //
-// Кусок: заголовок tgcalls (сигнатура 0xa12e810d, имя контейнера,
-// маска, одно событие со смещением и поворотом), за ним — сам контейнер
-// (по имени: «mp4»). Фрагментированный MP4 идёт в MediaSource подряд;
-// обычный — запасной путь: каждый кусок своим <video>, два по очереди.
+// A piece: the tgcalls header (signature 0xa12e810d, the container name, a
+// mask, one event with an offset and rotation), followed by the container
+// itself (by name: "mp4"). Fragmented MP4 goes into MediaSource one after
+// another; a plain one — the fallback path: each piece in its own <video>,
+// two in turn.
 //
-// ПРОВЕРЕНО ЖИВЬЁМ: вход, ответ {"stream":true,"rtmp":true}, пустой эфир
-// (FLOOD_WAIT на списке каналов — так же «не ведёт трансляцию» у
-// официального клиента). НЕ ПРОВЕРЕНО: разбор и проигрывание кусков — не
-// было эфира с картинкой.
+// VERIFIED LIVE: joining, the {"stream":true,"rtmp":true} answer, an empty
+// broadcast (FLOOD_WAIT on the channel list — likewise "not streaming" in
+// the official client). NOT VERIFIED: parsing and playing pieces — there
+// was no broadcast with a picture.
 
 const STREAM_SEGMENT_MS = 1000;
 const STREAM_BUFFER_MS = 2000;
 const STREAM_RETRY_MS = 100;
-const STREAM_POLL_MS = 5000;           // эфир не идёт — спросить снова через
-const STREAM_STALL_MS = 10000;         // кусок не готов столько — эфир пропал
+const STREAM_POLL_MS = 5000;           // the broadcast is not on — ask again after
+const STREAM_STALL_MS = 10000;         // a piece not ready this long — the broadcast is gone
 const PART_SIGNATURE = 0xa12e810d;
 
 let hooks = {};
@@ -49,7 +51,7 @@ function report(error) {
   hooks.report?.(error);
 }
 
-// ------------------------------------------------------------ кусок
+// ------------------------------------------------------------ piece
 function b64bytes(s) {
   const bin = atob(s);
   const out = new Uint8Array(bin.length);
@@ -57,7 +59,7 @@ function b64bytes(s) {
   return out;
 }
 
-/** Строка tgcalls: длина байтом (254 — дальше 3 байта длины), байты, выравнивание на 4. */
+/** A tgcalls string: the length as a byte (254 — 3 length bytes follow), the bytes, alignment to 4. */
 function readString(view, bytes, pos) {
   let len = view.getUint8(pos);
   let head = 1;
@@ -70,14 +72,14 @@ function readString(view, bytes, pos) {
   return { text, next: pos + used + ((4 - (used % 4)) % 4) };
 }
 
-/** Заголовок куска -> { container, rotation, media } или null. */
+/** A piece's header -> { container, rotation, media } or null. */
 export function parsePart(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length < 8 || view.getUint32(0, true) !== PART_SIGNATURE) return null;
   const container = readString(view, bytes, 4);
   let pos = container.next;
   pos += 4;                                   // activeMask
-  pos += 4;                                   // eventCount (tgcalls читает одно событие)
+  pos += 4;                                   // eventCount (tgcalls reads one event)
   const offset = view.getInt32(pos, true);
   const endpoint = readString(view, bytes, pos + 4);
   pos = endpoint.next;
@@ -88,7 +90,7 @@ export function parsePart(bytes) {
 }
 
 // ------------------------------------------------------------ MP4
-/** Верхние коробки MP4: [{ type, start, size }]. */
+/** The top-level MP4 boxes: [{ type, start, size }]. */
 function boxes(bytes, from = 0, to = bytes.length) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const out = [];
@@ -104,7 +106,7 @@ function boxes(bytes, from = 0, to = bytes.length) {
   return out;
 }
 
-/** Первая коробка type внутри (поиск по байтам — avcC и т.п. стоят глубоко). */
+/** The first box of type inside (a byte search — avcC and the like sit deep). */
 function findBox(bytes, type) {
   const t = [...type].map((c) => c.charCodeAt(0));
   for (let i = 4; i + 4 <= bytes.length; i += 1) {
@@ -115,7 +117,7 @@ function findBox(bytes, type) {
   return -1;
 }
 
-/** MIME для MediaSource по avcC / mp4a, или ''. */
+/** The MIME for MediaSource by avcC / mp4a, or ''. */
 function mp4Mime(bytes) {
   const codecs = [];
   const avcc = findBox(bytes, 'avcC');
@@ -128,8 +130,8 @@ function mp4Mime(bytes) {
   return codecs.length ? `video/mp4; codecs="${codecs.join(', ')}"` : '';
 }
 
-// ------------------------------------------------------------ проигрывание
-/** Фрагментированный MP4 подряд в одном <video> через MediaSource. */
+// ------------------------------------------------------------ playback
+/** Fragmented MP4 one after another in one <video> through MediaSource. */
 class SourcePlayer {
   constructor(video, mime) {
     this.video = video;
@@ -155,7 +157,7 @@ class SourcePlayer {
 
   pump() {
     if (!this.sb || this.sb.updating || !this.queue.length) return;
-    // Позади текущего места держать не больше нескольких секунд.
+    // Keep no more than a few seconds behind the current position.
     const t = this.video.currentTime;
     if (this.sb.buffered.length && t - this.sb.buffered.start(0) > 10) {
       this.sb.remove(0, t - 5);
@@ -172,7 +174,7 @@ class SourcePlayer {
   }
 }
 
-/** Запасной путь: каждый кусок — свой файл, два <video> по очереди. */
+/** The fallback path: each piece is its own file, two <video> in turn. */
 class ChainPlayer {
   constructor(a, b) {
     this.v = [a, b];
@@ -229,7 +231,7 @@ class ChainPlayer {
   }
 }
 
-// ------------------------------------------------------------ вид
+// ------------------------------------------------------------ view
 const btn = (cls, iconNode, label, onclick) => el('button', {
   class: `call__btn ${cls}`, type: 'button', title: label, onclick,
 }, iconNode, el('span', { class: 'call__btn-label', textContent: label }));
@@ -271,11 +273,11 @@ function render() {
   ui.note.textContent = state.mode === 'waiting'
     ? `${state.title || 'This chat'} is not streaming right now.`
     : 'Connecting...';
-  // Поворот кадра из заголовка куска — классом (style запрещён).
+  // The frame rotation from the piece header — by a class (style is forbidden).
   for (const r of [90, 180, 270]) ui.stage.classList.toggle(`is-rot-${r}`, state.rotation === r);
 }
 
-// ------------------------------------------------------------ конвейер
+// ------------------------------------------------------------ pipeline
 const alive = (gen) => state && state.gen === gen;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const notReady = (e) => /Too Many Requests|TIME_TOO_BIG|FLOOD_WAIT|timed out/i.test(e?.message ?? '');
@@ -295,14 +297,14 @@ async function join(gen) {
     if (!alive(gen)) return false;
     state.joined = true;
     let answer = {};
-    try { answer = JSON.parse(r.payload || '{}'); } catch { /* не JSON — не поток */ }
+    try { answer = JSON.parse(r.payload || '{}'); } catch { /* not JSON — not a stream */ }
     return Boolean(answer.stream);
   } finally {
     pc.close();
   }
 }
 
-/** Конец потока (мс) или 0 — эфир не идёт. */
+/** The end of the stream (ms) or 0 — the broadcast is not on. */
 async function streamEnd() {
   try {
     const r = await call('vchat.streams', { groupCallId: state.callId });
@@ -346,7 +348,7 @@ async function run(gen) {
   }
 }
 
-/** Куски подряд, пока идут; вернуться — значит, эфир пропал. */
+/** Pieces one after another while they come; returning means the broadcast is gone. */
 async function play(gen, from) {
   let ts = from;
   let stalledSince = 0;
@@ -397,7 +399,7 @@ function feed(part) {
   state.player.push(part.media);
 }
 
-// ------------------------------------------------------------ вход и выход
+// ------------------------------------------------------------ join and leave
 function close(leave) {
   if (!state) return;
   const id = state.callId;
@@ -409,7 +411,7 @@ function close(leave) {
   if (leave && joined) call('vchat.leave', { groupCallId: id }).catch(() => {});
 }
 
-/** { chatId, title, callId, call } — из ui/videochat.js (call.rtmp). */
+/** { chatId, title, callId, call } — from ui/videochat.js (call.rtmp). */
 export function openLiveStream(args) {
   if (state) {
     if (state.callId === args.callId) return;

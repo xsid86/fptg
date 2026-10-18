@@ -3,39 +3,40 @@ import { fillAvatar } from '../util/avatar.js';
 import { markPopDirection } from '../util/pop.js';
 import { clockTime, dateLabel } from '../util/format.js';
 
-// Кто поставил реакцию и кто прочитал — всплывающий список по наведению:
-// аватарка 16x16, имя, время.
+// Who reacted and who read — a pop-up list on hover: a 16x16 avatar, a
+// name, the time.
 //
-// Telegram отдаёт эти списки не везде, и лишних вопросов не задаётся:
-//   * реакции — только где can_get_added_reactions; этот флаг приходит
-//     с самим сообщением, и без него список на чип не вешается вовсе;
-//   * «кто прочитал» — сервер сначала проверяет can_get_viewers /
-//     can_get_read_date (getMessageProperties). «Нельзя» запоминается
-//     здесь по сообщению, и больше оно не спрашивается; «можно» —
-//     тоже, и дальше уходит сразу запрос списка (checked).
-// Окно появляется, только когда есть ответ; нельзя или ошибка — его
-// нет совсем, без «Loading…» и без текста отказа.
+// Telegram does not give these lists everywhere, and no needless questions
+// are asked:
+//   * reactions — only where can_get_added_reactions; that flag comes with
+//     the message itself, and without it no list is hung on the chip at all;
+//   * "who read it" — the server first checks can_get_viewers /
+//     can_get_read_date (getMessageProperties). "Not allowed" is remembered
+//     here per message, and it is not asked again; "allowed" — too, and
+//     after that the list request goes at once (checked).
+// The window appears only when there is an answer; not allowed or an error
+// — there is none at all, without "Loading…" and without a refusal text.
 //
-// Popover вне потока, как меню и панель эмодзи: верхний слой, ничего
-// его не обрежет. Место — anchor positioning от того, на что навели
-// (.is-people-anchor, blocks/_people.scss).
+// A popover outside the flow, like the menu and the emoji panel: the top
+// layer, nothing clips it. The place — anchor positioning from what was
+// hovered (.is-people-anchor, blocks/_people.scss).
 
-const SHOW_DELAY_MS = 350;   // мимолётное касание курсором — не повод спрашивать сервер
-const HIDE_DELAY_MS = 200;   // успеть перевести курсор с чипа на сам список
+const SHOW_DELAY_MS = 350;   // a fleeting touch of the cursor is no reason to ask the server
+const HIDE_DELAY_MS = 200;   // time to move the cursor from the chip to the list itself
 
 let hooks = {};
 let panel = null;
 let anchor = null;
 let showTimer = 0;
 let hideTimer = 0;
-let asked = 0;               // номер запроса: ответ на прежнее наведение отбрасывается
-// id сообщения -> можно ли спрашивать, кто его прочитал (ответ сервера).
+let asked = 0;               // the request number: an answer to a previous hover is discarded
+// message id -> whether one may ask who read it (the server's answer).
 const viewersAllowed = new Map();
 
 function ensurePanel() {
   if (panel) return panel;
   panel = el('div', { class: 'people', popover: 'manual' });
-  // Курсор, ушедший с чипа на список, не должен его закрыть.
+  // A cursor that went from the chip to the list must not close it.
   panel.addEventListener('pointerenter', () => clearTimeout(hideTimer));
   panel.addEventListener('pointerleave', scheduleHide);
   document.body.append(panel);
@@ -71,11 +72,11 @@ async function show(target, args, title) {
   try {
     data = await hooks.load(viewers && viewersAllowed.get(args.id) ? { ...args, checked: true } : args);
   } catch {
-    return;              // отказ Telegram — окна нет
+    return;              // Telegram refused — no window
   }
   if (viewers) viewersAllowed.set(args.id, data?.allowed !== false);
   if (data?.allowed === false) return;
-  // Курсор ушёл, пока ждали ответа, или навёлся на другое.
+  // The cursor left while we waited for the answer, or hovered something else.
   if (my !== asked || !target.matches(':hover')) return;
 
   ensurePanel();
@@ -102,7 +103,7 @@ function hide() {
   asked += 1;
   anchor?.classList.remove('is-people-anchor');
   anchor = null;
-  try { panel?.hidePopover(); } catch { /* уже закрыт */ }
+  try { panel?.hidePopover(); } catch { /* already closed */ }
 }
 
 function scheduleHide() {
@@ -112,9 +113,9 @@ function scheduleHide() {
 }
 
 /**
- * Вешает список на узел: args — то, что уйдёт в message.people
+ * Hangs the list on a node: args — what goes into message.people
  * ({id, what: 'reactions' | 'viewers', emoji?, customEmojiId?}), title —
- * заголовок списка.
+ * the list's heading.
  */
 export function peopleOnHover(node, args, title) {
   node.addEventListener('pointerenter', () => {
@@ -125,7 +126,7 @@ export function peopleOnHover(node, args, title) {
   node.addEventListener('pointerleave', scheduleHide);
 }
 
-/** hooks: { load(args) } — запрос message.people через main.js. */
+/** hooks: { load(args) } — the message.people request through main.js. */
 export function mountPeople(options) {
   hooks = options ?? {};
 }

@@ -6,32 +6,32 @@
 <title>Incoming call</title>
 <link rel="stylesheet" href="assets/scss/style.css">
 <script>
-  // Тема — до первой отрисовки, как в index.html: тот же выбор из
-  // localStorage (общий профиль WebView2), иначе Aurora.
+  // The theme — before the first paint, as in index.html: the same choice
+  // from localStorage (the shared WebView2 profile), otherwise Aurora.
   try {
     var t = localStorage.getItem('theme');
     // dark | light | dark-plain | light-plain | dark-aurora (ui/theme.js):
-    // схема — в data-theme, у простых и Aurora ещё data-style (plain | aurora).
-    // Нет выбора — Aurora (DEFAULT_THEME там же).
+    // the scheme — in data-theme, the plain ones and Aurora also have data-style (plain | aurora).
+    // No choice — Aurora (DEFAULT_THEME there too).
     if (!/^(dark|light)(-plain|-aurora)?$/.test(t || '')) { t = 'dark-aurora'; }
     document.documentElement.dataset.theme = t.indexOf('dark') === 0 ? 'dark' : 'light';
     var s = /-(plain|aurora)$/.exec(t);
     if (s) { document.documentElement.dataset.style = s[1]; }
-    // Акцент (Settings → General, ui/theme.js): ключ из $app-accents.
+    // The accent (Settings → General, ui/theme.js): a key from $app-accents.
     var a = localStorage.getItem('accent');
     if (/^[a-z]+$/.test(a || '')) { document.documentElement.dataset.accent = a; }
   } catch (e) {
-    // Хранилище закрыто — тема по умолчанию, Aurora.
+    // The storage is closed — the default theme, Aurora.
     document.documentElement.dataset.theme = 'dark';
     document.documentElement.dataset.style = 'aurora';
   }
 </script>
 </head>
 <body class="callcard-page">
-<!-- Карточка входящего звонка в отдельном окошке поверх всех окон
-     (оболочка: callpopup.pas). Всё нужное — в адресе: id, name, video,
-     avatar, thumb. Сервера не спрашивает: нажатия уходят оболочке,
-     та передаёт их главной странице (ui/call.js). -->
+<!-- The incoming call card in a separate small window on top of all windows
+     (the shell: callpopup.pas). Everything needed is in the address: id, name,
+     video, avatar, thumb. It does not ask the server: presses go to the shell,
+     which passes them to the main page (ui/call.js). -->
 <script type="module" src="assets/js/callcard.js"></script>
 </body>
 </html>

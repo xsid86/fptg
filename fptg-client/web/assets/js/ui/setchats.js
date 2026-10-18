@@ -9,10 +9,10 @@ import {
   selectControl, intro, isPremium,
 } from './setkit.js';
 
-// «Chat settings», «Battery and animation» и «Language» — как у Telegram
-// Desktop. Вид этого окна (масштаб, тема, Enter, стикеры, анимации) —
-// util/prefs.js и ui/theme.js, локально; быстрая реакция, наборы
-// стикеров, архив, 18+ и язык — аккаунт, TDLib.
+// "Chat settings", "Battery and animation" and "Language" — as in Telegram
+// Desktop. This window's look (scale, theme, Enter, stickers, animations) —
+// util/prefs.js and ui/theme.js, local; the quick reaction, sticker sets,
+// the archive, 18+ and the language — the account, TDLib.
 
 const bool = (answer) => !failed(answer) && answer.value === true;
 const option = (name, value) => one('setOption', {
@@ -21,7 +21,7 @@ const option = (name, value) => one('setOption', {
     : { '@type': 'optionValueString', value },
 });
 
-// --------------------------------------------------------- быстрая реакция
+// --------------------------------------------------------- quick reaction
 
 function openQuickReaction(current, emojis) {
   openBox().push({
@@ -41,11 +41,11 @@ function openQuickReaction(current, emojis) {
   });
 }
 
-// --------------------------------------------------------- наборы стикеров
+// --------------------------------------------------------- sticker sets
 
-// Обложка набора: thumbnail набора, иначе первый стикер (covers). Файл —
-// file.ensure; tgs — неподвижным кадром (как значок), webm — первым
-// кадром после перемотки, остальное — картинкой.
+// A set's cover: the set's thumbnail, otherwise the first sticker (covers).
+// The file — file.ensure; tgs — as a still frame (like an icon), webm — the
+// first frame after seeking, the rest — as a picture.
 function setThumb(set) {
   const frame = el('span', { class: 'tgbox__set-thumb' }, icon('smile'));
   const t = set.thumbnail;
@@ -108,11 +108,11 @@ function openStickerSets(type, title) {
   });
 }
 
-// ----------------------------------------------------------- раздел
+// ----------------------------------------------------------- section
 
 /**
- * Масштаб, тема — первыми, как у Desktop в начале «Chat settings»;
- * accent — узел выбора акцента из settings.js (swatchGrid).
+ * Scale and theme — first, as at the start of Desktop's "Chat settings";
+ * accent — the accent choice node from settings.js (swatchGrid).
  */
 export async function renderChatSettings(accent) {
   const a = await td([
@@ -197,7 +197,7 @@ export async function renderChatSettings(accent) {
   return [look, sending, reactions, stickers, archive, sensitive].filter(Boolean);
 }
 
-/** «Battery and animation»: что оживает и играет само. */
+/** "Battery and animation": what comes alive and plays by itself. */
 export async function renderPower() {
   let animatedEmojiOff = false;
   try {
@@ -222,15 +222,15 @@ export async function renderPower() {
   ];
 }
 
-/** «Language»: язык текстов, которые присылает сам Telegram. */
+/** "Language": the language of the texts Telegram itself sends. */
 export async function renderLanguage() {
   const ask = () => td([
     { key: 'packs', method: 'getLocalizationTargetInfo', params: { only_local: false }, soft: true },
     { key: 'current', method: 'getOption', params: { name: 'language_pack_id' }, soft: true },
   ]);
   let a = await ask();
-  // Языковые пакеты TDLib — по «цели» (приложению); у нашего сервера её
-  // нет, пока не задана. Берём набор Telegram Desktop, как у него самого.
+  // TDLib language packs are by "target" (the application); our server has
+  // none until it is set. We take the Telegram Desktop set, as it does itself.
   if (failed(a.packs) && /localization_target/.test(a.packs?.message ?? '')) {
     await option('localization_target', 'tdesktop');
     a = await ask();

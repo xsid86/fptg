@@ -2,52 +2,52 @@ unit desknotify;
 
 {$mode objfpc}{$H+}{$codepage utf8}
 
-{ Уведомления на рабочем столе — как у Telegram Desktop: свои карточки
-  в правом нижнем углу рабочей области, стопкой над панелью задач, а не
-  тост Windows и не карточка внутри окна.
+{ Desktop notifications — as in Telegram Desktop: our own cards in the
+  bottom right corner of the work area, stacked above the taskbar, rather
+  than a Windows toast or a card inside the window.
 
-  Каждая карточка — отдельное окно WS_EX_LAYERED, нарисованное целиком
-  в BGRABitmap и выведенное UpdateLayeredWindow: ни рамки, ни мигания
-  при перерисовке, а прозрачность (появление, исчезновение) и сдвиг
-  стопки меняются без перерисовки содержимого. Окна свои, на чистом
-  Win32, а не LCL-формы: LCL показывает форму через
-  ShowWindow(SW_SHOWNORMAL) (win32wsforms.pp, ShowHide), а это
-  активирует окно и отбирает фокус у того, кто сейчас печатает. Здесь —
-  SW_SHOWNOACTIVATE при показе и MA_NOACTIVATE при клике.
+  Each card is a separate WS_EX_LAYERED window, drawn entirely in
+  BGRABitmap and put out with UpdateLayeredWindow: no frame, no flicker on
+  redraw, and transparency (fading in, fading out) and shifting the stack
+  change without redrawing the content. The windows are our own, plain
+  Win32, not LCL forms: LCL shows a form through ShowWindow(SW_SHOWNORMAL)
+  (win32wsforms.pp, ShowHide), and that activates the window and takes
+  focus from whoever is typing. Here — SW_SHOWNOACTIVATE when showing and
+  MA_NOACTIVATE on a click.
 
-  Всё в главном потоке: окна создаются в нём, и их сообщения разбирает
-  обычный цикл Application. }
+  Everything on the main thread: the windows are created on it, and the
+  ordinary Application loop handles their messages. }
 
 interface
 
 type
   TDeskNotifyClick = procedure(AChatId: Int64) of object;
 
-{ Показывает карточку. Если у чата карточка уже есть, она обновляется,
-  уходит вниз стопки как самая свежая и живёт заново — второй не
-  появляется. APhoto и AThumb — байты картинки (фото чата и размытая
-  миниатюра); пустые — инициалы на цветном круге. }
+{ Shows a card. If the chat already has a card, it is updated, moves to
+  the bottom of the stack as the freshest and lives anew — no second one
+  appears. APhoto and AThumb — the picture's bytes (the chat photo and the
+  blurred thumbnail); empty — initials on a coloured circle. }
 procedure ShowDeskNotify(AChatId: Int64; const ATitle, AText: utf8string;
   const APhoto, AThumb: RawByteString);
 
-{ Угол экрана — индекс в DESKNOTIFY_CORNERS. Уже показанные карточки
-  переезжают туда сразу, без анимации. }
+{ The screen corner — an index in DESKNOTIFY_CORNERS. Cards already shown
+  move there at once, without animation. }
 procedure SetDeskNotifyCorner(AIndex: integer);
-{ Нынешний угол — по нему же встаёт окошко звонка (callpopup.pas). }
+{ The current corner — the call pop-up goes there too (callpopup.pas). }
 function DeskNotifyCorner: integer;
-{ Сколько карточек одновременно. Лишние старшие тут же начинают таять. }
+{ How many cards at once. The extra oldest ones start fading right away. }
 procedure SetDeskNotifyLimit(ACount: integer);
-{ Размер шрифта заголовка и текста (при 96 dpi). Показанные карточки
-  перерисовываются сразу. }
+{ Font size of the title and the text (at 96 dpi). Cards on screen are
+  redrawn at once. }
 procedure SetDeskNotifyFonts(ATitle, AText: integer);
-{ Образец для настроек: столько карточек, сколько их помещается
-  одновременно, — сразу видно и угол, и высоту стопки. Прежний образец
-  убирается сразу, без исчезновения. Клик по образцу приходит в
-  DeskNotifyOnClick с AChatId = 0. }
+{ A sample for the settings: as many cards as fit at once — both the
+  corner and the stack height are visible right away. The previous sample
+  goes at once, without fading. A click on a sample comes to
+  DeskNotifyOnClick with AChatId = 0. }
 procedure ShowDeskNotifySamples(const ATitle, AText: utf8string);
 
 var
-  { Клик по карточке мимо крестика. Сама карточка после него закрывается. }
+  { A click on a card outside the cross. The card itself closes after it. }
   DeskNotifyOnClick: TDeskNotifyClick = nil;
 
 implementation
@@ -56,8 +56,8 @@ uses
   Windows, Classes, SysUtils, Math, Graphics, Forms, ExtCtrls, Registry,
   LazUTF8, BGRABitmap, BGRABitmapTypes, constants, guiconst, avatarcache;
 
-{ В модуле Windows у FPC 3.2.2 этой функции нет (есть только в
-  jwawinuser). Параметры-указатели — как в WinUser.h. }
+{ The Windows unit of FPC 3.2.2 lacks this function (it is only in
+  jwawinuser). Pointer parameters — as in WinUser.h. }
 function UpdateLayeredWindow(hWnd: HWND; hdcDst: HDC; pptDst: PPoint;
   psize: PSize; hdcSrc: HDC; pptSrc: PPoint; crKey: COLORREF;
   pblend: PBlendFunction; dwFlags: DWORD): BOOL; stdcall;
@@ -78,20 +78,21 @@ type
     Y: double;
     TargetY: double;
     Alpha: double;          { 0..255 }
-    LifeLeft: integer;      { мс до начала исчезновения }
-    { Мышь двигалась за текущий цикл показа. Не двигалась — человека,
-      скорее всего, нет у экрана: по концу цикла карточка не тает, а
-      ждёт (Waiting) первого движения и начинает цикл заново. }
+    LifeLeft: integer;      { ms until fading starts }
+    { The mouse moved during the current display cycle. If it did not, the
+      person is most likely away from the screen: at the end of the cycle
+      the card does not fade but waits (Waiting) for the first movement and
+      starts the cycle anew. }
     Moved: boolean;
     Waiting: boolean;
     Closing: boolean;
-    { Образец из настроек: ChatId у него 0, и слиянию по чату он не
-      подлежит — образцов в стопке несколько. }
+    { A sample from the settings: its ChatId is 0, and it is not merged by
+      chat — there are several samples in the stack. }
     Sample: boolean;
     Hover: boolean;
     HoverClose: boolean;
-    Tracking: boolean;      { TrackMouseEvent уже взведён }
-    { Что последним ушло в окно: Place не трогает его без нужды. }
+    Tracking: boolean;      { TrackMouseEvent is armed already }
+    { What last went into the window: Place does not touch it needlessly. }
     ShownX, ShownY, ShownAlpha: integer;
     destructor Destroy; override;
     function CloseRect: TRect;
@@ -99,7 +100,7 @@ type
     procedure Place;
   end;
 
-  { TTimer просит метод, а не процедуру. }
+  { TTimer asks for a method, not a procedure. }
   TTicker = class
     procedure Tick(Sender: TObject);
   end;
@@ -127,8 +128,8 @@ begin
   Result := TCard(GCards[AIndex]);
 end;
 
-{ Тема Windows для приложений — та, что в «Параметры → Персонализация →
-  Цвета». Нет ключа (старая система) — светлая. }
+{ The Windows theme for apps — the one in "Settings → Personalization →
+  Colors". No key (an old system) — light. }
 function SystemIsDark: boolean;
 var
   R: TRegistry;
@@ -147,8 +148,8 @@ begin
   R.Free;
 end;
 
-{ Одна строка: переводы строк в пробелы и с запасом обрезано — дальше
-  ширину добирает Fit, а ему незачем мерить мегабайт. }
+{ One line: line feeds into spaces and cut with a margin — Fit then makes
+  it fit the width, and it has no reason to measure a megabyte. }
 function OneLine(const AText: utf8string): utf8string;
 begin
   Result := StringReplace(AText, #13#10, ' ', [rfReplaceAll]);
@@ -159,8 +160,9 @@ begin
   end;
 end;
 
-{ Текст в ширину AWidth, с многоточием, если не влез. По символам UTF-8,
-  а не по байтам: иначе резало бы посреди кириллицы. }
+{ Text into the width AWidth, with an ellipsis if it does not fit. By UTF-8
+  characters, not bytes: otherwise it would cut in the middle of a
+  non-Latin character. }
 function Fit(ABmp: TBGRABitmap; const AText: utf8string; AWidth: integer): utf8string;
 var
   N: PtrInt;
@@ -195,8 +197,8 @@ begin
   inherited Destroy;
 end;
 
-{ Зона клика по крестику — больше нарисованного крестика: в десять
-  пикселей мышью не попасть. }
+{ The click zone of the cross is bigger than the drawn cross: a ten-pixel
+  target is hard to hit with a mouse. }
 function TCard.CloseRect: TRect;
 var
   Z: integer;
@@ -205,9 +207,9 @@ begin
   Result := Rect(Width - Z, 0, Width, Z);
 end;
 
-{ Содержимое целиком: фон, рамка, аватарка, заголовок, текст, крестик.
-  Только при смене содержимого или наведения — движение и прозрачность
-  идут через Place. }
+{ The whole content: background, border, avatar, title, text, cross. Only
+  when the content or the hover changes — movement and transparency go
+  through Place. }
 procedure TCard.Paint;
 var
   B: TBGRABitmap;
@@ -256,8 +258,9 @@ begin
     TextW := Width - Tx - Sc(DESKNOTIFY_CLOSE_ZONE);
     B.FontName := DESKNOTIFY_FONT;
     B.FontQuality := fqFineAntialiasing;
-    { Две строки вместе — по центру высоты; высоту строки меряет сам
-      шрифт, а не размер из настроек: у Segoe UI они не совпадают. }
+    { The two lines together — centred on the height; the line height is
+      measured by the font itself, not from the size in the settings: for
+      Segoe UI they differ. }
     B.FontStyle := [fsBold];
     B.FontHeight := Sc(GTitleFont);
     TitleH := B.TextSize('Ag').cy;
@@ -273,7 +276,7 @@ begin
     B.FontHeight := Sc(GTextFont);
     B.TextOut(Tx, Top + TitleH + Sc(DESKNOTIFY_LINE_GAP), Fit(B, Text, TextW), Sub);
 
-    { Крестик — по центру зоны клика. }
+    { The cross — in the centre of the click zone. }
     Half := Sc(DESKNOTIFY_CLOSE_SIZE) div 2;
     Cx := Width - Sc(DESKNOTIFY_CLOSE_ZONE) div 2;
     Cy := Sc(DESKNOTIFY_CLOSE_ZONE) div 2;
@@ -282,9 +285,10 @@ begin
     B.DrawLineAntialias(Cx + Half, Cy - Half, Cx - Half, Cy + Half, Cross,
       Max(1, Sc(1)));
 
-    { В DIB сверху вниз, с умноженной альфой — так UpdateLayeredWindow
-      с AC_SRC_ALPHA её и ждёт. Построчно через ScanLine: порядок строк
-      у самого TBGRABitmap от платформы зависит. }
+    { Into a top-down DIB, with premultiplied alpha — that is how
+      UpdateLayeredWindow with AC_SRC_ALPHA expects it. Line by line
+      through ScanLine: TBGRABitmap's own line order depends on the
+      platform. }
     FillChar(Info, SizeOf(Info), 0);
     Info.bmiHeader.biSize := SizeOf(Info.bmiHeader);
     Info.bmiHeader.biWidth := Width;
@@ -333,8 +337,9 @@ begin
   end;
 end;
 
-{ Только место и прозрачность: содержимое окно помнит само (у
-  UpdateLayeredWindow можно не передавать hdcSrc, если вид не менялся). }
+{ Only the position and transparency: the window remembers its content
+  itself (UpdateLayeredWindow can be called without hdcSrc if the look has
+  not changed). }
 procedure TCard.Place;
 var
   Pt: TPoint;
@@ -371,9 +376,9 @@ begin
   end;
 end;
 
-{ Цели по вертикали: самая свежая (последняя в списке) — ближе всех к
-  углу, старшие — дальше от него. Закрывающиеся место держат, пока не
-  растают: иначе стопка прыгала бы под ещё видимой карточкой. }
+{ Vertical targets: the freshest (the last in the list) is closest to the
+  corner, older ones further from it. Closing ones keep their place until
+  they fade: otherwise the stack would jump under a still visible card. }
 procedure Relayout;
 var
   WA: TRect;
@@ -429,10 +434,10 @@ begin
   end;
 end;
 
-{ Сдвинулась ли мышь с прошлого тика. Именно мышь, по просьбе
-  пользователя, а не GetLastInputInfo (тот считает и клавиатуру).
-  GetCursorPos не отвечает на защищённом рабочем столе (экран
-  блокировки) — это «не двигалась», и карточки ждут. }
+{ Whether the mouse moved since the last tick. The mouse specifically, at
+  the user's request, not GetLastInputInfo (that one counts the keyboard
+  too). GetCursorPos does not answer on the secure desktop (the lock
+  screen) — that counts as "did not move", and the cards wait. }
 function CursorMoved: boolean;
 var
   P: TPoint;
@@ -459,8 +464,8 @@ begin
   GLastTick := Now64;
   Moved := CursorMoved;
 
-  { Курсор над любой карточкой держит всю стопку: читающему не нужно,
-    чтобы соседняя уехала из-под глаз. }
+  { The cursor over any card holds the whole stack: the reader does not
+    want the neighbour to slide away from under their eyes. }
   Paused := False;
   for I := 0 to GCards.Count - 1 do begin
     if Card(I).Hover then begin
@@ -485,9 +490,9 @@ begin
     end else begin
       C.Alpha := Min(255, C.Alpha + Fade);
       if C.Waiting then begin
-        { Цикл кончился без движения мыши. Первое движение запускает
-          его СНАЧАЛА и само считается движением этого цикла: человек
-          вернулся, и полного показа ему хватит. }
+        { The cycle ended without mouse movement. The first movement starts
+          it FROM THE BEGINNING and itself counts as movement of this
+          cycle: the person is back, and a full showing is enough for them. }
         if Moved then begin
           C.Waiting := False;
           C.LifeLeft := DESKNOTIFY_LIFE_MS;
@@ -573,8 +578,8 @@ begin
         begin
           if not C.Closing then begin
             P := Point(SmallInt(ALParam and $FFFF), SmallInt((ALParam shr 16) and $FFFF));
-            { Закрываем ДО вызова: обработчик поднимает окно, и к его
-              возврату карточка уже должна таять. }
+            { Closing BEFORE the call: the handler raises the window, and by
+              the time it returns the card must already be fading. }
             C.Closing := True;
             StartTimer;
             if (not PtInRect(C.CloseRect, P)) and Assigned(DeskNotifyOnClick) then begin
@@ -604,7 +609,7 @@ begin
   GClassDone := True;
 end;
 
-{ Больше предела — стена, а не уведомление: старшие уходят. }
+{ Beyond the limit it is a wall, not a notification: the oldest go. }
 procedure TrimToLimit;
 var
   I, Alive: integer;
@@ -681,7 +686,7 @@ begin
   TrimToLimit;
   Relayout;
   if Fresh then begin
-    { Новая встаёт сразу на своё место и проявляется, сдвигаются старые. }
+    { A new one stands in its place at once and fades in, the old ones move. }
     C.Y := C.TargetY;
   end;
   C.Paint;

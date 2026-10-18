@@ -9,39 +9,39 @@ uses
   tdauth, tdsession, tdreq;
 
 type
-  { Событие звонка: ACallId — какой звонок поменялся (updateCall). }
+  { A call event: ACallId — which call changed (updateCall). }
   TTdCallEvent = procedure(Sender: TObject; ACallId: integer) of object;
-  { Сигнальные данные от собеседника (updateNewCallSignalingData):
-    AData — base64, как TDLib отдаёт bytes в JSON. Их разбирает
-    страница — шифрование и кадры протокола tgcalls живут там. }
+  { Signalling data from the peer (updateNewCallSignalingData): AData —
+    base64, as TDLib gives bytes in JSON. The page parses it — the
+    encryption and the frames of the tgcalls protocol live there. }
   TTdCallSignalEvent = procedure(Sender: TObject; ACallId: integer;
     const AData: utf8string) of object;
 
   TCallMap = specialize TFPGMap<integer, TJSONObject>;
 
-  { Групповой звонок (видеочат) поменялся: updateGroupCall. }
+  { A group call (video chat) changed: updateGroupCall. }
   TTdGroupCallEvent = procedure(Sender: TObject; AGroupCallId: integer) of object;
-  { Участник группового звонка: AParticipant — объект groupCallParticipant
-    (принадлежит модели; пустой order — участник ушёл, после события он
-    забыт). }
+  { A group call participant: AParticipant — a groupCallParticipant object
+    (owned by the model; an empty order — the participant left, after the
+    event they are forgotten). }
   TTdGroupParticipantEvent = procedure(Sender: TObject; AGroupCallId: integer;
     AParticipant: TJSONObject) of object;
-  { Видеочат чата начат/закончен: updateChatVideoChat. AGroupCallId = 0 —
-    видеочата нет. }
+  { A chat's video chat started/ended: updateChatVideoChat. AGroupCallId =
+    0 — no video chat. }
   TTdChatVideoChatEvent = procedure(Sender: TObject; AChatId: Int64;
     AGroupCallId: integer; AHasParticipants: boolean) of object;
 
   { TTdCalls
 
-    Личные звонки аккаунта. TDLib делает только сигнальную часть:
-    обмен ключами (DH), выбор версии протокола, список серверов и
-    пересылку сигнальных данных. Звук и видео — не его дело: их ведёт
-    страница через WebRTC.
+    The account's private calls. TDLib does only the signalling part: the
+    key exchange (DH), choosing the protocol version, the server list and
+    relaying signalling data. Sound and video are not its business: the
+    page runs them through WebRTC.
 
-    Модель хранит последний объект call (td_api.tl: call id user_id
-    is_outgoing is_video state) на каждый звонок и сообщает о смене.
-    Сброшенный звонок (callStateDiscarded/Error) сообщается и сразу
-    забывается: после него с ним делать нечего. }
+    The model keeps the latest call object (td_api.tl: call id user_id
+    is_outgoing is_video state) for each call and reports changes. A
+    discarded call (callStateDiscarded/Error) is reported and forgotten at
+    once: there is nothing more to do with it. }
   TTdCalls = class(TComponent, ITdUpdateListener, ITdStateListener)
   private
     FSession: ITdSession;
@@ -49,8 +49,9 @@ type
     FAll: TCallMap;
     FOnChanged: TTdCallEvent;
     FOnSignal: TTdCallSignalEvent;
-    { Групповые звонки: id -> последний groupCall; участники: id звонка ->
-      объект «ключ участника -> groupCallParticipant» (ключ — ParticipantKey). }
+    { Group calls: id -> the latest groupCall; participants: call id ->
+      an object "participant key -> groupCallParticipant" (the key —
+      ParticipantKey). }
     FGroups: TCallMap;
     FParts: TCallMap;
     FOnGroup: TTdGroupCallEvent;
@@ -65,23 +66,23 @@ type
     destructor Destroy; override;
 
     procedure Clear;
-    { Последний известный объект call; nil — звонка нет (или уже
-      сброшен). Объект принадлежит модели. }
+    { The latest known call object; nil — no call (or discarded already).
+      The object belongs to the model. }
     function Find(ACallId: integer): TJSONObject;
     function Count: integer;
     function CallAt(AIndex: integer): TJSONObject;
 
-    { createCall — ответ callId. }
+    { createCall — the answer is callId. }
     procedure StartCall(AUserId: Int64; AIsVideo: boolean;
       ACallback: TTdResponseEvent; ATag: PtrInt);
     procedure AcceptCall(ACallId: integer;
       ACallback: TTdResponseEvent; ATag: PtrInt);
-    { ADuration — секунды разговора (0, если не соединились);
-      AConnectionId — id соединения из WebRTC, 0 — нет. }
+    { ADuration — seconds of conversation (0 if they never connected);
+      AConnectionId — the connection id from WebRTC, 0 — none. }
     procedure DiscardCall(ACallId: integer; ADisconnected: boolean;
       ADuration: integer; AIsVideo: boolean; AConnectionId: Int64;
       ACallback: TTdResponseEvent; ATag: PtrInt);
-    { AData — base64 (как приходит со страницы). }
+    { AData — base64 (as it comes from the page). }
     procedure SendSignal(ACallId: integer; const AData: utf8string;
       ACallback: TTdResponseEvent; ATag: PtrInt);
 
@@ -91,12 +92,12 @@ type
     procedure TdStateChanged(AState: TTdAuthState);
     procedure TdError(ACode: integer; const AMessage, AContext: utf8string);
 
-    { Групповой звонок: последний groupCall или nil. }
+    { A group call: the latest groupCall or nil. }
     function FindGroup(AGroupCallId: integer): TJSONObject;
-    { Участники звонка: объект «ключ -> groupCallParticipant» или nil. }
+    { The call's participants: an object "key -> groupCallParticipant" or nil. }
     function GroupParticipants(AGroupCallId: integer): TJSONObject;
-    { Забыть участников звонка (вышли из него — список больше не
-      обновляется, и при новом входе он придёт заново). }
+    { Forget the call's participants (we left it — the list no longer
+      updates, and on a new join it comes again). }
     procedure DropParticipants(AGroupCallId: integer);
 
     property OnChanged: TTdCallEvent read FOnChanged write FOnChanged;
@@ -106,11 +107,11 @@ type
     property OnChatVideoChat: TTdChatVideoChatEvent read FOnChatVideoChat write FOnChatVideoChat;
   end;
 
-{ Ключ участника группового звонка по participant_id (MessageSender):
-  'u<id>' человек, 'c<id>' чат; '' — не разобрать. }
+{ The key of a group call participant by participant_id (MessageSender):
+  'u<id>' a person, 'c<id>' a chat; '' — cannot be parsed. }
 function ParticipantKey(ASender: TJSONObject): utf8string;
 
-{ callProtocol для createCall/acceptCall (CALL_* в constants.pas). }
+{ callProtocol for createCall/acceptCall (CALL_* in constants.pas). }
 function CallProtocolJson: utf8string;
 
 implementation
@@ -277,7 +278,7 @@ begin
   if Assigned(FOnParticipant) then begin
     FOnParticipant(Self, AGroupCallId, Kept);
   end;
-  { Пустой order — участник ушёл: сообщён и забыт. }
+  { An empty order — the participant left: reported and forgotten. }
   if JGetStr(APart, 'order') = '' then begin
     K := Map.IndexOfName(string(Key));
     if K >= 0 then begin
@@ -326,7 +327,7 @@ begin
   if Assigned(FOnChanged) then begin
     FOnChanged(Self, Id);
   end;
-  { Сброшенный звонок сообщён — и забыт. Find после события вернёт nil. }
+  { A discarded call is reported — and forgotten. Find after the event returns nil. }
   Kind := JGetStr(JGetObj(ACall, 'state'), '@type');
   if (Kind = 'callStateDiscarded') or (Kind = 'callStateError') then begin
     Idx := FAll.IndexOf(Id);
@@ -386,8 +387,8 @@ begin
   if FReq = nil then begin
     Exit;
   end;
-  { base64 со страницы вставляется в JSON как есть — проверка, что в
-    нём только алфавит base64, вместо экранирования. }
+  { base64 from the page goes into the JSON as is — a check that it holds
+    only the base64 alphabet, instead of escaping. }
   for I := 1 to Length(AData) do begin
     if not (AData[I] in ['A'..'Z', 'a'..'z', '0'..'9', '+', '/', '=']) then begin
       Exit;
@@ -434,7 +435,7 @@ end;
 
 procedure TTdCalls.TdError(ACode: integer; const AMessage, AContext: utf8string);
 begin
-  { Ошибки авторизации этой модели не касаются. }
+  { Authorization errors do not concern this model. }
 end;
 
 end.

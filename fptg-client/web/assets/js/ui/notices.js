@@ -2,22 +2,21 @@ import { el } from '../core/dom.js';
 import { on } from '../core/bus.js';
 import { icon } from '../util/icons.js';
 
-// Уведомления внутри окна приложения — как алерты Bootstrap: стопка
-// сверху.
+// Notices inside the app window — like Bootstrap alerts: a stack at the top.
 //
-// Два вида:
-//   * сообщения человеку (ui:notice) — ответ бота на нажатие кнопки,
-//     «скопировано», «заявка отправлена», «пока не поддерживается»;
-//     сами не исчезают, закрываются крестиком;
-//   * ошибки запросов (ui:error) — красные и исчезают сами через
-//     ERROR_TTL_MS: их бывает много, и висящий до ручного закрытия алерт
-//     на каждую был бы шумом. Та же ошибка, пока видна, не плодит копию,
-//     а продлевает показанную. (Раньше ошибки жили в статусной строке.)
+// Two kinds:
+//   * messages to the person (ui:notice) — a bot's answer to a button press,
+//     "copied", "request sent", "not supported yet"; they do not disappear
+//     by themselves, they are closed with a cross;
+//   * request errors (ui:error) — red and disappear by themselves after
+//     ERROR_TTL_MS: there may be many, and an alert hanging until closed by
+//     hand for each would be noise. The same error, while visible, does not
+//     make a copy but extends the one shown. (Errors used to live in the status bar.)
 
 const ERROR_TTL_MS = 8000;
 
 let stack = null;
-// Текст ошибки -> { card, timer } — показанные сейчас.
+// Error text -> { card, timer } — those shown now.
 const errors = new Map();
 
 function card(text, cls) {

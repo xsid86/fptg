@@ -53,9 +53,9 @@
   padding: $space-6;
 }
 
-// ------------------------------------------------------------ контакты
-// ui/chat-list.js, renderContacts: строка контакта — аватарка, имя,
-// статус («online» — цветом акцента).
+// ------------------------------------------------------------ contacts
+// ui/chat-list.js, renderContacts: a contact row — avatar, name, status
+// ("online" — in the accent colour).
 .contact-row {
   @include flex(row, center, flex-start, $space-5);
   @include focus-ring;
@@ -100,12 +100,13 @@
   }
 }
 
-// Текст строки контакта при наведении цвета не меняет — меняется только
-// подложка (просьба пользователя, 2026-10-16).
+// A contact row's text does not change colour on hover — only the backdrop
+// changes (the user's request, 2026-10-16).
 
-// Чип папки лички (ui/chat-list.js, renderContacts) — вид чипа строки
-// чата (.chat-item__folder), место — правый верхний угол строки. Цвет
-// берёт из акцента контакта, как чип чата — из акцента чата.
+// The private chat's folder chip (ui/chat-list.js, renderContacts) — the
+// look of a chat row's chip (.chat-item__folder), the place — the row's top
+// right corner. The colour comes from the contact's accent, as a chat's
+// chip from the chat's accent.
 .contact-row {
   --chat-color: var(--accent-color, var(--c-accent));
 }

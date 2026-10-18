@@ -1,37 +1,37 @@
 import { customEmojiNode } from '../util/emoji.js';
 import { getPref } from '../util/prefs.js';
 
-// Поле ввода сообщения: contenteditable, который показывает результат,
-// а не разметку — жирный жирным, кастомный эмодзи картинкой.
+// The message input field: a contenteditable that shows the result, not
+// the markup — bold as bold, a custom emoji as a picture.
 //
-// МОДЕЛЬ — текст и сущности (как у Telegram): { text, entities }, где
-// сущность — { kind, offset, length, ...поля вида }, смещения в UTF-16 (в
-// них же считает TDLib, и это длина строки JS). DOM — только её вид:
-// любое изменение оформления идёт через модель (getFormatted -> правка
-// -> setFormatted), а набор текста — обычный, браузерный; DOM читается
-// обратно в модель (scan) в момент, когда она нужна.
+// THE MODEL is text and entities (as in Telegram): { text, entities }, where
+// an entity is { kind, offset, length, ...kind fields }, offsets in UTF-16
+// (TDLib counts in them too, and it is the JS string length). The DOM is
+// only its view: any formatting change goes through the model
+// (getFormatted -> edit -> setFormatted), while typing is ordinary, the
+// browser's; the DOM is read back into the model (scan) when it is needed.
 //
-// Снаружи элемент притворяется textarea: value, placeholder, disabled,
-// selectionStart/End, setSelectionRange — на это опираются подсказка
-// упоминаний, инлайн-боты и вставки (ui/mentions.js, ui/bots.js).
+// Outside, the element pretends to be a textarea: value, placeholder,
+// disabled, selectionStart/End, setSelectionRange — mention suggestions,
+// inline bots and insertions rely on that (ui/mentions.js, ui/bots.js).
 //
-// Виды сущностей: bold, italic, underline, strike, code, pre, spoiler,
+// Entity kinds: bold, italic, underline, strike, code, pre, spoiler,
 // quote, textUrl {url}, mentionName {userId}, customEmoji {customEmojiId}.
 //
-// Быстрые клавиши набора — как у Telegram Desktop: **жирный**,
-// __курсив__, ~~зачёркнутый~~, ||спойлер||, `моно`; одиночные *, _, ~ —
-// просто символы. Сочетания: Ctrl+B/I/U, Ctrl+Shift+X (зачёркнутый),
-// Ctrl+Shift+M (моно), Ctrl+Shift+P (спойлер), Ctrl+K (ссылка),
-// Ctrl+Shift+N (снять оформление).
+// Typing shortcuts — as in Telegram Desktop: **bold**, __italic__,
+// ~~strikethrough~~, ||spoiler||, `mono`; single *, _, ~ are just
+// characters. Key combinations: Ctrl+B/I/U, Ctrl+Shift+X (strikethrough),
+// Ctrl+Shift+M (mono), Ctrl+Shift+P (spoiler), Ctrl+K (link),
+// Ctrl+Shift+N (clear formatting).
 
 const ZWSP = '​';
-// Порядок вложения элементов: внешние — первыми.
+// The nesting order of elements: outer ones first.
 const ORDER = ['quote', 'pre', 'textUrl', 'mentionName', 'bold', 'italic',
   'underline', 'strike', 'spoiler', 'code'];
 const INLINE_KINDS = new Set(['bold', 'italic', 'underline', 'strike', 'spoiler', 'code']);
-// Чем снимается «Clear»: всё, кроме того, что несёт смысл, а не вид.
+// What "Clear" removes: everything except what carries meaning, not looks.
 const CLEARABLE = new Set([...INLINE_KINDS, 'pre', 'quote', 'textUrl']);
-// Пауза, после которой набор текста — новый шаг отмены.
+// The pause after which typing is a new undo step.
 const UNDO_GAP_MS = 800;
 const UNDO_MAX = 100;
 
@@ -43,7 +43,7 @@ const SHORTCUTS = [
   { re: /(?<!`)`([^`\n]+)`$/, kind: 'code', mark: 1 },
 ];
 
-/** Одна сущность — один элемент (вид и поля). */
+/** One entity — one element (kind and fields). */
 function elementFor(e) {
   switch (e.kind) {
     case 'bold': return document.createElement('b');
@@ -79,7 +79,7 @@ function mk(tag, cls) {
   return n;
 }
 
-/** Элемент DOM -> вид сущности (или null — просто обёртка). */
+/** A DOM element -> the entity kind (or null — just a wrapper). */
 function kindOf(node) {
   const tag = node.nodeName;
   if (tag === 'B' || tag === 'STRONG') return { kind: 'bold' };
@@ -102,7 +102,7 @@ const sameProps = (a, b) => a.kind === b.kind && (a.url ?? '') === (b.url ?? '')
   && String(a.customEmojiId ?? '') === String(b.customEmojiId ?? '')
   && (a.language ?? '') === (b.language ?? '');
 
-/** Сортировка и склейка соседних/перекрытых сущностей одного вида. */
+/** Sorting and merging adjacent/overlapping entities of one kind. */
 export function normalizeEntities(list) {
   const out = [];
   const sorted = list.filter((e) => e.length > 0)
@@ -119,9 +119,9 @@ export function normalizeEntities(list) {
 }
 
 /**
- * Вырезать [a, b) и вставить insLen символов: сущности сдвигаются,
- * обрезаются; вставка внутри сущности её продолжает. Кастомный эмодзи,
- * задетый правкой, пропадает целиком (он атомарен).
+ * Cut [a, b) and insert insLen characters: entities shift and get trimmed;
+ * an insertion inside an entity continues it. A custom emoji touched by the
+ * edit disappears whole (it is atomic).
  */
 export function spliceEntities(list, a, b, insLen) {
   const delta = insLen - (b - a);
@@ -134,7 +134,7 @@ export function spliceEntities(list, a, b, insLen) {
     } else if (s >= b) {
       out.push({ ...e, offset: s + delta });
     } else if (e.kind === 'customEmoji') {
-      // задет — пропадает
+      // touched — disappears
     } else if (s < a && t > b) {
       out.push({ ...e, length: e.length + delta });
     } else {
@@ -145,7 +145,7 @@ export function spliceEntities(list, a, b, insLen) {
   return normalizeEntities(out);
 }
 
-/** Есть ли вид kind на всём [a, b). */
+/** Whether kind is present on the whole [a, b). */
 function covers(list, kind, a, b) {
   const spans = list.filter((e) => e.kind === kind).map((e) => [e.offset, e.offset + e.length])
     .sort((x, y) => x[0] - y[0]);
@@ -158,7 +158,7 @@ function covers(list, kind, a, b) {
   return pos >= b;
 }
 
-/** Снять вид kind с [a, b) (части сущностей вне диапазона остаются). */
+/** Remove kind from [a, b) (parts of entities outside the range stay). */
 function removeKind(list, kinds, a, b) {
   const out = [];
   for (const e of list) {
@@ -180,7 +180,7 @@ class FptgEditor extends HTMLElement {
     this._undo = [];
     this._redo = [];
     this._lastSnap = 0;
-    this._saved = null;      // последнее выделение, пока фокус не здесь
+    this._saved = null;      // the last selection while focus is not here
     this._disabled = false;
   }
 
@@ -202,11 +202,11 @@ class FptgEditor extends HTMLElement {
     document.addEventListener('selectionchange', () => {
       if (this._hasSelection()) this._saved = this._offsets();
     });
-    // Файл эмодзи догрузился — запасной символ меняется на картинку.
+    // An emoji file finished downloading — the fallback character becomes a picture.
     document.addEventListener('custom-emoji:ready', () => this._refreshEmoji());
   }
 
-  // --------------------------------------------- как у textarea
+  // --------------------------------------------- like a textarea
   get value() { return this._scan().text; }
 
   set value(text) {
@@ -251,27 +251,27 @@ class FptgEditor extends HTMLElement {
     if (this._saved) this.setSelectionRange(...this._saved);
   }
 
-  // --------------------------------------------- модель
-  /** Текст и сущности (смещения UTF-16). */
+  // --------------------------------------------- the model
+  /** Text and entities (UTF-16 offsets). */
   getFormatted() {
     const { text, entities } = this._scan();
     return { text, entities: normalizeEntities(entities) };
   }
 
-  /** Заменить содержимое моделью; выделение — в конец. */
+  /** Replace the content with the model; the selection goes to the end. */
   setFormatted({ text, entities = [] }) {
     const ents = normalizeEntities(entities.filter((e) => e.offset >= 0
       && e.offset + e.length <= text.length));
     this.replaceChildren(...this._build(text, 0, text.length, ents, 0));
-    // Пустая последняя строка видна только с <br> после неё.
+    // An empty last line is visible only with a <br> after it.
     if (text.endsWith('\n')) this.append(document.createElement('br'));
   }
 
   /**
-   * Заменить [a, b) текстом (с сущностями внутри него, от 0) и поставить
-   * курсор после. keepCaret — курсор остаётся, где был (сдвинутый на
-   * разницу длины, если он дальше правки): замена, которую человек не
-   * делал сам, — например, догрузившийся файл.
+   * Replace [a, b) with text (with entities inside it, from 0) and put the
+   * caret after it. keepCaret — the caret stays where it was (shifted by
+   * the length difference if it is past the edit): a replacement the person
+   * did not make themselves — for example, a file that finished downloading.
    */
   replaceRange(a, b, text, inner = [], { keepCaret = false } = {}) {
     const caret = keepCaret ? this._current() : null;
@@ -295,7 +295,7 @@ class FptgEditor extends HTMLElement {
     return document.activeElement === this;
   }
 
-  /** Вставка простого текста на место выделения. */
+  /** Insert plain text in place of the selection. */
   insertText(text) {
     const [a, b] = this._current();
     this.replaceRange(a, b, text);
@@ -306,12 +306,12 @@ class FptgEditor extends HTMLElement {
     this.replaceRange(a, b, emoji, [{ kind: 'customEmoji', offset: 0, length: emoji.length, customEmojiId: String(id) }]);
   }
 
-  /** Упоминание человека без username: имя-ссылка на него и пробел. */
+  /** A mention of a person without a username: the name linking to them and a space. */
   insertMention(a, b, name, userId) {
     this.replaceRange(a, b, `${name} `, [{ kind: 'mentionName', offset: 0, length: name.length, userId: String(userId) }]);
   }
 
-  /** Включить/выключить вид на выделении (кнопки панели, сочетания). */
+  /** Turn a kind on/off on the selection (panel buttons, key combinations). */
   toggle(kind, props = {}) {
     let [a, b] = this._current();
     if (a === b) return;
@@ -326,7 +326,7 @@ class FptgEditor extends HTMLElement {
     } else if (covers(entities, kind, a, b)) {
       entities = removeKind(entities, new Set([kind]), a, b);
     } else {
-      // Цитата и код — блоком: на целые строки выделения.
+      // A quote and code — as a block: on the selection's whole lines.
       if (kind === 'quote' || kind === 'pre') {
         a = doc.text.lastIndexOf('\n', a - 1) + 1;
         const nl = doc.text.indexOf('\n', b);
@@ -339,7 +339,7 @@ class FptgEditor extends HTMLElement {
     this._changed();
   }
 
-  /** Виды, которые покрывают всё выделение — для подсветки кнопок. */
+  /** Kinds covering the whole selection — for highlighting the buttons. */
   activeKinds() {
     const [a, b] = this._current();
     if (a === b) return new Set();
@@ -354,11 +354,11 @@ class FptgEditor extends HTMLElement {
     this._changed();
   }
 
-  // --------------------------------------------- DOM <-> модель
+  // --------------------------------------------- DOM <-> model
   /**
-   * Обход DOM: текст, сущности и карта узлов. <br> и границы блоков
-   * (div/p, их создаёт браузер) — перевод строки; последний <br> —
-   * служебный, текста не даёт; ZWSP — служебный, длины не имеет.
+   * A DOM walk: text, entities and the node map. <br> and block boundaries
+   * (div/p, the browser creates them) are a line break; the last <br> is a
+   * service one and gives no text; ZWSP is a service one and has no length.
    */
   _scan() {
     let text = '';
@@ -398,7 +398,7 @@ class FptgEditor extends HTMLElement {
     return { text, entities, map };
   }
 
-  /** Служебный <br> в самом конце (за ним нет текста), или null. */
+  /** The service <br> at the very end (no text after it), or null. */
   _tailBr() {
     let n = this.lastChild;
     while (n && n.nodeType === Node.ELEMENT_NODE && n.nodeName !== 'BR' && n.lastChild
@@ -406,7 +406,7 @@ class FptgEditor extends HTMLElement {
     return n?.nodeName === 'BR' ? n : null;
   }
 
-  /** Узлы для text[from, to) с сущностями, начиная с уровня ORDER[level]. */
+  /** Nodes for text[from, to) with entities, starting at the level ORDER[level]. */
   _build(text, from, to, ents, level) {
     if (from >= to) return [];
     if (level >= ORDER.length) return this._leaf(text, from, to, ents);
@@ -428,7 +428,7 @@ class FptgEditor extends HTMLElement {
     return out;
   }
 
-  /** Текст и кастомные эмодзи. */
+  /** Text and custom emoji. */
   _leaf(text, from, to, ents) {
     const out = [];
     const emoji = ents.filter((e) => e.kind === 'customEmoji' && e.offset >= from && e.offset + e.length <= to)
@@ -455,7 +455,7 @@ class FptgEditor extends HTMLElement {
     return atom;
   }
 
-  /** Эмодзи с запасным символом — картинкой, у кого она уже есть. */
+  /** Emoji with a fallback character — as a picture, for those that have it already. */
   _refreshEmoji() {
     for (const atom of this.querySelectorAll('.ed-emoji.is-pending')) {
       const node = customEmojiNode(atom.dataset.emojiId, 'emoji--text');
@@ -465,7 +465,7 @@ class FptgEditor extends HTMLElement {
     }
   }
 
-  /** Смещение в тексте -> [узел, offset] для Range. */
+  /** An offset in the text -> [node, offset] for a Range. */
   _position(offset) {
     const { map } = this._scan();
     let best = null;
@@ -474,9 +474,9 @@ class FptgEditor extends HTMLElement {
         : m.type === 'atom' ? m.length : 1;
       if (offset < m.start) break;
       if (m.type === 'text' && offset <= m.start + len) {
-        // На границе предпочтительнее следующий узел (начало),
-        // чтобы набор после жирного не становился жирным, — его выберет
-        // следующая итерация, если он начинается здесь же.
+        // At a boundary the next node (its start) is preferable, so that
+        // typing after bold does not become bold — the next iteration picks
+        // it if it starts right here.
         best = [m.node, rawIndex(m.node.data, offset - m.start)];
         if (offset < m.start + len) return best;
       } else if (m.type !== 'text' && offset <= m.start) {
@@ -489,7 +489,7 @@ class FptgEditor extends HTMLElement {
     return best ?? [this, this.childNodes.length - (tail && tail === this.lastChild ? 1 : 0)];
   }
 
-  /** Выделение -> [a, b] в тексте, или null — не здесь. */
+  /** The selection -> [a, b] in the text, or null — not here. */
   _offsets() {
     const sel = document.getSelection();
     if (!sel?.rangeCount) return null;
@@ -499,7 +499,7 @@ class FptgEditor extends HTMLElement {
       const probe = document.createRange();
       probe.selectNodeContents(this);
       probe.setEnd(container, off);
-      // Текст до точки: тот же обход, что _scan, на копии содержимого.
+      // The text before the point: the same walk as _scan, on a copy of the content.
       const holder = document.createElement('div');
       holder.append(probe.cloneContents());
       return scanLength(holder);
@@ -519,8 +519,8 @@ class FptgEditor extends HTMLElement {
   }
 
   /**
-   * Курсор после вставленного: если там конец оформленного элемента,
-   * — в служебный ZWSP за ним, чтобы дальнейший набор был простым.
+   * The caret after the inserted text: if the end of a formatted element is
+   * there — into the service ZWSP after it, so further typing is plain.
    */
   _caretAfter(offset) {
     const pos = this._position(offset);
@@ -545,7 +545,7 @@ class FptgEditor extends HTMLElement {
     this.setSelectionRange(offset, offset);
   }
 
-  // --------------------------------------------- набор и отмена
+  // --------------------------------------------- typing and undo
   _snapshot(force) {
     const now = Date.now();
     if (!force && now - this._lastSnap < UNDO_GAP_MS) {
@@ -595,7 +595,7 @@ class FptgEditor extends HTMLElement {
       this.redo();
       return;
     }
-    // Своё оформление вместо браузерного (<b> из execCommand и т.п.).
+    // Our own formatting instead of the browser's (<b> from execCommand and the like).
     const fmt = { formatBold: 'bold', formatItalic: 'italic', formatUnderline: 'underline', formatStrikeThrough: 'strike' }[type];
     if (fmt) {
       event.preventDefault();
@@ -606,7 +606,7 @@ class FptgEditor extends HTMLElement {
       event.preventDefault();
       return;
     }
-    // Перетаскивание и вставка — только простой текст.
+    // Dragging and pasting — plain text only.
     if (type === 'insertFromDrop' || type === 'insertFromPaste' || type === 'insertReplacementText') {
       const text = event.dataTransfer?.getData('text/plain') ?? event.data;
       if (type !== 'insertReplacementText') {
@@ -615,7 +615,7 @@ class FptgEditor extends HTMLElement {
         return;
       }
     }
-    // Перевод строки — <br>, не новый <div>.
+    // A line break is a <br>, not a new <div>.
     if (type === 'insertParagraph') {
       event.preventDefault();
       this._snapshot(true);
@@ -626,8 +626,8 @@ class FptgEditor extends HTMLElement {
   }
 
   _afterInput(event) {
-    // Пустое поле — действительно пустое: иначе остаётся <br>, и
-    // подсказка (:empty) не появляется.
+    // An empty field is really empty: otherwise a <br> stays, and the
+    // placeholder (:empty) does not appear.
     if (!this.textContent.replaceAll(ZWSP, '') && !this.querySelector('.ed-emoji')) {
       this.replaceChildren();
     }
@@ -636,7 +636,7 @@ class FptgEditor extends HTMLElement {
     }
   }
 
-  /** **жирный** и т.п. сразу за курсором -> оформление (см. SHORTCUTS). */
+  /** **bold** and the like right before the caret -> formatting (see SHORTCUTS). */
   _shortcut() {
     const [a, b] = this._current();
     if (a !== b) return;
@@ -648,7 +648,7 @@ class FptgEditor extends HTMLElement {
       if (!m) continue;
       const start = lineStart + m.index;
       const inner = m[1];
-      // Внутри кода и уже такого же оформления — не трогать.
+      // Inside code and already the same formatting — leave alone.
       if (doc.entities.some((e) => e.kind === 'code' && e.offset < a && e.offset + e.length > start)) return;
       this._snapshot(true);
       let ents = spliceEntities(doc.entities, a - mark, a, 0);
@@ -664,10 +664,10 @@ class FptgEditor extends HTMLElement {
 
   _keys(event) {
     const mod = event.ctrlKey || event.metaKey;
-    // Shift+Enter и Ctrl+Enter — новая строка (Enter отправляет — это
-    // решает поле ввода, ui/composer.js). «Send with Ctrl+Enter» (Chat
-    // settings) — наоборот: Enter и Shift+Enter — строка, Ctrl+Enter
-    // отправляет.
+    // Shift+Enter and Ctrl+Enter — a new line (Enter sends — the input field
+    // decides that, ui/composer.js). "Send with Ctrl+Enter" (Chat settings)
+    // — the other way round: Enter and Shift+Enter — a line, Ctrl+Enter
+    // sends.
     const byCtrl = getPref('sendByCtrlEnter');
     if (event.key === 'Enter' && (byCtrl ? !mod : (mod || event.shiftKey))) {
       event.preventDefault();
@@ -702,20 +702,20 @@ class FptgEditor extends HTMLElement {
   }
 
   _paste(event) {
-    // Файлы — забота поля ввода (окно отправки / строка в статье).
+    // Files are the input field's business (the send window / a row in an article).
     if (event.clipboardData?.files?.length) return;
     event.preventDefault();
     const text = event.clipboardData?.getData('text/plain') ?? '';
     if (text) this.insertText(text.replace(/\r\n?/g, '\n'));
   }
 
-  /** Для слушателей input (упоминания, инлайн-боты, «печатает»). */
+  /** For input listeners (mentions, inline bots, "typing"). */
   _changed() {
     this.dispatchEvent(new Event('input', { bubbles: true }));
   }
 }
 
-/** Индекс в данных текстового узла с ZWSP по индексу без них. */
+/** An index in the data of a text node with ZWSP by the index without them. */
 function rawIndex(data, clean) {
   let seen = 0;
   for (let i = 0; i < data.length; i += 1) {
@@ -725,14 +725,14 @@ function rawIndex(data, clean) {
   return data.length;
 }
 
-/** Позиция до (или после) узла — в его родителе. */
+/** The position before (or after) a node — in its parent. */
 function parentPos(node, after) {
   const parent = node.parentNode;
   const idx = Array.prototype.indexOf.call(parent.childNodes, node);
   return [parent, after ? idx + 1 : idx];
 }
 
-/** Длина текста фрагмента по тем же правилам, что _scan (без служебного <br>). */
+/** The fragment's text length by the same rules as _scan (without the service <br>). */
 function scanLength(root) {
   let len = 0;
   let any = false;
@@ -763,7 +763,7 @@ function scanLength(root) {
 customElements.define('fptg-editor', FptgEditor);
 
 /**
- * Сущности модели -> textEntity TDLib (для message.send/edit).
+ * Model entities -> TDLib textEntity (for message.send/edit).
  */
 export function toTdEntities(entities) {
   const type = (e) => {
@@ -789,11 +789,11 @@ export function toTdEntities(entities) {
 }
 
 /**
- * Сущности сообщения с сервера (байтовые смещения UTF-8, виды
- * util/entities.js) -> модель поля (UTF-16) — для правки.
+ * A message's entities from the server (UTF-8 byte offsets, the kinds of
+ * util/entities.js) -> the field's model (UTF-16) — for editing.
  */
 export function fromMessageEntities(text, list = []) {
-  // Байтовая позиция -> индекс UTF-16, по кодовым точкам.
+  // A byte position -> a UTF-16 index, by code points.
   const enc = new TextEncoder();
   const map = new Map([[0, 0]]);
   let bytes = 0;

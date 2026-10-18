@@ -4,17 +4,17 @@ import { icon } from '../util/icons.js';
 import { fillAvatar } from '../util/avatar.js';
 import { listTime } from '../util/format.js';
 
-// Просмотр историй чата (клик по кольцу в списке, ui/chat-list.js ->
-// ui:stories-open). Сервер: story.list / story.open / story.close
-// (webapi.pas). story.open ещё и вызывает openStory — TDLib считает
-// историю просмотренной, и кольцо в списке сереет само
+// Viewing a chat's stories (a click on the ring in the list, ui/chat-list.js
+// -> ui:stories-open). The server: story.list / story.open / story.close
+// (webapi.pas). story.open also calls openStory — TDLib counts the story as
+// viewed, and the ring in the list turns grey by itself
 // (updateChatActiveStories).
 //
-// Вид как у официальных клиентов: карточка 9:16 по центру затемнения,
-// сверху полоски по одной на историю (<progress>: value — свойство, не
-// style), шапка с аватаркой и временем, фото или видео, подпись.
-// Фото — PHOTO_MS, видео — до конца. После последней — закрыть.
-// Старт — с первой непрочитанной (id > max_read_story_id).
+// The look as in the official clients: a 9:16 card in the centre of the
+// dimming, bars at the top, one per story (<progress>: value is a property,
+// not style), a header with the avatar and time, a photo or video, a caption.
+// A photo — PHOTO_MS, a video — to the end. After the last one — close.
+// The start — from the first unread one (id > max_read_story_id).
 
 const PHOTO_MS = 5000;
 const TICK_MS = 50;
@@ -53,7 +53,7 @@ function build() {
         el('span', { class: 'stories__who' }, name, time), close)),
     caption);
   root.append(card);
-  // Клик по затемнению вокруг карточки — закрыть.
+  // A click on the dimming around the card — close.
   root.addEventListener('click', (e) => { if (e.target === root) closeViewer(); });
   ui = { bars, avatar, name, time, media, caption, card };
 }
@@ -76,7 +76,7 @@ function stopClock() {
   if (state) state.timer = 0;
 }
 
-/** Часы фото: PHOTO_MS с учётом пауз. */
+/** The photo clock: PHOTO_MS accounting for pauses. */
 function startPhotoClock() {
   stopClock();
   state.started = Date.now() - state.elapsed;
@@ -147,8 +147,8 @@ async function show(index) {
   video.addEventListener('ended', () => { if (state?.gen === gen) step(1); });
   video.addEventListener('error', () => { if (state?.gen === gen) startPhotoClock(); });
   ui.media.append(video);
-  // Со звуком браузер пускает только после жеста пользователя; не пустил —
-  // хотя бы без звука, чем стоп-кадр.
+  // The browser allows sound only after a user gesture; if it did not —
+  // at least without sound rather than a still frame.
   video.play().catch(() => {
     if (state?.gen !== gen) return;
     video.muted = true;
@@ -202,7 +202,7 @@ function closeViewer() {
   document.removeEventListener('keydown', onKey, true);
 }
 
-/** chat — строка списка (id, title, avatar, avatarThumb, color). */
+/** chat — a list row (id, title, avatar, avatarThumb, color). */
 export async function openStories(chat) {
   if (!chat) return;
   if (state) closeViewer();

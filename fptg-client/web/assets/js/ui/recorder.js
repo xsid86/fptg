@@ -6,30 +6,31 @@ import { micConstraints, cameraConstraints, micGain } from '../calls/devices.js'
 import { uploadFile } from './attach.js';
 import { startUpload, stopAction } from './sendaction.js';
 
-// Голосовые и видеосообщения («кружки») — кнопка справа от поля ввода,
-// как у Telegram Desktop:
-//   щелчок — переключить голос/видео (запоминается);
-//   нажать и держать — запись; отпустить — отправить; отпустить вне поля
-//     ввода — отменить; Escape — отменить;
-//   потянуть вверх — замок: запись идёт без кнопки, квадрат — стоп и
-//     прослушивание (корзина — удалить, стрелка — отправить).
+// Voice and video messages ("round videos") — the button to the right of
+// the input field, as in Telegram Desktop:
+//   a click — switch voice/video (remembered);
+//   press and hold — recording; release — send; release outside the input
+//     field — cancel; Escape — cancel;
+//   drag up — the lock: recording goes on without the button, the square —
+//     stop and listen (the bin — delete, the arrow — send).
 //
-// Голос — OGG/Opus, один канал (td_api.tl, inputVoiceNote): пакеты даёт
-// AudioEncoder (WebCodecs), контейнер — util/ogg.js; волна — 100 значений
-// по 5 бит. Кружок — квадрат LENGTH со всего кадра камеры (центр), MPEG4
-// H.264 + AAC из MediaRecorder, до 60 с, миниатюра JPEG.
+// Voice — OGG/Opus, one channel (td_api.tl, inputVoiceNote): AudioEncoder
+// (WebCodecs) gives the packets, the container — util/ogg.js; the waveform
+// — 100 values of 5 bits. A round video — a LENGTH square from the whole
+// camera frame (the centre), MPEG4 H.264 + AAC from MediaRecorder, up to
+// 60 s, a JPEG thumbnail.
 
 const MODE_KEY = 'fptg.recordMode';
-// Удержание дольше — запись; короче — щелчок (переключение вида).
+// Holding longer — recording; shorter — a click (switching the kind).
 const HOLD_MS = 220;
-// На сколько потянуть вверх, чтобы встал замок.
+// How far to drag up for the lock to engage.
 const LOCK_PX = 60;
 const LOCK_SIDE_PX = 48;
-// Короче — не отправлять (случайное нажатие), как у Desktop.
+// Shorter — do not send (an accidental press), as in Desktop.
 const MIN_SECONDS = 0.6;
 const VIDEO_MAX_SECONDS = 60;
 const VOICE_MAX_SECONDS = 3600;
-// Сторона кружка и миниатюры (td_api.tl: length <= 640, миниатюра <= 320).
+// The side of the round video and the thumbnail (td_api.tl: length <= 640, thumbnail <= 320).
 const LENGTH = 400;
 const THUMB = 320;
 const VIDEO_TYPE = 'video/mp4;codecs=avc1.42E01E,mp4a.40.2';
@@ -43,8 +44,8 @@ let lockHint = null;
 let videoBox = null;
 let mode = 'voice';
 let state = 'idle';           // idle | holding | recording | locked | preview | sending
-let rec = null;               // текущая запись (VoiceRec / VideoRec)
-let result = null;            // остановленная запись (для прослушивания)
+let rec = null;               // the current recording (VoiceRec / VideoRec)
+let result = null;            // a stopped recording (for listening)
 let holdTimer = 0;
 let tick = 0;
 let startY = 0;
@@ -54,10 +55,10 @@ let player = null;
 try {
   mode = localStorage.getItem(MODE_KEY) === 'video' ? 'video' : 'voice';
 } catch {
-  // без хранилища — голос
+  // without storage — voice
 }
 
-// ------------------------------------------------------------- голос
+// ------------------------------------------------------------- voice
 
 class VoiceRec {
   async start() {
@@ -102,7 +103,7 @@ class VoiceRec {
     }
   }
 
-  /** Кадр звука -> моно (первый канал), пик для волны, кодировщик. */
+  /** A sound frame -> mono (the first channel), the peak for the waveform, the encoder. */
   feed(data) {
     try {
       const frames = data.numberOfFrames;
@@ -119,7 +120,7 @@ class VoiceRec {
             const samples = chunk.duration ? Math.round((chunk.duration * 48000) / 1e6) : 960;
             this.packets.push({ data: bytes, samples });
             this.samples += samples;
-            // Задержка кодировщика — из его OpusHead, если он его дал.
+            // The encoder's delay — from its OpusHead, if it gave one.
             const d = meta?.decoderConfig?.description;
             if (d && d.byteLength >= 12) {
               const v = new DataView(d instanceof ArrayBuffer ? d : d.buffer, d.byteOffset ?? 0);
@@ -174,11 +175,11 @@ class VoiceRec {
 
   cancel() {
     this.release();
-    try { this.encoder?.close(); } catch { /* уже закрыт */ }
+    try { this.encoder?.close(); } catch { /* already closed */ }
   }
 }
 
-// ------------------------------------------------------------- кружок
+// ------------------------------------------------------------- round video
 
 class VideoRec {
   async start() {
@@ -189,16 +190,16 @@ class VideoRec {
     });
     this.video = el('video', { muted: true, autoplay: true, playsInline: true });
     this.video.srcObject = this.stream;
-    // Не ждать: без кадров с камеры play() не завершается, и запись
-    // зависала бы на старте; кадры появятся — draw их подхватит.
+    // Do not wait: without frames from the camera play() does not finish,
+    // and the recording would hang at the start; frames appear — draw picks them up.
     this.video.play().catch(() => {});
-    // Превью — сам холст записи (зеркалом в CSS): видно ровно то, что
-    // уйдёт; пока камера не дала ни одного кадра — своя дуга.
+    // The preview is the recording canvas itself (mirrored in CSS): exactly
+    // what will go out is visible; until the camera gives a frame — our own arc.
     this.canvas = el('canvas', { class: 'recorder-video__live', width: LENGTH, height: LENGTH });
     this.g = this.canvas.getContext('2d');
     this.hasFrame = false;
     this.draw();
-    // Кадр — по таймеру: rAF у скрытого окна замирает.
+    // A frame — by a timer: rAF freezes in a hidden window.
     this.drawTimer = setInterval(() => this.draw(), 1000 / 30);
     const audio = new AudioContext();
     this.ctx = audio;
@@ -214,7 +215,7 @@ class VideoRec {
     this.rec.addEventListener('dataavailable', (e) => { if (e.data.size) this.chunks.push(e.data); });
     this.rec.start(500);
     this.startedAt = performance.now();
-    // Миниатюра — с первых кадров.
+    // The thumbnail — from the first frames.
     this.thumb = new Promise((resolve) => setTimeout(() => {
       const c = el('canvas', { width: THUMB, height: THUMB });
       c.getContext('2d').drawImage(this.canvas, 0, 0, THUMB, THUMB);
@@ -223,7 +224,7 @@ class VideoRec {
     return this.canvas;
   }
 
-  /** Квадрат из середины кадра камеры. */
+  /** A square from the middle of the camera frame. */
   draw() {
     const v = this.video;
     if (!v || !v.videoWidth) return;
@@ -265,12 +266,12 @@ class VideoRec {
   }
 
   cancel() {
-    try { if (this.rec?.state !== 'inactive') this.rec.stop(); } catch { /* уже */ }
+    try { if (this.rec?.state !== 'inactive') this.rec.stop(); } catch { /* already */ }
     this.release();
   }
 }
 
-// ------------------------------------------------------------ вид
+// ------------------------------------------------------------ view
 
 const fmtTime = (s) => {
   const m = Math.floor(s / 60);
@@ -293,7 +294,7 @@ function idleButton() {
 }
 
 function setLevel(value) {
-  // Пульсация кнопки — ступенями-классами (style в коде не пишем).
+  // The button's pulsing — in class steps (we do not write style in code).
   const step = Math.min(5, Math.round(Math.min(1, value * 6) * 5));
   for (let i = 0; i <= 5; i += 1) button.classList.toggle(`is-level-${i}`, i === step);
 }
@@ -333,7 +334,7 @@ function hideOverlay() {
   idleButton();
 }
 
-// --------------------------------------------------------- ход записи
+// --------------------------------------------------------- recording flow
 
 async function begin() {
   if (state !== 'holding') return;
@@ -342,7 +343,7 @@ async function begin() {
   try {
     const live = await rec.start();
     if (mode === 'video') {
-      // Пока с камеры нет кадра — своя ровная дуга (.recorder-video__wait).
+      // While there is no frame from the camera — our own steady arc (.recorder-video__wait).
       videoBox = el('div', { class: `recorder-video${rec.hasFrame ? '' : ' is-waiting'}` },
         el('div', { class: 'recorder-video__circle' }, live,
           el('span', { class: 'recorder-video__wait', 'aria-hidden': 'true' })));
@@ -358,7 +359,7 @@ async function begin() {
     hooks.report(error?.name === 'NotAllowedError' ? 'No access to the microphone or camera' : (error?.message || String(error)));
     return;
   }
-  // Отпустили, пока запускалось.
+  // Released while it was starting.
   if (state !== 'starting') {
     rec.cancel();
     rec = null;
@@ -377,7 +378,7 @@ async function begin() {
     const t = overlay.querySelector('.recorder__time');
     if (t) t.textContent = fmtTime(s);
     setLevel(rec?.level() ?? 0);
-    // Предел — как у Desktop: остановить и отправить.
+    // The limit — as in Desktop: stop and send.
     if (s >= max && (state === 'recording' || state === 'locked')) finish(true);
   }, TICK_MS);
   return time;
@@ -392,7 +393,7 @@ function lock() {
   setButton('stop', 'Stop');
 }
 
-/** Остановить: send — сразу отправить, иначе — прослушать. */
+/** Stop: send — send at once, otherwise — listen. */
 async function finish(send) {
   if (!rec || (state !== 'recording' && state !== 'locked')) return;
   clearInterval(tick);
@@ -436,10 +437,10 @@ function cancel() {
   hideOverlay();
 }
 
-/** Прослушать перед отправкой: проигрывание, волна, длительность. */
+/** Listen before sending: playback, the waveform, the duration. */
 function preview() {
   state = 'preview';
-  // Запись кончилась — без кольца громкости.
+  // The recording ended — without the volume ring.
   button.classList.remove('is-recording');
   setLevel(-1);
   composer.classList.add('is-recording', 'is-locked');
@@ -473,7 +474,7 @@ function preview() {
   setButton('send', 'Send');
 }
 
-/** Загрузить и отправить (message.sendNote через main.js). */
+/** Upload and send (message.sendNote through main.js). */
 async function deliver(out) {
   try {
     if (out.kind === 'voice') {
@@ -496,7 +497,7 @@ async function deliver(out) {
   }
 }
 
-// ---------------------------------------------------------- кнопка
+// ---------------------------------------------------------- button
 
 function onDown(event) {
   if (event.button !== 0 || !hooks.canCompose()) return;
@@ -524,8 +525,8 @@ function onDown(event) {
 }
 
 function onMove(event) {
-  // Замок — только строго вверх, к значку над кнопкой; в сторону с поля
-  // — это отмена при отпускании, как у Desktop.
+  // The lock — only straight up, to the icon above the button; sideways off
+  // the field — that is a cancel on release, as in Desktop.
   if (state === 'recording' && startY - event.clientY > LOCK_PX
       && Math.abs(event.clientX - startX) < LOCK_SIDE_PX) lock();
 }
@@ -533,19 +534,19 @@ function onMove(event) {
 function onUp(event) {
   clearTimeout(holdTimer);
   if (state === 'holding') {
-    // Щелчок — другой вид, как у Desktop.
+    // A click — the other kind, as in Desktop.
     state = 'idle';
     mode = mode === 'voice' ? 'video' : 'voice';
-    try { localStorage.setItem(MODE_KEY, mode); } catch { /* без хранилища */ }
+    try { localStorage.setItem(MODE_KEY, mode); } catch { /* without storage */ }
     idleButton();
     return;
   }
   if (state === 'starting') {
-    state = 'idle';       // begin увидит и отменит
+    state = 'idle';       // begin will see it and cancel
     return;
   }
   if (state !== 'recording') return;
-  // Отпустили вне поля ввода — отмена.
+  // Released outside the input field — a cancel.
   const r = composer.getBoundingClientRect();
   const inside = event.clientX >= r.left && event.clientX <= r.right
     && event.clientY >= r.top && event.clientY <= r.bottom;
@@ -575,7 +576,7 @@ export function mountRecorder(composerNode, options) {
   });
 }
 
-/** Чат сменился — незаконченная запись пропадает (как у Desktop). */
+/** The chat changed — an unfinished recording is lost (as in Desktop). */
 export function cancelRecording() {
   if (state !== 'idle') cancel();
 }

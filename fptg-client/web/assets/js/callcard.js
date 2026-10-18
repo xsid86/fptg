@@ -2,15 +2,16 @@ import { el } from './core/dom.js';
 import { icon, loadIcons } from './util/icons.js';
 import { fillAvatar } from './util/avatar.js';
 
-// Карточка входящего звонка (callcard.html) в окошке поверх всех окон.
+// The incoming call card (callcard.html) in a small window on top of all windows.
 //
-// Данные — из адреса (их кладёт главная страница, ui/call.js):
-//   id — звонок, name, video (1/0), avatar — адрес фото, thumb — data-URI
-//   размытого превью, uid — id собеседника (цвет буквы-заглушки).
-// Нажатия уходят оболочке (chrome.webview.postMessage):
+// The data — from the address (the main page puts it there, ui/call.js):
+//   id — the call, name, video (1/0), avatar — the photo address, thumb — a
+//   data URI of the blurred preview, uid — the other side's id (the
+//   placeholder letter's colour).
+// Presses go to the shell (chrome.webview.postMessage):
 //   { t: 'call', action: 'accept' | 'decline' | 'open', id }
-// Оболочка прячет окошко и передаёт это главной странице — принимает и
-// отклоняет она: звук и видео живут там.
+// The shell hides the window and passes this to the main page — it accepts
+// and declines: the sound and video live there.
 
 const q = new URLSearchParams(location.search);
 const id = Number(q.get('id')) || 0;
@@ -34,7 +35,7 @@ async function main() {
   try {
     await loadIcons();
   } catch {
-    // без спрайта кнопки останутся с подписями
+    // without the sprite the buttons stay with labels
   }
   const avatar = el('span', { class: 'avatar callcard__avatar' });
   fillAvatar(avatar, {

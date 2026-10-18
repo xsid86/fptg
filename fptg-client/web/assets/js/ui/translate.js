@@ -4,26 +4,26 @@ import { store, onActiveChat } from '../core/store.js';
 import { call } from '../core/net.js';
 import { invalidateHistory } from './history.js';
 
-// Перевод сообщений чата — на стороне Telegram (message.translate ->
-// translateMessageText). Кнопка под «i» включает его для открытого чата;
-// выбор запоминается по чату.
+// Translating a chat's messages — on Telegram's side (message.translate ->
+// translateMessageText). The button under "i" turns it on for the open
+// chat; the choice is remembered per chat.
 //
-// Переводится только то, что попало на экран: узел сообщения отдаётся
-// наблюдателю (watchTranslation), и запрос уходит, когда он виден — не
-// больше TRANSLATE_PARALLEL разом. Готовый перевод — в кеше по
-// чату+сообщению+языку; история перерисовывается (invalidateHistory),
-// сообщение рисует перевод вместо текста (translationFor в message.js).
+// Only what got on screen is translated: the message node is given to the
+// observer (watchTranslation), and the request goes when it is visible —
+// no more than TRANSLATE_PARALLEL at once. A ready translation — in the cache
+// by chat+message+language; the history is redrawn (invalidateHistory), the
+// message draws the translation instead of the text (translationFor in message.js).
 
 const ON_KEY = 'tg.translate.chats';
 const TRANSLATE_PARALLEL = 3;
-// Перерисовка истории после пачки переводов — одна, а не на каждый.
+// One redraw of the history after a batch of translations, not one for each.
 const REDRAW_DELAY_MS = 200;
 
 let toggle = null;
 let hooks = {};
 let enabled = new Set();
-const cache = new Map();        // ключ -> { text, entities } | 'pending' | 'failed'
-const watched = new WeakMap();  // узел -> сообщение
+const cache = new Map();        // key -> { text, entities } | 'pending' | 'failed'
+const watched = new WeakMap();  // node -> message
 let observer = null;
 const queue = [];
 let running = 0;
@@ -41,10 +41,10 @@ function loadEnabled() {
 function saveEnabled() {
   try {
     localStorage.setItem(ON_KEY, JSON.stringify([...enabled]));
-  } catch { /* без хранилища — до перезагрузки */ }
+  } catch { /* without storage — until a reload */ }
 }
 
-/** Язык перевода — язык системы (код, который понимает Telegram). */
+/** The translation language — the system language (a code Telegram understands). */
 export function targetLang() {
   const nav = (navigator.language || 'en').toLowerCase();
   if (nav.startsWith('zh')) return nav.includes('tw') || nav.includes('hant') ? 'zh-TW' : 'zh-CN';
@@ -53,10 +53,10 @@ export function targetLang() {
 }
 
 const isOn = () => store.activeChatId !== null && enabled.has(String(store.activeChatId));
-// Сообщения лежат в чате модели (в ветке — группа обсуждения).
+// The messages lie in the model's chat (in a thread — the discussion group).
 const keyOf = (msg) => `${store.messages?.chatId}:${msg.id}:${targetLang()}`;
 
-/** Перевод сообщения, если перевод чата включён и он уже готов; иначе null. */
+/** A message's translation, if the chat's translation is on and it is ready; otherwise null. */
 export function translationFor(msg) {
   if (!isOn() || !msg?.text) return null;
   const t = cache.get(keyOf(msg));
@@ -81,7 +81,7 @@ function pump() {
       })
       .catch((error) => {
         cache.set(key, 'failed');
-        // Одна жалоба на включение, а не на каждое сообщение.
+        // One complaint per turning on, not one per message.
         if (!reported) {
           reported = true;
           hooks.report?.(error);
@@ -94,7 +94,7 @@ function pump() {
   }
 }
 
-/** Узел сообщения: перевести, когда окажется на экране. */
+/** A message node: translate it when it gets on screen. */
 export function watchTranslation(node, msg) {
   if (!isOn() || !msg?.text || !node) return;
   if (cache.has(keyOf(msg))) return;

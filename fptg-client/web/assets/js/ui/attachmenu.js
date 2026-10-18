@@ -3,18 +3,18 @@ import { emit } from '../core/bus.js';
 import { icon } from '../util/icons.js';
 import { formDialog, field, checkRow, openPollDialog, openAttachBot, geoErrorText } from './bots.js';
 
-// Меню скрепки — как у нативного клиента: появляется при наведении на
-// кнопку прикрепления. Клик по самой скрепке по-прежнему открывает выбор
-// файлов (ui/attach.js).
+// The paperclip menu — as in the native client: it appears on hovering the
+// attach button. A click on the paperclip itself still opens the file
+// choice (ui/attach.js).
 //
-// Пункты: фото или видео (медиа), документ, опрос, список задач, статья,
-// геопозиция, музыка — и боты меню вложений (attach.bots, например
-// «Кошелёк»), которые открываются как Mini App. Что за содержимое
-// уходит для каждого — по td_api.tl коммита d1085f9, см. webapi.pas.
+// Items: photo or video (media), document, poll, checklist, article,
+// location, music — and the attachment menu bots (attach.bots, for example
+// "Wallet"), which open as a Mini App. What content goes for each — per
+// td_api.tl of commit d1085f9, see webapi.pas.
 
 const SHOW_DELAY_MS = 150;
 const HIDE_DELAY_MS = 300;
-const CHECKLIST_TASKS_MAX = 30;   // getOption checklist_task_count_max (живой лог)
+const CHECKLIST_TASKS_MAX = 30;   // getOption checklist_task_count_max (a live log)
 
 let hooks = {};
 let menu = null;
@@ -46,7 +46,7 @@ function hideNow() {
   menu.hidden = true;
 }
 
-/** Файлы с заданным видом: media | document | audio — в диалог отправки. */
+/** Files of the given kind: media | document | audio — into the send dialog. */
 function pickFiles(accept, mode) {
   pickMode = mode;
   picker.accept = accept;
@@ -113,9 +113,9 @@ async function checklistDialog() {
 
 // -------------------------------------------------------------- article
 /**
- * Текст статьи — в блоки: пустая строка — новый абзац; «# », «## »,
- * «### » — заголовки; «- » — пункты списка; «> » — цитата; «---» —
- * разделитель. Заголовок статьи — первым блоком.
+ * An article's text — into blocks: an empty line — a new paragraph; "# ",
+ * "## ", "### " — headings; "- " — list items; "> " — a quote; "---" — a
+ * divider. The article's title — as the first block.
  */
 function articleBlocks(title, text) {
   const blocks = [];
@@ -246,7 +246,7 @@ export function mountAttachMenu(composerNode, options) {
     item('audio', 'Music', () => pickFiles('audio/*', 'audio')),
     botsBox);
 
-  // Обёртка — точка отсчёта для меню: позиция задаётся классами, не style.
+  // The wrapper is the reference point for the menu: the position is set by classes, not style.
   const wrap = el('span', { class: 'attach-menu__anchor' });
   button.replaceWith(wrap);
   wrap.append(button, menu, picker);

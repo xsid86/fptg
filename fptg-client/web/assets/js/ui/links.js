@@ -2,28 +2,28 @@ import { el, append } from '../core/dom.js';
 import { emit } from '../core/bus.js';
 import { fillAvatar } from '../util/avatar.js';
 
-// Ссылки Telegram (t.me, telegram.me, telegram.dog, tg:) открываются
-// здесь, а не в браузере.
+// Telegram links (t.me, telegram.me, telegram.dog, tg:) open here, not in
+// the browser.
 //
-// Что за ссылка — решает TDLib (link.resolve в webapi.pas): публичный
-// чат, приглашение, ссылка на сообщение. Чат открывается, сообщение —
-// ещё и прокручивается к себе (ui:open-source, тот же путь, что у
-// перехода по пересылке). Приглашение в чат, где доступа ещё нет, —
-// вопрос «Join?». Всё, чего приложение не умеет (боты, наборы стикеров,
-// прокси…), уходит в браузер, как раньше.
+// What the link is — TDLib decides (link.resolve in webapi.pas): a public
+// chat, an invite, a message link. The chat opens, a message — also
+// scrolls to itself (ui:open-source, the same path as following a
+// forward). An invite to a chat with no access yet — the question "Join?".
+// Everything the app cannot do (bots, sticker sets, proxies…) goes to the
+// browser, as before.
 
 const TELEGRAM_LINK = /^(?:https?:\/\/(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)\/|tg:)/i;
 
 let hooks = {};
 
 function openOutside(href) {
-  // Окно WebView2 отдаёт новое окно системе (NewWindowRequested).
+  // The WebView2 window hands a new window to the system (NewWindowRequested).
   window.open(href, '_blank', 'noopener');
 }
 
 /**
- * Описание чата: переносы строк сохраняются (стилем), а @упоминания —
- * ссылки на t.me, которые открываются здесь же, тем же путём.
+ * A chat description: line breaks are kept (by a style), and @mentions —
+ * t.me links that open right here, the same way.
  */
 function descriptionNodes(text) {
   const parts = [];
@@ -39,10 +39,10 @@ function descriptionNodes(text) {
 }
 
 /**
- * «Вступить?» — содержимое как у окна нативного клиента: аватарка,
- * название, число подписчиков, описание, а у чатов по заявкам —
- * пояснение, что вступить можно только после одобрения. Окно — то же
- * подтверждение, что у удаления (blocks/_confirm.scss).
+ * "Join?" — the content as in the native client's window: the avatar, the
+ * title, the subscriber count, the description, and for chats by request —
+ * a note that one can join only after approval. The window is the same
+ * confirmation as for deletion (blocks/_confirm.scss).
  */
 function askJoin(invite) {
   return new Promise((resolve) => {
@@ -81,8 +81,8 @@ function askJoin(invite) {
         join)]);
 
     dialog.addEventListener('click', (event) => {
-      // Клик мимо окна — отмена. (Ссылки в описании закрывают окно сами,
-      // в mountLinks: сюда их клик не доходит.)
+      // A click outside the window — a cancel. (Links in the description
+      // close the window themselves, in mountLinks: their click does not reach here.)
       if (event.target === dialog) close();
     });
     dialog.addEventListener('close', () => {
@@ -107,7 +107,7 @@ async function follow(href) {
     openOutside(href);
     return;
   }
-  // Ссылка-счёт (t.me/$имя) — оплата здесь же (ui/bots.js payInvoice).
+  // An invoice link (t.me/$name) — payment right here (ui/bots.js payInvoice).
   if (target?.invoice) {
     emit('ui:pay-invoice', { invoiceName: target.invoice });
     return;
@@ -134,8 +134,8 @@ async function follow(href) {
 }
 
 /**
- * Открыть ссылку так же, как по клику в тексте: t.me — внутри
- * приложения, прочее — в браузере. Для кнопок ботов (ui/bots.js).
+ * Open a link the same way as on a click in the text: t.me — inside the
+ * app, the rest — in the browser. For bot buttons (ui/bots.js).
  */
 export function openLink(href) {
   if (!href) return;
@@ -146,17 +146,17 @@ export function openLink(href) {
 /** hooks: { call(cmd, args), openChat(id), openMessage(chatId, messageId), report(err), notice(text) } */
 export function mountLinks(options) {
   hooks = options ?? {};
-  // В фазе перехвата: раньше, чем ссылка уйдёт по target=_blank, и
-  // раньше обработчиков самих сообщений.
+  // In the capture phase: before the link goes off via target=_blank, and
+  // before the messages' own handlers.
   document.addEventListener('click', (event) => {
     if (event.button !== 0 || event.defaultPrevented) return;
     const a = event.target.closest?.('a[href]');
     if (!a || !TELEGRAM_LINK.test(a.href)) return;
     event.preventDefault();
     event.stopPropagation();
-    // Ссылка из окна (упоминание в описании канала) — окно закрывается:
-    // переходим туда. Само окно этого клика не увидит — его останавливает
-    // stopPropagation строкой выше, ещё на уровне документа.
+    // A link from a window (a mention in a channel description) — the
+    // window closes: we go there. The window itself will not see this click
+    // — stopPropagation a line above stops it, still at the document level.
     a.closest('dialog')?.close();
     follow(a.href).catch(console.error);
   }, true);

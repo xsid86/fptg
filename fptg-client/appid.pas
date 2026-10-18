@@ -88,8 +88,8 @@ begin
   end;
 end;
 
-{ Ярлык прежнего названия (APP_TITLE_LEGACY) указывает на tg.exe,
-  которого больше нет, и держит старый AppUserModelID — убрать. }
+{ A shortcut of the former name (APP_TITLE_LEGACY) points to tg.exe, which
+  is gone, and holds the old AppUserModelID — remove it. }
 procedure DropLegacyShortcut;
 var
   Path: WideString;

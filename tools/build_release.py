@@ -1,24 +1,24 @@
-"""Сборка релиза fptg для Windows x64: два архива в dist/.
+"""Building an fptg release for Windows x64: two archives in dist/.
 
     python tools\\build_release.py 1.0.0 [--no-build]
 
---no-build — упаковать уже собранные exe (проверка самой упаковки).
+--no-build — package the exe files already built (checking the packaging itself).
 
-1. Полная пересборка трёх программ (lazbuild -B): fptg-server,
-   fptg-server-gui и fptg-client (режим Release). Окно сервера и окно
-   клиента должны быть закрыты — иначе exe не перезаписать.
-2. dist/fptg-server-<версия>-win64.zip — оба сервера, tdjson.dll и её
-   библиотеки, страница (web/ рядом с exe — для браузеров), лицензии.
-3. dist/fptg-client-<версия>-win64.zip — окно, WebView2Loader.dll,
-   страница (web/), лицензии.
-4. dist/SHA256SUMS.txt — суммы обоих архивов.
+1. A full rebuild of the three programs (lazbuild -B): fptg-server,
+   fptg-server-gui and fptg-client (the Release mode). The server window and
+   the client window must be closed — otherwise the exe cannot be overwritten.
+2. dist/fptg-server-<version>-win64.zip — both servers, tdjson.dll and its
+   libraries, the page (web/ next to the exe — for browsers), licenses.
+3. dist/fptg-client-<version>-win64.zip — the window, WebView2Loader.dll,
+   the page (web/), licenses.
+4. dist/SHA256SUMS.txt — the checksums of both archives.
 
-Ключи Telegram API: если есть ../fptg-server-premium/apikeys.inc (не в
-git), сервер собирается с ними; иначе — без вшитых ключей, и сервер
-попросит свои. Скрипт пишет, какой вариант собран.
+Telegram API keys: if ../fptg-server-premium/apikeys.inc exists (not in
+git), the server is built with them; otherwise — without built-in keys, and
+the server asks for its own. The script says which variant was built.
 
-Исходники страницы (*.scss, карты, .idea) в архивы не попадают: нужен
-только скомпилированный assets/scss/style.css.
+The page sources (*.scss, maps, .idea) do not go into the archives: only the
+compiled assets/scss/style.css is needed.
 """
 import hashlib
 import os

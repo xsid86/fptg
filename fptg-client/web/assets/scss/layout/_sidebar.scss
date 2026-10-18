@@ -21,8 +21,8 @@
   }
 }
 
-// Вкладки списка: по левому краю; текущая залита акцентом, как
-// включённый переключатель (.btn--toggle).
+// The list tabs: at the left edge; the current one is filled with the
+// accent, like a toggle that is on (.btn--toggle).
 .sidebar__tab {
   &.is-active,
   &.is-active:hover {

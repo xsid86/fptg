@@ -9,40 +9,41 @@ import { store } from '../core/store.js';
 import { fillAvatar } from '../util/avatar.js';
 import { customEmojiNode } from '../util/emoji.js';
 
-// Работа с ботами: кнопки под сообщениями, клавиатура над полем ввода,
-// команды, мини-приложения (Mini Apps).
+// Working with bots: buttons under messages, the keyboard above the input
+// field, commands, mini apps (Mini Apps).
 //
-// Мини-приложение открывается НЕ здесь, а отдельным окном (miniapp.pas):
-// ходовые приложения запрещают показ во фрейме чужого сайта. Страница
-// только просит webapp.open и передаёт цвета своей темы.
+// A mini app opens NOT here but in a separate window (miniapp.pas): popular
+// apps forbid being shown in a frame of someone else's site. The page only
+// asks webapp.open and passes its theme colours.
 //
-// Что за кнопки и как их нажимать — по td_api.tl (TDLib 1.8.67); мост —
-// bot.callback / bot.info / bot.userChat в webapi.pas, кнопки приходят
-// уже разобранными (KeyboardRowsJson): text, kind и то, что нужно виду.
+// What the buttons are and how to press them — per td_api.tl (TDLib
+// 1.8.67); the bridge — bot.callback / bot.info / bot.userChat in
+// webapi.pas, the buttons come already parsed (KeyboardRowsJson): text,
+// kind and what the view needs.
 
 let hooks = {};
 let composer = null;
-let kbBox = null;          // клавиатура над полем ввода
-let kbToggle = null;       // показать / спрятать её
-let menuBtn = null;        // команды бота
-let keyboard = null;       // последняя клавиатура чата ({msgId, rows, oneTime})
-const hiddenKb = new Set();   // msgId клавиатур, которые спрятали (или одноразовые после нажатия)
-let botInfo = null;        // {commands, menuButton} открытого бота
-let infoFor = null;        // для какого чата botInfo
-let input = null;          // поле ввода композера
-let inlineBox = null;      // результаты инлайн-запроса над полем ввода
+let kbBox = null;          // the keyboard above the input field
+let kbToggle = null;       // show / hide it
+let menuBtn = null;        // the bot's commands
+let keyboard = null;       // the chat's latest keyboard ({msgId, rows, oneTime})
+const hiddenKb = new Set();   // msgId of keyboards that were hidden (or one-time ones after a press)
+let botInfo = null;        // {commands, menuButton} of the open bot
+let infoFor = null;        // which chat botInfo is for
+let input = null;          // the composer's input field
+let inlineBox = null;      // inline query results above the input field
 let inlineTimer = 0;
-let inlineAsked = 0;       // номер запроса: ответ на устаревший текст отбрасывается
-let pendingInline = null;  // {chatId, text}: подставить после перехода в чат
-let ownPlaceholder = null; // плейсхолдер поля до того, как бот задал свой
-const forcedReply = new Set();  // msgId, на которые force_reply уже включил ответ
+let inlineAsked = 0;       // the request number: an answer to stale text is discarded
+let pendingInline = null;  // {chatId, text}: put in after going to the chat
+let ownPlaceholder = null; // the field's placeholder before the bot set its own
+const forcedReply = new Set();  // msgId that force_reply has already turned a reply on for
 
-// Сообщения человеку — уведомлением вверху окна (ui/notices.js), а не в
-// статусной строке.
+// Messages to the person — as a notice at the top of the window
+// (ui/notices.js), not in the status bar.
 const notify = (text) => hooks.notice(text);
 
-// Цвета темы страницы под именами themeParameters (td_api.tl) — их
-// получит мини-приложение. Из CSS-переменных, которые и красят страницу.
+// The page's theme colours under themeParameters names (td_api.tl) — the
+// mini app gets them. From the CSS variables that paint the page.
 const THEME_VARS = {
   background_color: '--c-surface',
   secondary_background_color: '--c-bg',
@@ -71,11 +72,11 @@ function pageTheme() {
   return theme;
 }
 
-/** source: inline (msg — сообщение с кнопкой), menu, keyboard (buttonText). */
+/** source: inline (msg — the message with the button), menu, keyboard (buttonText). */
 async function openApp(source, url, msg, buttonText = '') {
   try {
-    // Сервер отдаёт адрес и всё для окна; открывает окно оболочка
-    // (или вкладка браузера) — ui/shell.js.
+    // The server returns the address and everything for the window; the
+    // shell (or a browser tab) opens the window — ui/shell.js.
     openMiniApp(await hooks.call('webapp.open', {
       source,
       url,
@@ -89,7 +90,7 @@ async function openApp(source, url, msg, buttonText = '') {
   }
 }
 
-/** Бот меню вложений (ui/attachmenu.js) — Mini App в открытом чате. */
+/** An attachment menu bot (ui/attachmenu.js) — a Mini App in the open chat. */
 export async function openAttachBot(botId, name) {
   try {
     openMiniApp(await hooks.call('webapp.open', {
@@ -100,7 +101,7 @@ export async function openAttachBot(botId, name) {
   }
 }
 
-/** Ответ бота с show_alert — окно с OK, как у нативного клиента. */
+/** A bot answer with show_alert — a window with OK, as in the native client. */
 function showAlert(text) {
   const dialog = el('dialog', { class: 'confirm', 'aria-label': 'Bot' });
   const ok = el('button', {
@@ -119,8 +120,8 @@ function showAlert(text) {
 }
 
 /**
- * Окно выбора для кнопок-запросов: свои чаты нужного вида, поиск,
- * галочки (до max) или выбор одного. Resolve — выбранные чаты или null.
+ * A choice window for request buttons: own chats of the needed kind, search,
+ * checkboxes (up to max) or a single choice. Resolves to the chosen chats or null.
  */
 export function pickChats({ title, candidates, max }) {
   return new Promise((resolve) => {
@@ -136,7 +137,7 @@ export function pickChats({ title, candidates, max }) {
 
     const sync = () => {
       send.disabled = chosen.size === 0;
-      // Дошли до предела — остальные галочки неактивны.
+      // The limit is reached — the remaining checkboxes are disabled.
       for (const box of list.querySelectorAll('input[type="checkbox"]')) {
         box.disabled = !box.checked && chosen.size >= max;
       }
@@ -186,7 +187,7 @@ export function pickChats({ title, candidates, max }) {
   });
 }
 
-/** Да / нет — то же окно подтверждения. */
+/** Yes / no — the same confirmation window. */
 function ask(text, yes) {
   return new Promise((resolve) => {
     const dialog = el('dialog', { class: 'confirm' });
@@ -207,7 +208,7 @@ function ask(text, yes) {
 }
 
 async function shareUsers(msgId, button) {
-  // Боты: false — нельзя, true — только боты, нет поля — без разницы.
+  // Bots: false — not allowed, true — bots only, no field — either.
   const kinds = button.bots === true ? ['bot']
     : button.bots === false ? ['private'] : ['private', 'bot'];
   const picked = await pickChats({
@@ -217,7 +218,7 @@ async function shareUsers(msgId, button) {
   });
   if (!picked?.length) return;
   try {
-    // У личного чата id совпадает с id пользователя.
+    // A private chat's id is the same as the user's id.
     await hooks.call('bot.shareUsers', {
       msgId: String(msgId), buttonId: button.buttonId, userIds: picked.map((c) => String(c.id)),
     });
@@ -243,11 +244,11 @@ async function shareChat(msgId, button) {
 }
 
 // ------------------------------------------------------- inline mode
-// «@бот запрос» в поле ввода — бот отвечает списком результатов
-// (getInlineQueryResults), клик отправляет выбранный в чат
-// (sendInlineQueryResultMessage). Как у нативного клиента: запрос
-// уходит, только когда после имени есть пробел, и с паузой в наборе.
-const INLINE_RE = /^@([A-Za-z0-9_]{3,32}) ([\s\S]*)$/;  // @gif, @vid, @pic — три буквы
+// "@bot query" in the input field — the bot answers with a list of results
+// (getInlineQueryResults), a click sends the chosen one to the chat
+// (sendInlineQueryResultMessage). As in the native client: the query goes
+// out only when there is a space after the name, and after a typing pause.
+const INLINE_RE = /^@([A-Za-z0-9_]{3,32}) ([\s\S]*)$/;  // @gif, @vid, @pic — three letters
 const INLINE_DELAY_MS = 350;
 
 function hideInline() {
@@ -261,7 +262,7 @@ function setComposerText(text) {
   input.value = text;
   input.focus();
   input.setSelectionRange(text.length, text.length);
-  // Как будто набрали руками: и инлайн-режим, и высота поля это видят.
+  // As if typed by hand: both the inline mode and the field height see it.
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
@@ -309,8 +310,8 @@ function onComposerInput() {
 }
 
 /**
- * Кнопка switchInline: «@бот запрос» — в этот чат или в выбранный
- * (виды чатов — какие разрешил бот).
+ * The switchInline button: "@bot query" — into this chat or a chosen one
+ * (the chat kinds the bot allowed).
  */
 async function switchInline(msg, button) {
   if (!msg?.botUsername) {
@@ -352,9 +353,9 @@ async function sharePhone() {
 }
 
 /**
- * Окно с полями: text — вопрос, body — узлы формы, ok — подпись кнопки.
- * check() — проверка перед закрытием (вернуть текст ошибки или ''). Ответ
- * промиса — true, если нажали ok.
+ * A window with fields: text — the question, body — the form nodes, ok — the
+ * button label. check() — the check before closing (return the error text or
+ * ''). The promise resolves to true if ok was pressed.
  */
 export function formDialog({ text, body = [], ok, check = () => '' }) {
   return new Promise((resolve) => {
@@ -392,7 +393,7 @@ export function checkRow(label, checked, disabled = false) {
   return { box, node: el('label', { class: 'confirm__check' }, box, el('span', {}, label)) };
 }
 
-/** Ответ бота на callback: текст уведомлением или окном, ссылка. */
+/** A bot's callback answer: the text as a notice or a window, a link. */
 function handleAnswer(answer) {
   if (answer?.text) {
     if (answer.alert) showAlert(answer.text);
@@ -401,7 +402,7 @@ function handleAnswer(answer) {
   if (answer?.url) openLink(answer.url);
 }
 
-/** Вход на сайт через Telegram (loginUrl): как у нативного клиента. */
+/** Signing in to a site via Telegram (loginUrl): as in the native client. */
 async function loginUrl(msg, button) {
   let info;
   try {
@@ -432,7 +433,7 @@ async function loginUrl(msg, button) {
   }
 }
 
-/** Callback с паролем 2FA: пароль вводит человек, уходит в TDLib. */
+/** A callback with the 2FA password: the person enters it, it goes to TDLib. */
 async function callbackWithPassword(msg, button) {
   const pass = field({ type: 'password', autocomplete: 'current-password', placeholder: 'Password' });
   const yes = await formDialog({
@@ -451,12 +452,12 @@ async function callbackWithPassword(msg, button) {
   }
 }
 
-/** Кнопка «купить» — оплата счёта сообщения (ui/payments.js). */
+/** The "buy" button — paying the message's invoice (ui/payments.js). */
 function buy(msg) {
   emit('ui:pay-invoice', { msgId: String(msg.id) });
 }
 
-/** Почему геопозиции нет — по коду GeolocationPositionError. */
+/** Why there is no location — by the GeolocationPositionError code. */
 export function geoErrorText(error) {
   switch (error?.code) {
     case 1:
@@ -472,7 +473,7 @@ export function geoErrorText(error) {
   }
 }
 
-/** Геопозиция: браузер спрашивает разрешение, человек — согласие на отправку. */
+/** Location: the browser asks for permission, the person for consent to send it. */
 async function requestLocation() {
   if (!navigator.geolocation) {
     notify('Location is not available');
@@ -500,9 +501,9 @@ async function requestLocation() {
 const POLL_OPTIONS_MAX = 10;
 
 /**
- * Опрос: вопрос, варианты, анонимность, викторина. button — ограничения
- * кнопки бота (forceRegular / forceQuiz), cmd — куда отправить: кнопка
- * бота или меню скрепки (ui/attachmenu.js).
+ * A poll: the question, options, anonymity, quiz. button — the bot button's
+ * restrictions (forceRegular / forceQuiz), cmd — where to send: the bot
+ * button or the paperclip menu (ui/attachmenu.js).
  */
 export async function openPollDialog(button, cmd = 'bot.sendPoll') {
   const question = field({ type: 'text', placeholder: 'Question', maxLength: 300 });
@@ -554,7 +555,7 @@ export async function openPollDialog(button, cmd = 'bot.sendPoll') {
   }
 }
 
-/** Создать управляемого бота: имя и имя пользователя, подсказанные ботом. */
+/** Create a managed bot: the name and username suggested by the bot. */
 async function requestManagedBot(button) {
   const name = field({ type: 'text', placeholder: 'Bot name', value: button.name || '', maxLength: 64 });
   const username = field({ type: 'text', placeholder: 'Bot username', value: button.username || '', maxLength: 32 });
@@ -573,7 +574,7 @@ async function requestManagedBot(button) {
   }
 }
 
-/** Нажатие кнопки — инлайн (под сообщением) или клавиатуры (msg = null). */
+/** A button press — inline (under a message) or a keyboard one (msg = null). */
 async function press(msg, button) {
   switch (button.kind) {
     case 'callback': {
@@ -581,11 +582,11 @@ async function press(msg, button) {
       try {
         answer = await hooks.call('bot.callback', { id: String(msg.id), data: button.data });
       } catch (error) {
-        // Молча — кнопка выглядела мёртвой. Живой лог: TDLib отвечает
-        // ошибкой 502 «The bot is not responding», когда бот за ~15 с не
-        // ответил на нажатие; это и говорим.
-        // Таймаут команды страницы (15 с) срабатывает на долю секунды
-        // раньше ответа TDLib (~15,2 с по логу) — это тот же случай.
+        // Silently — the button looked dead. A live log: TDLib answers with
+        // error 502 "The bot is not responding" when the bot did not answer
+        // the press within ~15 s; that is what we say.
+        // The page's command timeout (15 s) fires a fraction of a second
+        // before TDLib's answer (~15.2 s per the log) — the same case.
         const text = error instanceof Error ? error.message : String(error);
         notify(/timed out|not responding/i.test(text) ? 'The bot is not responding' : text);
         return;
@@ -597,7 +598,7 @@ async function press(msg, button) {
       await callbackWithPassword(msg, button);
       return;
     case 'game':
-      // Игра — тоже callback (payload Game); бот отвечает ссылкой на неё.
+      // A game is a callback too (payload Game); the bot answers with a link to it.
       try {
         handleAnswer(await hooks.call('bot.callback', { id: String(msg.id), game: true }));
       } catch (error) {
@@ -640,13 +641,13 @@ async function press(msg, button) {
       hooks.send(button.text);
       return;
     case 'webapp':
-      // Под сообщением — inline; на клавиатуре над полем ввода (msg нет) —
-      // keyboard: данные такого приложения уходят боту от имени кнопки.
+      // Under a message — inline; on the keyboard above the input field (no
+      // msg) — keyboard: such an app's data goes to the bot on behalf of the button.
       if (msg) await openApp('inline', button.url, msg);
       else await openApp('keyboard', button.url, null, button.text);
       return;
-    // Кнопки-запросы — только на клавиатуре над полем ввода; их
-    // источник — сообщение с этой клавиатурой.
+    // Request buttons — only on the keyboard above the input field; their
+    // source is the message with that keyboard.
     case 'requestUsers':
       if (keyboard) await shareUsers(keyboard.msgId, button);
       return;
@@ -665,40 +666,40 @@ async function press(msg, button) {
 }
 
 function buttonNode(msg, button, cls) {
-  // Цвет, который задал бот (buttonStyle*): is-style-danger и т. п.
+  // The colour the bot set (buttonStyle*): is-style-danger and so on.
   const style = button.style ? ` is-style-${button.style}` : '';
   return el('button', {
     class: `${cls} is-${button.kind}${style}`,
     type: 'button',
     title: button.kind === 'url' || button.kind === 'login' ? button.url : '',
-    // inlineKeyboardButtonTypeDisabled — видна, но не нажимается.
+    // inlineKeyboardButtonTypeDisabled — visible but not pressable.
     disabled: button.kind === 'disabled',
     onclick: (event) => {
       event.stopPropagation();
       press(msg, button).catch(console.error);
     },
   },
-  // icon_custom_emoji_id — перед текстом; пока файла нет, просто без него.
+  // icon_custom_emoji_id — before the text; while there is no file, just without it.
   button.emoji ? customEmojiNode(button.emoji, `${cls}-emoji`) : null,
   el('span', { class: `${cls}-text` }, button.text),
   button.kind === 'url' || button.kind === 'webapp'
     ? icon(button.kind === 'url' ? 'link' : 'dots', `${cls}-mark icon--sm`) : null);
 }
 
-/** Одна кнопка — для блоков богатого сообщения (ui/richmessage.js):
- *  тот же вид и то же нажатие, что под сообщением. */
+/** One button — for rich message blocks (ui/richmessage.js):
+ *  the same look and the same press as under a message. */
 export function inlineButtonNode(msg, button, cls) {
   return buttonNode(msg, button, cls);
 }
 
-/** Инлайн-кнопки под сообщением — зовёт message.js. */
+/** Inline buttons under a message — called by message.js. */
 export function renderInlineKeyboard(msg) {
   return el('div', { class: 'message__keyboard' },
     ...msg.keyboard.map((row) => el('div', { class: 'message__kb-row' },
       ...row.map((b) => buttonNode(msg, b, 'message__kb-btn')))));
 }
 
-// ----------------------------------------------- клавиатура над полем
+// ----------------------------------------------- keyboard above the field
 function drawKeyboard() {
   const shown = !!keyboard && !hiddenKb.has(keyboard.msgId);
   kbToggle.hidden = !keyboard;
@@ -712,7 +713,7 @@ function drawKeyboard() {
     ...row.map((b) => {
       const node = buttonNode(null, b, 'composer__kb-btn');
       if (keyboard.oneTime) {
-        // Одноразовая — после нажатия прячется.
+        // A one-time keyboard hides after a press.
         node.addEventListener('click', () => {
           hiddenKb.add(keyboard.msgId);
           drawKeyboard();
@@ -724,8 +725,8 @@ function drawKeyboard() {
 
 function setKeyboard(next) {
   applyPlaceholder(next?.placeholder || '');
-  // force_reply: поле ввода сразу отвечает на сообщение с разметкой — один
-  // раз на сообщение, дальше человек волен ответ отменить.
+  // force_reply: the input field replies to the message with the markup at
+  // once — once per message, after that the person is free to cancel the reply.
   if (next?.forceReply && next.msgId && !forcedReply.has(next.msgId)) {
     const target = store.messages?.items?.find((m) => m.id === next.msgId);
     if (target) {
@@ -741,14 +742,14 @@ function setKeyboard(next) {
 }
 
 /**
- * Клавиатура заново — когда приехал файл кастомного эмодзи: разметка
- * при этом не меняется, и setKeyboard считает её прежней (main.js).
+ * The keyboard anew — when a custom emoji file arrived: the markup does not
+ * change, and setKeyboard considers it the same (main.js).
  */
 export function redrawBotKeyboard() {
   if (kbBox) drawKeyboard();
 }
 
-/** Плейсхолдер поля ввода от бота (input_field_placeholder); '' — вернуть свой. */
+/** The input field placeholder from the bot (input_field_placeholder); '' — restore our own. */
 function applyPlaceholder(text) {
   if (!input) return;
   if (text) {
@@ -760,10 +761,10 @@ function applyPlaceholder(text) {
   }
 }
 
-// --------------------------------------------------------- команды
-// Кнопка меню бота: если бот задал мини-приложение (botMenuButton) — она
-// с его текстом и открывает приложение, как у нативного клиента; иначе —
-// Menu со списком команд.
+// --------------------------------------------------------- commands
+// The bot's menu button: if the bot set a mini app (botMenuButton) — it has
+// its text and opens the app, as in the native client; otherwise — Menu
+// with the command list.
 function drawMenu() {
   const app = botInfo?.menuButton?.url;
   menuBtn.hidden = !app && !(botInfo?.commands?.length > 0);
@@ -800,8 +801,8 @@ async function loadBotInfo(chat) {
 
 /**
  * hooks: { call(cmd, args), report(err), notice(text), openChat(id), send(text), silent() }
- * composerNode — #composer: клавиатура встаёт над полем ввода, кнопки
- * (Menu и переключатель клавиатуры) — в начало правой группы.
+ * composerNode — #composer: the keyboard goes above the input field, the
+ * buttons (Menu and the keyboard toggle) — at the start of the right group.
  */
 export function mountBots(composerNode, options) {
   hooks = options ?? {};
@@ -838,15 +839,15 @@ export function mountBots(composerNode, options) {
     setKeyboard(null);
     hideInline();
     loadBotInfo(chat).catch(console.error);
-    // Переход по кнопке switchInline: текст — в поле уже нового чата.
+    // Going by a switchInline button: the text goes into the new chat's field.
     if (pendingInline && chat?.id === pendingInline.chatId) {
       const { text } = pendingInline;
       pendingInline = null;
       setTimeout(() => setComposerText(text), 0);
     }
   });
-  // Строка чата бывает уточнена позже (чат не из списка) — вид станет
-  // известен только тогда.
+  // A chat row is sometimes refined later (a chat not from the list) — its
+  // kind becomes known only then.
   on('store:active-row', (chat) => {
     if (chat?.id !== infoFor) loadBotInfo(chat).catch(console.error);
   });

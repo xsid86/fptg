@@ -2,27 +2,27 @@ unit srvauth;
 
 {$mode objfpc}{$H+}
 
-{ Вход на сервер: пользователи с паролями, сеансы, JWT.
+{ Signing in to the server: users with passwords, sessions, JWT.
 
-  Пользователь входит логином и паролем (POST /api/login, localserver)
-  и получает refresh-токен — долгий секрет сеанса: окно хранит его в
-  своём conf.dat, браузер — в localStorage. Пароль не хранится нигде,
-  кроме хеша на сервере (PBKDF2-HMAC-SHA256). По refresh-токену
-  (POST /api/refresh) выдаются JWT (HS256, подпись — секрет из conf.dat
-  сервера):
-  - access (scp api) — на час: веб-сокет, загрузки;
-  - media (scp media) — без срока, пока жив сеанс: адреса картинок
-    висят в странице часами, и протухать каждый час им нельзя.
-  Любой JWT действует, только пока жив его сеанс: выход (/api/logout)
-  или --sign-out гасят их сразу, а не по истечении срока.
+  The user signs in with a login and password (POST /api/login,
+  localserver) and gets a refresh token — the session's long-lived secret:
+  the window keeps it in its conf.dat, a browser — in localStorage. The
+  password is kept nowhere except as a hash on the server
+  (PBKDF2-HMAC-SHA256). By the refresh token (POST /api/refresh) JWTs are
+  issued (HS256, signed with a secret from the server's conf.dat):
+  - access (scp api) — for an hour: the web socket, uploads;
+  - media (scp media) — no expiry while the session lives: picture
+    addresses stay in the page for hours and must not go stale every hour.
+  Any JWT works only while its session lives: sign-out (/api/logout) or
+  --sign-out ends them at once, not when they expire.
 
-  Сеанс в conf.dat — sid = JSON (user, hash — SHA-256 refresh-токена,
-  самого токена на диске нет, created, used, device); сеанс, которым
-  не пользовались AUTH_SESSION_IDLE_DAYS, гаснет.
+  A session in conf.dat — sid = JSON (user, hash — the SHA-256 of the
+  refresh token, the token itself is not on disk, created, used, device);
+  a session unused for AUTH_SESSION_IDLE_DAYS expires.
 
-  Потоки: проверка JWT и /api/… идут в потоках сокетов, управление
-  пользователями — в главном. Всё состояние — в памяти под замком;
-  conf.dat пишется под замком secureconfig. }
+  Threads: JWT checks and /api/… run on socket threads, user management —
+  on the main one. All the state is in memory under a lock; conf.dat is
+  written under the secureconfig lock. }
 
 interface
 
@@ -32,45 +32,45 @@ uses
 type
   TAuthScope = (ascApi, ascMedia);
 
-{ Загрузить пользователей, сеансы и ключ подписи (создав ключ при
-  первом запуске). Зовётся до старта сервера. }
+{ Load the users, sessions and the signing key (creating the key on the
+  first start). Called before the server starts. }
 procedure AuthLoad;
 
-{ Пользователь у сервера один (данные TDLib — одного человека). '' —
-  ещё не заведён, войти некому. }
+{ The server has one user (the TDLib data belongs to one person). '' —
+  not set up yet, nobody can sign in. }
 function AuthUserName: string;
-{ Логин и пароль единственного пользователя. Тот же логин — только
-  новый пароль, сеансы остаются; другой — прежний пользователь
-  заменяется, и его сеансы гаснут. }
+{ Login and password of the only user. The same login — only a new
+  password, the sessions stay; another one — the previous user is
+  replaced and their sessions end. }
 procedure AuthSetUser(const AName, APassword: string);
-{ Гасит все сеансы и меняет ключ подписи: все выданные JWT — тоже. }
+{ Ends all sessions and changes the signing key: all issued JWTs too. }
 procedure AuthLogoutAll;
 
-{ Вход. True — ARefresh: новый refresh-токен; иначе AError (для
-  страницы: одинаковый на неверное имя и неверный пароль). AIp — для
-  защиты от перебора. }
+{ Sign-in. True — ARefresh: a new refresh token; otherwise AError (for the
+  page: the same for a wrong name and a wrong password). AIp — for
+  brute-force protection. }
 function AuthLogin(const AUser, APassword, ADevice, AIp: string;
   out ARefresh, AError: string): boolean;
-{ По refresh-токену — свежие JWT. AExpires — срок access, unix-время. }
+{ Fresh JWTs by a refresh token. AExpires — the access token's expiry, unix time. }
 function AuthRefresh(const ARefresh: string; out AAccess, AMedia, AUser: string;
   out AExpires: Int64; out AError: string): boolean;
 procedure AuthLogout(const ARefresh: string);
 
-{ Проверка JWT запроса. Media-адрес принимает и access-токен. }
+{ Checking a request's JWT. A media address accepts an access token too. }
 function AuthCheck(const AJwt: string; AScope: TAuthScope): boolean;
-{ Сеанс проверенного JWT (sid) — чтобы закрыть его соединения, когда
-  сеанс погасят. }
+{ The session (sid) of a checked JWT — to close its connections when the
+  session is ended. }
 function AuthSessionId(const AJwt: string): string;
 
 type
-  { Сеансы погашены: ASids — их id, nil — все. Зовётся вне замка srvauth,
-    в потоке того, кто гасил. }
+  { Sessions ended: ASids — their ids, nil — all. Called outside the
+    srvauth lock, on the thread of whoever ended them. }
   TAuthSessionsEnded = procedure(ASids: TStrings);
 
 var
-  { Ставит localserver: закрыть веб-сокеты этих сеансов. Без этого уже
-    открытый сокет живёт дальше — токен проверяется только при
-    подключении. }
+  { Set by localserver: close the web sockets of these sessions. Without it
+    an already open socket lives on — the token is checked only on
+    connecting. }
   AuthSessionsEnded: TAuthSessionsEnded = nil;
 
 implementation
@@ -83,7 +83,7 @@ type
   TSession = class
     Sid: string;
     User: string;
-    Hash: RawByteString;      { SHA-256 refresh-токена }
+    Hash: RawByteString;      { SHA-256 of the refresh token }
     Created, Used: Int64;
     Device: string;
   end;
@@ -96,7 +96,7 @@ type
 
 var
   GLock: TCriticalSection = nil;
-  GUsers: TStringList = nil;      { имя=salt:iterations:hash (base64) }
+  GUsers: TStringList = nil;      { name=salt:iterations:hash (base64) }
   GSessions: TFPList = nil;
   GKey: RawByteString = '';
   GFails: array of TFails;
@@ -139,7 +139,7 @@ begin
   end;
 end;
 
-{ ---------------- хранение ---------------- }
+{ ---------------- storage ---------------- }
 
 function SessionJson(S: TSession): string;
 var
@@ -158,7 +158,7 @@ begin
   end;
 end;
 
-{ Под GLock. Пишет пользователей, сеансы и ключ целиком: их мало. }
+{ Under GLock. Writes users, sessions and the key in full: there are few of them. }
 procedure Persist;
 var
   Ini: TSecureIni;
@@ -210,8 +210,8 @@ begin
     try
       GKey := DecodeStringBase64(Ini.ReadString(AUTH_CONFIG_SECTION, AUTH_CONFIG_JWT_KEY, ''));
       Ini.ReadSectionValues(AUTH_USERS_SECTION, GUsers);
-      { Из времён, когда пользователей бывало несколько: остаётся
-        первый, сеансы остальных гаснут проверкой ниже. }
+      { From the times when there could be several users: the first one
+        stays, the others' sessions end in the check below. }
       while GUsers.Count > 1 do begin
         GUsers.Delete(GUsers.Count - 1);
         Changed := True;
@@ -233,7 +233,7 @@ begin
             S.Created := TJSONObject(D).Get('created', Int64(0));
             S.Used := TJSONObject(D).Get('used', Int64(0));
             S.Device := TJSONObject(D).Get('device', '');
-            { Сеанс давно не трогали или его пользователя уже нет. }
+            { The session has not been touched for long or its user is gone. }
             if (NowUnix - S.Used > Int64(AUTH_SESSION_IDLE_DAYS) * 86400)
                or (GUsers.IndexOfName(S.User) < 0) then begin
               S.Free;
@@ -276,7 +276,7 @@ begin
   end;
 end;
 
-{ Сообщить, что сеансы погашены (вне замка). ASids = nil — все. }
+{ Report that sessions have ended (outside the lock). ASids = nil — all. }
 procedure NotifyEnded(ASids: TStrings);
 begin
   if Assigned(AuthSessionsEnded) then begin
@@ -337,9 +337,9 @@ begin
   NotifyEnded(nil);
 end;
 
-{ ---------------- перебор ---------------- }
+{ ---------------- brute force ---------------- }
 
-{ Под GLock. Индекс записи адреса, создаёт при нужде. }
+{ Under GLock. The index of the address's record, created if needed. }
 function FailSlot(const AIp: string): integer;
 begin
   for Result := 0 to High(GFails) do begin
@@ -353,7 +353,7 @@ begin
   GFails[Result].Ip := AIp;
 end;
 
-{ ---------------- вход ---------------- }
+{ ---------------- sign-in ---------------- }
 
 function CheckPassword(const AStored, APassword: string): boolean;
 var
@@ -400,9 +400,9 @@ begin
     GLock.Leave;
   end;
 
-  { PBKDF2 — без замка: ~0.1 с, и другим потокам ждать незачем.
-    Неизвестное имя проверяется так же долго, как известное, — по
-    времени ответа имена не перебрать. }
+  { PBKDF2 — without the lock: ~0.1 s, and other threads have no reason to
+    wait. An unknown name is checked as long as a known one — names cannot
+    be guessed from the answer time. }
   if Stored = '' then begin
     CheckPassword('AAAAAAAAAAAAAAAAAAAAAA==:' + IntToStr(AUTH_PBKDF2_ITERATIONS)
       + ':AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', APassword);
@@ -444,7 +444,7 @@ begin
   end;
 end;
 
-{ Под GLock. Сеанс по refresh-токену. }
+{ Under GLock. The session by refresh token. }
 function FindByRefresh(const ARefresh: string): TSession;
 var
   I: integer;
@@ -473,7 +473,7 @@ begin
   end;
 end;
 
-{ Под GLock. }
+{ Under GLock. }
 function MakeJwt(S: TSession; AScope: TAuthScope; AExpires: Int64): string;
 var
   P: TJSONObject;
@@ -522,8 +522,8 @@ begin
     AAccess := MakeJwt(S, ascApi, AExpires);
     AMedia := MakeJwt(S, ascMedia, 0);
     AUser := S.User;
-    { «Пользовались» — не чаще раза в час: запись conf.dat не на
-      каждое продление. }
+    { "Used" — no more often than once an hour: no conf.dat write on every
+      renewal. }
     if NowUnix - S.Used > 3600 then begin
       S.Used := NowUnix;
       Persist;
@@ -589,8 +589,8 @@ end;
 
 function CheckJwt(const AJwt: string; AScope: TAuthScope): boolean; forward;
 
-{ Любой мусор вместо токена — просто «нет»: битый base64 или JSON
-  бросают исключения, а это проверка в потоке сокета. }
+{ Any garbage instead of a token is simply "no": broken base64 or JSON
+  raise exceptions, and this is a check on a socket thread. }
 function AuthCheck(const AJwt: string; AScope: TAuthScope): boolean;
 begin
   try
@@ -634,7 +634,7 @@ begin
       end;
       O := TJSONObject(D);
       Scp := O.Get('scp', '');
-      { Адрес медиа принимает и access: им же пользуется загрузка. }
+      { A media address accepts access too: the upload uses it. }
       if not ((Scp = 'api') or ((AScope = ascMedia) and (Scp = 'media'))) then begin
         Exit;
       end;

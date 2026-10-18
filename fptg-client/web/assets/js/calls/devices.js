@@ -1,18 +1,18 @@
-// Выбор устройств для звонков: микрофон, камера, динамик.
+// The choice of devices for calls: microphone, camera, speaker.
 //
-// Выбор — в localStorage ЭТОЙ страницы, не в настройках сервера: id
-// устройств браузерные и на другой машине (морда отдельно от сервера —
-// Android, Linux) значат другое или ничего. Хранилище может быть
-// недоступно — тогда просто устройства по умолчанию.
+// The choice is in THIS page's localStorage, not in the server settings:
+// device ids are the browser's, and on another machine (the front end apart
+// from the server — Android, Linux) they mean something else or nothing.
+// The storage may be unavailable — then simply the default devices.
 //
-// Названия устройств и ПОЛНЫЙ список браузер отдаёт только после
-// захвата микрофона или камеры в этом сеансе окна: до того — по одному
-// безымянному устройству каждого вида («Speaker 1»), хотя у человека их
-// может быть десяток (живой случай: 5 входов и 7 выходов, видно было по
-// одному). Окно-хозяин разрешает своей странице микрофон без вопроса
-// (webview2.pas), но разрешение не сохраняется между запусками. Поэтому
-// открытая панель устройств сама один раз за сеанс открывает и сразу
-// закрывает микрофон (unlockNames, ~0.1 с), и список становится полным.
+// The browser gives the device names and the FULL list only after the
+// microphone or camera was captured in this window session: before that —
+// one nameless device of each kind ("Speaker 1"), though a person may have
+// a dozen (a live case: 5 inputs and 7 outputs, one of each was visible).
+// The host window allows its page the microphone without asking
+// (webview2.pas), but the permission is not kept between runs. So the open
+// device panel itself opens and at once closes the microphone once per
+// session (unlockNames, ~0.1 s), and the list becomes full.
 
 import { emit } from '../core/bus.js';
 import { el } from '../core/dom.js';
@@ -32,7 +32,7 @@ function write(prefs) {
   try {
     localStorage.setItem(KEY, JSON.stringify(prefs));
   } catch {
-    // без хранилища выбор живёт до перезагрузки
+    // without storage the choice lives until a reload
   }
 }
 
@@ -40,55 +40,55 @@ let prefs = read();
 
 export const chosen = (kind) => prefs[kind] ?? '';
 
-/** Выбрать устройство: kind — mic | camera | speaker, id '' — по умолчанию. */
+/** Choose a device: kind — mic | camera | speaker, id '' — the default. */
 export function choose(kind, id) {
   prefs = { ...prefs, [kind]: id };
   write(prefs);
   emit('calls:device', { kind, id });
-  // Другие открытые панели (окно звонка, настройки) — показать новый выбор.
+  // Other open panels (the call window, the settings) — show the new choice.
   refreshAll();
 }
 
-/** Ограничения getUserMedia для звука с выбранным микрофоном. */
+/** getUserMedia constraints for sound with the chosen microphone. */
 export function micConstraints(extra = {}) {
   const id = chosen('mic');
   return { ...extra, ...(id ? { deviceId: { ideal: id } } : {}) };
 }
 
-/** Ограничения getUserMedia для видео с выбранной камерой. */
+/** getUserMedia constraints for video with the chosen camera. */
 export function cameraConstraints(extra = {}) {
   const id = chosen('camera');
   return { ...extra, ...(id ? { deviceId: { ideal: id } } : {}) };
 }
 
-// ------------------------------------------------------- громкость
-// Микрофон: 0..MIC_GAIN_MAX — усилитель WebAudio между микрофоном и
-// звонком (openMic). Выход: 0..1 — громкость <audio> собеседника; выше
-// 100% — только через WebAudio, а тогда выход не следует за выбранным
-// динамиком (setSinkId есть у элемента), поэтому без усиления.
+// ------------------------------------------------------- volume
+// Microphone: 0..MIC_GAIN_MAX — a WebAudio amplifier between the microphone
+// and the call (openMic). Output: 0..1 — the volume of the other side's
+// <audio>; above 100% — only through WebAudio, and then the output does not
+// follow the chosen speaker (setSinkId belongs to the element), hence no gain.
 export const MIC_GAIN_MAX = 2;
-const live = new Set();     // усилители открытых микрофонов
+const live = new Set();     // the amplifiers of open microphones
 
 export const micGain = () => prefs.micGain ?? 1;
 export const outputVolume = () => prefs.volume ?? 1;
 
-/** kind: 'mic' (0..MIC_GAIN_MAX) или 'speaker' (0..1). */
+/** kind: 'mic' (0..MIC_GAIN_MAX) or 'speaker' (0..1). */
 export function setLevel(kind, value) {
   if (kind === 'mic') {
     prefs = { ...prefs, micGain: value };
     for (const g of live) g.gain.value = value;
   } else {
     prefs = { ...prefs, volume: value };
-    // окна звонка переприменят громкость к своим <audio> (routeAudio)
+    // call windows reapply the volume to their <audio> (routeAudio)
     emit('calls:device', { kind: 'speaker' });
   }
   write(prefs);
 }
 
 /**
- * Микрофон через усилитель: MediaStream с одной дорожкой. stop() этой
- * дорожки гасит и настоящий микрофон, и усилитель — вызывающий код
- * останавливает её как обычную.
+ * The microphone through an amplifier: a MediaStream with one track. stop()
+ * of that track ends both the real microphone and the amplifier — the
+ * calling code stops it like an ordinary one.
  */
 export async function openMic(constraints) {
   const raw = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false });
@@ -96,7 +96,7 @@ export async function openMic(constraints) {
   try {
     ctx = new AudioContext();
   } catch {
-    return raw;   // без WebAudio — микрофон как есть
+    return raw;   // without WebAudio — the microphone as it is
   }
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   const gain = ctx.createGain();
@@ -115,7 +115,7 @@ export async function openMic(constraints) {
   return new MediaStream([track]);
 }
 
-/** Вывести звук элемента на выбранный динамик (если браузер умеет). */
+/** Route the element's sound to the chosen speaker (if the browser can). */
 export async function routeAudio(node) {
   const id = chosen('speaker');
   if (node) node.volume = Math.min(1, Math.max(0, outputVolume()));
@@ -123,17 +123,17 @@ export async function routeAudio(node) {
   try {
     await node.setSinkId(id);
   } catch {
-    // устройство пропало — остаётся то, что было
+    // the device is gone — what was there stays
   }
 }
 
-// Микрофон уже открывали в этом сеансе ради списка — второй раз не надо.
+// The microphone was already opened in this session for the list — no need a second time.
 let unlockTried = false;
 
 /**
- * Открыть и сразу закрыть микрофон — после этого браузер отдаёт все
- * устройства с названиями. Звук, не камера: этого хватает и для камер
- * (замерено), а индикатор камеры не мигает. true — получилось.
+ * Open and at once close the microphone — after that the browser gives all
+ * devices with names. Sound, not the camera: that is enough for cameras too
+ * (measured), and the camera indicator does not blink. true — it worked.
  */
 async function unlockNames() {
   if (unlockTried) return false;
@@ -147,7 +147,7 @@ async function unlockNames() {
   }
 }
 
-/** Устройства по видам: { mic: [{id, label}], camera: [...], speaker: [...] }. */
+/** Devices by kind: { mic: [{id, label}], camera: [...], speaker: [...] }. */
 export async function listDevices() {
   const out = { mic: [], camera: [], speaker: [] };
   let all = [];
@@ -166,10 +166,10 @@ export async function listDevices() {
   return out;
 }
 
-// ------------------------------------------------------------ панель
-// Выбор устройств и громкость одной панелью: окно звонка, окно
-// видеочата, настройки (раздел Calls). Открытых копий может быть
-// несколько — выбор в одной сразу виден в остальных (refreshAll).
+// ------------------------------------------------------------ panel
+// Device choice and volume in one panel: the call window, the video chat
+// window, the settings (the Calls section). There may be several open
+// copies — a choice in one is seen at once in the others (refreshAll).
 const panels = new Set();
 
 function select(kind, devs) {
@@ -205,8 +205,8 @@ const isNameless = (devs) => [...devs.mic, ...devs.camera, ...devs.speaker].leng
 
 async function fill(box) {
   let devs = await listDevices();
-  // Без захвата в этом сеансе — неполный безымянный список: открытая
-  // панель открывает микрофон на миг сама (unlockNames).
+  // Without a capture in this session — an incomplete nameless list: the
+  // open panel opens the microphone for a moment itself (unlockNames).
   if (isNameless(devs) && !box.hidden && await unlockNames()) devs = await listDevices();
   const nameless = isNameless(devs);
   const rows = [
@@ -220,14 +220,14 @@ async function fill(box) {
     rows.push(el('button', {
       class: 'btn call-levels__allow', type: 'button',
       onclick: async () => {
-        // По отдельности: камеры может не быть или она занята — тогда
-        // общий запрос падал целиком, и микрофон не открывался тоже.
+        // Separately: there may be no camera or it may be busy — then a
+        // combined request failed whole, and the microphone did not open either.
         for (const constraints of [{ audio: true }, { video: true }]) {
           try {
             const s = await navigator.mediaDevices.getUserMedia(constraints);
             for (const t of s.getTracks()) t.stop();
           } catch {
-            // нет или отказали — остаётся то, что есть
+            // none or refused — what there is stays
           }
         }
         refreshAll();
@@ -235,7 +235,7 @@ async function fill(box) {
     }, 'Show device names'));
   }
   box.replaceChildren(...rows);
-  // Старые ползунки этой панели заменены — их правила заливки не нужны.
+  // This panel's old sliders are replaced — their fill rules are not needed.
   pruneFills();
 }
 
@@ -251,9 +251,9 @@ if (navigator.mediaDevices?.addEventListener) {
 }
 
 /**
- * Панель устройств и громкости. hidden — скрыта, пока её не откроют
- * (кнопка Devices в окне звонка). Списки перечитываются при каждом
- * показе: подключили гарнитуру — она уже в списке.
+ * The device and volume panel. hidden — hidden until it is opened (the
+ * Devices button in the call window). The lists are re-read on every
+ * showing: a headset plugged in is in the list already.
  */
 export function devicePanel({ hidden = false } = {}) {
   const box = el('div', { class: 'call-levels', hidden });
@@ -262,7 +262,7 @@ export function devicePanel({ hidden = false } = {}) {
   return box;
 }
 
-/** Показать/спрятать панель (перечитав устройства при показе). */
+/** Show/hide the panel (re-reading the devices when shown). */
 export function togglePanel(box) {
   box.hidden = !box.hidden;
   if (!box.hidden) fill(box);

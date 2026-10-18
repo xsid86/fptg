@@ -2,21 +2,21 @@ program fptg_server_gui;
 
 {$mode objfpc}{$H+}
 
-{ Сервер fptg с окном: то же ядро, что у консольного
-  fptg-server (TDLib, мост, HTTPS/WebSocket, вход), плюс небольшое
-  окно управления (panel/srvpanel.pas + .lfm) и значок в трее. LCL —
-  только в окне; ничего платформенного — собирается на Windows и Linux.
+{ The fptg server with a window: the same core as the console fptg-server
+  (TDLib, the bridge, HTTPS/WebSocket, sign-in), plus a small control
+  window (panel/srvpanel.pas + .lfm) and a tray icon. LCL — in the window
+  only; nothing platform-specific — it builds on Windows and Linux.
 
-  Один экземпляр сервера на папку данных (instance.pas, общий с
-  консольным): если уже запущено окно — второй запуск показывает его и
-  выходит; если работает консольный сервер — окно становится пультом к
-  нему.
+  One server instance per data folder (instance.pas, shared with the
+  console one): if the window is already running, a second start shows it
+  and exits; if the console server is running, the window becomes a remote
+  control for it.
 
-  Параметры те же, что у консольного: --server-port, --bind, --web-dir,
-  --cert/--key. Пользователи заводятся в окне. }
+  The parameters are the same as the console one's: --server-port, --bind,
+  --web-dir, --cert/--key. Users are set up in the window. }
 
 uses
-  { Менеджер памяти — первым, раньше любого выделения (как у
+  { The memory manager — first, before any allocation (as in
     fptg-server). }
   cmem,
   {$IFDEF UNIX}
@@ -34,16 +34,17 @@ var
   Res: TJSONObject;
 
 begin
-  { Без этого неявные преобразования строк идут через системную кодовую
-    страницу и теряют не-латиницу. }
+  { Without this, implicit string conversions go through the system code
+    page and lose non-Latin characters. }
   DefaultSystemCodePage := CP_UTF8;
 
-  { Данные сервера — в профиле пользователя (appdirs.pas), не рядом с exe. }
+  { The server's data lives in the user profile (appdirs.pas), not next to the exe. }
   Dir := ServerDataDir;
   SecureConfigSetDir(Dir);
   Own := AcquireInstance(Dir, INSTANCE_SERVER);
-  { Сервер уже работает из другой копии или у другого пользователя ОС —
-    пульта к нему отсюда нет, а второй на машине не нужен. }
+  { The server is already running from another copy or under another OS
+    user — there is no remote control to it from here, and a second one on
+    the machine is not needed. }
   if (not Own) and InstanceElsewhere then begin
     Application.Initialize;
     MessageDlg(APP_TITLE + ' server',
@@ -52,7 +53,7 @@ begin
     Exit;
   end;
   if (not Own) and (InstanceKind(Dir, INSTANCE_SERVER) = 'gui') then begin
-    { Окно уже открыто — показать его, второго не нужно. }
+    { The window is already open — show it, a second one is not needed. }
     if CallInstance(Dir, INSTANCE_SERVER, 'show', nil, Res, Err) then begin
       Res.Free;
     end;
@@ -68,7 +69,7 @@ begin
   end else begin
     FormServerPanel.InitRemote;
   end;
-  { Главная форма закрывается только в трей (FormCloseQuery); выход —
-    трей → Quit (Application.Terminate). }
+  { The main form closes only to the tray (FormCloseQuery); quitting is
+    tray → Quit (Application.Terminate). }
   Application.Run;
 end.

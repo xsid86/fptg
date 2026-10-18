@@ -3,9 +3,9 @@ import { socketUrl } from './core/session.js';
 
 // Standalone on purpose: this page has to stay usable when the app
 // modules are the thing that is broken. It therefore talks to the
-// socket directly instead of going through core/net.js. Адрес сервера и
-// токен — от сеанса (core/session.js): страница может быть не с сервера,
-// и сокет пускает только с действующим JWT.
+// socket directly instead of going through core/net.js. The server address
+// and token come from the session (core/session.js): the page may be not
+// from the server, and the socket lets in only with a valid JWT.
 
 const log = qs('#log');
 const conn = qs('#conn');
@@ -44,7 +44,7 @@ async function connect() {
   try {
     url = await socketUrl();
   } catch (error) {
-    // Сеанса нет — session.js уже отправил на вход; иначе — повтор.
+    // No session — session.js has sent to sign-in already; otherwise — a retry.
     if (error?.signedOut) return;
     line('ts', `no token: ${error?.message || error}`);
     retries = Math.min(retries + 1, 6);

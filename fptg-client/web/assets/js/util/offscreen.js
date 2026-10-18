@@ -180,13 +180,13 @@ function restoreVideo(video, info) {
   }
   // Started here only if the view observer has ALREADY said "on screen":
   // coming back within reach is still not the same as coming into view.
-  // Уже на экране — играть сразу. Порядок двух наблюдателей НЕ
-  // гарантирован, а внутри прокручиваемой истории запас REACH не
-  // действует (он расширяет только окно, не рамку прокрутки), так что
-  // оба срабатывают в одном кадре. Замерено живьём: «на экране» пришло
-  // РАНЬШЕ «рядом» — play() пропускался из-за ещё снятого источника, а
-  // вернувший его restore запустить не пытался; гифка стояла постером до
-  // клика (чаще всего в ветке комментариев).
+  // Already on screen — play at once. The order of the two observers is NOT
+  // guaranteed, and inside the scrolling history the REACH margin does not
+  // apply (it extends only the window, not the scroll frame), so both fire
+  // in one frame. Measured live: "on screen" came BEFORE "near" — play() was
+  // skipped because of the still removed source, and the restore that
+  // brought it back did not try to start it; the GIF stood as a poster until
+  // a click (most often in a comment thread).
   if (info.loop && info.visible) {
     if (info.loop === 'once') video.currentTime = 0;
     video.play().catch(() => { /* went away mid-start */ });
@@ -241,9 +241,9 @@ export function holdVideo(video, full, loop = false) {
 }
 
 /**
- * Сменить, как играет уже взятое видео (настройки Battery and animation,
- * Chat settings — без перерисовки истории): 'loop', 'once' или false —
- * только по щелчку.
+ * Change how an already taken video plays (the Battery and animation and
+ * Chat settings — without redrawing the history): 'loop', 'once' or false —
+ * only on a click.
  */
 export function setVideoMode(video, loop) {
   const info = held.get(video);
@@ -258,15 +258,14 @@ export function setVideoMode(video, loop) {
 }
 
 /**
- * Отпускает всё, что держится внутри `root`, СЕЙЧАС, а не по
- * следующему событию истории.
+ * Releases everything held inside `root` NOW, not on the next history event.
  *
- * Для тех, кто выбрасывает узлы сам и знает когда — панель эмодзи и
- * стикеров при смене набора или закрытии. sweep() ниже ловит только
- * отцепленные узлы и только по store:messages/store:chats; панель ни
- * одного из этих событий не вызывает, и её видео до тех пор продолжали
- * держать декодер. Видео отпускается так же, как при уходе за экран:
- * без load() элемент источник не отдаёт.
+ * For those who throw nodes away themselves and know when — the emoji and
+ * sticker panel on a set change or closing. sweep() below catches only
+ * detached nodes and only on store:messages/store:chats; the panel causes
+ * neither of these events, and its videos kept holding a decoder until
+ * then. A video is released the same way as when it goes off screen:
+ * without load() the element does not give up the source.
  */
 export function forget(root) {
   if (!root) return;

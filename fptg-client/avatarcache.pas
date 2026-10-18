@@ -15,10 +15,10 @@ function AvatarColor(AId: Int64): TColor;
 { Up to two capital letters from the title, UTF-8 aware. }
 function AvatarInitials(const ATitle: utf8string): utf8string;
 
-{ Аватарка для карточки на рабочем столе. Порядок: настоящее фото,
-  миниатюра, инициалы на цветном круге. Фото и миниатюра — байты
-  картинки (их присылает страница: файлы — на сервере, который может
-  быть и на другой машине). Результат — вызывающему. }
+{ The avatar for a desktop card. Order: the real photo, the thumbnail,
+  initials on a coloured circle. Photo and thumbnail are the picture's
+  bytes (the page sends them: the files are on the server, which may be on
+  another machine). The result goes to the caller. }
 function RenderAvatarBmp(const APhoto: RawByteString; const AThumb: RawByteString;
   const ATitle: utf8string; AId: Int64; ASize: integer; ARound: boolean): TBGRABitmap;
 
@@ -188,7 +188,7 @@ begin
   Result.TextOut((ASize - Sz.cx) / 2, (ASize - Sz.cy) / 2, Ini, BGRAWhite);
 end;
 
-{ Картинка из байтов, сразу в квадрат ASize; nil — не разобралась. }
+{ A picture from bytes, straight into an ASize square; nil — it did not parse. }
 function BytesToSquare(const ABytes: RawByteString; ASize: integer;
   ARound: boolean): TBGRABitmap;
 var

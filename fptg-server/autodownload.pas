@@ -31,10 +31,10 @@ function AutoDownloadEnabled(const AMediaKind, AChatKind: string): boolean;
   the grid itself. }
 procedure ReloadAutoDownload;
 
-{ Меняет одну клетку: пишет в config.ini и сразу в кэш, так что
-  следующий же вопрос AutoDownloadEnabled получает новый ответ.
-  Неизвестный вид медиа или чата — исключение: страница прислала
-  то, чего этот билд не знает, и молча проглотить это нельзя. }
+{ Changes one cell: writes to config.ini and straight into the cache, so
+  the very next AutoDownloadEnabled question gets the new answer. An
+  unknown media or chat kind is an exception: the page sent something this
+  build does not know, and swallowing it silently is not an option. }
 procedure SetAutoDownloadEnabled(const AMediaKind, AChatKind: string;
   AValue: boolean);
 
@@ -129,7 +129,7 @@ begin
   finally
     Ini.Free;
   end;
-  { Остальные клетки — из файла: их мог поменять нативный диалог. }
+  { The other cells — from the file: the native dialog may have changed them. }
   Load;
 end;
 

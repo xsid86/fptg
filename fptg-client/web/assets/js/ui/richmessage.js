@@ -7,20 +7,20 @@ import { fileSize, duration } from '../util/format.js';
 import { downloadUrl } from '../util/download.js';
 import { inlineButtonNode } from './bots.js';
 
-// Богатое сообщение (messageRichMessage, Bot API 10.1–10.3): статья из
-// блоков, как Instant View, — заголовки, абзацы, списки, цитаты,
-// таблицы, фото, видео, коллажи, раскрывающиеся блоки и строки кнопок.
+// A rich message (messageRichMessage, Bot API 10.1–10.3): an article of
+// blocks, like Instant View — headings, paragraphs, lists, quotes, tables,
+// photos, videos, collages, collapsible blocks and button rows.
 //
-// Структура — как у TDLib (pageBlock*, richText*, td_api.tl); сервер
-// (webapi.RichFix) подменил в ней только файлы (id, size, url — '' пока
-// не скачан: тогда file.ensure) и кнопки (JSON кнопок клавиатуры —
-// нажатие через ui/bots.js, тот же обработчик, что под сообщением).
+// The structure is as in TDLib (pageBlock*, richText*, td_api.tl); the server
+// (webapi.RichFix) replaced only the files in it (id, size, url — '' while
+// not downloaded: then file.ensure) and the buttons (the keyboard buttons'
+// JSON — pressed through ui/bots.js, the same handler as under a message).
 //
-// richMessage.is_full false — пришло не всё: «Show the full message» ->
-// rich.full (getFullRichMessage).
+// richMessage.is_full false — not everything came: "Show the full message"
+// -> rich.full (getFullRichMessage).
 
-// ------------------------------------------------------------ файлы
-/** Адрес файла: есть — сразу, нет — скачать (file.ensure). */
+// ------------------------------------------------------------ files
+/** A file's address: if there is one — at once, if not — download it (file.ensure). */
 async function fileUrl(file) {
   if (!file) return '';
   if (file.url) return file.url;
@@ -35,7 +35,7 @@ async function fileUrl(file) {
 
 const miniSrc = (mini) => (mini?.data ? `data:image/jpeg;base64,${mini.data}` : '');
 
-/** Размер фото под показ: самый крупный не шире 1280, иначе самый крупный. */
+/** The photo size for showing: the largest not wider than 1280, otherwise the largest. */
 function pickSize(photo) {
   const sizes = (photo?.sizes ?? []).filter((s) => s.photo);
   if (!sizes.length) return null;
@@ -44,7 +44,7 @@ function pickSize(photo) {
   return pool.reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a));
 }
 
-// ------------------------------------------------------------ текст
+// ------------------------------------------------------------ text
 const STYLE_TAG = {
   richTextBold: 'b',
   richTextItalic: 'i',
@@ -60,7 +60,7 @@ function link(href, children, cls = '') {
   return el('a', { class: cls, href: safeHref(href), target: '_blank', rel: 'noopener noreferrer' }, ...children);
 }
 
-/** RichText -> узлы (массив). */
+/** RichText -> nodes (an array). */
 function richText(t, msg) {
   if (!t) return [];
   const inner = () => richText(t.text, msg);
@@ -128,7 +128,7 @@ const ALIGN = {
   pageBlockHorizontalAlignmentRight: 'is-right',
 };
 
-// ------------------------------------------------------------ медиа
+// ------------------------------------------------------------ media
 function photoNode(photo, msg) {
   const size = pickSize(photo);
   const img = el('img', { class: 'rich__photo', alt: '', loading: 'lazy', src: miniSrc(photo?.minithumbnail) || null });
@@ -138,7 +138,7 @@ function photoNode(photo, msg) {
   return img;
 }
 
-/** Видео и анимация: кадр-заглушка, по щелчку — файл и проигрывание. */
+/** Video and animation: a placeholder frame, on a click — the file and playback. */
 function videoNode(video, autoplay, msg) {
   const v = el('video', {
     class: 'rich__video', controls: !autoplay, muted: autoplay, loop: autoplay,
@@ -157,7 +157,7 @@ function videoNode(video, autoplay, msg) {
   return v;
 }
 
-/** Файл, аудио, голосовое — строкой с именем; по щелчку — скачать и открыть. */
+/** A file, audio, voice — as a row with the name; on a click — download and open. */
 function fileRow(file, name, sub, msg) {
   return el('button', {
     class: 'rich__file', type: 'button',
@@ -169,7 +169,7 @@ function fileRow(file, name, sub, msg) {
   sub ? el('span', { class: 'rich__file-sub' }, sub) : null);
 }
 
-// ------------------------------------------------------------ блоки
+// ------------------------------------------------------------ blocks
 function blocks(list, msg) {
   return (list ?? []).map((b) => block(b, msg)).filter(Boolean);
 }
@@ -198,8 +198,8 @@ function block(b, msg) {
       return el('ul', { class: 'rich__list' }, ...(b.items ?? []).map((it) =>
         el('li', { class: 'rich__li' },
           it.has_checkbox ? el('input', { type: 'checkbox', checked: !!it.is_checked, disabled: true }) : null,
-          // Маркер присылает TDLib (label: «•», «1.»); у пункта с
-          // галочкой маркер — сама галочка.
+          // TDLib sends the marker (label: "•", "1."); for an item with a
+          // checkbox the marker is the checkbox itself.
           it.label && !it.has_checkbox ? el('span', { class: 'rich__li-label' }, it.label) : null,
           el('div', { class: 'rich__li-body' }, ...blocks(it.blocks, msg)))));
     case 'pageBlockBlockQuote':
@@ -242,7 +242,7 @@ function block(b, msg) {
       return el('figure', { class: 'rich__figure' },
         el('div', { class: 'rich__collage' }, ...blocks(b.blocks, msg)), caption(b.caption, msg));
     case 'pageBlockEmbedded':
-      // Чужой HTML внутрь окна не вставляется — только ссылка.
+      // Foreign HTML is not put inside the window — only a link.
       return b.url ? el('p', { class: 'rich__p' }, link(b.url, [b.url])) : null;
     case 'pageBlockEmbeddedPost':
       return el('blockquote', { class: 'rich__quote' },
@@ -283,7 +283,7 @@ function block(b, msg) {
   }
 }
 
-/** Тело богатого сообщения — зовёт message.js. */
+/** The body of a rich message — called by message.js. */
 export function renderRichMessage(msg) {
   const box = el('div', { class: `rich${msg.rich?.is_rtl ? ' is-rtl' : ''}` });
   const fill = (rich) => {

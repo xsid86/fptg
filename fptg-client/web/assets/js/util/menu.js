@@ -186,8 +186,8 @@ export function openMenu(anchor, items, options = {}) {
       },
     },
     el('span', { class: 'menu__mark', 'aria-hidden': 'true' }),
-    // item.node — своё содержимое вместо подписи (строка аккаунта с
-    // аватаркой в переключателе, ui/status-bar.js).
+    // item.node — own content instead of the label (an account row with an
+    // avatar in the switcher, ui/status-bar.js).
     item.node ?? el('span', { class: 'menu__label', textContent: item.label })));
   }
 

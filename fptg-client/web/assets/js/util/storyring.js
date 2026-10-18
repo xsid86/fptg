@@ -1,27 +1,28 @@
-// Кольцо историй вокруг аватарки: по сегменту на активную историю,
-// прочитанные — серые, непрочитанные — цветом (components/_story-ring.scss:
-// цвет контакта в цветных темах, акцент в простых и Aurora).
+// The story ring around an avatar: one segment per active story, read
+// ones — grey, unread ones — in colour (components/_story-ring.scss: the
+// contact's colour in colour themes, the accent in plain ones and Aurora).
 //
-// SVG, а не градиент: число сегментов любое и у каждого своё состояние.
-// Дуги — штрих окружности: stroke-dasharray / stroke-dashoffset —
-// АТРИБУТЫ SVG, не style (правило проекта о style не нарушается); цвет —
-// в CSS. Толщина — здесь же, атрибутом. Концы дуг плоские (CSS:
-// stroke-linecap: butt): круглый кончик на 48px сглаживается неровно, и
-// зазоры выглядели разными.
+// SVG, not a gradient: the number of segments is any, and each has its own
+// state. The arcs are a circle's stroke: stroke-dasharray /
+// stroke-dashoffset are SVG ATTRIBUTES, not style (the project's style rule
+// is not broken); the colour — in CSS. The width — here too, as an
+// attribute. The arc ends are flat (CSS: stroke-linecap: butt): a round tip
+// at 48px is smoothed unevenly, and the gaps looked different.
 
 const NS = 'http://www.w3.org/2000/svg';
 const VIEW = 100;
-const RADIUS = 47;                 // кольцо по краю viewBox
-const STROKE = 5;                  // толщина дуги, единицы viewBox (100 = вся аватарка)
-// Зазор между сегментами — плоские концы не выступают, он ровно такой.
+const RADIUS = 47;                 // the ring along the edge of the viewBox
+const STROKE = 5;                  // the arc width, viewBox units (100 = the whole avatar)
+// The gap between segments — the flat ends do not stick out, it is exactly this.
 const GAP = 9;
 const LENGTH = 2 * Math.PI * RADIUS;
-// Длина окружности для штрихов — ровно PATH (атрибут pathLength): браузер
-// строит круг кривыми, и его настоящая длина чуть отличается от 2πR —
-// без этого ошибка копилась по кругу, и зазоры выходили разными
-// (замер на холсте: 96px — 8.8..10.3° против 10.0..10.2°).
+// The circumference for the strokes is exactly PATH (the pathLength
+// attribute): the browser builds the circle from curves, and its real length
+// differs slightly from 2πR — without this the error accumulated around the
+// circle, and the gaps came out different (measured on a canvas: 96px —
+// 8.8..10.3° against 10.0..10.2°).
 const PATH = 100;
-const UNIT = PATH / LENGTH;        // единицы viewBox -> единицы PATH
+const UNIT = PATH / LENGTH;        // viewBox units -> PATH units
 
 function svgEl(tag, attrs) {
   const node = document.createElementNS(NS, tag);
@@ -30,9 +31,9 @@ function svgEl(tag, attrs) {
 }
 
 /**
- * Обёртка с кольцом вокруг уже готовой аватарки. total — сколько
- * историй, read — сколько из них прочитано (старые идут первыми — их
- * сегменты первые от верха по часовой стрелке).
+ * A wrapper with a ring around an already ready avatar. total — how many
+ * stories, read — how many of them are read (old ones go first — their
+ * segments are the first from the top clockwise).
  */
 export function storyRing(avatarNode, total, read) {
   const box = document.createElement('span');
@@ -46,7 +47,7 @@ export function storyRing(avatarNode, total, read) {
       class: `story-ring__seg${i < read ? ' is-read' : ''}`,
       cx: VIEW / 2, cy: VIEW / 2, r: RADIUS, 'stroke-width': STROKE, pathLength: PATH,
       'stroke-dasharray': `${dash} ${PATH - dash}`,
-      // От верха (поворот -90°), по часовой; половина зазора — с каждой стороны.
+      // From the top (a -90° rotation), clockwise; half the gap — on each side.
       'stroke-dashoffset': -(i * step + gap / 2),
       transform: `rotate(-90 ${VIEW / 2} ${VIEW / 2})`,
     }));

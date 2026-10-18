@@ -1,15 +1,16 @@
 @use "../abstracts" as *;
 
-// Ход передачи файла (util/xfer.js): кольцо вокруг значка и плашка
-// «сколько из скольких» на картинке.
+// A file transfer's progress (util/xfer.js): a ring around the icon and a
+// "how much of how much" plate on the picture.
 //
-// Кольцо — SVG поверх значка с запасом в 4px по кругу, повёрнутое так,
-// чтобы ход шёл от верхней точки по часовой. Долю задаёт атрибут
-// stroke-dashoffset (pathLength="100"), стиль — только цвет и толщину.
+// The ring is SVG over the icon with a 4px margin around, rotated so that
+// progress goes clockwise from the top point. The share is set by the
+// stroke-dashoffset attribute (pathLength="100"), the style — only the
+// colour and width.
 
-// Опора для кольца там, где значок стоит в потоке. Кнопки поверх
-// картинки (.media__overlay, .media__play) и так позиционированы
-// абсолютно — общий position: relative их бы сдвинул.
+// A base for the ring where the icon stands in the flow. The buttons over a
+// picture (.media__overlay, .media__play) are absolutely positioned anyway
+// — a shared position: relative would shift them.
 .file__icon.xfer,
 .audio__play.xfer {
   position: relative;
@@ -42,7 +43,7 @@
   transition: stroke-dashoffset $dur-base $ease;
 }
 
-// На тёмном круге поверх картинки — светлое кольцо, как сам значок.
+// On the dark circle over a picture — a light ring, like the icon itself.
 .media__overlay,
 .media__play {
   .xfer__track {
@@ -54,23 +55,23 @@
   }
 }
 
-// Закачка: стрелка «вниз» разворачивается вверх. Сейчас во время
-// передачи в кольце крестик (клик отменяет), так что правило
-// срабатывает, только если стрелка там окажется снова.
+// An upload: the "down" arrow turns upwards. Now during a transfer the ring
+// holds a cross (a click cancels), so the rule fires only if the arrow ends
+// up there again.
 .xfer.is-up .icon:has(use[href="#i-download"]) {
   transform: rotate(180deg);
 }
 
-// Крестик отмены — свой размер, а не размер значка, на месте которого
-// стоит (на кнопке поверх картинки это вся кнопка, в значке файла —
-// 42px). Специфичность выше, чем у `.media__overlay .icon` и
-// `.file__icon .icon`, — за счёт :has.
+// The cancel cross — its own size, not the size of the icon it replaces (on
+// a button over a picture that is the whole button, in a file icon —
+// 42px). The specificity is higher than `.media__overlay .icon` and
+// `.file__icon .icon` — thanks to :has.
 .xfer .icon:has(use[href="#i-close"]) {
   @include size($xfer-cancel-icon);
 }
 
-// «12.3 MB / 58.1 MB» в углу картинки. Слева внизу — справа вверху
-// стоит плашка длительности (.media__badge).
+// "12.3 MB / 58.1 MB" in the picture's corner. Bottom left — the duration
+// plate (.media__badge) stands top right.
 .media__xfer {
   background: color-mix(in srgb, var(--c-dark) 45%, transparent);
   border-radius: $radius-sm;

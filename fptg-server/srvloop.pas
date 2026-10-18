@@ -2,29 +2,28 @@ unit srvloop;
 
 {$mode objfpc}{$H+}
 
-{ Цикл событий консольного сервера — то, что в окне делает
-  Application.Run.
+{ The console server's event loop — what Application.Run does in the
+  window.
 
-  Всё ядро живёт в главном потоке: ответы TDLib (tdrecv), команды
-  страницы (webapi) и таймеры (tdtimer) попадают в него через
-  TThread.Queue, а разбирает очередь CheckSynchronize. Здесь он и
-  крутится, пока не попросили остановиться: Ctrl+C, Ctrl+Break,
-  закрытие окна консоли, выход из системы (Windows) или SIGINT/SIGTERM
-  (Unix). Потом — штатное закрытие клиентов TDLib, как при закрытии
-  окна (TTdCore.BeginShutdown): без него база TDLib закрывается
-  грязно. }
+  The whole core lives on the main thread: TDLib answers (tdrecv), page
+  commands (webapi) and timers (tdtimer) reach it through TThread.Queue,
+  and CheckSynchronize drains the queue. It spins here until asked to
+  stop: Ctrl+C, Ctrl+Break, closing the console window, logging off
+  (Windows) or SIGINT/SIGTERM (Unix). Then — a proper shutdown of the
+  TDLib clients, as when the window closes (TTdCore.BeginShutdown):
+  without it the TDLib database closes dirty. }
 
 interface
 
-{ До запроса остановки. }
+{ Until a stop is requested. }
 procedure RunUntilStopped;
-{ Остановку уже попросили (Ctrl+C, закрытие консоли, SIGTERM). }
+{ A stop has been requested already (Ctrl+C, closing the console, SIGTERM). }
 function StopRequested: boolean;
-{ Закрывает клиентов TDLib и ждёт подтверждения (сам TTdCore
-  ограничивает ожидание SHUTDOWN_TIMEOUT). }
+{ Closes the TDLib clients and waits for confirmation (TTdCore itself
+  caps the wait at SHUTDOWN_TIMEOUT). }
 procedure ShutdownCore;
-{ Последний шаг программы: отпускает обработчик закрытия консоли,
-  который держит Windows, пока мы закрываемся. }
+{ The program's last step: releases the console close handler, which
+  Windows holds while we are closing. }
 procedure ShutdownFinished;
 
 implementation
@@ -38,16 +37,14 @@ uses
   Classes, SysUtils, constants, tdcore;
 
 const
-  { Шаг цикла: CheckSynchronize просыпается раньше, как только в
-    очереди что-то появилось; таймаут нужен только чтобы заметить
-    флаг остановки. }
+  { The loop step: CheckSynchronize wakes earlier as soon as something is
+    in the queue; the timeout is only needed to notice the stop flag. }
   LOOP_WAIT_MS = 100;
-  { Запас поверх SHUTDOWN_TIMEOUT на случай, если обратный вызов ядра
-    так и не пришёл. }
+  { Margin over SHUTDOWN_TIMEOUT in case the core's callback never comes. }
   SHUTDOWN_SLACK_MS = 2000;
   {$IFDEF WINDOWS}
-  { Windows ждёт обработчик CTRL_CLOSE_EVENT около 5 с, потом убивает
-    процесс сам. }
+  { Windows waits for a CTRL_CLOSE_EVENT handler about 5 s, then kills the
+    process itself. }
   CONSOLE_CLOSE_WAIT_MS = 4500;
   {$ENDIF}
 
@@ -69,9 +66,9 @@ begin
 end;
 
 {$IFDEF WINDOWS}
-{ Зовётся системой в своём потоке. На закрытие консоли, выход из
-  системы и выключение процесс живёт, только пока обработчик не
-  вернулся, — поэтому здесь ждём, пока главный поток закончит. }
+{ Called by the system on its own thread. On console close, log-off and
+  shutdown the process lives only until the handler returns — so here we
+  wait for the main thread to finish. }
 function ConsoleCtrl(ACtrlType: DWORD): BOOL; stdcall;
 begin
   InterLockedExchange(GStop, 1);

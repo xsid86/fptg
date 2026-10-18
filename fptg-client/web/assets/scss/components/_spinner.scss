@@ -10,11 +10,11 @@
 
 @keyframes spinner-turn { to { transform: rotate(360deg); } }
 
-// Кольцо загрузки вокруг круглого элемента (аватарка, пока качается
-// галерея её фото) - незамкнутая дуга, как spinner-border в Bootstrap.
-// Хозяин получает класс на время ожидания (ui/infopanel.js, openPhotos).
-// --ring-inset: отрицательный - кольцо снаружи; 0 - по краю внутри
-// (для хозяина с overflow: hidden, как .avatar в шапке чата).
+// A loading ring around a round element (an avatar while its photo gallery
+// downloads) - an open arc, like spinner-border in Bootstrap. The host gets
+// the class while waiting (ui/infopanel.js, openPhotos).
+// --ring-inset: negative - the ring outside; 0 - along the edge inside
+// (for a host with overflow: hidden, like .avatar in the chat header).
 .is-ring-loading {
   position: relative;
 

@@ -7,18 +7,18 @@ import { openMenu } from '../util/menu.js';
 import { openBox, note, section } from './tgbox.js';
 import { notice } from './notices.js';
 
-// Отложенная отправка — как у Telegram Desktop: «Schedule message» (дата
-// и время), «Send when online» (в личке) и список запланированных
-// («Scheduled messages»: отправить сейчас, перенести, удалить).
+// Scheduled sending — as in Telegram Desktop: "Schedule message" (the date
+// and time), "Send when online" (in a private chat) and the list of
+// scheduled ones ("Scheduled messages": send now, reschedule, delete).
 //
-// Кнопка — слева от кнопки записи голосовых; точка на ней — в чате есть
-// запланированные (chat.scheduled, updateChatHasScheduledMessages).
-// Отправка — тем же message.send* с полем schedule (webapi.pas: дата
-// unix или -1 — «когда будет в сети»); в историю такое сообщение не
-// попадает, пока не отправится (tdmessages.ApplyMessage).
+// The button is to the left of the voice record button; the dot on it — the
+// chat has scheduled messages (chat.scheduled,
+// updateChatHasScheduledMessages). Sending is the same message.send* with
+// the schedule field (webapi.pas: a unix date or -1 — "when online"); such a
+// message does not get into the history until it is sent (tdmessages.ApplyMessage).
 
 const WHEN_ONLINE = -1;
-// Ближайшее, на что можно запланировать: Telegram не берёт «прямо сейчас».
+// The nearest time one can schedule for: Telegram does not take "right now".
 const MIN_AHEAD_SEC = 60;
 
 let button = null;
@@ -32,7 +32,7 @@ function pad(n) {
   return String(n).padStart(2, '0');
 }
 
-/** Значение для <input type="datetime-local"> из даты. */
+/** The value for <input type="datetime-local"> from a date. */
 function localValue(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -53,8 +53,8 @@ export function scheduleLabel(state) {
 }
 
 /**
- * Окно выбора даты и времени, как «Schedule message» у Desktop.
- * onPick(unix) — по кнопке; title и кнопка — свои у переноса.
+ * The date and time choice window, like "Schedule message" in Desktop.
+ * onPick(unix) — on the button; the title and the button are its own for rescheduling.
  */
 function pickDate({ title = 'Schedule message', action = 'Schedule', initial = null, onPick }) {
   const start = initial ? new Date(initial * 1000) : new Date(Date.now() + 60 * 60 * 1000);
@@ -92,9 +92,9 @@ function pickDate({ title = 'Schedule message', action = 'Schedule', initial = n
   });
 }
 
-// ------------------------------------------------- список запланированных
+// ------------------------------------------------- the scheduled list
 
-/** Подпись содержимого сообщения TDLib одной строкой. */
+/** The caption of a TDLib message's content as one line. */
 function contentText(c) {
   if (!c) return '';
   const text = c.text?.text ?? c.caption?.text ?? '';
@@ -138,7 +138,7 @@ function scheduledPage() {
           day = head;
           nodes.push(section(head));
         }
-        // Текст — целиком сверху (до трёх строк), под ним время и кнопки.
+        // The text — whole on top (up to three lines), the time and buttons under it.
         nodes.push(el('div', { class: 'tgbox__scheduled' },
           el('p', { class: 'tgbox__scheduled-text', title: contentText(m.content) }, contentText(m.content)),
           el('div', { class: 'tgbox__scheduled-foot' },
@@ -171,7 +171,7 @@ export function openScheduled() {
   openBox().push(scheduledPage());
 }
 
-// --------------------------------------------------------------- кнопка
+// --------------------------------------------------------------- button
 
 function sendScheduled(at) {
   hooks.send(at);
@@ -182,7 +182,7 @@ function openScheduleMenu() {
   const hasText = hooks.hasText();
   const items = [
     {
-      // В «Избранном» Desktop называет это напоминанием.
+      // In Saved Messages Desktop calls this a reminder.
       label: chat?.kind === 'self' ? 'Set a reminder' : 'Schedule message', disabled: !hasText,
       onSelect: () => pickDate({ onPick: (at) => sendScheduled(at) }),
     },
@@ -194,7 +194,7 @@ function openScheduleMenu() {
   openMenu(button, items);
 }
 
-/** Строка открытого чата — свежая, из списка (activeChat может отстать). */
+/** The open chat's row — a fresh one, from the list (activeChat may lag). */
 const openChat = () => store.chats.find((c) => c.id === store.activeChatId) ?? store.activeChat;
 
 function refresh() {
@@ -208,7 +208,7 @@ function refresh() {
 }
 
 /**
- * row — .composer__row; встаёт слева от кнопки записи. options:
+ * row — .composer__row; it goes to the left of the record button. options:
  * { canSend(), hasText(), send(schedule), report(error) }.
  */
 export function mountSchedule(row, options) {
@@ -220,11 +220,11 @@ export function mountSchedule(row, options) {
   const record = row.querySelector('.composer__record-box');
   if (record) record.before(button);
   else row.append(button);
-  // После обработчиков поля ввода: canSend оно пересчитывает на те же события.
+  // After the input field's handlers: it recalculates canSend on the same events.
   const later = () => setTimeout(refresh, 0);
   on('store:active', later);
   on('store:chats', later);
-  // Отправили на потом — подтверждение, как плашка у Desktop.
+  // Sent for later — a confirmation, like the plate in Desktop.
   on('ui:scheduled', (at) => {
     notice(at === WHEN_ONLINE
       ? 'The message will be sent when they come online.'

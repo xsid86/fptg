@@ -33,7 +33,7 @@
   @include ellipsis;
 }
 
-// Аватарка отправителя перед именем. Размер — $message-avatar-size
+// The sender's avatar before the name. The size — $message-avatar-size
 // (abstracts/_variables.scss).
 .message__avatar {
   --avatar-color: var(--accent-color);
@@ -72,8 +72,8 @@
   text-decoration: underline;
 }
 
-// Упоминание человека (@username или имя-ссылка) — без подчёркивания,
-// цветом акцента, как у Telegram.
+// A mention of a person (@username or a name link) — without underline, in
+// the accent colour, as in Telegram.
 .message__body a.mention {
   color: var(--c-accent);
   text-decoration: none;
@@ -263,15 +263,15 @@
 }
 
 // --------------------------------------------------------- outgoing
-// СВОИ СПРАВА, ЧУЖИЕ СЛЕВА (2026-10-12; раньше — одна колонка, как в
-// нативном окне). Ширина — по содержимому, не больше $message-side-max
-// колонки. Сообщения с медиа, превью ссылки или опросом — ровно
-// $message-side-max: их части тянутся на 100% карточки, и по содержимому
-// она бы схлопнулась. Стикер и гифка без подписи карточки не имеют —
-// им по содержимому.
+// OWN ON THE RIGHT, OTHERS' ON THE LEFT (2026-10-12; before — one column, as
+// in the native window). The width — by content, no more than
+// $message-side-max of the column. Messages with media, a link preview or a
+// poll — exactly $message-side-max: their parts stretch to 100% of the
+// card, and by content it would collapse. A sticker and a GIF without a
+// caption have no card — by content for them.
 //
-// Кроме ленты канала (.is-channel ставит ui/history.js): там «свои» —
-// все посты владельца, разнос ничего не различал бы.
+// Except a channel feed (.is-channel is set by ui/history.js): there "own"
+// are all the owner's posts, splitting would distinguish nothing.
 .history__column:not(.is-channel) {
   .message {
     margin-right: auto;
@@ -301,9 +301,10 @@
 // things read.
 
 // ------------------------------------------------------ arrival
-// Новое сообщение въезжает снизу (класс ставит и снимает ui/history.js).
-// translate, а не transform: на высоту в потоке не влияет — замеры
-// высот виртуального окна и прокрутка к низу не сбиваются.
+// A new message slides in from below (ui/history.js sets and removes the
+// class). translate, not transform: it does not affect the height in the
+// flow — the virtual window's height measurements and the scroll to the
+// bottom are not thrown off.
 @keyframes message-arrive {
   from {
     opacity: 0;
@@ -413,9 +414,9 @@ button.message__forward:hover {
   }
 }
 
-// ------------------------------------------------------- сервисные
-// ui/message.js: создание группы, вход и выход участников, закреп… —
-// строка посередине истории, как дата между днями, без пузыря.
+// ------------------------------------------------------- service messages
+// ui/message.js: creating a group, members joining and leaving, pinning… —
+// a line in the middle of the history, like the date between days, without a bubble.
 .message-service {
   @include flex(row, center, center);
   margin: $space-4 0;

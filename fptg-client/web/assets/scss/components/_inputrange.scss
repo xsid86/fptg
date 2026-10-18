@@ -4,23 +4,23 @@
 // Version 1.6.0
 // MIT License
 //
-// Что поменяно под проект:
-// - цвета — переменные темы (var(--c-accent)): осветление и затемнение
-//   не Sass color.adjust() (он считает при компиляции и var() не
-//   принимает), а CSS color-mix(), которое считает браузер;
-// - заливка до бегунка — градиент дорожки по --range-fill (процент
-//   ставит util/rangefill.js), в Firefox — ::-moz-range-progress;
-// - подключается через @forward в components/_index.scss (as range-*),
-//   не @import.
+// What was changed for the project:
+// - colours are theme variables (var(--c-accent)): lightening and
+//   darkening not by Sass color.adjust() (it computes at compile time and
+//   does not accept var()), but by CSS color-mix(), which the browser computes;
+// - the fill up to the thumb — the track's gradient by --range-fill (the
+//   percent is set by util/rangefill.js), in Firefox — ::-moz-range-progress;
+// - it is included through @forward in components/_index.scss (as range-*),
+//   not @import.
 
 @use "sass:math";
 
-// Цвета — переменные темы: они известны только браузеру, поэтому
-// осветление/затемнение ниже — CSS color-mix(), а не Sass color.adjust()
-// (тот считает при компиляции и var() принять не может).
-// До бегунка — акцент, после — акцент с прозрачностью 25%, бегунок —
-// акцент. Где бегунок, знает только браузер: процент приходит
-// переменной --range-fill (util/rangefill.js, без атрибута style).
+// Colours are theme variables: only the browser knows them, so the
+// lightening/darkening below is CSS color-mix(), not Sass color.adjust()
+// (that computes at compile time and cannot take var()).
+// Before the thumb — the accent, after it — the accent at 25% opacity, the
+// thumb — the accent. Only the browser knows where the thumb is: the
+// percent comes in the --range-fill variable (util/rangefill.js, without the style attribute).
 $track-fill-color: var(--c-accent) !default;
 $track-color: color-mix(in srgb, var(--c-accent) 25%, transparent) !default;
 $thumb-color: var(--c-accent) !default;
@@ -46,7 +46,7 @@ $track-radius: 5px !default;
 $contrast: 5% !default;
 
 $ie-bottom-track-color: color-mix(in srgb, $track-color, black #{$contrast}) !default;
-// Дорожка Chromium: заливка до бегунка градиентом по --range-fill.
+// The Chromium track: the fill up to the thumb as a gradient by --range-fill.
 $track-bg: linear-gradient(to right, $track-fill-color var(--range-fill, 0%), $track-color var(--range-fill, 0%)) !default;
 
 @mixin shadow($shadow-size, $shadow-blur, $shadow-color) {

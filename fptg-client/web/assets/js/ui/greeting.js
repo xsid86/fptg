@@ -2,17 +2,17 @@ import { el, clear } from '../core/dom.js';
 import { emit } from '../core/bus.js';
 import { stickerNode } from './message.js';
 
-// Приветствие в пустом личном чате — как у нативного клиента:
-//   * обычный собеседник — «пока ничего нет» и случайный приветственный
-//     стикер (getGreetingStickers); клик отправляет его;
-//   * бизнес-аккаунт — его стартовая страница (заголовок, текст, стикер);
-//   * бот — что он умеет (bot_info.description) и кнопка Start (/start).
-// Что показать, решает мост (chat.greeting); ответ кэшируется по чату,
-// потому что история перерисовывает пустое состояние на каждое событие.
+// The greeting in an empty private chat — as in the native client:
+//   * an ordinary other side — "nothing here yet" and a random greeting
+//     sticker (getGreetingStickers); a click sends it;
+//   * a business account — its start page (title, text, sticker);
+//   * a bot — what it can do (bot_info.description) and the Start button (/start).
+// What to show is decided by the bridge (chat.greeting); the answer is
+// cached per chat because the history redraws the empty state on every event.
 
 let hooks = {};
-const cache = new Map();     // chatId -> ответ chat.greeting
-const pending = new Map();   // chatId -> узлы, ждущие ответа
+const cache = new Map();     // chatId -> the chat.greeting answer
+const pending = new Map();   // chatId -> nodes waiting for the answer
 
 export function mountGreeting(options) {
   hooks = options ?? {};
@@ -26,7 +26,7 @@ function note(text) {
   return el('div', { class: 'greeting__text' }, text);
 }
 
-/** Стикер-кнопка: клик отправляет его в открытый чат. */
+/** A sticker button: a click sends it to the open chat. */
 function stickerButton(s) {
   return el('button', {
     class: 'greeting__sticker', type: 'button', title: 'Send this sticker',
@@ -62,7 +62,7 @@ function fill(box, g) {
   }
 }
 
-/** Узел приветствия для пустого чата; содержимое может доехать позже. */
+/** The greeting node for an empty chat; the content may arrive later. */
 export function greetingNode(chatId) {
   const box = el('div', { class: 'greeting' });
   if (cache.has(chatId)) {

@@ -3,36 +3,35 @@ program fptg_client;
 {$mode objfpc}{$H+}
 
 uses
-  { ПОСТОЯННЫЙ фикс, не временная диагностика — устраняет реальный,
-    подтверждённый краш при закрытии приложения (EAccessViolation,
-    героя-Pascal-кадра в стеке часто не было вовсе — крэш глубоко в
-    служебном коде менеджера памяти, симптом менялся от запуска к
-    запуску: то $FFFFFFFFFFFFFFFF, то $B8, то разные файлы/буферы).
-    Диагностика заняла несколько заходов (heaptrc — ни разу не поймал
-    ничего, потому что сам FPC-шный менеджер памяти, не тонкая
-    обёртка над Windows HeapAlloc, webview2, webui; Page Heap через Image File
-    Execution Options/GlobalFlag в реестре — ТОЖЕ ничего не поймал,
-    по той же причине: он инструментирует только HeapAlloc, а
-    встроенный менеджер FPC берёт у Windows несколько больших кусков
-    и сам режет их на мелкие блоки внутри процесса, минуя HeapAlloc
-    на каждый GetMem — Page Heap физически не мог их увидеть).
+  { A PERMANENT fix, not temporary diagnostics — it removes a real,
+    confirmed crash on closing the application (EAccessViolation; often no
+    Pascal frame of interest in the stack at all — the crash was deep in
+    the memory manager's internals, and the symptom changed from run to
+    run: $FFFFFFFFFFFFFFFF one time, $B8 another, different files/buffers).
+    The diagnosis took several rounds (heaptrc never caught anything,
+    because it is FPC's own memory manager, not a thin wrapper over
+    Windows HeapAlloc, webview2, webui; Page Heap through Image File
+    Execution Options/GlobalFlag in the registry did not catch anything
+    EITHER, for the same reason: it instruments only HeapAlloc, while
+    FPC's built-in manager takes a few large chunks from Windows and cuts
+    them into small blocks inside the process itself, bypassing HeapAlloc
+    on every GetMem — Page Heap physically could not see them).
 
-    cmem подменяет менеджер памяти FPC на тонкую обёртку над
-    msvcrt.dll malloc/free/realloc — многократно обкатанный,
-    потокобезопасный аллокатор. После этой замены — несколько чистых
-    прогонов того же сценария подряд (стикеры/кастомные эмодзи,
-    закрытие приложения) без единого краша, на фоне того, что БЕЗ
-    cmem этот краш воспроизводился почти при каждой такой попытке.
-    Вывод (не доказан построчно в исходниках FPC RTL, но согласуется
-    со всеми наблюдениями разом): встроенный менеджер памяти FPC не
-    выдерживает сильную конкурентную нагрузку — десятки
-    декодер-потоков (TLottiePlayer/TAnimationPlayer), одновременно
-    зовущих GetMem/FreeMem, особенно кучно при закрытии — где-то в
-    его собственной блокировке/учёте свободных блоков гонка, портящая
-    служебные структуры, а не границы какого-то конкретного буфера
-    (это и объясняет, почему крэш каждый раз всплывал в другом файле).
-    ПЕРВЫМ юнитом — перехватить менеджер памяти раньше, чем что-либо
-    успеет выделить память в обход него. }
+    cmem replaces FPC's memory manager with a thin wrapper over msvcrt.dll
+    malloc/free/realloc — a thoroughly tested, thread-safe allocator.
+    After the replacement — several clean runs of the same scenario in a
+    row (stickers/custom emoji, closing the application) without a single
+    crash, while WITHOUT cmem the crash reproduced on almost every such
+    attempt. The conclusion (not proven line by line in the FPC RTL
+    sources, but consistent with all the observations at once): FPC's
+    built-in memory manager does not withstand heavy concurrent load —
+    dozens of decoder threads (TLottiePlayer/TAnimationPlayer) calling
+    GetMem/FreeMem at once, especially in a burst on closing — somewhere in
+    its own locking/free block bookkeeping there is a race that corrupts
+    its internal structures rather than the bounds of some particular
+    buffer (which explains why the crash surfaced in a different file each
+    time). The FIRST unit — to take over the memory manager before anything
+    manages to allocate memory past it. }
   cmem,
   {$IFDEF UNIX}
   cthreads,
@@ -42,20 +41,21 @@ uses
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
   Forms, Controls, Dialogs, SysUtils, fpjson, LCLIntf,
-  { Общие с сервером модули — из fptg-server/shared (OtherUnitFiles
-    проекта): окну видна только эта папка, и случайная зависимость от
-    ядра TDLib не соберётся. Не через uses … in: тогда при компиляции
-    модуля, который их использует, компилятор находил лишь старый .ppu
-    и молча брал его. constants — общие значения (APP_TITLE, пределы
-    настроек карточек), secureconfig — шифрование conf.dat, sha256u —
-    отпечаток сертификата сервера, instance — единственный экземпляр. }
+  { Units shared with the server — from fptg-server/shared (the project's
+    OtherUnitFiles): only this folder is visible to the window, and an
+    accidental dependency on the TDLib core will not build. Not through
+    uses … in: then, when compiling a unit using them, the compiler found
+    only a stale .ppu and silently took it. constants — shared values
+    (APP_TITLE, the limits of the card settings), secureconfig — conf.dat
+    encryption, sha256u — the server certificate's fingerprint, instance —
+    the single instance. }
   constants, secureconfig, sha256u, instance, appdirs,
   guiconst, guiconn, webview2, webui, callpopup, desknotify, miniapp, appid, winframe, lsrepair
   { you can add units after this };
 
 {$R *.res}
-{ Иконка программы — иконка проекта Lazarus: fptg-client.ico рядом с
-  .lpi, сборка сама кладёт её в fptg-client.res как MAINICON
+{ The program's icon is the Lazarus project icon: fptg-client.ico next to
+  the .lpi, the build itself puts it into fptg-client.res as MAINICON
   (ide/packages/ideproject/projecticon.pas, UpdateResources). }
 
 var
@@ -69,8 +69,8 @@ begin
     the system ANSI codepage. First line of the program. }
   DefaultSystemCodePage := CP_UTF8;
 
-  { Одно окно на пользователя ОС: второй запуск показывает первое и
-    выходит (instance.pas). Блокировка — в папке данных окна (appdirs). }
+  { One window per OS user: a second start shows the first one and exits
+    (instance.pas). The lock is in the window's data folder (appdirs). }
   if not AcquireInstance(ClientDataDir, INSTANCE_CLIENT) then begin
     if CallInstance(ClientDataDir, INSTANCE_CLIENT, 'show', nil,
         InstanceReply, InstanceError) then begin
@@ -91,14 +91,14 @@ begin
   {$POP}
   Application.Initialize;
 
-  { Ни одна форма не должна появиться сама: окно показывает себя само. }
+  { No form must appear by itself: the window shows itself. }
   Application.ShowMainForm := False;
 
-  { Окно — только окно: сервер (fptg-server) — отдельная программа.
-    Окно показывает страницу из своих файлов; она входит на сервер
-    (webui.pas, guiconn.pas, connect.html). }
+  { The window is only a window: the server (fptg-server) is a separate
+    program. The window shows the page from its own files; the page signs
+    in to the server (webui.pas, guiconn.pas, connect.html). }
   if not StartWebUi then begin
-    { Нет WebView2 Runtime — предложить его установщик (Microsoft). }
+    { No WebView2 Runtime — offer its installer (Microsoft). }
     if MessageDlg(APP_TITLE,
       WEBVIEW2_NEEDED_TEXT + LineEnding + LineEnding
       + 'Download the installer now? Start the program again once it is installed.',

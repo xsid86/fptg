@@ -1,8 +1,8 @@
 import { emit } from './bus.js';
 import { socketUrl, absoluteMedia, dropAccess, signedOut } from './session.js';
 
-// Сервер закрыл сокет: сеанс погашен (выход, удаление пользователя,
-// «выйти всем» в окне сервера) — localserver, LOCAL_SERVER_WS_CLOSE_SESSION_ENDED.
+// The server closed the socket: the session was ended (sign-out, the user
+// removed, "sign out everyone" in the server window) — localserver, LOCAL_SERVER_WS_CLOSE_SESSION_ENDED.
 const CLOSE_SESSION_ENDED = 4001;
 
 // The socket, and the request/response discipline on top of it.
@@ -13,8 +13,8 @@ const CLOSE_SESSION_ENDED = 4001;
 // several commands to be in flight at once without their answers
 // getting crossed.
 //
-// Адрес и токен сокета — от сеанса (core/session.js): сервер может быть
-// не там, откуда страница, и пускает только с действующим JWT.
+// The socket's address and token come from the session (core/session.js):
+// the server may be elsewhere than the page, and lets in only with a valid JWT.
 
 const RETRY_STEP_MS = 500;
 const RETRY_MAX_STEPS = 6;
@@ -40,7 +40,7 @@ function retryLater() {
 export function connect() {
   setStatus('connecting');
   socketUrl().then(open, (error) => {
-    // Сеанс кончился — дальше окно входа, переподключаться некуда.
+    // The session ended — next is the sign-in window, there is nowhere to reconnect.
     if (error?.signedOut) return;
     setStatus('closed');
     retryLater();
@@ -84,7 +84,7 @@ function open(url) {
         entry.reject(new Error('signed out'));
       }
       pending.clear();
-      // Загруженное на странице — уже не наше: на вход, без переподключения.
+      // What is loaded on the page is no longer ours: to sign-in, without reconnecting.
       signedOut('You were signed out on the server.');
       return;
     }
@@ -95,8 +95,8 @@ function open(url) {
       entry.reject(new Error('connection lost'));
     }
     pending.clear();
-    // Не открылся вовсе — возможно, сервер не принял токен (сеанс
-    // погашен, ключ сменён): в следующий раз — новый.
+    // It did not open at all — perhaps the server did not accept the token
+    // (the session ended, the key changed): next time — a new one.
     if (!opened) dropAccess();
     retryLater();
   });

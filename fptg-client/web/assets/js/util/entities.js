@@ -176,7 +176,7 @@ function appendInline(target, bytes, from, to, entities) {
 function revealSpoiler(event) {
   const span = event.currentTarget;
   if (span.classList.contains('is-revealed')) return;
-  // Первый щелчок только открывает — ссылку внутри не нажимает.
+  // The first click only reveals — it does not press a link inside.
   event.preventDefault();
   event.stopPropagation();
   const scope = span.closest('.message') ?? span.parentElement;
@@ -210,8 +210,8 @@ function wrap(piece, covering, from, to) {
     if (tag) node = el(tag, {}, node);
   }
 
-  // Спойлер: скрыт до щелчка; кусков у одной сущности может быть
-  // несколько (её режут другие сущности) — открываются все вместе.
+  // A spoiler: hidden until a click; one entity may have several pieces
+  // (other entities cut it) — they all open together.
   const spoiler = covering.find((e) => e.kind === 'spoiler');
   if (spoiler) {
     node = el('span', {
@@ -232,9 +232,9 @@ function wrap(piece, covering, from, to) {
     return node;
   }
 
-  // Упоминания. @username — ссылка t.me: её перехватывает ui/links.js и
-  // открывает человека или чат здесь же. Без username (mentionName) —
-  // личка с человеком по id (ui:open-contact).
+  // Mentions. @username — a t.me link: ui/links.js intercepts it and opens
+  // the person or chat right here. Without a username (mentionName) — the
+  // private chat with the person by id (ui:open-contact).
   const mention = covering.find((e) => e.kind === 'mention' || e.kind === 'mentionName');
   if (mention?.kind === 'mention' && /^@?[A-Za-z0-9_]{3,32}$/.test(piece)) {
     node = el('a', {

@@ -14,25 +14,27 @@ import { updateFloatDate } from '../util/floatdate.js';
 import { userIdNode } from './userid.js';
 import { openManage } from './manage.js';
 
-// Панель информации о чате — человек, бот, группа или канал. Открывается
-// кнопкой «i» в правом верхнем углу истории и выезжает справа поверх неё
-// (не как у официального клиента — по просьбе пользователя).
+// The chat info panel — a person, a bot, a group or a channel. It opens
+// with the "i" button in the top right corner of the history and slides in
+// from the right over it (unlike the official client — at the user's
+// request).
 //
-// Что внутри, повторяет нативный клиент: аватарка (у людей — галерея их
-// фото), имя и статус, кнопки Chat / Mute / Call / More, телефон, «о себе»,
-// имя пользователя, день рождения, описание и ссылка группы, счётчики
-// медиа (сеткой или списком здесь же), подарки,
-// участники группы и действия: поделиться контактом, добавить / изменить /
-// удалить контакт, заблокировать, выйти из группы.
+// What is inside follows the native client: the avatar (for people — a
+// gallery of their photos), name and status, the Chat / Mute / Call / More
+// buttons, phone, bio, username, birthday, the group's description and
+// link, media counters (as a grid or a list right here), gifts, group
+// members and actions: share the contact, add / edit / delete the contact,
+// block, leave the group.
 //
-// Данные — мост: chat.info, chat.members, info.action (webapi.pas).
+// Data — the bridge: chat.info, chat.members, info.action (webapi.pas).
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
 
-// Счётчики медиа: ключ из chat.info, подпись и фильтр истории (тот же, что
-// у кнопок в шапке чата — FILTERS в ui/chat-header.js). '@вид' — не
-// фильтр, а сетка или список здесь же, в панели (openMedia).
+// Media counters: the key from chat.info, the label and the history filter
+// (the same as the buttons in the chat header — FILTERS in
+// ui/chat-header.js). '@kind' is not a filter but a grid or a list right
+// here, in the panel (openMedia).
 const COUNTS = [
   ['photo', 'image', 'photos', '@photo'],
   ['video', 'video', 'videos', '@video'],
@@ -49,9 +51,9 @@ let toggle = null;
 let panel = null;
 let body = null;
 let open = false;
-let info = null;       // последний ответ chat.info
-let loadingFor = null; // чат, для которого идёт запрос
-let asked = 0;         // номер запроса: устаревший ответ отбрасывается
+let info = null;       // the latest chat.info answer
+let loadingFor = null; // the chat a request is running for
+let asked = 0;         // the request number: a stale answer is discarded
 
 function setOpen(on) {
   open = on;
@@ -62,13 +64,13 @@ function setOpen(on) {
   if (on) load();
 }
 
-// Чат, сведения о котором показаны, если это НЕ открытый чат: «Contact
-// info» из меню сообщения (ui:contact-info) — личка с отправителем.
-// Сбрасывается сменой открытого чата.
+// The chat whose info is shown if it is NOT the open chat: "Contact info"
+// from the message menu (ui:contact-info) — the private chat with the
+// sender. Reset when the open chat changes.
 let override = null;
 const viewChatId = () => override ?? store.activeChatId;
 
-/** Показать сведения о другом чате, не открывая его (ui:contact-info). */
+/** Show the info of another chat without opening it (ui:contact-info). */
 function openInfoFor(chatId) {
   override = chatId;
   setView('info');
@@ -87,24 +89,25 @@ async function load() {
   try {
     const next = await hooks.call('chat.info', { chatId });
     if (my !== asked) return;
-    // Другой чат — подарки и медиа прежнего ни к чему (сетка, открытая
-    // уже для этого чата кнопкой в шапке, остаётся).
+    // Another chat — the previous one's gifts and media are of no use (a
+    // grid already opened for this chat by the header button stays).
     if (info && info.chatId !== chatId && !(view === 'media' && media.chatId === chatId)) setView('info');
-    // Мост называет личку 'private' (и 'secret' — секретный чат), как
-    // список чатов (ChatKindStr); панели это один вид — человек. Без этого
-    // у контактов не было ни действий, ни меню More.
+    // The bridge calls a private chat 'private' (and 'secret' — a secret
+    // chat), like the chat list (ChatKindStr); for the panel it is one kind
+    // — a person. Without this contacts had neither actions nor the More
+    // menu.
     if (next.kind === 'private' || next.kind === 'secret') next.kind = 'user';
-    // Фоновое перечитывание (srv:chats — сообщение в ЛЮБОМ чате) чаще
-    // всего ничего не меняет: тогда и не перерисовывать — перерисовка
-    // сбрасывала прокрутку и перезагружала участников.
+    // A background re-read (srv:chats — a message in ANY chat) most often
+    // changes nothing: then do not redraw either — a redraw reset the
+    // scroll and reloaded the members.
     const same = info && info.chatId === next.chatId;
     if (same && view === 'info' && JSON.stringify(next) === JSON.stringify(info)) return;
     info = next;
-    // На подарках и медиа фоновое обновление сведений сетку не
-    // перестраивает: она от них не зависит, а перестройка заново
-    // запускала стикеры и не давала разглядеть элементы в инспекторе.
+    // On gifts and media a background info update does not rebuild the
+    // grid: it does not depend on them, and a rebuild restarted the
+    // stickers and made it impossible to inspect the elements.
     if (view !== 'info') return;
-    // Тот же чат — читатель остаётся там, куда долистал.
+    // The same chat — the reader stays where they scrolled to.
     const top = same ? body.scrollTop : 0;
     render();
     body.scrollTop = top;
@@ -135,8 +138,8 @@ function birthday(b) {
 }
 
 /**
- * Telegram ID под именем: у человека — user id, у группы и канала — id
- * чата (-100…, как его видят боты). Клик — в буфер обмена.
+ * The Telegram ID under the name: a person's user id, a group's or
+ * channel's chat id (-100…, as bots see it). A click — to the clipboard.
  */
 function idLine(i) {
   const id = String(i.userId || i.chatId || '');
@@ -150,7 +153,7 @@ function idLine(i) {
   }, `ID: ${id}`);
 }
 
-/** Строка сведений: значение крупно, подпись мелко; клик — копировать. */
+/** An info row: the value large, the label small; a click copies. */
 function infoRow(value, label, copy) {
   return el('button', {
     class: 'info-panel__row', type: 'button', title: copy ? 'Copy' : '',
@@ -196,7 +199,7 @@ async function shareContact(i) {
   }, 'Contact shared');
 }
 
-/** «Add contact» с карточки контакта в истории (ui:add-contact, main.js). */
+/** "Add contact" from a contact card in the history (ui:add-contact, main.js). */
 export function addContactDialog({ userId, first, last }) {
   return editContact({ userId, firstName: first ?? '', lastName: last ?? '', isContact: false });
 }
@@ -215,10 +218,10 @@ async function editContact(i) {
     i.isContact ? 'Contact saved' : 'Contact added');
 }
 
-/** Действия по виду чата — и внизу панели, и в меню «More». */
+/** Actions by chat kind — both at the bottom of the panel and in the "More" menu. */
 function actions(i) {
   const list = [];
-  // Владелец или администратор — управление, как «Manage» у Desktop.
+  // Owner or administrator — management, like "Manage" in Desktop.
   if ((i.kind === 'group' || i.kind === 'channel') && i.canManage) {
     list.push([i.kind === 'channel' ? 'Manage channel' : 'Manage group',
       () => openManage(i.chatId, { call: hooks.call })]);
@@ -251,7 +254,7 @@ function actions(i) {
         { action: 'user.block', userId: i.userId, block: true }, 'Blocked')), true]);
   }
   if ((i.kind === 'group' || i.kind === 'channel') && i.isMember === false) {
-    // Не состоит — вступить (чат открыт: chat.join берёт открытый).
+    // Not a member — join (the chat is open: chat.join takes the open one).
     if (i.chatId === store.activeChatId) {
       list.push([i.kind === 'channel' ? 'Join channel' : 'Join group', () => emit('ui:join-chat')]);
     }
@@ -263,10 +266,10 @@ function actions(i) {
   return list;
 }
 
-// host — аватарка, по которой кликнули: account.photos ждёт, пока все
-// фото докачаются (на длинной истории — секунды), и всё это время вокруг
-// неё крутится кольцо (.is-ring-loading, components/_spinner.scss).
-// Повторный клик, пока кольцо крутится, второй запрос не шлёт.
+// host — the avatar that was clicked: account.photos waits for all the
+// photos to download (seconds on a long history), and all that time a ring
+// spins around it (.is-ring-loading, components/_spinner.scss). A repeated
+// click while the ring spins does not send a second request.
 async function openPhotos(i, host = null) {
   if (!i.userId) return;
   if (host?.classList.contains('is-ring-loading')) return;
@@ -288,7 +291,7 @@ async function openPhotos(i, host = null) {
   }
 }
 
-// Последний нарисованный список участников (см. render).
+// The member list drawn last (see render).
 let membersShown = { chatId: null, nodes: [] };
 
 async function loadMembers(box, i) {
@@ -311,9 +314,9 @@ async function loadMembers(box, i) {
         el('span', { class: 'info-panel__member-name' }, m.title || m.username || '(no name)'),
         userIdNode(m.userId),
         el('span', { class: 'info-panel__label' }, statusText(m))),
-      // Справа столбиком: сверху подпись, которую участник выбрал сам
-      // (титул админа или тег, chatMember.tag) — чипом его цвета; снизу
-      // фактическая роль.
+      // On the right as a column: on top, the label the member chose
+      // themselves (an admin title or a tag, chatMember.tag) — as a chip
+      // of their colour; below, the actual role.
       (m.tag || m.role)
         ? el('span', { class: 'info-panel__roles' },
           m.tag ? el('span', { class: `info-panel__tag accent-${m.color}` }, m.tag) : null,
@@ -328,17 +331,18 @@ async function loadMembers(box, i) {
   }
 }
 
-// ------------------------------------------------------ источники «Избранного»
-// Как у Telegram Desktop: в сведениях «Избранного» — чаты, из которых
-// сохранены сообщения (savedMessagesTopic), с последним сообщением;
-// щелчок — история только этого источника (search.set savedTopic, шапка
-// показывает его чипом). Тем TDLib не отдаёт методом — loadSavedMessagesTopics
-// и обновления, которые хранит сервер (td.kept «updateSavedMessagesTopic:»).
+// ------------------------------------------------------ Saved Messages sources
+// As in Telegram Desktop: the Saved Messages info lists the chats messages
+// were saved from (savedMessagesTopic), with the last message; a click
+// shows the history of that source only (search.set savedTopic, the header
+// shows it as a chip). TDLib gives no method for topics —
+// loadSavedMessagesTopics and updates the server keeps (td.kept
+// "updateSavedMessagesTopic:").
 //
-// Между перерисовками панели держатся ДАННЫЕ, а строки строятся заново:
-// готовые узлы, пролежав вне документа, теряют картинки — util/offscreen.js
-// отпускает их и при чистке (sweep) забывает, и аватарка оставалась
-// размытой заглушкой навсегда.
+// Between redraws of the panel the DATA is kept and the rows are built
+// anew: ready nodes lying outside the document lose their pictures —
+// util/offscreen.js releases them and forgets them on its sweep, and the
+// avatar stayed a blurred placeholder forever.
 const SAVED_REFRESH_MS = 10000;
 const TOPIC_AVATAR_RETRY_MS = 1500;
 const TOPIC_AVATAR_RETRIES = 6;
@@ -379,7 +383,7 @@ function topicNodes() {
 
 const topicsTitle = () => (saved.count ? `${saved.count} ${saved.count === 1 ? 'chat' : 'chats'}` : 'Saved from');
 
-/** Аватарки, которых не было на диске: заказаны chats.avatars — дождаться и вставить. */
+/** Avatars that were not on disk: ordered with chats.avatars — wait and put them in. */
 async function chaseTopicAvatars() {
   for (let i = 0; i < TOPIC_AVATAR_RETRIES; i += 1) {
     const waiting = (saved.items ?? []).filter((t) => t.row && !t.row.avatar);
@@ -439,26 +443,26 @@ async function loadSavedTopics(box, title) {
 }
 
 // ------------------------------------------------------------ gifts
-// Подарки профиля (gifts.list — getReceivedGifts): сетка стикеров с ценой
-// и отправителем, фильтр по виду (как у нативного клиента: все,
-// ограниченные, неограниченные, уникальные) и сортировка по цене.
-// Открывается строкой «N gifts» в панели и кнопкой Gifts в шапке чата.
+// Profile gifts (gifts.list — getReceivedGifts): a grid of stickers with
+// price and sender, a kind filter (as in the native client: all, limited,
+// unlimited, unique) and sorting by price. Opened by the "N gifts" row in
+// the panel and the Gifts button in the chat header.
 const GIFT_KINDS = [['all', 'All'], ['limited', 'Limited'], ['unlimited', 'Unlimited'], ['unique', 'Unique']];
 
 let view = 'info';         // 'info' | 'gifts' | 'media' | 'similar'
-// Похожие каналы (chat.similar): канал, для которого, строки и узел вида.
+// Similar channels (chat.similar): the channel they are for, the rows and the view's node.
 let similar = { chatId: null, items: null, node: null };
 const similarMissing = new Set();
 let similarBoxes = new Map();
 let gifts = { kind: 'all', sortByPrice: false, items: [], next: '', total: 0, loading: false };
 
-/** Смена вида; шапке чата — какая сетка медиа открыта (подсветка кнопки). */
-// Переход между видами панели (сведения, медиа, подарки, похожие) —
-// как между окнами: сначала данные нового вида (prepare; старый вид
-// тем временем на месте, панель «занята»), потом старый гаснет
-// (VIEW_FADE_OUT_MS) и проявляется новый, уже с данными (apply). Иначе
-// вид менялся раньше, чем в нём появлялось содержимое, и переход
-// дёргался. Закрытая панель — сразу, загрузка — уже в открытой.
+/** A view change; tells the chat header which media grid is open (button highlight). */
+// A transition between panel views (info, media, gifts, similar) — as
+// between windows: first the new view's data (prepare; the old view stays
+// in place meanwhile, the panel is "busy"), then the old one fades
+// (VIEW_FADE_OUT_MS) and the new one appears, already with data (apply).
+// Otherwise the view changed before content appeared in it, and the
+// transition jerked. A closed panel — at once, loading — in the opened one.
 const VIEW_FADE_OUT_MS = 150;
 let viewSwitch = 0;
 
@@ -486,13 +490,13 @@ async function viewTransition(apply, prepare = null) {
   body.classList.remove('is-leaving');
 }
 
-/** Назад к сведениям — с переходом. */
+/** Back to the info — with a transition. */
 const backToInfo = () => viewTransition(() => { setView('info'); render(); });
 
 function setView(next) {
   const was = view === 'media' ? media.filter : '';
   if (view === 'media' && next !== 'media') {
-    mediaSeq += 1;      // ответ идущей загрузки больше некуда дописывать
+    mediaSeq += 1;      // the running load's answer has nowhere to go any more
     mediaParts = null;
     if (mediaFloat) mediaFloat.hidden = true;
   }
@@ -502,15 +506,15 @@ function setView(next) {
 }
 
 // ------------------------------------------------------- similar
-// Похожие каналы, как у нативного клиента: список в панели; щелчок
-// открывает канал (openChatSimilarChat — Telegram учитывает выбор).
+// Similar channels, as in the native client: a list in the panel; a click
+// opens the channel (openChatSimilarChat — Telegram counts the choice).
 function openSimilar() {
   const chatId = info?.chatId ?? null;
   viewTransition((pre) => openSimilarNow(chatId, pre),
     () => hooks.call('chat.similar', { chatId }));
 }
 
-/** pre — уже загруженный ответ chat.similar (или null — загрузить). */
+/** pre — the already loaded chat.similar answer (or null — load it). */
 function openSimilarNow(chatId, pre) {
   setView('similar');
   similar = { chatId, items: null, node: null };
@@ -564,7 +568,7 @@ function similarRow(chat) {
 }
 
 function renderSimilar() {
-  // Уже нарисовано — не перестраивать (srv:chats перечитывает панель).
+  // Drawn already — do not rebuild (srv:chats re-reads the panel).
   if (similar.node?.isConnected) return;
   const back = el('button', {
     class: 'btn info-panel__back', type: 'button',
@@ -584,7 +588,7 @@ function renderSimilar() {
   body.scrollTop = 0;
 }
 
-/** Догрузившиеся аватарки похожих каналов — на место. */
+/** Avatars of similar channels that finished downloading — into place. */
 async function refreshSimilarAvatars() {
   if (view !== 'similar' || !similarMissing.size) return;
   let answer;
@@ -607,7 +611,7 @@ function openGifts() {
   }));
 }
 
-/** pre — уже загруженный ответ gifts.list (или null — загрузить). */
+/** pre — the already loaded gifts.list answer (or null — load it). */
 function openGiftsNow(pre) {
   setView('gifts');
   gifts = { kind: gifts.kind, sortByPrice: gifts.sortByPrice, items: [], next: '', total: 0, loading: false };
@@ -622,16 +626,16 @@ function openGiftsNow(pre) {
   loadGifts(true);
 }
 
-// Свой счётчик запросов подарков. Раньше ответ сверялся со счётчиком
-// запросов СВЕДЕНИЙ (asked): переход в другой чат перечитывал сведения,
-// ответ с подарками выбрасывался как устаревший, а выход мимо перерисовки
-// оставлял «Loading gifts…» навсегда (живой случай: подарок → отправитель
-// → его подарки).
+// The gifts' own request counter. The answer used to be checked against
+// the counter of INFO requests (asked): going to another chat re-read the
+// info, the answer with gifts was thrown away as stale, and leaving past
+// the redraw left "Loading gifts…" forever (a live case: a gift → the
+// sender → their gifts).
 let giftsSeq = 0;
 
 async function loadGifts(fresh) {
   if (!info) return;
-  // «Ещё» ждёт идущую загрузку; новая (фильтр, другой чат) её перебивает.
+  // "More" waits for a running load; a new one (filter, another chat) overrides it.
   if (!fresh && gifts.loading) return;
   const my = ++giftsSeq;
   const chatId = info.chatId;
@@ -642,7 +646,7 @@ async function loadGifts(fresh) {
       chatId, kind: gifts.kind, sortByPrice: gifts.sortByPrice,
       offset: fresh ? '' : gifts.next,
     });
-    if (my !== giftsSeq) return;   // перебит новой загрузкой — она и нарисует
+    if (my !== giftsSeq) return;   // overridden by a new load — it will draw
     gifts.items = fresh ? (r.gifts ?? []) : gifts.items.concat(r.gifts ?? []);
     gifts.next = r.nextOffset ?? '';
     gifts.total = r.total ?? gifts.items.length;
@@ -671,7 +675,7 @@ function giftLabel(g) {
   return g.stars ? `\u2B50 ${g.stars}` : 'Gift';
 }
 
-/** Подробности подарка — окно поверх, как у нативного клиента. */
+/** Gift details — a window on top, as in the native client. */
 function giftDetails(g) {
   const dialog = el('dialog', { class: 'confirm gift-details' });
   const rows = [];
@@ -680,7 +684,7 @@ function giftDetails(g) {
       el('span', { class: 'gift-details__label' }, label),
       typeof value === 'string' ? el('span', {}, value) : value));
   };
-  // Отправитель — ссылкой: личка с человеком или сам канал.
+  // The sender — as a link: the private chat with the person or the channel itself.
   const canOpen = g.sender && (g.senderUserId || g.senderChatId);
   row('From', canOpen
     ? el('button', {
@@ -703,8 +707,8 @@ function giftDetails(g) {
   }
   if (g.sellStars) row('Can be converted', `${g.sellStars} Telegram Stars`);
   row('Shown in profile', g.isSaved ? 'Yes' : 'No');
-  // Нативный append, в отличие от el(), null не пропускает — он стал бы
-  // текстом «null». Поэтому только то, что есть.
+  // The native append, unlike el(), does not skip null — it would become
+  // the text "null". So only what is there.
   dialog.append(...[
     giftSticker(g, 'gift-details__sticker'),
     el('div', { class: 'gift-details__title' },
@@ -752,7 +756,7 @@ function renderGifts() {
       title: g.sender ? `From ${g.sender}` : '',
       onclick: () => giftDetails(g),
     },
-    // Кто подарил — кружок в углу, как у нативного клиента.
+    // Who gave it — a circle in the corner, as in the native client.
     g.sender || g.senderAvatar ? senderBadge(g) : null,
     giftSticker(g, 'gift-tile__sticker'),
     el('span', { class: 'gift-tile__label' }, giftLabel(g)),
@@ -775,15 +779,15 @@ function renderGifts() {
 }
 
 // ------------------------------------------------------------ media
-// Медиа чата в панели, как у нативного клиента (media.list —
-// searchChatMessages с фильтром): фото, видео и GIF — сеткой квадратных
-// превью, музыка, ссылки, голосовые, файлы и закреплённые — списком строк. Клик по плитке или строке
-// панель не закрывает: история прокручивается к этому сообщению
-// (ui:open-source), и можно идти дальше. Следующая страница подгружается,
-// когда прокрутка панели подходит к концу; новое дописывается в конец,
-// уже показанное не перестраивается.
+// The chat's media in the panel, as in the native client (media.list —
+// searchChatMessages with a filter): photos, videos and GIFs — a grid of
+// square previews, music, links, voice messages, files and pinned ones — a
+// list of rows. A click on a tile or row does not close the panel: the
+// history scrolls to that message (ui:open-source), and one can go on. The
+// next page loads when the panel's scroll nears the end; new items are
+// appended, what is shown already is not rebuilt.
 //
-// Вид: ключ, подпись кнопки, подпись счётчика, пустой список, раскладка.
+// A kind: the key, the button label, the counter label, the empty list, the layout.
 const MEDIA_KINDS = [
   ['photo', 'Photos', 'photos', 'No photos here.', 'grid'],
   ['video', 'Videos', 'videos', 'No videos here.', 'grid'],
@@ -795,23 +799,23 @@ const MEDIA_KINDS = [
   ['poll', 'Polls', 'polls', 'No polls here.', 'list'],
   ['pinned', 'Pinned', 'pinned messages', 'No pinned messages.', 'list'],
 ];
-// За сколько пикселей до конца прокрутки просить следующую страницу.
+// How many pixels before the end of the scroll to ask for the next page.
 const MEDIA_PRELOAD_PX = 400;
-// Цвета буквы-заглушки у ссылки без картинки — запасная палитра (f0..f7,
-// как у отправителей без своего цвета).
+// Colours of the placeholder letter of a link without a picture — the
+// fallback palette (f0..f7, as for senders without their own colour).
 const MEDIA_LETTER_COLORS = 8;
 
 let media = { filter: 'photo', chatId: null, items: [], next: 0, total: 0, loading: false, done: false };
-let mediaParts = null;     // { title, grid, foot } — узлы открытого вида
-// Дни, как в истории: разделитель на каждый новый день и плавающий
-// ярлык поверх прокрутки (util/floatdate.js). mediaDay — день последнего
-// дописанного элемента, чтобы следующая страница продолжила разбиение.
+let mediaParts = null;     // { title, grid, foot } — the nodes of the open view
+// Days, as in the history: a divider for every new day and a floating
+// label over the scroll (util/floatdate.js). mediaDay — the day of the last
+// appended item, so the next page continues the split.
 let mediaDay = '';
 let mediaFloat = null;
-// Отступ ярлыка от верха панели — top у .info-panel__float-date.
+// The label's offset from the top of the panel — top of .info-panel__float-date.
 const MEDIA_FLOAT_TOP = 16;
-let mediaSeq = 0;          // свой счётчик запросов, как у подарков
-let mediaCurrent = null;   // плитка или строка, к сообщению которой ушла история
+let mediaSeq = 0;          // its own request counter, as for gifts
+let mediaCurrent = null;   // the tile or row whose message the history went to
 
 function mediaKind() {
   return MEDIA_KINDS.find(([k]) => k === media.filter) ?? MEDIA_KINDS[0];
@@ -823,9 +827,9 @@ function openMedia(filter) {
     () => hooks.call('media.list', { chatId, filter, from: 0 }));
 }
 
-/** pre — уже загруженная первая страница media.list (или null). */
+/** pre — the already loaded first page of media.list (or null). */
 function openMediaNow(filter, pre) {
-  // Идущая загрузка прежнего вида сюда уже не допишет (loadMedia).
+  // A running load of the previous view will no longer append here (loadMedia).
   mediaSeq += 1;
   media = { filter, chatId: viewChatId(), items: [], next: 0, total: 0, loading: false, done: false };
   if (pre) {
@@ -836,8 +840,8 @@ function openMediaNow(filter, pre) {
   }
   mediaCurrent = null;
   setView('media');
-  // Смена вида внутри медиа (Photos -> Music) view не меняет — шапке
-  // сообщаем сами.
+  // A view change inside media (Photos -> Music) does not change view — we
+  // tell the header ourselves.
   emit('info:media-view', filter);
   if (!open) setOpen(true);
   renderMedia();
@@ -853,7 +857,7 @@ async function loadMedia(fresh) {
   mediaFoot();
   try {
     const r = await hooks.call('media.list', { chatId, filter, from: fresh ? 0 : media.next });
-    if (my !== mediaSeq) return;   // перебит — другой вид или другой чат
+    if (my !== mediaSeq) return;   // overridden — another view or another chat
     const items = r.items ?? [];
     media.items = media.items.concat(items);
     media.next = r.nextFrom ?? 0;
@@ -872,7 +876,7 @@ async function loadMedia(fresh) {
   media.loading = false;
   if (view !== 'media') return;
   mediaFoot();
-  // Страница не заполнила панель — прокрутки не будет, просим следующую.
+  // The page did not fill the panel — there will be no scroll, ask for the next one.
   mediaMaybeMore();
 }
 
@@ -881,7 +885,7 @@ function mediaTitle() {
   return media.total ? `${media.total} ${plural}` : label;
 }
 
-/** Перейти к сообщению в истории; плитка или строка отмечается. */
+/** Go to the message in the history; the tile or row is marked. */
 function mediaGo(node, item) {
   mediaCurrent?.classList.remove('is-current');
   mediaCurrent = node;
@@ -893,7 +897,7 @@ function realUrl(item) {
   return item.url && item.url !== '-' ? item.url : '';
 }
 
-/** Превью: картинка или беззвучный ролик (MPEG4-превью у GIF и видео). */
+/** A preview: a picture or a silent clip (the MPEG4 preview of GIFs and videos). */
 function mediaPreview(item, cls) {
   const url = realUrl(item);
   if (!url) return null;
@@ -904,9 +908,9 @@ function mediaPreview(item, cls) {
 }
 
 /**
- * Элементы с разделителями дней — та же разметка, что у истории
- * (.history__date с data-day), чтобы и вид, и плавающий ярлык были
- * одни. В сетке разделитель занимает весь ряд (.media-day).
+ * Items with day dividers — the same markup as the history's
+ * (.history__date with data-day), so both the look and the floating label
+ * are the same. In the grid a divider takes the whole row (.media-day).
  */
 function withDays(items) {
   const out = [];
@@ -934,7 +938,7 @@ function mediaItem(item) {
   if (item.kind === 'audio') return audioRow(item);
   if (item.kind === 'voice') return voiceRow(item);
   if (item.kind === 'file') return fileRow(item);
-  // Опрос — строкой, как закреплённое: «Poll: вопрос» и автор.
+  // A poll — as a line, like a pinned one: "Poll: question" and the author.
   if (item.kind === 'pinned' || item.kind === 'poll') return pinnedRow(item);
   if (item.kind === 'link') return linkRow(item);
   return mediaTile(item);
@@ -947,7 +951,7 @@ function mediaTile(item) {
     title: { video: 'Video', gif: 'GIF' }[item.kind] ?? 'Photo',
     onclick: () => mediaGo(tile, item),
   },
-  // Подложка — размытая minithumbnail, пока превью нет (или не скачалось).
+  // The backdrop — the blurred minithumbnail while there is no preview (or it did not download).
   item.thumb ? el('img', { class: 'media-tile__blur', src: item.thumb, alt: '' }) : null,
   preview,
   item.kind === 'video'
@@ -955,8 +959,8 @@ function mediaTile(item) {
       item.duration ? duration(item.duration) : null)
     : null,
   item.kind === 'gif' ? el('span', { class: 'media-tile__badge' }, 'GIF') : null);
-  // Ролик-превью оживает под мышью, как у нативного клиента: два десятка
-  // играющих разом в одной панели ни к чему.
+  // The preview clip comes alive under the mouse, as in the native client:
+  // two dozen playing at once in one panel are of no use.
   if (preview?.tagName === 'VIDEO') {
     tile.addEventListener('mouseenter', () => preview.play().catch(() => {}));
     tile.addEventListener('mouseleave', () => preview.pause());
@@ -981,7 +985,7 @@ function audioRow(item) {
   return row;
 }
 
-/** Квадрат-заглушка с буквами; цвет — от текста, стабильный (f0..f7). */
+/** A placeholder square with letters; the colour comes from the text, stable (f0..f7). */
 function letterTile(text, label) {
   let hash = 0;
   for (const ch of text) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
@@ -989,7 +993,7 @@ function letterTile(text, label) {
   return el('span', { class: `media-row__letter accent-f${hash % MEDIA_LETTER_COLORS}${long ? ' is-ext' : ''}` }, label);
 }
 
-/** Голосовое: аватарка отправителя, его имя, длительность; дата справа. */
+/** A voice message: the sender's avatar, their name, the duration; the date on the right. */
 function voiceRow(item) {
   const avatar = el('span', { class: `avatar media-row__avatar accent-${item.senderColor || 'a5'}` });
   fillAvatar(avatar, { title: item.sender || '?', avatar: item.senderAvatar, avatarThumb: item.senderThumb });
@@ -1006,7 +1010,7 @@ function voiceRow(item) {
   return row;
 }
 
-/** Закреплённое: картинка сообщения или аватарка отправителя, имя, текст. */
+/** A pinned one: the message's picture or the sender's avatar, the name, the text. */
 function pinnedRow(item) {
   const url = realUrl(item);
   let cover;
@@ -1029,7 +1033,7 @@ function pinnedRow(item) {
   return row;
 }
 
-/** Файл: превью или расширение на цветном квадрате, имя, размер; дата справа. */
+/** A file: a preview or the extension on a coloured square, name, size; the date on the right. */
 function fileRow(item) {
   const url = realUrl(item);
   const name = item.fileName || 'File';
@@ -1058,7 +1062,7 @@ function hostOf(url) {
   }
 }
 
-/** Адреса сообщения без повторов: сущности текста, иначе адрес предпросмотра. */
+/** The message's addresses without repeats: text entities, otherwise the preview's address. */
 function linkUrls(item) {
   const text = item.text ?? '';
   const urls = (item.urls ?? []).map((u) => u.url || text.substr(u.offset, u.length)).filter(Boolean);
@@ -1077,12 +1081,12 @@ function linkRow(item) {
   } else if (item.thumb) {
     pic = el('img', { class: 'media-row__img is-blur', src: item.thumb, alt: '' });
   } else {
-    // Буква сайта на цветном квадрате; цвет — от имени сайта, стабильный.
+    // The site's letter on a coloured square; the colour comes from the site name, stable.
     const name = p?.siteName || host;
     pic = letterTile(name, initial(name));
   }
-  // В строке есть ссылки — кнопкой её не сделать (ссылка внутри кнопки
-  // недопустима), поэтому div с ролью кнопки и Enter с клавиатуры.
+  // The row has links — it cannot be a button (a link inside a button is
+  // not allowed), so a div with the button role and Enter from the keyboard.
   const row = el('div', {
     class: 'media-row media-row--link', role: 'button', tabindex: '0',
     onclick: () => mediaGo(row, item),
@@ -1099,8 +1103,8 @@ function linkRow(item) {
     ...urls.map((u) => el('a', {
       class: 'media-row__url', href: /^[a-z][a-z0-9+.-]*:/i.test(u) ? u : `https://${u}`,
       target: '_blank', rel: 'noopener',
-      // Ссылка открывается сама (t.me — внутри приложения, ui/links.js);
-      // переход к сообщению строке при этом не нужен.
+      // The link opens itself (t.me — inside the app, ui/links.js); going to
+      // the message is not needed then.
       onclick: (event) => event.stopPropagation(),
     }, u.replace(/^https?:\/\//i, '')))),
   el('span', { class: 'media-row__date' }, listTime(item.date)));
@@ -1182,14 +1186,14 @@ function render() {
   });
   const buttons = el('div', { class: 'info-panel__actions' },
     actionButton('chat', 'Chat', () => {
-      // Сведения о чужом контакте — открыть личку с ним.
+      // Info of someone else's contact — open the private chat with them.
       if (override !== null && override !== store.activeChatId) {
         const id = override;
         setOpen(false);
         setActiveChat(id);
         return;
       }
-      // У канала — его группа обсуждения: писать в сам канал нельзя.
+      // A channel — its discussion group: one cannot write into the channel itself.
       if (i.kind === 'channel' && i.linkedChatId) {
         setOpen(false);
         setActiveChat(i.linkedChatId);
@@ -1206,8 +1210,8 @@ function render() {
       }
       load();
     }),
-    // Звонок: человеку — личный (ui/call.js), голосом или с видео;
-    // группе и каналу — видеочат (ui/videochat.js).
+    // A call: to a person — a private one (ui/call.js), voice or video;
+    // to a group or channel — a video chat (ui/videochat.js).
     actionButton('mic', 'Call', (event) => {
       if (i.kind === 'group' || i.kind === 'channel') {
         emit('ui:vchat-open', { chatId: i.chatId, title: i.title });
@@ -1264,8 +1268,8 @@ function render() {
   }
 
   if ((i.kind === 'group') && i.canGetMembers) {
-    // Прежний список этого чата — до прихода свежего: иначе на время
-    // запроса высота панели схлопывается и прокрутка теряется.
+    // The chat's previous list — until the fresh one arrives: otherwise the
+    // panel's height collapses during the request and the scroll is lost.
     const box = el('div', { class: 'info-panel__members' },
       ...(membersShown.chatId === i.chatId
         ? membersShown.nodes
@@ -1284,11 +1288,11 @@ function render() {
         class: `info-panel__link${danger ? ' is-danger' : ''}`, type: 'button', onclick: run,
       }, label))));
   }
-  // Панель перестраивается целиком (в том числе по srv:chats, пока
-  // открыта), и кнопка, под которой открыто меню (Call, More), заменяется
-  // новой. Меню без якоря не закрывается, а падает в угол экрана —
-  // поэтому якорь переносится на новую кнопку с той же подписью
-  // (reanchorMenu ничего не делает, если меню открыто не от неё).
+  // The panel is rebuilt whole (including on srv:chats while it is open),
+  // and the button the menu is open under (Call, More) is replaced with a
+  // new one. A menu without an anchor does not close but falls into the
+  // corner of the screen — so the anchor moves to the new button with the
+  // same label (reanchorMenu does nothing if the menu was not opened from it).
   const oldActions = new Map([...body.querySelectorAll('.info-panel__action')]
     .map((n) => [n.textContent, n]));
   clear(body).append(...parts);
@@ -1321,12 +1325,12 @@ export function mountInfoPanel(box, options) {
     mediaMaybeMore();
     mediaFloatUpdate();
   }, { passive: true });
-  // Плавающая дата медиа — поверх тела панели, как у истории.
+  // The floating media date — over the panel body, as in the history.
   mediaFloat = el('div', { class: 'history__float-date info-panel__float-date', hidden: true }, el('span'));
   panel.append(mediaFloat);
   box.append(toggle, panel);
-  // «Contact info» из меню сообщения: личка с отправителем
-  // (createPrivateChat — bot.userChat) и её сведения.
+  // "Contact info" from the message menu: the private chat with the sender
+  // (createPrivateChat — bot.userChat) and its info.
   on('ui:contact-info', async ({ userId }) => {
     try {
       const r = await hooks.call('bot.userChat', { userId: String(userId) });
@@ -1335,8 +1339,8 @@ export function mountInfoPanel(box, options) {
       hooks.report(error);
     }
   });
-  // Аватарка в шапке чата: у человека — галерея его фото, у группы и
-  // канала (истории аватарок у них нет) — сама панель.
+  // The avatar in the chat header: for a person — the gallery of their
+  // photos, for a group and channel (they have no avatar history) — the panel itself.
   on('ui:chat-photos', async ({ anchor } = {}) => {
     const chatId = store.activeChatId;
     if (chatId === null) return;
@@ -1352,9 +1356,9 @@ export function mountInfoPanel(box, options) {
     if (i?.userId) openPhotos(i, anchor ?? null);
     else if (!open) setOpen(true);
   });
-  // Кнопка Gifts в шапке чата (ui/chat-header.js).
-  // Кнопки медиа в шапке чата (Photos … Files): сетка или список,
-  // повторный клик — закрыть.
+  // The Gifts button in the chat header (ui/chat-header.js).
+  // The media buttons in the chat header (Photos … Files): a grid or a list,
+  // a repeated click — close.
   on('ui:open-media', (filter) => {
     if (store.activeChatId === null) return;
     if (open && view === 'media' && media.filter === filter && media.chatId === store.activeChatId) {
@@ -1372,7 +1376,7 @@ export function mountInfoPanel(box, options) {
     if (!open || !info || info.chatId !== store.activeChatId) {
       setView('info');
       setOpen(true);
-      // Подарки просятся от имени владельца из chat.info — ждём его.
+      // Gifts are requested on behalf of the owner from chat.info — wait for it.
       const wait = () => new Promise((resolve) => setTimeout(resolve, 100));
       for (let n = 0; n < 50 && (!info || info.chatId !== store.activeChatId); n += 1) await wait();
     }
@@ -1385,8 +1389,8 @@ export function mountInfoPanel(box, options) {
     if (store.activeChatId === null) setOpen(false);
     else if (open) load();
   });
-  // Вступили, вышли, заблокировали, переименовали — список чатов меняется;
-  // открытая панель перечитывается, но не чаще, чем раз в несколько секунд.
+  // Joined, left, blocked, renamed — the chat list changes; the open panel
+  // is re-read, but not more often than once every few seconds.
   let last = 0;
   on('srv:chats', () => {
     if (open && view === 'similar' && similarMissing.size) refreshSimilarAvatars();

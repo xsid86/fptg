@@ -1,8 +1,8 @@
-// OGG-контейнер для пакетов Opus — голосовые сообщения Telegram (OGG/Opus,
-// один канал; td_api.tl, inputVoiceNote). MediaRecorder в WebView2 пишет
-// Opus только в WebM, поэтому пакеты даёт AudioEncoder (WebCodecs), а
-// контейнер собирается здесь: RFC 3533 (страницы OGG) и RFC 7845
-// (OpusHead, OpusTags, granule в отсчётах 48 кГц с учётом pre-skip).
+// An OGG container for Opus packets — Telegram voice messages (OGG/Opus, one
+// channel; td_api.tl, inputVoiceNote). MediaRecorder in WebView2 writes Opus
+// only into WebM, so AudioEncoder (WebCodecs) gives the packets, and the
+// container is assembled here: RFC 3533 (OGG pages) and RFC 7845 (OpusHead,
+// OpusTags, granule in 48 kHz samples accounting for pre-skip).
 
 const CRC = (() => {
   const t = new Uint32Array(256);
@@ -22,7 +22,7 @@ function crc32(bytes) {
 
 const ascii = (s) => Uint8Array.from(s, (ch) => ch.charCodeAt(0));
 
-/** Одна страница OGG из целых пакетов. */
+/** One OGG page of whole packets. */
 function page(serial, seq, granule, flags, packets) {
   const lacing = [];
   for (const p of packets) {
@@ -37,12 +37,12 @@ function page(serial, seq, granule, flags, packets) {
   const out = new Uint8Array(27 + lacing.length + bodyLen);
   const v = new DataView(out.buffer);
   out.set(ascii('OggS'), 0);
-  v.setUint8(4, 0);                     // версия
-  v.setUint8(5, flags);                 // 2 — начало потока, 4 — конец
+  v.setUint8(4, 0);                     // version
+  v.setUint8(5, flags);                 // 2 — start of the stream, 4 — end
   v.setBigInt64(6, BigInt(granule), true);
   v.setUint32(14, serial, true);
   v.setUint32(18, seq, true);
-  v.setUint32(22, 0, true);             // CRC — ниже, по всей странице
+  v.setUint32(22, 0, true);             // the CRC — below, over the whole page
   v.setUint8(26, lacing.length);
   out.set(lacing, 27);
   let at = 27 + lacing.length;
@@ -54,25 +54,25 @@ function page(serial, seq, granule, flags, packets) {
   return out;
 }
 
-/** Сколько сегментов займут пакеты (на странице не больше 255). */
+/** How many segments the packets take (no more than 255 on a page). */
 const segmentsOf = (p) => Math.floor(p.length / 255) + 1;
 
 /**
- * Пакеты Opus -> файл OGG (Blob audio/ogg).
- * packets: [{ data: Uint8Array, samples: отсчётов 48 кГц }];
- * preSkip — задержка кодировщика в отсчётах 48 кГц.
+ * Opus packets -> an OGG file (a Blob audio/ogg).
+ * packets: [{ data: Uint8Array, samples: 48 kHz samples }];
+ * preSkip — the encoder's delay in 48 kHz samples.
  */
 export function oggOpus(packets, { preSkip = 312, channels = 1, inputRate = 48000 } = {}) {
   const serial = (Math.random() * 0xffffffff) >>> 0;
   const head = new Uint8Array(19);
   const hv = new DataView(head.buffer);
   head.set(ascii('OpusHead'), 0);
-  hv.setUint8(8, 1);                    // версия
+  hv.setUint8(8, 1);                    // version
   hv.setUint8(9, channels);
   hv.setUint16(10, preSkip, true);
   hv.setUint32(12, inputRate, true);
-  hv.setInt16(16, 0, true);             // усиление
-  hv.setUint8(18, 0);                   // раскладка каналов: моно/стерео
+  hv.setInt16(16, 0, true);             // gain
+  hv.setUint8(18, 0);                   // the channel mapping: mono/stereo
   const vendor = ascii('fptg');
   const tags = new Uint8Array(8 + 4 + vendor.length + 4);
   const tv = new DataView(tags.buffer);
@@ -105,8 +105,8 @@ export function oggOpus(packets, { preSkip = 312, channels = 1, inputRate = 4800
 }
 
 /**
- * Пики громкости -> waveform Telegram: 100 значений по 5 бит (0..31),
- * упакованных подряд от младших битов, в base64 (поле bytes в JSON TDLib).
+ * Volume peaks -> the Telegram waveform: 100 values of 5 bits (0..31),
+ * packed one after another from the low bits, in base64 (the bytes field in TDLib JSON).
  */
 export function waveform5bit(peaks, count = 100) {
   const values = new Array(count).fill(0);

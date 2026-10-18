@@ -111,8 +111,8 @@ async function showFolderMenu(id, anchor, contact = null) {
   const chat = store.chats.find((row) => row.id === id);
   const current = contact ? contact.current : (chat?.folderId ?? 0);
 
-  // После переноса из строки контакта список контактов перечитывается.
-  // (Контакту без переписки кнопки не дают вовсе — chat-list.js.)
+  // After moving from a contact row the contact list is re-read.
+  // (A contact without a conversation gets no buttons at all — chat-list.js.)
   const done = () => { if (contact) emit('ui:contacts-stale'); };
   const move = (folderId) => call('chat.folder.set', { id, folderId })
     .then(done)
@@ -172,9 +172,9 @@ function applyMessages(state) {
   // really ends instead: leaving the thread, or opening a chat.
   if (state?.thread) state.thread.post = threadPost;
   const fresh = setCustomEmoji(state?.customEmoji);
-  // Кнопка расшифровки голосовых — только у Premium (ui/message.js).
-  // Узлы истории кэшируются по содержимому сообщения — при смене флага
-  // (купили Premium) уже нарисованные голосовые перерисовать.
+  // The voice transcription button — Premium only (ui/message.js).
+  // History nodes are cached by message content — when the flag changes
+  // (Premium bought) redraw the voice messages already drawn.
   if (state && 'canTranscribe' in state && setCanTranscribe(state.canTranscribe)) invalidateHistory();
   setMessages(state);
   // A custom emoji's file arriving changes no message, so the history's
@@ -282,7 +282,7 @@ function wireActions() {
     }
   });
 
-  // Богатое сообщение — блоки уже собраны полем ввода (util/richcompose.js).
+  // A rich message — the blocks are already assembled by the input field (util/richcompose.js).
   on('ui:send-rich', async (payload) => {
     try {
       await call('message.sendRich', payload);
@@ -294,7 +294,7 @@ function wireActions() {
 
   // Stickers and GIFs are sent, not typed: the panel hands over a file
   // id and the server turns it into inputMessageSticker/Animation.
-  // Голосовое или кружок — записаны и загружены (ui/recorder.js).
+  // A voice message or a round video — recorded and uploaded (ui/recorder.js).
   on('ui:send-note', async (payload) => {
     try {
       await call('message.sendNote', payload);
@@ -353,8 +353,8 @@ function wireActions() {
     call('message.cancelTransfer', args).catch(report);
   });
 
-  // Аватарки строк, вошедших в кадр списка (ui/chat-list.js). Сами
-  // адреса приедут со следующим chats.list, как и раньше.
+  // Avatars of rows that came into the list's view (ui/chat-list.js). The
+  // addresses themselves arrive with the next chats.list, as before.
   on('ui:avatars', (ids) => {
     call('chats.avatars', { ids }).catch(() => {});
   });
@@ -394,10 +394,10 @@ function wireActions() {
   // moving the view in the wrong chat.
   on('ui:open-source', ({ chatId, messageId }) => {
     if (!messageId) return;
-    // Цитата в ветке комментариев указывает на сообщение группы
-    // обсуждения — того чата, что открыт в модели (messages.chatId), а
-    // не канала, который числится открытым на странице. Прыжок — внутри
-    // ветки; переключение на группу вывело бы из ветки в её общую ленту.
+    // A quote in a comment thread points to a message of the discussion
+    // group — the chat open in the model (messages.chatId), not the channel
+    // the page considers open. The jump is inside the thread; switching to
+    // the group would leave the thread for its general feed.
     const held = store.messages;
     if (held?.thread && chatId === held.chatId) {
       call('thread.jump', { messageId: String(messageId) })
@@ -422,8 +422,8 @@ function wireActions() {
       .catch(report);
   });
 
-  // Чип даты в истории: сервер находит первое сообщение дня, дальше —
-  // обычный переход к сообщению.
+  // The date chip in the history: the server finds the day's first message,
+  // then an ordinary jump to the message.
   on('ui:jump-date', (date) => {
     const chatId = store.activeChatId;
     if (!chatId || !date) return;
@@ -470,14 +470,14 @@ function wireActions() {
   });
 }
 
-// Контакты вместо чатов (кнопка Contacts). Список спрашивается при
-// включении и обновляется вместе со списком чатов — не чаще, чем раз в
-// CONTACTS_REFRESH_MS: докачанные аватарки и статусы «в сети» приезжают
-// только с новым запросом (contacts.list — getUser по каждому).
+// Contacts instead of chats (the Contacts button). The list is asked when
+// turned on and refreshed together with the chat list — not more often than
+// once per CONTACTS_REFRESH_MS: downloaded avatars and "online" statuses
+// arrive only with a new request (contacts.list — getUser for each).
 const CONTACTS_REFRESH_MS = 5000;
-// Аватарки, которые ещё качаются (photoPending): список перезапрашивается
-// с этой паузой, пока такие есть, но не больше CONTACTS_PHOTO_TRIES раз
-// за включение (живой лог: 46 файлов скачались меньше чем за 40 с).
+// Avatars still downloading (photoPending): the list is re-requested with
+// this pause while there are such, but no more than CONTACTS_PHOTO_TRIES
+// times per turning on (a live log: 46 files downloaded in under 40 s).
 const CONTACTS_PHOTO_RETRY_MS = 2000;
 const CONTACTS_PHOTO_TRIES = 20;
 const CONTACTS_STALE_MS = 3000;
@@ -485,8 +485,8 @@ let contactsAsked = 0;
 let contactsStaleUntil = 0;
 let contactsTries = 0;
 let contactsTimer = 0;
-// Включён ли режим контактов (кнопка — не переключатель: её подпись
-// говорит, куда она ведёт).
+// Whether the contacts mode is on (the button is not a toggle: its label
+// says where it leads).
 let contactsOn = false;
 
 function loadContacts() {
@@ -514,11 +514,11 @@ function setContactsMode(on) {
 }
 
 /**
- * Вкладка списка слева: 'chats', 'archive' или 'contacts'. Активная
- * подсвечена (is-active); архив и контакты — одно из двух.
+ * The tab of the list on the left: 'chats', 'archive' or 'contacts'. The
+ * active one is highlighted (is-active); archive and contacts — one of the two.
  */
 function setSidebarView(view) {
-  // Другая вкладка — поиск и фильтр контактов кончаются.
+  // Another tab — search and the contact filter end.
   const box = qs('#chats-search');
   if (box.value) {
     box.value = '';
@@ -549,16 +549,16 @@ function wireSidebar() {
     const now = Date.now();
     if (now < contactsStaleUntil || now - contactsAsked > CONTACTS_REFRESH_MS) loadContacts();
   });
-  // Папку контакта сменили из его строки: новые позиции чата приходят
-  // от TDLib несколькими обновлениями (вынуть из старых папок, добавить
-  // в новую), поэтому CONTACTS_STALE_MS список перечитывается на каждое,
-  // без обычной паузы — иначе чип показал бы промежуточное состояние.
+  // A contact's folder was changed from its row: TDLib sends the chat's new
+  // positions in several updates (remove from the old folders, add to the
+  // new one), so for CONTACTS_STALE_MS the list is re-read on each, without
+  // the usual pause — otherwise the chip would show an intermediate state.
   on('ui:contacts-stale', () => {
     contactsStaleUntil = Date.now() + CONTACTS_STALE_MS;
     if (contactsOn) loadContacts();
   });
-  // Клик по контакту: личка с ним (createPrivateChat — bot.userChat),
-  // список возвращается к чатам.
+  // A click on a contact: the private chat with them (createPrivateChat —
+  // bot.userChat), the list returns to chats.
   on('ui:open-contact', ({ userId }) => {
     call('bot.userChat', { userId })
       .then((r) => {
@@ -569,17 +569,17 @@ function wireSidebar() {
   });
   on('store:archived', loadChats);
 
-  // Поле над списком: в Chats и Archive — поиск, как у Telegram Desktop
-  // (ui/search.js); в Contacts — фильтр загруженных контактов, он уже
-  // весь здесь (setChatFilter).
+  // The field above the list: in Chats and Archive — search, as in Telegram
+  // Desktop (ui/search.js); in Contacts — a filter of the loaded contacts,
+  // they are all here already (setChatFilter).
   mountSearch(qs('#chats-search'), qs('.sidebar'), qs('.sidebar__body'), {
     disabled: () => contactsOn,
   });
-  // Голосовые и кружки — кнопка справа от поля ввода (ui/recorder.js);
-  // другой чат — незаконченная запись пропадает.
+  // Voice messages and round videos — the button to the right of the input
+  // field (ui/recorder.js); another chat — an unfinished recording is lost.
   mountRecorder(qs('#composer'), { canCompose, takeReply, isSilent, report });
   on('store:active', cancelRecording);
-  // «+» справа от вкладок: новая группа или канал (ui/newchat.js).
+  // "+" to the right of the tabs: a new group or channel (ui/newchat.js).
   mountNewChat(qs('.sidebar__head'), { call: (cmd, args) => call(cmd, args) });
   qs('#chats-search').addEventListener('input', (event) => {
     if (contactsOn) setChatFilter(event.target.value);
@@ -631,12 +631,12 @@ async function boot() {
   });
   mountStatusBar(qs('#status-bar'));
   mountToasts(qs('#toasts'));
-  // Окно fptg вокруг страницы: карточки на рабочем столе,
-  // мини-приложения, трей (ui/shell.js). Клик по карточке и ссылки из
-  // мини-приложения приходят оттуда же.
+  // The fptg window around the page: desktop cards, mini apps, the tray
+  // (ui/shell.js). A click on a card and links from a mini app come from
+  // there too.
   mountShell({ call: (cmd, args) => call(cmd, args), openLink, report });
-  // Масштаб и анимации интерфейса этого окна (Chat settings, Battery
-  // and animation) — классы корня, до первых окон.
+  // This window's interface scale and animations (Chat settings, Battery
+  // and animation) — root classes, before the first windows.
   applyRoot();
   mountThemeToggle(qs('#theme-toggle'));
   mountSettings(qs('#settings'), qs('#settings-open'), {
@@ -650,38 +650,38 @@ async function boot() {
     report,
     notice,
     openChat: (id) => setActiveChat(id),
-    // Кнопка клавиатуры бота и команда из меню — обычное сообщение от
-    // своего имени. HTML, а не MarkdownV2: текст кнопки не должен
-    // превратиться в разметку из-за звёздочки.
+    // The bot keyboard button and a command from the menu — an ordinary
+    // message on one's own behalf. HTML, not MarkdownV2: the button text
+    // must not turn into markup because of an asterisk.
     send: (text) => emit('ui:send', { text, html: true, silent: isSilent(), replyTo: '' }),
     silent: isSilent,
-    // replyMarkupForceReply: поле ввода сразу отвечает на это сообщение.
+    // replyMarkupForceReply: the input field replies to this message at once.
     replyTo,
   });
-  // Картинки карт для геопозиций в истории (util/maps.js): приехала —
-  // история перерисовывается, как при приезде кастомного эмодзи.
+  // Map pictures for locations in the history (util/maps.js): one arrived —
+  // the history is redrawn, as when a custom emoji arrives.
   setMapFetcher((lat, lon) => call('map.thumb', { lat, lon }).then((r) => r?.url));
   on('ui:map-ready', () => invalidateHistory());
-  // Сервис карт по умолчанию (Settings → Location service) — его же
-  // сохраняет галочка «Remember my choice» в окне выбора.
+  // The default map service (Settings → Location service) — the "Remember
+  // my choice" checkbox in the choice window saves it too.
   setMapSaver((id) => call('settings.set', { key: 'maps.provider', value: id }).catch(report));
   on('srv:settings', (data) => setMapProvider(data?.mapsProvider ?? ''));
   mountGreeting({ call: (cmd, args) => call(cmd, args), report });
-  // Официальная реклама Telegram в каналах и чатах с ботами (ui/sponsored.js).
+  // Official Telegram ads in channels and chats with bots (ui/sponsored.js).
   mountSponsored(qs('#composer'), { call: (cmd, args) => call(cmd, args), report, notice });
-  // Панель информации о чате — кнопка «i» в углу истории.
+  // The chat info panel — the "i" button in the corner of the history.
   mountInfoPanel(qs('.workspace__history'), { call: (cmd, args) => call(cmd, args), report, notice });
-  // Перевод сообщений чата — кнопка под «i» (ui/translate.js).
+  // Translating the chat's messages — the button under "i" (ui/translate.js).
   mountTranslate(qs('.workspace__history'), { report });
-  // Оплата счетов: кнопки «Купить» и ссылки t.me/$имя (ui:pay-invoice).
+  // Paying invoices: the "Buy" buttons and t.me/$name links (ui:pay-invoice).
   mountPayments({ call: (cmd, args) => call(cmd, args), report, notice });
-  // Звонки: окно звонка и WebRTC (ui/call.js, calls/*.js); начать — ui:call-start.
+  // Calls: the call window and WebRTC (ui/call.js, calls/*.js); start — ui:call-start.
   mountCalls({ call: (cmd, args) => call(cmd, args), report, notice });
-  // Видеочаты групп и каналов (ui/videochat.js, calls/group.js); открыть — ui:vchat-open.
+  // Video chats of groups and channels (ui/videochat.js, calls/group.js); open — ui:vchat-open.
   mountVideoChat({ call: (cmd, args) => call(cmd, args), report, notice });
   mountLiveStream({ call: (cmd, args) => call(cmd, args), report, notice });
   mountStories({ call: (cmd, args) => call(cmd, args), report, notice });
-  // «Add contact» на карточке контакта в истории — то же окно, что в панели.
+  // "Add contact" on a contact card in the history — the same window as in the panel.
   on('ui:add-contact', (args) => { addContactDialog(args); });
   mountAttachMenu(qs('#composer'), {
     call: (cmd, args) => call(cmd, args),
@@ -691,8 +691,8 @@ async function boot() {
   mountLinks({
     call: (cmd, args) => call(cmd, args),
     openChat: (id) => setActiveChat(id),
-    // Тот же путь, что у перехода по пересылке: чат открывается сразу
-    // на нужном сообщении.
+    // The same path as following a forward: the chat opens right at the
+    // needed message.
     openMessage: (chatId, messageId) => emit('ui:open-source', { chatId, messageId }),
     report,
     notice,
@@ -709,7 +709,7 @@ async function boot() {
 
   wireSidebar();
   wireResponsive();
-  // Одно воспроизведение со звуком за раз (util/soloplay.js).
+  // One playback with sound at a time (util/soloplay.js).
   mountSoloPlay();
   wireActions();
 
@@ -718,9 +718,9 @@ async function boot() {
   // decision - see throttle above.
   on('srv:chats', () => {
     refreshChats();
-    // Открытого чата нет в списке — его строка (и аватарка, докачанная
-    // сейчас) приезжает только с историей, а не со списком. Разностный
-    // messages.list дешёвый.
+    // The open chat is not in the list — its row (and the avatar downloaded
+    // just now) arrives only with the history, not with the list. A diff
+    // messages.list is cheap.
     if (activeOffList()) refreshMessages();
   });
   on('srv:messages', refreshMessages);

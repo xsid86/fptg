@@ -17,8 +17,8 @@ uses
 
   Returns the actual side length in pixels, or 0 on failure.
 
-  Без LCL: картинка — FPImage (fcl-image), сервер должен собираться
-  консольным и под Linux. }
+  Without LCL: the picture is FPImage (fcl-image), the server must build
+  as a console program and under Linux. }
 function DrawQrToPng(const AText: utf8string; AStream: TStream; ASizePx: integer): integer;
 
 implementation
@@ -56,7 +56,7 @@ begin
   try
     { Colors are hardcoded black-on-white, not the theme's: in dark
       theme that would invert the code, which most phone cameras fail
-      to scan. Модуль кода — клетка Scale x Scale. }
+      to scan. A module of the code is a Scale x Scale cell. }
     for Y := 0 to Side - 1 do begin
       for X := 0 to Side - 1 do begin
         if (X div Scale >= QR_QUIET_ZONE) and (Y div Scale >= QR_QUIET_ZONE)

@@ -254,8 +254,8 @@ video:fullscreen {
   border: 1px solid color-mix(in srgb, var(--c-audio) 40%, white);
   border-radius: $radius-md;
   box-shadow: inset 0 0 48px rgba(255, 255, 255, 0.5), 0 2px 2px rgba(0, 0, 0, .1);
-  // Тон акцента на бледной подложке из него же: у светлых акцентов
-  // (amber, lime) чистый цвет не читался бы — притемнён на $audio-text-dark.
+  // A tone of the accent on a pale backdrop of the same: with light accents
+  // (amber, lime) the pure colour would not read — darkened by $audio-text-dark.
   color: color-mix(in srgb, var(--c-audio), black $audio-text-dark);
   position: relative; // a download bar belongs to the card, nothing else
 }
@@ -482,9 +482,9 @@ a.media--file:hover {
   //.message__body { padding-inline: 0; }
 }
 
-// ------------------------------------------------------------ геопозиция
-// ui/message.js, renderLocation: карта Telegram (getMapThumbnailFile,
-// 360x200 при scale 2) с меткой по центру, под ней название и адрес места.
+// ------------------------------------------------------------ location
+// ui/message.js, renderLocation: a Telegram map (getMapThumbnailFile,
+// 360x200 at scale 2) with a pin in the centre, the place's name and address under it.
 .location {
   @include flex(column, stretch, flex-start, $space-3);
   @include focus-ring;
@@ -511,8 +511,8 @@ a.media--file:hover {
   width: 100%;
 }
 
-// Метка — капля, нарисованная CSS: повёрнутый квадрат со скруглением,
-// острый угол смотрит вниз, в точку.
+// The pin — a drop drawn with CSS: a rotated square with rounding, the
+// sharp corner looking down, at the point.
 .location__pin {
   @include size(26px);
   background: var(--c-danger);
@@ -550,7 +550,7 @@ a.media--file:hover {
   font-size: $fs-sm;
 }
 
-// Окно выбора сервиса карт (util/maps.js, openMapPoint).
+// The map service choice window (util/maps.js, openMapPoint).
 .maps-choice__list {
   @include flex(column, stretch, flex-start, $space-1);
   margin: $space-4 0;
@@ -569,9 +569,9 @@ a.media--file:hover {
   }
 }
 
-// ------------------------------------------------------------ контакт
-// ui/message.js, renderContact: карточка присланного контакта —
-// аватарка, имя, телефон; у людей в Telegram — Message и Add contact.
+// ------------------------------------------------------------ contact
+// ui/message.js, renderContact: the card of a sent contact — avatar, name,
+// phone; for people on Telegram — Message and Add contact.
 .contact-card {
   @include flex(column, stretch, flex-start, $space-3);
   min-width: 240px;
@@ -625,10 +625,10 @@ a.media--file:hover {
   }
 }
 
-// ------------------------------------------------------------ звонок
-// Звонок в истории (ui/message.js, renderCall): значок в кружке, что за
-// звонок и сколько длился, справа — перезвонить (или Join у группового).
-// Неудавшийся (пропущенный, отклонённый) — значок цветом ошибки.
+// ------------------------------------------------------------ call
+// A call in the history (ui/message.js, renderCall): an icon in a circle,
+// what kind of call and how long it lasted, on the right — call back (or
+// Join for a group one). A failed one (missed, declined) — the icon in the error colour.
 $call-card-icon: 40px;
 
 .call-card {
@@ -683,14 +683,15 @@ $call-card-icon: 40px;
   }
 }
 
-// -------------------------------------------------- расшифровка голосовых
-// ui/message.js, renderVoice: «→A» в правом верхнем углу карточки
-// голосового (только у Premium), под карточкой — текст.
+// -------------------------------------------------- voice transcription
+// ui/message.js, renderVoice: "→A" in the top right corner of a voice card
+// (Premium only), the text under the card.
 //
-// Кнопка — в «рамке»: div с отступом $voice-tx-border, в нём кнопка.
-// Рамка видна каймой вокруг кнопки и служит холстом анимации: пока
-// Telegram распознаёт, по ней по кругу бежит пятно радиального
-// градиента (центр градиента — анимируемые --voice-tx-x/y, @property).
+// The button is in a "frame": a div with a $voice-tx-border padding, the
+// button inside it. The frame shows as an edging around the button and
+// serves as the animation's canvas: while Telegram recognizes, a spot of
+// radial gradient runs around it (the gradient's centre — the animated
+// --voice-tx-x/y, @property).
 $voice-tx-border: 2px;
 $voice-tx-w: 30px;
 $voice-tx-h: 20px;
@@ -713,7 +714,7 @@ $voice-tx-orbit: 1.2s;
   @include flex(column, stretch, flex-start, $space-3);
 }
 
-// Заголовку не заезжать под кнопку.
+// The title must not run under the button.
 .media--audio.has-tx .audio__body {
   padding-right: calc(#{$voice-tx-w} + #{2 * $voice-tx-border});
 }
@@ -739,7 +740,7 @@ $voice-tx-orbit: 1.2s;
   }
 }
 
-// Центр пятна обходит рамку по периметру.
+// The spot's centre goes around the frame's perimeter.
 @keyframes voice-tx-orbit {
   0%   { --voice-tx-x: 0%;   --voice-tx-y: 0%; }
   25%  { --voice-tx-x: 100%; --voice-tx-y: 0%; }
@@ -779,7 +780,7 @@ $voice-tx-orbit: 1.2s;
   }
 }
 
-// Иконка «звук → текст» (img/icons.svg, i-transcribe).
+// The "sound → text" icon (img/icons.svg, i-transcribe).
 .voice__tx-icon {
   @include size($voice-tx-h - 4px);
 }

@@ -1,18 +1,18 @@
-// Заливка ползунка до бегунка (components/_inputrange.scss, $track-bg).
+// The slider's fill up to the thumb (components/_inputrange.scss, $track-bg).
 //
-// У ползунка Chromium нет отдельной части «до бегунка» — её рисует
-// градиент дорожки, а ему нужен процент: переменная --range-fill.
-// Атрибута style в проекте нет, поэтому значения живут в одной
-// принятой таблице стилей — правило на ползунок, по data-fill — тот
-// же приём, что у маркера меню (util/menu.js).
+// A Chromium slider has no separate "before the thumb" part — the track's
+// gradient draws it, and it needs a percent: the --range-fill variable.
+// There is no style attribute in the project, so the values live in one
+// adopted style sheet — a rule per slider, by data-fill — the same trick
+// as the menu marker (util/menu.js).
 
-// Ширина бегунка — $thumb-width в _inputrange.scss: центр бегунка ходит
-// от половины его ширины до «ширина дорожки минус половина».
+// The thumb width — $thumb-width in _inputrange.scss: the thumb's centre
+// moves from half its width to "the track width minus a half".
 const THUMB_W = 8;
 
 let sheet = null;
 let next = 1;
-const values = new Map();   // id -> css значение --range-fill
+const values = new Map();   // id -> the css value of --range-fill
 
 function flush() {
   if (!sheet) {
@@ -33,7 +33,7 @@ function update(input) {
   flush();
 }
 
-/** Подключить заливку к ползунку: сейчас и при каждом движении. */
+/** Attach the fill to a slider: now and on every movement. */
 export function trackFill(input) {
   if (!input.dataset.fill) input.dataset.fill = String(next++);
   input.addEventListener('input', () => update(input));
@@ -41,7 +41,7 @@ export function trackFill(input) {
   return input;
 }
 
-/** Забыть ползунки, которых больше нет в документе. */
+/** Forget the sliders no longer in the document. */
 export function pruneFills() {
   let changed = false;
   for (const id of [...values.keys()]) {

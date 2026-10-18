@@ -97,7 +97,7 @@ function slide(msg) {
     return null;
 }
 
-/** Открыт ли просмотрщик — окну настроек, чтобы Esc не закрыл и его. */
+/** Whether the viewer is open — for the settings window, so Esc does not close it too. */
 export function viewerOpen() {
     return current !== null;
 }
@@ -192,11 +192,11 @@ function mountThumbs(node, pswp, items) {
  * instead of assuming a window appeared.
  */
 /**
- * `options.container` — куда вешать просмотрщик (по умолчанию body).
- * Из модального <dialog> он должен жить внутри диалога: диалог лежит в
- * верхнем слое, и всё, что в body, оказалось бы под ним.
- * `options.actions` — кнопки на верхней полосе: { name, title,
- * onClick(index) }, index — номер слайда в переданном списке.
+ * `options.container` — where to hang the viewer (body by default). From a
+ * modal <dialog> it must live inside the dialog: the dialog lies in the top
+ * layer, and everything in body would end up under it.
+ * `options.actions` — buttons on the top bar: { name, title,
+ * onClick(index) }, index — the slide number in the passed list.
  */
 export function openViewer(msgs, startIndex, options = {}) {
     const built = [];
@@ -268,7 +268,7 @@ export function openViewer(msgs, startIndex, options = {}) {
                     onInit: (node) => mountThumbs(node, pswp, items),
                 });
             }
-            // Текстовые кнопки перед крестиком (у него order 20).
+            // Text buttons before the cross (it has order 20).
             actions.forEach((action, i) => {
                 pswp.ui.registerElement({
                     name: action.name,
