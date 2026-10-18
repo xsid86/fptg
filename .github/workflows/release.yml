@@ -56,11 +56,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Lazarus and packages
+      - name: Lazarus
         uses: gcarreno/setup-lazarus@v3
         with:
           lazarus-version: stable
-          include-packages: 'Synapse 40.1, BGRABitmap, BGRAControls, QRCodeGenLib'
+
+      # Not through setup-lazarus's include-packages: it registers every .lpk
+      # in the OPM archives (Android, fpGUI variants) and fails on them.
+      - name: Lazarus packages
+        run: python tools/ci_packages.py "$RUNNER_TEMP/opm"
 
       - name: Telegram API keys (optional)
         if: env.TELEGRAM_API_ID != '' && env.TELEGRAM_API_HASH != ''
