@@ -19,6 +19,7 @@ const DEFAULTS = {
   interfaceAnimations: true,
   folderTags: true,         // folder chips in the list rows (Folders)
   scale: 100,               // the interface scale, %
+  callRelay: 'auto',        // calls through the server's relay: auto | on | off (calls/relay.js)
 };
 
 // The scale ladder — the root classes .ui-scale-N (blocks/_settings.scss).

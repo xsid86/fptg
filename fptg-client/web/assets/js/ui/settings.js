@@ -13,7 +13,9 @@ import { ACCENTS, currentAccent, setAccent } from './theme.js';
 import { uploadUrl, serverBase, currentUser, signOut } from '../core/session.js';
 import {
   initKit, setPremium, row, group, switchControl, numberControl, textControl, uid, navRow,
+  selectControl,
 } from './setkit.js';
+import { getPref, setPref } from '../util/prefs.js';
 import { renderPrivacySecurity } from './setprivacy.js';
 import { renderNotifyScopes, renderAcceptCalls } from './setnotify.js';
 import { renderChatSettings as chatSettingsParts, renderPower, renderLanguage } from './setchats.js';
@@ -568,11 +570,23 @@ function renderAccount() {
 // Call devices and volume — the same panel as in the call window
 // (calls/devices.js). Kept in this page's browser, not on the server.
 async function renderCalls() {
+  const relayId = uid();
   return [
     group('Devices and volume', devicePanel()),
     el('p', { class: 'settings__hint' },
       'Saved in this browser: another device running the app keeps its own choice. '
       + 'Changes apply to a call in progress right away.'),
+    // The server's call relay (calls/relay.js) — a choice of this window too.
+    group('Connection',
+      row(relayId, 'Route calls through the server',
+        'The fptg server relays call audio and video, so calls work where Telegram itself '
+        + 'is blocked. Calls stay end-to-end encrypted. Automatic: when the server is on '
+        + 'another computer. Applies to the next call.',
+        selectControl(relayId, [
+          { value: 'auto', label: 'Automatic' },
+          { value: 'on', label: 'Always' },
+          { value: 'off', label: 'Never' },
+        ], getPref('callRelay'), (value) => setPref('callRelay', value)))),
     ...await renderAcceptCalls(),
   ];
 }

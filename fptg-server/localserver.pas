@@ -178,6 +178,9 @@ function UploadFilePath(const AId: string): string;
   separate program can test it — like EscapeMarkdownV2 in tdmessages. }
 function SafeUploadName(const AName: string): string;
 
+{ A random hex token (CSPRNG on Windows): session ids, relay secrets. }
+function NewToken: string;
+
 { Installed by webapi.pas. While nil, a text frame is simply echoed —
   which is what the transport-check page exercises. }
 procedure SetWebMessageHandler(AHandler: TWebMessageEvent);
@@ -203,7 +206,7 @@ implementation
 uses
   { ssl_openssl3 plugs OpenSSL 3 into Synapse (SSLImplementation) when the
     unit loads. }
-  ssl_openssl3, fpjson, jsonparser, srvauth, appdirs;
+  ssl_openssl3, fpjson, jsonparser, srvauth, appdirs, turnrelay;
 
 {$IFDEF WINDOWS}
 { RtlGenRandom, the small CSPRNG every Windows process already has.
@@ -1344,12 +1347,38 @@ begin
   H(FConnId, utf8string(APayload));
 end;
 
+{ The first byte of the connection, without taking it out of the socket;
+  -1 — nothing came in time. }
+function PeekFirstByte(ASock: TTCPBlockSocket): integer;
+var
+  B: byte;
+begin
+  Result := -1;
+  if ASock.CanRead(LOCAL_SERVER_HTTP_TIMEOUT_MS)
+     and (synsock.Recv(ASock.Socket, @B, 1, MSG_PEEK) = 1) then begin
+    Result := B;
+  end;
+end;
+
 procedure TServerConn.Execute;
 var
   IsWs: boolean;
+  First: integer;
 begin
   try
     try
+      { The call relay shares this port (turnrelay.pas): a TURN client
+        starts with a STUN message, TLS with 0x16. }
+      if RelayEnabled then begin
+        First := PeekFirstByte(FSock);
+        if First < 0 then begin
+          Exit;
+        end;
+        if IsTurnFirstByte(byte(First)) then begin
+          ServeTurn(FSock);
+          Exit;
+        end;
+      end;
       { TLS — before the first byte of the request. A non-TLS client
         (http:// on this port) does not get past here. }
       if FOwner.Tls.CertFile <> '' then begin

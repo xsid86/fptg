@@ -65,7 +65,7 @@ uses
   constants, tdreq, tdauth, tdchats, tdmessages,
   tdusers, tdstickers, tdcalls, tdcore, tdrecv, webauth, qrrender, localserver, webfiles,
   autodownload, customemoji, tdstorage, tdsupergroups, tdattachbots, servicetext, tdaccount,
-  appdirs;
+  appdirs, turnrelay;
 
 type
   { A request whose answer is not here yet.
@@ -2962,6 +2962,28 @@ end;
 
 { call.list: calls in progress — for a page opened or reloaded in the
   middle of a call (an incoming one still ringing). }
+{ relay.get: credentials of the server's call relay (turnrelay.pas) —
+  (enabled, username, credential, ttl). The page builds the TURN address
+  from the server address it is connected to: the server cannot know
+  which name or port forwarding the client reaches it by. }
+function RelayJson: TJSONData;
+var
+  User, Pass: string;
+  Ttl: integer;
+  Res: TJSONObject;
+begin
+  Res := TJSONObject.Create;
+  if RelayCredentials(User, Pass, Ttl) then begin
+    Res.Add('enabled', True);
+    Res.Add('username', User);
+    Res.Add('credential', Pass);
+    Res.Add('ttl', Ttl);
+  end else begin
+    Res.Add('enabled', False);
+  end;
+  Result := Res;
+end;
+
 function TWebApi.CmdCallList: TJSONData;
 var
   Calls: TTdCalls;
@@ -11939,6 +11961,8 @@ begin
           @SimpleDone, TakeDeferred(AConnId, ReqId, 0));
       end else if Cmd = 'call.list' then begin
         Reply(AConnId, ReqId, CmdCallList);
+      end else if Cmd = 'relay.get' then begin
+        Reply(AConnId, ReqId, RelayJson);
       end else if Cmd = 'call.start' then begin
         CmdCallStart(AConnId, ReqId, Args);
       end else if (Cmd = 'call.accept') or (Cmd = 'call.discard')

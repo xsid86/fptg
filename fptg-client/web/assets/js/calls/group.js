@@ -22,6 +22,7 @@
 //     data channel (colibriClass).
 
 import { micConstraints, cameraConstraints, openMic } from './devices.js';
+import { relayIceServer } from './relay.js';
 
 const OPUS = {
   id: 111, name: 'opus', clockrate: 48000, channels: 2,
@@ -265,7 +266,15 @@ export class GroupSession {
   }
 
   async start({ muted, video }) {
-    this.pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+    // Through the server's relay when it is wanted (calls/relay.js): the
+    // SFU is reached from the server's address, not from this network.
+    const relay = await relayIceServer();
+    this.pc = new RTCPeerConnection({
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+      ...(relay ? { iceServers: [relay], iceTransportPolicy: 'relay' } : {}),
+    });
+    this.log('ice', relay ? 'through the server relay' : 'direct');
     const pc = this.pc;
     pc.ontrack = ({ transceiver, track, streams }) => {
       const r = this.remote.find((x) => x.mid === transceiver.mid);

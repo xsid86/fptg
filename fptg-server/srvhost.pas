@@ -89,7 +89,8 @@ function ParamValue(const APrefix: string): string;
 implementation
 
 uses
-  constants, tdcore, tdaccount, tdauth, localserver, webapi, srvauth, secureconfig, tdjson;
+  constants, tdcore, tdaccount, tdauth, localserver, webapi, srvauth, secureconfig, tdjson,
+  turnrelay;
 
 { --tdlib-log of the console one: the log for this run, not written to conf.dat. }
 function RawLogFromCli: boolean;
@@ -130,6 +131,65 @@ begin
     Ini.Free;
   end;
   SetRawLog(AOn or RawLogFromCli);
+end;
+
+{ "min-max" -> the port range; False — not a range. }
+function ParsePorts(const S: string; out AMin, AMax: word): boolean;
+var
+  P, A, B: integer;
+begin
+  AMin := 0;
+  AMax := 0;
+  P := Pos('-', S);
+  Result := (P > 1) and TryStrToInt(Trim(Copy(S, 1, P - 1)), A)
+    and TryStrToInt(Trim(Copy(S, P + 1, MaxInt)), B)
+    and (A >= 1) and (B <= 65535) and (A <= B);
+  if Result then begin
+    AMin := A;
+    AMax := B;
+  end;
+end;
+
+{ The call relay (turnrelay.pas): conf.dat [relay], then --no-relay,
+  --relay-address=IP, --relay-ports=MIN-MAX for this run. }
+procedure PrepareRelay;
+var
+  Ini: TSecureIni;
+  Cfg: TRelayConfig;
+  Ports, V: string;
+  I: integer;
+begin
+  Ini := OpenConfig;
+  try
+    { On by default only for the console server — the one for a VPS, whose
+      own interface usually has the public address. The server window runs
+      at home behind a router: there the relayed address would be a
+      private one, and a remote client forced through it would lose calls
+      that work directly. }
+    Cfg.Enabled := Ini.ReadBool(RELAY_CONFIG_SECTION, RELAY_CONFIG_ENABLED, IsConsole);
+    Cfg.Address := Ini.ReadString(RELAY_CONFIG_SECTION, RELAY_CONFIG_ADDRESS, '');
+    Ports := Ini.ReadString(RELAY_CONFIG_SECTION, RELAY_CONFIG_PORTS, '');
+  finally
+    Ini.Free;
+  end;
+  for I := 1 to ParamCount do begin
+    if ParamStr(I) = '--no-relay' then begin
+      Cfg.Enabled := False;
+    end;
+  end;
+  V := ParamValue('--relay-address=');
+  if V <> '' then begin
+    Cfg.Address := V;
+  end;
+  V := ParamValue('--relay-ports=');
+  if V <> '' then begin
+    Ports := V;
+  end;
+  if not ParsePorts(Ports, Cfg.PortMin, Cfg.PortMax) then begin
+    Cfg.PortMin := 0;
+    Cfg.PortMax := 0;
+  end;
+  RelayConfigure(Cfg);
 end;
 
 function ParamValue(const APrefix: string): string;
@@ -350,6 +410,7 @@ begin
     AError := 'The port is a number from 1 to 65535.';
     Exit;
   end;
+  PrepareRelay;
   if not StartLocalServer(APort, ConfiguredBindAddress, FTls, ConfiguredWebDir) then begin
     AError := 'Could not start on port ' + IntToStr(APort)
       + ': another program is probably using it.';

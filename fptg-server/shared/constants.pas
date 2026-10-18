@@ -575,6 +575,31 @@ const
     MAX_PATH). }
   LOCAL_SERVER_UPLOAD_NAME_MAX = 120;
 
+  { ================= turnrelay.pas: the TURN relay for calls ================= }
+
+  { The realm of the relay's credentials and the tail of its user names. }
+  RELAY_REALM = 'fptg';
+  { How long credentials given to the page stay valid. }
+  RELAY_CREDENTIAL_SEC = 86400;
+  { Allocation lifetime (RFC 8656: default 600 s, the client refreshes). }
+  RELAY_DEFAULT_LIFETIME_SEC = 600;
+  RELAY_MAX_LIFETIME_SEC = 3600;
+  RELAY_PERMISSION_SEC = 300;
+  RELAY_CHANNEL_SEC = 600;
+  { A connection that has not allocated within this time is dropped. }
+  RELAY_IDLE_MS = 30000;
+  RELAY_POLL_MS = 200;
+  RELAY_READ_TIMEOUT_MS = 15000;
+  { The largest UDP datagram. }
+  RELAY_MAX_DATAGRAM = 65536;
+  { conf.dat: [relay] enabled=1, address=<public IPv4 or empty>,
+    ports=<min>-<max> or empty for any. --relay-address, --relay-ports and
+    --no-relay override them for one run. }
+  RELAY_CONFIG_SECTION = 'relay';
+  RELAY_CONFIG_ENABLED = 'enabled';
+  RELAY_CONFIG_ADDRESS = 'address';
+  RELAY_CONFIG_PORTS = 'ports';
+
   { sendMessageAlbum groups 2..10 messages (td_api.tl). More files go
     out as several albums in a row. }
   SEND_ALBUM_MAX = 10;

@@ -19,6 +19,7 @@
 
 import { SignalingCipher, SignalingChannel, b64ToBytes } from './signaling.js';
 import { micConstraints, cameraConstraints, openMic } from './devices.js';
+import { relayIceServer } from './relay.js';
 
 export const CALL_VERSION = '10.0.0';
 
@@ -68,10 +69,14 @@ export class CallSession {
 
   async start(withVideo) {
     const servers = iceServers(this.call.servers, this.call.allowP2p);
-    this.log('ice servers', servers.length);
+    // The server's own relay (calls/relay.js) goes first; with it the
+    // media never goes directly — the direct path is what is blocked.
+    const relay = await relayIceServer();
+    if (relay) servers.unshift(relay);
+    this.log('ice servers', servers.length, relay ? 'with the server relay' : '');
     this.pc = new RTCPeerConnection({
       iceServers: servers,
-      iceTransportPolicy: this.call.allowP2p ? 'all' : 'relay',
+      iceTransportPolicy: this.call.allowP2p && !relay ? 'all' : 'relay',
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
     });

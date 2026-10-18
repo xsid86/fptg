@@ -29,7 +29,14 @@ program fptg_server;
                         again) and exit;
     --tdlib-log         keep the raw TDLib log (tdlib_raw.log) for this
                         run. Off by default: it holds all the
-                        correspondence in plain text. }
+                        correspondence in plain text;
+    --no-relay          turn the call relay off (turnrelay.pas: calls go
+                        through the server when the client cannot reach
+                        Telegram itself);
+    --relay-address=IP  the relay's public IPv4 address, when the server's
+                        own interface has a private one (NAT);
+    --relay-ports=A-B   UDP ports for relayed calls, to open in a firewall
+                        (by default any free port). }
 
 uses
   { The memory manager — first, before any allocation. }
@@ -39,7 +46,7 @@ uses
   {$ENDIF}
   Classes, SysUtils, fpjson,
   constants, tdtimer, localserver, srvloop, srvauth, srvconsole, srvhost, instance,
-  appdirs, secureconfig;
+  appdirs, secureconfig, turnrelay;
 
 { The project's resources (fptg-server.res, written by the build): they hold
   the VERSIONINFO that tdaccount.AppVersionString gives TDLib. }
@@ -295,6 +302,11 @@ begin
   end;
   WriteLn('  ', Host.Fingerprint);
   WriteLn('User: ', AuthUserName);
+  if RelayEnabled then begin
+    WriteLn('Call relay: on (TURN over TCP on the same port)');
+  end else begin
+    WriteLn('Call relay: off');
+  end;
   if ConfiguredBindAddress <> LOCAL_SERVER_BIND then begin
     WriteLn;
     WriteLn('Reachable from the network (--bind).');

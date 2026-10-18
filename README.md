@@ -181,6 +181,9 @@ fingerprint. Ctrl+C shuts it down cleanly.
 | `--set-user=LOGIN` | set the login and password, then exit |
 | `--sign-out` | end all sessions (every window and browser signs in again), then exit |
 | `--tdlib-log` | keep the raw TDLib log for this run; off by default because it holds all messages in plain text |
+| `--no-relay` | turn the call relay off (see [Calls through a VPS](#calls-through-a-vps)) |
+| `--relay-address=IP` | the relay's public IPv4 address, if the server's own interface has a private one |
+| `--relay-ports=A-B` | the UDP ports the relay uses (default: any free port) |
 
 Only one server runs per computer. A second start with `--set-user` or
 `--sign-out` passes the command to the running server and exits.
@@ -191,6 +194,25 @@ port in Windows Firewall:
 ```bat
 netsh advfirewall firewall add rule name="fptg" dir=in action=allow protocol=TCP localport=7654
 ```
+
+### Calls through a VPS
+
+When the server runs on a VPS and the client's network blocks Telegram,
+calls cannot reach Telegram directly. The console server therefore relays
+call audio and video itself: it is a TURN server on the same port as HTTPS,
+so nothing else has to be opened for the client. Calls stay end-to-end
+encrypted; the server only forwards packets.
+
+- The relay is on by default in `fptg-server.exe` and off in
+  `fptg-server-gui.exe`, which usually runs at home behind a router.
+- The relayed traffic leaves the VPS over UDP. If the VPS has a firewall,
+  allow outgoing and incoming UDP for the relay, or limit it to a range with
+  `--relay-ports=49160-49200` and open that range.
+- If the VPS's network interface has a private address (some clouds use 1:1
+  NAT), give the public one with `--relay-address=`.
+- In the client: Settings → Speakers and camera → *Route calls through the
+  server*. Automatic (default) uses the relay when the server is on another
+  computer.
 
 ### Connecting
 
