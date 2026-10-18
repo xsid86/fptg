@@ -126,7 +126,8 @@ with `dist/` mapped inside, which is useful for testing a release.
 
 ## Installation
 
-There is no installer: unpack the archives into any folders.
+Download the archives from [Releases](https://github.com/xsid86/fptg/releases).
+There is no installer: unpack them into any folders.
 
 **Server** (`fptg-server-<version>-win64.zip`):
 
@@ -215,6 +216,33 @@ fptg-client/         the client window: WebView2 host, tray, notifications, call
 tools/               release script and sandbox configuration
 docs/licenses/       full texts of third-party licenses
 ```
+
+## Code signing policy
+
+Windows releases are built from this repository by GitHub Actions
+(`.github/workflows/release.yml`) and signed there; nothing is built or
+signed on a personal machine.
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/).
+
+Team roles:
+
+- Committers and reviewers: [xsid86](https://github.com/xsid86)
+- Approvers: [xsid86](https://github.com/xsid86)
+
+Every release is approved by hand before it is signed.
+
+### Privacy
+
+This program will not transfer any information to other networked systems
+unless specifically requested by the user or the person installing or
+operating it.
+
+fptg-server connects to Telegram's servers through TDLib, because that is
+what a Telegram client does, and to nothing else. fptg-client connects only
+to the fptg server you enter. Links, mini apps and map services open
+third-party sites only when you choose to open them. There is no telemetry.
 
 ## License
 

@@ -1,8 +1,16 @@
 """Building an fptg release for Windows x64: two archives in dist/.
 
-    python tools\\build_release.py 1.0.0 [--no-build]
+    python tools\\build_release.py 1.0.0 [--no-build | --build-only]
 
---no-build — package the exe files already built (checking the packaging itself).
+--no-build — package the exe files already built (checking the packaging
+itself, or packaging exe files signed after --build-only).
+--build-only — build the three programs and stop (CI: they go to signing
+first, then --no-build packs the signed ones).
+
+Every build stamps the version into the three programs' version info: the
+same FileVersion and ProductVersion and ProductName "fptg" (code signing
+wants them identical across a release). The .lpi files are restored
+afterwards.
 
 1. A full rebuild of the three programs (lazbuild -B): fptg-server,
    fptg-server-gui and fptg-client (the Release mode). The server window and
@@ -22,6 +30,7 @@ compiled assets/scss/style.css is needed.
 """
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,7 +40,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVER = os.path.join(ROOT, 'fptg-server')
 CLIENT = os.path.join(ROOT, 'fptg-client')
 DIST = os.path.join(ROOT, 'dist')
-LAZBUILD = r'C:\lazarus\lazbuild.exe'
+# lazbuild: $LAZBUILD, then PATH (CI), then the usual install folder.
+LAZBUILD = (os.environ.get('LAZBUILD') or shutil.which('lazbuild')
+            or r'C:\lazarus\lazbuild.exe')
+PRODUCT_NAME = 'fptg'
 
 SERVER_FILES = ['fptg-server.exe', 'fptg-server-gui.exe', 'tdjson.dll',
                 'libssl-3-x64.dll', 'libcrypto-3-x64.dll', 'z.dll']
@@ -98,6 +110,63 @@ def build(lpi, mode=None):
         fail(f'{os.path.basename(lpi)} did not build (is the program still running?)')
 
 
+def version_numbers(version):
+    m = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?', version)
+    if not m:
+        fail(f'the version must look like 1.2.3 or 1.2.3.4, not {version}')
+    return [int(x or 0) for x in m.groups()]
+
+
+def write_bytes(path, data):
+    tmp = path + '.tmp'
+    with open(tmp, 'wb') as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def stamp_version(lpi, version):
+    """The release version into the project's VersionInfo; returns the
+    original bytes to restore."""
+    with open(lpi, 'rb') as f:
+        raw = f.read()
+    text = raw.decode('utf-8')
+    nl = '\r\n' if '\r\n' in text else '\n'
+    major, minor, rev, build_nr = version_numbers(version)
+    name = os.path.splitext(os.path.basename(lpi))[0]
+    block = nl.join([
+        '<VersionInfo>',
+        '      <UseVersionInfo Value="True"/>',
+        f'      <MajorVersionNr Value="{major}"/>',
+        f'      <MinorVersionNr Value="{minor}"/>',
+        f'      <RevisionNr Value="{rev}"/>',
+        f'      <BuildNr Value="{build_nr}"/>',
+        f'      <StringTable CompanyName="xsid86" FileDescription="{name}"'
+        f' InternalName="{name}" LegalCopyright="xsid86"'
+        f' OriginalFilename="{name}.exe" ProductName="{PRODUCT_NAME}"'
+        f' ProductVersion="{version}"/>',
+        '    </VersionInfo>'])
+    new, n = re.subn(r'<VersionInfo>.*?</VersionInfo>', lambda _: block, text, flags=re.S)
+    if n != 1:
+        fail(f'{os.path.basename(lpi)}: no VersionInfo block')
+    write_bytes(lpi, new.encode('utf-8'))
+    return raw
+
+
+def build_all(version):
+    projects = [(os.path.join(SERVER, 'fptg-server.lpi'), None),
+                (os.path.join(SERVER, 'fptg-server-gui.lpi'), None),
+                (os.path.join(CLIENT, 'fptg-client.lpi'), 'Release')]
+    saved = {}
+    try:
+        for lpi, _ in projects:
+            saved[lpi] = stamp_version(lpi, version)
+        for lpi, mode in projects:
+            build(lpi, mode)
+    finally:
+        for lpi, raw in saved.items():
+            write_bytes(lpi, raw)
+
+
 def copy_web(dst):
     src = os.path.join(CLIENT, 'web')
     for base, dirs, files in os.walk(src):
@@ -145,18 +214,21 @@ def sha256(path):
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     no_build = '--no-build' in sys.argv
-    if len(args) != 1:
-        fail('usage: build_release.py <version> [--no-build], e.g. 1.0.0')
+    build_only = '--build-only' in sys.argv
+    if len(args) != 1 or (no_build and build_only):
+        fail('usage: build_release.py <version> [--no-build | --build-only], e.g. 1.0.0')
     version = args[0]
+    version_numbers(version)
     for f in SERVER_FILES[2:]:
         if not os.path.exists(os.path.join(SERVER, f)):
             fail(f'fptg-server/{f} is missing')
 
     keys = os.path.exists(os.path.join(ROOT, 'fptg-server-premium', 'apikeys.inc'))
     if not no_build:
-        build(os.path.join(SERVER, 'fptg-server.lpi'))
-        build(os.path.join(SERVER, 'fptg-server-gui.lpi'))
-        build(os.path.join(CLIENT, 'fptg-client.lpi'), 'Release')
+        build_all(version)
+    if build_only:
+        print('Built. Telegram API keys built in:', 'YES' if keys else 'NO')
+        return
 
     os.makedirs(DIST, exist_ok=True)
     stage = os.path.join(DIST, f'stage-{version}')
