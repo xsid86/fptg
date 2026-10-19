@@ -16,6 +16,7 @@ import {
   selectControl,
 } from './setkit.js';
 import { getPref, setPref } from '../util/prefs.js';
+import { openLink } from './links.js';
 import { renderPrivacySecurity } from './setprivacy.js';
 import { renderNotifyScopes, renderAcceptCalls } from './setnotify.js';
 import { renderChatSettings as chatSettingsParts, renderPower, renderLanguage } from './setchats.js';
@@ -43,7 +44,8 @@ import { openProxies } from './setproxy.js';
 // old content stays until the new one is ready (renderPane).
 //
 // Three help items are empty for now: they will be links to the project
-// site with questions about fptg itself, not about Telegram.
+// site with questions about fptg itself, not about Telegram. The last
+// item — how to support the project.
 
 const SECTIONS = [
   { id: 'account', label: 'My account', icon: 'person', render: renderAccount },
@@ -64,6 +66,8 @@ const SECTIONS = [
   { id: 'faq', label: 'Telegram FAQ', icon: 'help', render: () => [] },
   { id: 'features', label: 'Telegram Features', icon: 'bulb', render: () => [] },
   { id: 'ask', label: 'Ask a question', icon: 'chat', render: () => [] },
+  { sep: true },
+  { id: 'support', label: 'Support FPTG', icon: 'gift', render: () => renderSupport() },
 ];
 const PAGES = SECTIONS.filter((x) => !x.sep);
 
@@ -589,6 +593,28 @@ async function renderCalls() {
           { value: 'off', label: 'Never' },
         ], getPref('callRelay'), (value) => setPref('callRelay', value)))),
     ...await renderAcceptCalls(),
+  ];
+}
+
+// Donations — the app's only monetization (Telegram API Terms 3.2: named
+// on the site, in the README and here). The addresses and their QR codes
+// live on the site, one place to keep them right.
+const SUPPORT_PAGE = 'https://fptg.app/#support';
+const SPONSORS_PAGE = 'https://github.com/sponsors/xsid86';
+
+function renderSupport() {
+  const link = (label, href) => el('button', {
+    class: 'btn', type: 'button', onclick: () => openLink(href),
+  }, label);
+  return [
+    el('p', { class: 'settings__intro' },
+      'FPTG is free and open source: no ads, no paid features, no subscriptions. '
+      + 'It lives on donations — if it keeps your chats flowing, you can help it keep going.'),
+    group(null,
+      row(uid(), 'GitHub Sponsors', 'By card, once or every month.',
+        link('Sponsor', SPONSORS_PAGE)),
+      row(uid(), 'USDT or TON', 'Addresses and QR codes are on the donation page.',
+        link('Open the page', SUPPORT_PAGE))),
   ];
 }
 

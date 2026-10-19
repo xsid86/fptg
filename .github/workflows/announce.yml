@@ -67,7 +67,10 @@ jobs:
           fi
           # Plain text, no parse mode: notes are Markdown, and Telegram
           # would reject or mangle what it cannot parse.
-          text=$(printf '%s\n\n%s\n\n%s' "$name" "$body" "$url" | head -c 4000)
+          # The notes are cut, not the links after them (a message is 4096 at most).
+          body=$(printf '%s' "$body" | head -c 3600)
+          text=$(printf '%s\n\n%s\n\n%s\nSupport FPTG: %s' "$name" "$body" "$url" \
+            'https://fptg.app/#support')
           jq -n --arg chat "$CHANNEL" --arg text "$text" \
             '{chat_id: $chat, text: $text, disable_web_page_preview: true}' > message.json
           if ! curl -sS --fail-with-body -o answer.json -H 'Content-Type: application/json' \

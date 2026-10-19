@@ -266,6 +266,21 @@ what a Telegram client does, and to nothing else. fptg-client connects only
 to the fptg server you enter. Links, mini apps and map services open
 third-party sites only when you choose to open them. There is no telemetry.
 
+## Support
+
+FPTG is free and open source: no ads, no paid features, no subscriptions.
+It lives on donations — if it keeps your chats flowing, you can help it keep
+going. Donations are the only way the project is funded.
+
+- [GitHub Sponsors](https://github.com/sponsors/xsid86): by card, once or
+  every month.
+- USDT on the TRON network (TRC-20):
+  `TQSkaejHVEQot6ZLHnb8EHrQCKCTeAux3y`
+- TON: `UQB8QUqsjrQThygUsG8D11Zx0nsOCy0z74VspnJtF-Uf8BNP`
+
+QR codes are on the [donation page](https://fptg.app/#support). News and
+every release: the [Telegram channel](https://t.me/freepascaltelegram).
+
 ## License
 
 fptg is free software: you can redistribute it and/or modify it under the
