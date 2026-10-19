@@ -63,12 +63,7 @@ jobs:
           url=$(jq -r '.url' release.json)
           # No notes on the release — the commit messages since the previous tag.
           if [ -z "$(echo "$body" | tr -d '[:space:]')" ]; then
-            prev=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
-            if [ -n "$prev" ]; then
-              body=$(git log --no-merges --format='%B' "$prev..$TAG")
-            else
-              body=$(git log --no-merges --format='%B' -n 1 "$TAG")
-            fi
+            body=$(python3 tools/release_notes.py "$TAG")
           fi
           # Plain text, no parse mode: notes are Markdown, and Telegram
           # would reject or mangle what it cannot parse.
@@ -80,6 +75,7 @@ jobs:
             cat answer.json
             exit 1
           fi
+          rm -f answer.json
 
       - name: Post the archives
         run: |
@@ -96,8 +92,10 @@ jobs:
           done
           media+=']'
           echo "media: $media"
-          # --form-string: the JSON as it is, curl does not parse it.
-          if ! curl -sS --fail-with-body -o answer.json -F "chat_id=$CHANNEL" \
+          # --form-string, not -F, for both: curl reads "-F name=@x" as the
+          # file x, and the channel is "@name" (curl error 26); the JSON
+          # goes as it is.
+          if ! curl -sS --fail-with-body -o answer.json --form-string "chat_id=$CHANNEL" \
                --form-string "media=$media" "${args[@]}" \
                "https://api.telegram.org/bot$BOT/sendMediaGroup"; then
             cat answer.json

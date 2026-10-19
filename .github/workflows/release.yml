@@ -75,16 +75,9 @@ jobs:
 
       - name: Release notes
         run: |
-          # The commit messages since the previous tag; edit them on the
-          # draft before publishing if needed.
-          tag="v$VERSION"
-          ref=$(git rev-parse -q --verify "refs/tags/$tag" >/dev/null && echo "$tag" || echo HEAD)
-          prev=$(git describe --tags --abbrev=0 "$ref^" 2>/dev/null || true)
-          if [ -n "$prev" ]; then
-            git log --no-merges --format='%B' "$prev..$ref" > notes.md
-          else
-            git log --no-merges --format='%B' -n 1 "$ref" > notes.md
-          fi
+          # The commit messages since the previous tag, unwrapped; edit them
+          # on the draft before publishing if needed.
+          python tools/release_notes.py "v$VERSION" > notes.md
           cat notes.md
 
       - name: Draft the GitHub release
