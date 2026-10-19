@@ -35,6 +35,8 @@ jobs:
       TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # the tags and commits, for the release notes
 
       - name: Version
         env:
@@ -71,12 +73,27 @@ jobs:
       - name: Build and package
         run: python tools/build_release.py "$VERSION"
 
+      - name: Release notes
+        run: |
+          # The commit messages since the previous tag; edit them on the
+          # draft before publishing if needed.
+          tag="v$VERSION"
+          ref=$(git rev-parse -q --verify "refs/tags/$tag" >/dev/null && echo "$tag" || echo HEAD)
+          prev=$(git describe --tags --abbrev=0 "$ref^" 2>/dev/null || true)
+          if [ -n "$prev" ]; then
+            git log --no-merges --format='%B' "$prev..$ref" > notes.md
+          else
+            git log --no-merges --format='%B' -n 1 "$ref" > notes.md
+          fi
+          cat notes.md
+
       - name: Draft the GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
           name: fptg ${{ env.VERSION }}
           draft: true
+          body_path: notes.md
           files: |
             dist/fptg-server-${{ env.VERSION }}-win64.zip
             dist/fptg-client-${{ env.VERSION }}-win64.zip

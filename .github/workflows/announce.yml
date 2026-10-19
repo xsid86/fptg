@@ -36,33 +36,55 @@ jobs:
       - name: Check the settings
         run: |
           if [ -z "$BOT" ] || [ -z "$CHANNEL" ]; then
-            echo "::error::Set the TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL repository secrets."
+            echo "::error::Set the TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL secrets under Settings → Secrets and variables → Actions (not Codespaces)."
             exit 1
           fi
+
+      # The commits, for notes when the release has none.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Release notes and files
         run: |
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name,body,url > release.json
-          mkdir files
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir files
+          mkdir -p files
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir files --clobber
           ls -la files
+          if [ -z "$(ls -A files)" ]; then
+            echo "::error::The release $TAG has no files to post."
+            exit 1
+          fi
 
       - name: Post the notes
         run: |
-          # Plain text, no parse mode: release notes are Markdown, and
-          # Telegram would reject or mangle what it cannot parse.
           name=$(jq -r '.name' release.json)
           body=$(jq -r '.body // ""' release.json)
           url=$(jq -r '.url' release.json)
+          # No notes on the release — the commit messages since the previous tag.
+          if [ -z "$(echo "$body" | tr -d '[:space:]')" ]; then
+            prev=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+            if [ -n "$prev" ]; then
+              body=$(git log --no-merges --format='%B' "$prev..$TAG")
+            else
+              body=$(git log --no-merges --format='%B' -n 1 "$TAG")
+            fi
+          fi
+          # Plain text, no parse mode: notes are Markdown, and Telegram
+          # would reject or mangle what it cannot parse.
           text=$(printf '%s\n\n%s\n\n%s' "$name" "$body" "$url" | head -c 4000)
           jq -n --arg chat "$CHANNEL" --arg text "$text" \
             '{chat_id: $chat, text: $text, disable_web_page_preview: true}' > message.json
-          curl -sS --fail-with-body -H 'Content-Type: application/json' -d @message.json \
-            "https://api.telegram.org/bot$BOT/sendMessage" > /dev/null
+          if ! curl -sS --fail-with-body -o answer.json -H 'Content-Type: application/json' \
+               -d @message.json "https://api.telegram.org/bot$BOT/sendMessage"; then
+            cat answer.json
+            exit 1
+          fi
 
       - name: Post the archives
         run: |
           # One album of documents (up to ten; a bot may upload up to 50 MB each).
+          shopt -s nullglob
           args=()
           media='['
           i=0
@@ -73,6 +95,12 @@ jobs:
             i=$((i + 1))
           done
           media+=']'
-          curl -sS --fail-with-body -F "chat_id=$CHANNEL" -F "media=$media" "${args[@]}" \
-            "https://api.telegram.org/bot$BOT/sendMediaGroup" > /dev/null
+          echo "media: $media"
+          # --form-string: the JSON as it is, curl does not parse it.
+          if ! curl -sS --fail-with-body -o answer.json -F "chat_id=$CHANNEL" \
+               --form-string "media=$media" "${args[@]}" \
+               "https://api.telegram.org/bot$BOT/sendMediaGroup"; then
+            cat answer.json
+            exit 1
+          fi
           echo "Posted $i files"
