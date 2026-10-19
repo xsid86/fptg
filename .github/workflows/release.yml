@@ -1,19 +1,14 @@
-# Builds a Windows release on GitHub's own machines, signs the programs
-# through SignPath (once the project is approved) and drafts a GitHub
-# Release with the archives.
+# Builds a Windows release on GitHub's own machines and drafts a GitHub
+# Release with the archives. Publishing the draft posts it to the Telegram
+# channel (announce.yml).
 #
 # Start it:
 #   - by pushing a tag:  git tag v1.0.0  then  git push origin v1.0.0
 #   - or by hand: Actions → Release → Run workflow, enter the version.
 #
-# Repository settings it reads (Settings → Secrets and variables → Actions):
-#   secrets.SIGNPATH_API_TOKEN       the SignPath API token; without it the
-#                                    programs are left unsigned
-#   vars.SIGNPATH_ORGANIZATION_ID    from the SignPath approval e-mail
-#   vars.SIGNPATH_PROJECT_SLUG       default "fptg"
-#   vars.SIGNPATH_POLICY_SLUG        default "release-signing"
-#   secrets.TELEGRAM_API_ID          optional: Telegram API keys built into
-#   secrets.TELEGRAM_API_HASH        the server; without them it asks for them
+# Repository secrets it reads (Settings → Secrets and variables → Actions):
+#   TELEGRAM_API_ID      optional: Telegram API keys built into the server;
+#   TELEGRAM_API_HASH    without them it asks for its own
 
 name: Release
 
@@ -27,18 +22,15 @@ on:
         required: true
 
 permissions:
-  actions: read
   contents: write
 
 jobs:
   release:
     runs-on: windows-latest
-    timeout-minutes: 360
     defaults:
       run:
         shell: bash
     env:
-      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
       TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
       TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
     steps:
@@ -76,41 +68,8 @@ jobs:
             echo "  BUILTIN_API_HASH: string = '$TELEGRAM_API_HASH';"
           } > fptg-server-premium/apikeys.inc
 
-      - name: Build
-        run: python tools/build_release.py "$VERSION" --build-only
-
-      - name: Upload the unsigned programs
-        id: unsigned
-        uses: actions/upload-artifact@v5
-        with:
-          name: unsigned-${{ env.VERSION }}
-          path: |
-            fptg-server/fptg-server.exe
-            fptg-server/fptg-server-gui.exe
-            fptg-client/fptg-client.exe
-
-      - name: Sign with SignPath
-        if: env.SIGNPATH_API_TOKEN != ''
-        uses: signpath/github-action-submit-signing-request@v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'fptg' }}
-          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
-          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          # Each release is approved by hand in SignPath: up to 5 hours.
-          wait-for-completion-timeout-in-seconds: 18000
-          output-artifact-directory: signed
-
-      - name: Put the signed programs in place
-        if: env.SIGNPATH_API_TOKEN != ''
-        run: |
-          cp signed/fptg-server/fptg-server.exe signed/fptg-server/fptg-server-gui.exe fptg-server/
-          cp signed/fptg-client/fptg-client.exe fptg-client/
-
-      - name: Package
-        run: python tools/build_release.py "$VERSION" --no-build
+      - name: Build and package
+        run: python tools/build_release.py "$VERSION"
 
       - name: Draft the GitHub release
         uses: softprops/action-gh-release@v2

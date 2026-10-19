@@ -266,15 +266,15 @@ export class GroupSession {
   }
 
   async start({ muted, video }) {
-    // Through the server's relay when it is wanted (calls/relay.js): the
-    // SFU is reached from the server's address, not from this network.
+    // The server's relay (calls/relay.js): one more way to the SFU, from
+    // the server's address — or the only one in the "Always" mode.
     const relay = await relayIceServer();
     this.pc = new RTCPeerConnection({
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
-      ...(relay ? { iceServers: [relay], iceTransportPolicy: 'relay' } : {}),
+      ...(relay ? { iceServers: [relay.server], iceTransportPolicy: relay.only ? 'relay' : 'all' } : {}),
     });
-    this.log('ice', relay ? 'through the server relay' : 'direct');
+    this.log('ice', relay ? `with the server relay${relay.only ? ' only' : ''}` : 'direct');
     const pc = this.pc;
     pc.ontrack = ({ transceiver, track, streams }) => {
       const r = this.remote.find((x) => x.mid === transceiver.mid);

@@ -546,8 +546,28 @@ end;
 { ------------------------------------------------------------------ }
 
 procedure SecureConfigSetDir(const ADir: string);
+var
+  D: string;
 begin
-  GDir := IncludeTrailingPathDelimiter(ADir);
+  D := IncludeTrailingPathDelimiter(ADir);
+  GLock.Enter;
+  try
+    { Another folder — another file: forget the one read. The server reads
+      the old single folder's conf.dat while moving it into its port's
+      folder (srvprofile.pas), then switches; without this the new
+      server's conf.dat was written from the old one's text — the same
+      certificate and users. }
+    if D <> GDir then begin
+      GLoaded := False;
+      GText := '';
+      GMaster := nil;
+      GBlob := nil;
+      GProblem := '';
+    end;
+    GDir := D;
+  finally
+    GLock.Leave;
+  end;
 end;
 
 

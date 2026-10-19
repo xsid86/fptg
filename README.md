@@ -127,7 +127,9 @@ with `dist/` mapped inside, which is useful for testing a release.
 ## Installation
 
 Download the archives from [Releases](https://github.com/xsid86/fptg/releases).
-There is no installer: unpack them into any folders.
+There is no installer: unpack them into any folders. The server keeps its
+data in its own folder, so unpack it where you can write (not into
+Program Files).
 
 **Server** (`fptg-server-<version>-win64.zip`):
 
@@ -141,23 +143,29 @@ web\                   the interface the server serves to browsers
 **Client** (`fptg-client-<version>-win64.zip`): `fptg-client.exe`,
 `WebView2Loader.dll` and `web\`.
 
-Programs and data are kept apart. The data lives in your Windows profile,
-never next to the programs:
+Where the data lives:
 
 | Folder | Contents |
 |---|---|
-| `%LOCALAPPDATA%\fptg\server\` | TDLib database, settings, uploads |
+| `data\` next to `fptg-server.exe` | the server: TDLib database, settings, uploads |
 | `%LOCALAPPDATA%\fptg\client\` | the window's connection settings |
 | `%LOCALAPPDATA%\fptg\webview2\` | the WebView2 profile |
+
+**Several servers on one computer.** Every copy of the server folder is a
+separate server with its own data, Telegram account and user. Give each
+its own port, and they run side by side.
 
 ## First run
 
 ### With the server window
 
-1. Start `fptg-server-gui.exe`.
+1. Start `fptg-server-gui.exe`. On the first start it asks who should be
+   able to connect: this computer, the local network or the internet. For
+   the last two it adds itself to Windows Firewall (Windows asks for
+   administrator rights). Change… next to the address changes the choice.
 2. Choose User → Change… and set a login and a password.
-3. Pick the address and port, then press Start. The window shows the
-   certificate fingerprint.
+3. Pick the port, then press Start. The window shows the certificate
+   fingerprint.
 4. Closing the window hides it to the tray. To stop the server, choose
    Exit in the tray menu.
 
@@ -169,13 +177,16 @@ fptg-server.exe
 ```
 
 The first command asks for a password and stores the user. The second
-starts the server, which prints its address, port and certificate
-fingerprint. Ctrl+C shuts it down cleanly.
+starts the server. On the first start it asks who should be able to connect
+(this computer, the local network or the internet) and, for the last two,
+offers to add itself to Windows Firewall. Then it prints its port and
+certificate fingerprint. Ctrl+C shuts it down cleanly.
 
 | Option | Meaning |
 |---|---|
 | `--server-port=N` | the port (default 7654) |
-| `--bind=ADDRESS` | where to listen: `127.0.0.1` (default) is this computer only, `0.0.0.0` is all networks |
+| `--network=WHO` | who may connect: `local` (this computer), `lan` (the local network) or `internet`; saved, so the first-start question is skipped |
+| `--bind=ADDRESS` | where to listen for this run, overriding `--network`: `127.0.0.1` is this computer only, `0.0.0.0` is all networks |
 | `--web-dir=PATH` | the page folder for browsers (default `web` next to the exe, or `../fptg-client/web` in the source tree) |
 | `--cert=FILE --key=FILE` | your own TLS certificate and key (PEM) instead of the self-signed one |
 | `--set-user=LOGIN` | set the login and password, then exit |
@@ -185,15 +196,11 @@ fingerprint. Ctrl+C shuts it down cleanly.
 | `--relay-address=IP` | the relay's public IPv4 address, if the server's own interface has a private one |
 | `--relay-ports=A-B` | the UDP ports the relay uses (default: any free port) |
 
-Only one server runs per computer. A second start with `--set-user` or
-`--sign-out` passes the command to the running server and exits.
+One server runs per folder. A second start from the same folder with
+`--set-user` or `--sign-out` passes the command to the running server and
+exits.
 
-To reach a server from other machines, bind it to `0.0.0.0` and allow the
-port in Windows Firewall:
-
-```bat
-netsh advfirewall firewall add rule name="fptg" dir=in action=allow protocol=TCP localport=7654
-```
+On Linux, open the port yourself, for example `sudo ufw allow 7654/tcp`.
 
 ### Calls through a VPS
 
@@ -203,16 +210,16 @@ call audio and video itself: it is a TURN server on the same port as HTTPS,
 so nothing else has to be opened for the client. Calls stay end-to-end
 encrypted; the server only forwards packets.
 
-- The relay is on by default in `fptg-server.exe` and off in
-  `fptg-server-gui.exe`, which usually runs at home behind a router.
+- The relay is on by default; `--no-relay` turns it off.
 - The relayed traffic leaves the VPS over UDP. If the VPS has a firewall,
   allow outgoing and incoming UDP for the relay, or limit it to a range with
   `--relay-ports=49160-49200` and open that range.
 - If the VPS's network interface has a private address (some clouds use 1:1
   NAT), give the public one with `--relay-address=`.
 - In the client: Settings → Speakers and camera → *Route calls through the
-  server*. Automatic (default) uses the relay when the server is on another
-  computer.
+  server*. Automatic (default): when the server is on another computer, the
+  relay is one more path besides the direct ones, and the call takes
+  whichever works. Always: the relay is the only path.
 
 ### Connecting
 
@@ -239,23 +246,16 @@ tools/               release script and sandbox configuration
 docs/licenses/       full texts of third-party licenses
 ```
 
-## Code signing policy
+## Builds
 
 Windows releases are built from this repository by GitHub Actions
-(`.github/workflows/release.yml`) and signed there; nothing is built or
-signed on a personal machine.
+(`.github/workflows/release.yml`), not on a personal machine; every release
+is posted to the project's Telegram channel. The programs are not
+code-signed yet, so Windows SmartScreen may warn on the first start
+(More info → Run anyway). `SHA256SUMS.txt` in every release lets you check
+the archives.
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/),
-certificate by [SignPath Foundation](https://signpath.org/).
-
-Team roles:
-
-- Committers and reviewers: [xsid86](https://github.com/xsid86)
-- Approvers: [xsid86](https://github.com/xsid86)
-
-Every release is approved by hand before it is signed.
-
-### Privacy
+## Privacy
 
 This program will not transfer any information to other networked systems
 unless specifically requested by the user or the person installing or

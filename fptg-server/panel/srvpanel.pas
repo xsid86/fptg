@@ -24,13 +24,14 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls, Menus, Dialogs, Clipbrd, LCLIntf,
-  fpjson, constants, localserver, srvhost, srvauth, instance, appdirs;
+  fpjson, constants, localserver, srvhost, srvauth, instance, appdirs, fwrule;
 
 type
 
   { TFormServerPanel }
 
   TFormServerPanel = class(TForm)
+    btnNetwork: TButton;
     btnCopyAddress: TButton;
     btnCopyPort: TButton;
     btnSignOut: TButton;
@@ -68,6 +69,7 @@ type
     tmrPoll: TTimer;
     tmrTraffic: TTimer;
     trayIcon: TTrayIcon;
+    procedure btnNetworkClick(Sender: TObject);
     procedure btnCopyAddressClick(Sender: TObject);
     procedure btnCopyPortClick(Sender: TObject);
     procedure btnSignOutClick(Sender: TObject);
@@ -114,6 +116,10 @@ type
     function PortValue(out APort: integer): boolean;
     procedure ShutdownDone(Sender: TObject);
     procedure FinishQuit;
+    { Who may connect (srvhost.NetworkChoice): the question, the firewall.
+      AChange — from the Change button: it can be cancelled, and a running
+      server restarts on the new address. }
+    procedure AskNetwork(AChange: boolean);
   public
     { The server instance is ours: bring the server up here. }
     procedure InitLocal;
@@ -169,6 +175,10 @@ begin
   FHost.OnChanged := @HostChanged;
   FHost.OnShow := @HostShow;
   edtPort.Text := IntToStr(SavedPort);
+  { The first start of this server: who may connect. --bind decides by itself. }
+  if (NetworkChoice = '') and (ParamValue('--bind=') = '') then begin
+    AskNetwork(False);
+  end;
   Err := '';
   if FHost.TlsOk then begin
     FHost.Start(SavedPort, Err);
@@ -271,6 +281,11 @@ begin
       edtPort.Text := IntToStr(S.Get('port', 0));
     end;
     edtPort.ReadOnly := FRunning;
+    { Several servers can run side by side (copies of the server folder):
+      the port in the title tells their windows apart. }
+    Caption := APP_TITLE + ' server, port ' + IntToStr(S.Get('port', 0));
+    { Who may connect is changed here only for our own server. }
+    btnNetwork.Enabled := FHost <> nil;
     edtPrint.Text := S.Get('fingerprint', '');
     btnStartStop.Enabled := S.Get('tlsOk', False);
     miStartStop.Enabled := btnStartStop.Enabled;
@@ -389,6 +404,66 @@ begin
   finally
     A.Free;
   end;
+end;
+
+procedure TFormServerPanel.AskNetwork(AChange: boolean);
+var
+  R: TModalResult;
+  Choice, Msg, Err: string;
+  Port: word;
+begin
+  Port := SavedPort;
+  if AChange then begin
+    R := QuestionDlg(Caption, 'Who should be able to connect to this server (port '
+      + IntToStr(Port) + ')?', mtConfirmation,
+      [mrYes, 'This computer', mrNo, 'Local network', mrAll, 'Internet', mrCancel, 'Cancel'], 0);
+  end else begin
+    R := QuestionDlg(Caption, 'Who should be able to connect to this server (port '
+      + IntToStr(Port) + ')?' + LineEnding + LineEnding
+      + 'This computer - only programs here.' + LineEnding
+      + 'Local network - computers at home or in the office.' + LineEnding
+      + 'Internet - anyone who knows the address (a computer with a public address).',
+      mtConfirmation, [mrYes, 'This computer', mrNo, 'Local network', mrAll, 'Internet'], 0);
+  end;
+  if R = mrNo then begin
+    Choice := SERVER_NETWORK_LAN;
+  end else if R = mrAll then begin
+    Choice := SERVER_NETWORK_INTERNET;
+  end else if (R = mrYes) or not AChange then begin
+    { The first question closed with the cross — this computer only. }
+    Choice := SERVER_NETWORK_LOCAL;
+  end else begin
+    Exit;
+  end;
+  SaveNetworkChoice(Choice);
+  Msg := '';
+  if Choice = SERVER_NETWORK_LOCAL then begin
+    RemoveFirewallRule(Port, Msg);
+  end else begin
+    AllowThroughFirewall(Port, Choice = SERVER_NETWORK_INTERNET, Msg);
+    if Choice = SERVER_NETWORK_INTERNET then begin
+      Msg := Msg + LineEnding + LineEnding + 'Behind a home router, also forward TCP port '
+        + IntToStr(Port) + ' to this computer.';
+    end;
+  end;
+  { A running server listens on the old address — restart it on the new one. }
+  if AChange and (FHost <> nil) and FHost.Running then begin
+    FHost.Stop;
+    if not FHost.Start(Port, Err) then begin
+      Msg := Trim(Msg + LineEnding + Err);
+    end;
+  end;
+  if FHost <> nil then begin
+    ApplyStatus(nil);
+  end;
+  if Msg <> '' then begin
+    MessageDlg(Caption, Msg, mtInformation, [mbOK], 0);
+  end;
+end;
+
+procedure TFormServerPanel.btnNetworkClick(Sender: TObject);
+begin
+  AskNetwork(True);
 end;
 
 { Address and port — to the clipboard: they are typed into the client's sign-in window. }

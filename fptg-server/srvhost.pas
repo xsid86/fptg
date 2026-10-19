@@ -84,6 +84,11 @@ type
   LOCAL_SERVER_PORT. }
 function SavedPort: word;
 procedure SavePort(APort: word);
+{ Who may connect — the first-run question (SERVER_NETWORK_*): '' — not
+  asked yet. Saving also sets the address to listen on (from the next
+  start; a running server restarts to take it). }
+function NetworkChoice: string;
+procedure SaveNetworkChoice(const AChoice: string);
 function ParamValue(const APrefix: string): string;
 
 implementation
@@ -161,12 +166,11 @@ var
 begin
   Ini := OpenConfig;
   try
-    { On by default only for the console server — the one for a VPS, whose
-      own interface usually has the public address. The server window runs
-      at home behind a router: there the relayed address would be a
-      private one, and a remote client forced through it would lose calls
-      that work directly. }
-    Cfg.Enabled := Ini.ReadBool(RELAY_CONFIG_SECTION, RELAY_CONFIG_ENABLED, IsConsole);
+    { On by default: the page uses it only for a remote server, and in the
+      Automatic mode only as one more path besides the direct ones
+      (calls/relay.js) — a wrong relayed address behind a home router costs
+      nothing then. }
+    Cfg.Enabled := Ini.ReadBool(RELAY_CONFIG_SECTION, RELAY_CONFIG_ENABLED, True);
     Cfg.Address := Ini.ReadString(RELAY_CONFIG_SECTION, RELAY_CONFIG_ADDRESS, '');
     Ports := Ini.ReadString(RELAY_CONFIG_SECTION, RELAY_CONFIG_PORTS, '');
   finally
@@ -237,12 +241,61 @@ begin
   end;
 end;
 
+function NetworkChoice: string;
+var
+  Ini: TSecureIni;
+begin
+  Ini := OpenConfig;
+  try
+    Result := Ini.ReadString(SERVER_CONFIG_SECTION, SERVER_CONFIG_NETWORK, '');
+  finally
+    Ini.Free;
+  end;
+end;
+
+function BindFor(const AChoice: string): string;
+begin
+  if (AChoice = SERVER_NETWORK_LAN) or (AChoice = SERVER_NETWORK_INTERNET) then begin
+    Result := SERVER_BIND_ALL;
+  end else begin
+    Result := LOCAL_SERVER_BIND;
+  end;
+end;
+
+procedure SaveNetworkChoice(const AChoice: string);
+var
+  Ini: TSecureIni;
+begin
+  Ini := OpenConfig;
+  try
+    Ini.WriteString(SERVER_CONFIG_SECTION, SERVER_CONFIG_NETWORK, AChoice);
+    Ini.WriteString(SERVER_CONFIG_SECTION, SERVER_CONFIG_BIND, BindFor(AChoice));
+  finally
+    Ini.Free;
+  end;
+  SetDefaultBindAddress(BindFor(AChoice));
+end;
+
+{ The address to listen on from conf.dat (the first-run question). }
+procedure PrepareNetwork;
+var
+  Ini: TSecureIni;
+begin
+  Ini := OpenConfig;
+  try
+    SetDefaultBindAddress(Ini.ReadString(SERVER_CONFIG_SECTION, SERVER_CONFIG_BIND, ''));
+  finally
+    Ini.Free;
+  end;
+end;
+
 constructor TServerHost.Create(const AKind: string);
 begin
   inherited Create;
   FKind := AKind;
   PrepareTls;
   PrepareRawLog;
+  PrepareNetwork;
   FTrafficTimer := TTdTimer.Create(nil);
   FTrafficTimer.Interval := TRAFFIC_TICK_MS;
   FTrafficTimer.OnTimer := @TrafficTick;

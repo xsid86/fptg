@@ -69,14 +69,14 @@ export class CallSession {
 
   async start(withVideo) {
     const servers = iceServers(this.call.servers, this.call.allowP2p);
-    // The server's own relay (calls/relay.js) goes first; with it the
-    // media never goes directly — the direct path is what is blocked.
+    // The server's own relay (calls/relay.js) goes first: one more path,
+    // or the only one in the "Always" mode.
     const relay = await relayIceServer();
-    if (relay) servers.unshift(relay);
-    this.log('ice servers', servers.length, relay ? 'with the server relay' : '');
+    if (relay) servers.unshift(relay.server);
+    this.log('ice servers', servers.length, relay ? `with the server relay${relay.only ? ' only' : ''}` : '');
     this.pc = new RTCPeerConnection({
       iceServers: servers,
-      iceTransportPolicy: this.call.allowP2p && !relay ? 'all' : 'relay',
+      iceTransportPolicy: this.call.allowP2p && !relay?.only ? 'all' : 'relay',
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
     });

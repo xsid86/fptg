@@ -581,7 +581,8 @@ async function renderCalls() {
       row(relayId, 'Route calls through the server',
         'The fptg server relays call audio and video, so calls work where Telegram itself '
         + 'is blocked. Calls stay end-to-end encrypted. Automatic: when the server is on '
-        + 'another computer. Applies to the next call.',
+        + 'another computer, as one more path besides the direct ones; Always: the only path. '
+        + 'Applies to the next call.',
         selectControl(relayId, [
           { value: 'auto', label: 'Automatic' },
           { value: 'on', label: 'Always' },

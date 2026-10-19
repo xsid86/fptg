@@ -2,11 +2,15 @@ unit appdirs;
 
 {$mode objfpc}{$H+}
 
-{ The programs' data folders — in the user profile, not next to the exe
-  (2026-10-16): the program can be installed into Program Files, which is
-  not writable, and the data of each Windows user — their Telegram
-  sessions — must be closed to other users of the same machine. The
-  profile is closed by the OS's own permissions; a shared folder
+{ The programs' data folders.
+
+  The server (2026-10-19): data/ next to its exe. Every copy of the server
+  folder is a separate server with its own data, Telegram account and port
+  — several run on one machine side by side. So the server folder must be
+  writable: unpacked anywhere but Program Files.
+
+  The client window: in the user profile (2026-10-16) — one window per OS
+  user; the profile is closed by the OS's own permissions, a shared folder
   (ProgramData) is not: its subfolders are readable by everyone by default.
 
   Windows: %LOCALAPPDATA%\fptg\<program>\ — Local, not Roaming: Roaming
@@ -19,7 +23,8 @@ unit appdirs;
 interface
 
 { Server: tdlib/, conf.dat, uploads/, tdlib_raw.log, the lock and the
-  control channel (instance.pas). With a trailing separator, created. }
+  control channel (instance.pas) — <exe folder>/data/. With a trailing
+  separator, created. }
 function ServerDataDir: string;
 
 { The client window: conf.dat, the lock and the control channel. }
@@ -60,7 +65,10 @@ end;
 
 function ServerDataDir: string;
 begin
-  Result := DataDirFor(APP_DATA_SERVER);
+  Result := ExtractFilePath(ParamStr(0)) + SERVER_DATA_DIR + PathDelim;
+  if not ForceDirectories(Result) then begin
+    Result := ExtractFilePath(ParamStr(0));
+  end;
 end;
 
 function ClientDataDir: string;

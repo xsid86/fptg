@@ -10,7 +10,8 @@ program fptg_server_gui;
   One server instance per data folder (instance.pas, shared with the
   console one): if the window is already running, a second start shows it
   and exits; if the console server is running, the window becomes a remote
-  control for it.
+  control for it. Another server — a copy of the server folder, with its
+  own port.
 
   The parameters are the same as the console one's: --server-port, --bind,
   --web-dir, --cert/--key. Users are set up in the window. }
@@ -38,20 +39,11 @@ begin
     page and lose non-Latin characters. }
   DefaultSystemCodePage := CP_UTF8;
 
-  { The server's data lives in the user profile (appdirs.pas), not next to the exe. }
+  { The server's data — data/ next to the exe (appdirs.pas): every copy of
+    the server folder is a separate server. }
   Dir := ServerDataDir;
   SecureConfigSetDir(Dir);
   Own := AcquireInstance(Dir, INSTANCE_SERVER);
-  { The server is already running from another copy or under another OS
-    user — there is no remote control to it from here, and a second one on
-    the machine is not needed. }
-  if (not Own) and InstanceElsewhere then begin
-    Application.Initialize;
-    MessageDlg(APP_TITLE + ' server',
-      'An fptg server is already running on this computer (another copy '
-      + 'or another user). Only one can run per computer.', mtInformation, [mbOK], 0);
-    Exit;
-  end;
   if (not Own) and (InstanceKind(Dir, INSTANCE_SERVER) = 'gui') then begin
     { The window is already open — show it, a second one is not needed. }
     if CallInstance(Dir, INSTANCE_SERVER, 'show', nil, Res, Err) then begin

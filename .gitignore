@@ -38,3 +38,6 @@ dist/
 
 # The project website lives outside this repository.
 website/
+
+# Server data next to its exe (appdirs.pas): sessions, settings, files.
+fptg-server/data/

@@ -151,6 +151,9 @@ function ConfiguredServerPort: word;
 { The address to listen on: LOCAL_SERVER_BIND (this machine only) unless
   --bind=ADDRESS says otherwise. 0.0.0.0 — all of the machine's networks
   (a server on a VPS): then only the token protects it. }
+{ The address set by the first-run question (srvhost, conf.dat [server]
+  bind); --bind still wins. '' — this machine only. }
+procedure SetDefaultBindAddress(const AAddress: string);
 function ConfiguredBindAddress: string;
 
 { The page folder: --web-dir=PATH or LOCAL_SERVER_WEB_DIR next to the exe. }
@@ -1541,11 +1544,23 @@ begin
   end;
 end;
 
+var
+  GDefaultBind: string = LOCAL_SERVER_BIND;
+
+procedure SetDefaultBindAddress(const AAddress: string);
+begin
+  if AAddress = '' then begin
+    GDefaultBind := LOCAL_SERVER_BIND;
+  end else begin
+    GDefaultBind := AAddress;
+  end;
+end;
+
 function ConfiguredBindAddress: string;
 begin
   Result := Trim(ParamValue('--bind='));
   if Result = '' then begin
-    Result := LOCAL_SERVER_BIND;
+    Result := GDefaultBind;
   end;
 end;
 

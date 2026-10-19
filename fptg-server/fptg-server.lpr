@@ -21,6 +21,12 @@ program fptg_server;
     --web-dir=PATH      the page folder (by default ../fptg-client/web);
     --cert=FILE --key=FILE  one's own TLS certificate (PEM), otherwise our
                         own self-signed one;
+    --network=WHO       who may connect: local (this computer), lan (the
+                        local network) or internet; saved, asked on the
+                        first start otherwise. Several servers can run on
+                        one computer: each copy of the server folder is a
+                        separate server (its data is in data/ next to the
+                        exe) — give each its own port;
     --set-user=LOGIN    the user's login and password (asks for the
                         password) and exit. The server has one user: another
                         login replaces the previous one, and its sessions
@@ -46,7 +52,7 @@ uses
   {$ENDIF}
   Classes, SysUtils, fpjson,
   constants, tdtimer, localserver, srvloop, srvauth, srvconsole, srvhost, instance,
-  appdirs, secureconfig, turnrelay;
+  appdirs, secureconfig, turnrelay, fwrule;
 
 { The project's resources (fptg-server.res, written by the build): they hold
   the VERSIONINFO that tdaccount.AppVersionString gives TDLib. }
@@ -64,7 +70,8 @@ begin
   end;
 end;
 
-{ The server's data lives in the user profile (appdirs.pas), not next to the exe. }
+{ The server's data — data/ next to the exe (appdirs.pas): every copy of the
+  server folder is a separate server. }
 function DataDir: string;
 begin
   Result := ServerDataDir;
@@ -154,15 +161,10 @@ var
   Cmd, Err: string;
   Args, Res: TJSONObject;
 begin
-  if InstanceElsewhere then begin
-    WriteLn(ErrOutput, 'An fptg server is already running on this computer ',
-      '(another copy or another user). Only one can run per computer.');
-    ExitCode := 1;
-    Exit;
-  end;
   if not IsUserCommand then begin
-    WriteLn(ErrOutput, 'The server is already running (', InstanceKind(DataDir, INSTANCE_SERVER),
-      '). Only one copy can run with this data.');
+    WriteLn(ErrOutput, 'The server from this folder is already running (',
+      InstanceKind(DataDir, INSTANCE_SERVER), '). Another server: a copy of the folder, '
+      + 'with its own port.');
     ExitCode := 1;
     Exit;
   end;
@@ -234,6 +236,63 @@ begin
   end;
 end;
 
+{ Who may connect — asked once per server (srvhost.NetworkChoice):
+  --network=local|lan|internet sets it without a question (scripts, a VPS);
+  --bind=ADDRESS overrides it for one run. }
+procedure EnsureNetwork;
+var
+  A, Choice, Msg: string;
+begin
+  A := LowerCase(Trim(ParamValue('--network=')));
+  if (A = SERVER_NETWORK_LOCAL) or (A = SERVER_NETWORK_LAN)
+     or (A = SERVER_NETWORK_INTERNET) then begin
+    SaveNetworkChoice(A);
+    Exit;
+  end;
+  if (NetworkChoice <> '') or (ParamValue('--bind=') <> '') then begin
+    Exit;
+  end;
+  if not ConsoleInteractive then begin
+    WriteLn('Reachable from this computer only. For other computers: --network=lan or ',
+      '--network=internet.');
+    Exit;
+  end;
+  WriteLn('Who should be able to connect to this server (port ', SavedPort, ')?');
+  WriteLn('  1) Only this computer');
+  WriteLn('  2) Computers on the local network');
+  WriteLn('  3) Anyone on the internet (a VPS, or a computer with a public address)');
+  A := Trim(ReadLineVisible('Choice [1]: '));
+  if A = '2' then begin
+    Choice := SERVER_NETWORK_LAN;
+  end else if A = '3' then begin
+    Choice := SERVER_NETWORK_INTERNET;
+  end else begin
+    Choice := SERVER_NETWORK_LOCAL;
+  end;
+  SaveNetworkChoice(Choice);
+  if Choice = SERVER_NETWORK_LOCAL then begin
+    WriteLn;
+    Exit;
+  end;
+  {$IFDEF WINDOWS}
+  A := Trim(ReadLineVisible('Let the server through Windows Firewall? Windows will ask for '
+    + 'administrator rights. [Y/n]: '));
+  if (A = '') or (UpCase(A[1]) <> 'N') then begin
+    AllowThroughFirewall(SavedPort, Choice = SERVER_NETWORK_INTERNET, Msg);
+    WriteLn(Msg);
+  end else begin
+    WriteLn('Allow TCP port ', SavedPort, ' in the firewall yourself.');
+  end;
+  {$ELSE}
+  AllowThroughFirewall(SavedPort, Choice = SERVER_NETWORK_INTERNET, Msg);
+  WriteLn(Msg);
+  {$ENDIF}
+  if Choice = SERVER_NETWORK_INTERNET then begin
+    WriteLn('Behind a home router, also forward TCP port ', SavedPort, ' to this computer.');
+  end;
+  WriteLn;
+end;
+
 var
   Host: TServerHost;
   Notes: TConsoleNotes;
@@ -269,6 +328,7 @@ begin
     Exit;
   end;
 
+  EnsureNetwork;
   Host := TServerHost.Create('console');
   if not Host.TlsOk then begin
     WriteLn(ErrOutput, 'TLS: ', Host.TlsError);
@@ -301,6 +361,7 @@ begin
     WriteLn('Certificate ', Host.CertFile, ', SHA-256 fingerprint:');
   end;
   WriteLn('  ', Host.Fingerprint);
+  WriteLn('Port: ', SavedPort);
   WriteLn('User: ', AuthUserName);
   if RelayEnabled then begin
     WriteLn('Call relay: on (TURN over TCP on the same port)');
@@ -308,8 +369,9 @@ begin
     WriteLn('Call relay: off');
   end;
   if ConfiguredBindAddress <> LOCAL_SERVER_BIND then begin
-    WriteLn;
-    WriteLn('Reachable from the network (--bind).');
+    WriteLn('Reachable from other computers (', ConfiguredBindAddress, ').');
+  end else begin
+    WriteLn('Reachable from this computer only.');
   end;
   WriteLn;
   if ConsoleInteractive then begin

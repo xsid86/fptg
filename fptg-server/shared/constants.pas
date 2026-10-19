@@ -414,6 +414,17 @@ const
   { The port set in the window — in the server's conf.dat. }
   SERVER_CONFIG_SECTION = 'server';
   SERVER_CONFIG_PORT = 'port';
+  { Who may connect (the first-run question, srvhost.pas): local — this
+    computer, lan — the local network, internet — anyone; and the address
+    it means (bind). --bind overrides it for one run. }
+  SERVER_CONFIG_NETWORK = 'network';
+  SERVER_CONFIG_BIND = 'bind';
+  SERVER_NETWORK_LOCAL = 'local';
+  SERVER_NETWORK_LAN = 'lan';
+  SERVER_NETWORK_INTERNET = 'internet';
+  SERVER_BIND_ALL = '0.0.0.0';
+  { Windows Firewall rules (fwrule.pas): the name, the port appended. }
+  FIREWALL_RULE_NAME = 'fptg server, port ';
 
   { ================= single instance (instance.pas) ================= }
 
@@ -422,18 +433,14 @@ const
     instance: the data is shared. }
   INSTANCE_SERVER = 'server';
   INSTANCE_CLIENT = 'client';
-  { One server per machine, whichever OS user starts it (public
-    version, 2026-10-16): on top of the folder lock — an OS-wide one.
-    Windows — a named mutex in the global namespace (visible from every
-    session), Unix — flock on a file in /tmp (open to every user). }
-  INSTANCE_MACHINE_MUTEX = 'Global\fptg-server';
-  INSTANCE_MACHINE_LOCK_FILE = '/tmp/fptg-server.lock';
 
   { ================= data folders (appdirs.pas) ================= }
 
   { %LOCALAPPDATA%\fptg\<program> (Unix: ~/.local/share/fptg/...). }
   APP_DATA_ROOT = 'fptg';
-  APP_DATA_SERVER = 'server';
+  { The server's data — data/ next to its exe (2026-10-19): every copy of
+    the server folder is a separate server. }
+  SERVER_DATA_DIR = 'data';
   APP_DATA_CLIENT = 'client';
   { Crash log of page commands (webapi.LogCommandCrash) — in the server's
     data folder; past SERVER_ERROR_LOG_MAX it starts over. }

@@ -7,7 +7,11 @@
 // (DTLS-SRTP); the server only forwards packets.
 //
 // Settings → Speakers and camera → "Route calls through the server":
-// auto (default) — when the server is not on this computer; on; off.
+//   auto (default) — when the server is not on this computer, as ONE MORE
+//     path besides the direct ones: ICE takes whichever works, so a relay
+//     behind a home router (a private relayed address) costs nothing;
+//   on — the only path (iceTransportPolicy 'relay');
+//   off — never.
 
 import { call } from '../core/net.js';
 import { serverBase } from '../core/session.js';
@@ -15,7 +19,7 @@ import { getPref } from '../util/prefs.js';
 
 const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
 
-/** Whether calls should go through the server's relay right now. */
+/** Whether the server's relay takes part in calls right now. */
 export function relayWanted() {
   const mode = getPref('callRelay');
   if (mode === 'on') return true;
@@ -28,9 +32,10 @@ export function relayWanted() {
 }
 
 /**
- * The relay as an RTCIceServer, or null — not wanted or not available.
- * The address is the one this page reaches the server by: the server
- * cannot know its own public name or a port forwarding in front of it.
+ * { server: RTCIceServer, only: boolean } or null — not wanted or not
+ * available. only — the relay must be the only path. The address is the
+ * one this page reaches the server by: the server cannot know its own
+ * public name or a port forwarding in front of it.
  */
 export async function relayIceServer() {
   if (!relayWanted()) return null;
@@ -43,5 +48,8 @@ export async function relayIceServer() {
   if (!r?.enabled) return null;
   const u = new URL(serverBase);
   const port = u.port || (u.protocol === 'http:' ? '80' : '443');
-  return { urls: `turn:${u.hostname}:${port}?transport=tcp`, username: r.username, credential: r.credential };
+  return {
+    server: { urls: `turn:${u.hostname}:${port}?transport=tcp`, username: r.username, credential: r.credential },
+    only: getPref('callRelay') === 'on',
+  };
 }

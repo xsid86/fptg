@@ -34,14 +34,10 @@ type
   TInstanceCommand = function(const ACmd: string; AArgs: TJSONObject): TJSONObject of object;
 
 { Take the instance ADir/AName.lock. False — another one is running
-  already. The server (INSTANCE_SERVER) also takes the machine lock: one
-  per machine. False with InstanceElsewhere = True — the folder is free,
-  but the server is already running from another copy or under another OS
-  user: there is no control channel to it from here. }
+  already. One per folder: other copies of the server, in other folders,
+  are other servers and run side by side (2026-10-19). }
 function AcquireInstance(const ADir, AName: string): boolean;
 
-{ The last AcquireInstance failed because of the machine lock. }
-function InstanceElsewhere: boolean;
 { Open the control channel and write AName.instance. AKind — the program's
   kind ('gui', 'console', 'client'): a second start decides what to do by
   it. }
@@ -89,14 +85,6 @@ var
   GKind: string = '';
   GPort: word = 0;
   GThread: TControlThread = nil;
-  { The server's machine lock: a mutex (Windows) or a file descriptor with
-    flock (Unix); 0 / -1 — not taken. }
-  {$IFDEF WINDOWS}
-  GMachine: THandle = 0;
-  {$ELSE}
-  GMachine: longint = -1;
-  {$ENDIF}
-  GElsewhere: boolean = False;
 
 function InfoPath(const ADir, AName: string): string;
 begin
@@ -284,75 +272,11 @@ end;
 
 { ---------------- instance ---------------- }
 
-{ The machine lock. Windows: the mutex exists already — ERROR_ALREADY_EXISTS;
-  created by a process of ANOTHER user — its permissions do not even let
-  it be opened: ERROR_ACCESS_DENIED. Both mean "taken". Held while the
-  handle lives: the process crashed — the OS closed it, the mutex is gone. }
-function AcquireMachine: boolean;
-{$IFDEF WINDOWS}
-var
-  H: THandle;
-  Name: UnicodeString;
-begin
-  Name := UnicodeString(INSTANCE_MACHINE_MUTEX);
-  H := CreateMutexW(nil, False, PWideChar(Name));
-  if H = 0 then begin
-    Exit(False);                        { ERROR_ACCESS_DENIED and the rest — taken }
-  end;
-  if GetLastError = ERROR_ALREADY_EXISTS then begin
-    CloseHandle(H);
-    Exit(False);
-  end;
-  GMachine := H;
-  Result := True;
-end;
-{$ELSE}
-var
-  Fd: longint;
-begin
-  Fd := fpOpen(INSTANCE_MACHINE_LOCK_FILE, O_RDONLY or O_CREAT, &644);
-  if Fd < 0 then begin
-    { The file was created by another user and does not open — taken by them. }
-    Exit(False);
-  end;
-  if fpFlock(Fd, LOCK_EX or LOCK_NB) <> 0 then begin
-    fpClose(Fd);
-    Exit(False);
-  end;
-  { Created it — make it readable by all: another user's flock works on a
-    read-only descriptor too. }
-  fpChmod(INSTANCE_MACHINE_LOCK_FILE, &644);
-  GMachine := Fd;
-  Result := True;
-end;
-{$ENDIF}
-
-procedure ReleaseMachine;
-begin
-  {$IFDEF WINDOWS}
-  if GMachine <> 0 then begin
-    CloseHandle(GMachine);
-    GMachine := 0;
-  end;
-  {$ELSE}
-  if GMachine >= 0 then begin
-    fpClose(GMachine);
-    GMachine := -1;
-  end;
-  {$ENDIF}
-end;
-
-function InstanceElsewhere: boolean;
-begin
-  Result := GElsewhere;
-end;
-
 function AcquireInstance(const ADir, AName: string): boolean;
 var
   Path: string;
   H: THandle;
 begin
-  GElsewhere := False;
   Path := IncludeTrailingPathDelimiter(ADir) + AName + INSTANCE_LOCK_EXT;
   if not FileExists(Path) then begin
     H := FileCreate(Path);
@@ -362,14 +286,6 @@ begin
   end;
   GLock := FileOpen(Path, fmOpenReadWrite or fmShareExclusive);
   Result := GLock <> THandle(-1);
-  { The folder is free, but the machine already has a server — from another
-    copy or another user: release the folder, a second one is not needed. }
-  if Result and (AName = INSTANCE_SERVER) and not AcquireMachine then begin
-    FileClose(GLock);
-    GLock := THandle(-1);
-    GElsewhere := True;
-    Result := False;
-  end;
   if Result then begin
     GDir := ADir;
     GName := AName;
@@ -459,7 +375,6 @@ begin
     FileClose(GLock);
     GLock := THandle(-1);
   end;
-  ReleaseMachine;
 end;
 
 { ---------------- channel client ---------------- }

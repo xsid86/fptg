@@ -63,11 +63,24 @@ object FormServerPanel: TFormServerPanel
     Left = 12
     Height = 23
     Top = 94
-    Width = 222
+    Width = 148
     Anchors = [akTop, akLeft, akRight]
     ReadOnly = True
     TabStop = False
     TabOrder = 1
+  end
+  object btnNetwork: TButton
+    Left = 166
+    Height = 23
+    Hint = 'Who may connect: this computer, the local network or the internet'
+    Top = 94
+    Width = 68
+    Anchors = [akTop, akRight]
+    Caption = 'Change...'
+    ParentShowHint = False
+    ShowHint = True
+    TabOrder = 15
+    OnClick = btnNetworkClick
   end
   object btnCopyAddress: TButton
     Left = 240

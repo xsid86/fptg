@@ -58,14 +58,16 @@ fptg-server.exe       console server (for a VPS); parameters are on the website
 fptg-server-gui.exe   the same server with a small window and a tray icon
 web\\                  the interface the server shows to browsers
 
-Data (accounts, settings, TDLib database) lives in
-%LOCALAPPDATA%\\fptg\\server\\, not next to the programs.
+Data (accounts, settings, TDLib database) lives in data\\ next to the
+programs: unpack into a folder you can write to. Every copy of this folder
+is a separate server - give each its own port.
 
 Quick start:
   fptg-server.exe --set-user=alice        (asks for a password)
-  fptg-server.exe --server-port=443 --bind=0.0.0.0
+  fptg-server.exe                         (asks who may connect)
 
-Allow the port in Windows Firewall to reach the server from outside.
+The server can add itself to Windows Firewall when it is to be reached
+from other computers.
 Requirements: 64-bit Windows 10 or 11 / Windows Server 2016 or newer.
 
 License: GNU GPL v3 or later (LICENSE.txt, LICENSE-EXCEPTION.md).
