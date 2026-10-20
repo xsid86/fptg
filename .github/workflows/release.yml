@@ -9,6 +9,10 @@
 # Repository secrets it reads (Settings → Secrets and variables → Actions):
 #   TELEGRAM_API_ID      optional: Telegram API keys built into the server;
 #   TELEGRAM_API_HASH    without them it asks for its own
+#   FPTG_ANDROID_KEYSTORE           the Android app's signing key (.jks), base64;
+#   FPTG_ANDROID_KEYSTORE_PASSWORD  its password (the key's is the same).
+#                        Without them no APK: an unsigned one does not install,
+#                        and a key other than the release one breaks updates.
 
 name: Release
 
@@ -33,6 +37,8 @@ jobs:
     env:
       TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
       TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      ANDROID_KEYSTORE_B64: ${{ secrets.FPTG_ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.FPTG_ANDROID_KEYSTORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -73,6 +79,27 @@ jobs:
       - name: Build and package
         run: python tools/build_release.py "$VERSION"
 
+      # The Android app (fptg-android): the same page in a WebView, signed
+      # with the release key from the secrets.
+      - uses: actions/setup-java@v4
+        if: env.ANDROID_KEYSTORE_B64 != '' && env.ANDROID_KEYSTORE_PASSWORD != ''
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android app
+        if: env.ANDROID_KEYSTORE_B64 != '' && env.ANDROID_KEYSTORE_PASSWORD != ''
+        run: |
+          key="$RUNNER_TEMP/fptg-release.jks"
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$key"
+          export FPTG_KEYSTORE="$key" FPTG_KEY_ALIAS=fptg
+          export FPTG_KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD" FPTG_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+          (cd fptg-android && ./gradlew --no-daemon assembleRelease -PfptgVersion="$VERSION")
+          rm -f "$key"
+          apk="fptg-android-$VERSION.apk"
+          cp fptg-android/app/build/outputs/apk/release/app-release.apk "dist/$apk"
+          (cd dist && sha256sum "$apk" >> SHA256SUMS.txt)
+
       - name: Release notes
         run: |
           # The commit messages since the previous tag, unwrapped; edit them
@@ -90,4 +117,5 @@ jobs:
           files: |
             dist/fptg-server-${{ env.VERSION }}-win64.zip
             dist/fptg-client-${{ env.VERSION }}-win64.zip
+            dist/fptg-android-${{ env.VERSION }}.apk
             dist/SHA256SUMS.txt

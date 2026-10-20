@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The status bar icon: the plane alone, white (the system tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <group
+        android:pivotX="66.5"
+        android:pivotY="107"
+        android:scaleX="0.32"
+        android:scaleY="0.32"
+        android:translateX="-54.5"
+        android:translateY="-95">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="m66.5,74.889c-1.0587,3.19e-4 -2.0191,0.62061 -2.4549,1.5855l-26.615,58.901c-0.9266,2.0527 0.92452,4.2689 3.1094,3.7226l21.292,-5.3226c0.96526,-0.24138 1.7189,-0.99506 1.9603,-1.9603l2.7089,-26.255 2.7089,26.255c0.24138,0.96526 0.99507,1.7189 1.9603,1.9603l21.293,5.3226c2.1844,0.54506 4.0344,-1.6704 3.1083,-3.7226l-26.615,-58.901c-0.43575,-0.96489 -1.3962,-1.5852 -2.4549,-1.5855z" />
+    </group>
+</vector>

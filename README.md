@@ -3,7 +3,7 @@
 A Telegram client written in Free Pascal and Lazarus, built on
 [TDLib](https://github.com/tdlib/td).
 
-fptg is split into two programs:
+fptg is split into a server and its clients:
 
 - **fptg-server** keeps your Telegram account. It runs TDLib and serves the
   interface over HTTPS and WebSocket. You can run it on your own PC or on a
@@ -12,6 +12,9 @@ fptg is split into two programs:
   connects to the server by address and port. It adds a tray icon, desktop
   notification cards, a call pop-up and mini app windows. Any modern
   browser works as a client too.
+- **fptg-android** is the same interface as an Android app: it signs in to
+  the server the same way, shows notifications for new messages, picks
+  files to send and saves the ones you download.
 
 The interface follows Telegram Desktop: chats, folders, archive, search,
 media, stickers and custom emoji, voice and video messages, calls and video
@@ -25,7 +28,7 @@ Telegram.
 
 ```
 fptg-client (WebView2)  ─┐
-                         ├─ HTTPS + WebSocket ─>  fptg-server  ─>  TDLib  ─>  Telegram
+fptg-android (WebView)  ─┼─ HTTPS + WebSocket ─>  fptg-server  ─>  TDLib  ─>  Telegram
 any browser             ─┘     (TLS, JWT)
 ```
 
@@ -42,6 +45,7 @@ any browser             ─┘     (TLS, JWT)
 **To run:**
 
 - 64-bit Windows 10 or 11, or Windows Server 2016 or newer (server).
+- Android 10 or newer for fptg-android.
 - The Microsoft Edge WebView2 Runtime for fptg-client. Windows 11 has it
   built in. On Windows 10 the client offers to download it, or get it from
   <https://developer.microsoft.com/microsoft-edge/webview2/>.
@@ -60,6 +64,9 @@ any browser             ─┘     (TLS, JWT)
   - `QRCodeGenLib4PascalPackage`: QR codes for signing in to Telegram.
   - `BGRABitmapPack` and `bgracontrols`: the client window.
 - Python 3, only if you want to make release archives.
+- For fptg-android: JDK 17 or newer and the Android SDK (platform 35,
+  build-tools 35.0.1); Android Studio brings both. Gradle comes with the
+  project (`gradlew`).
 
 The runtime DLLs are already in the repository:
 
@@ -95,6 +102,24 @@ file, compile it again with [Dart Sass](https://sass-lang.com/):
 ```bat
 sass fptg-client\web\assets\scss\style.scss fptg-client\web\assets\scss\style.css
 ```
+
+### Android app
+
+```bat
+cd fptg-android
+gradlew assembleDebug
+```
+
+The APK is `fptg-android/app/build/outputs/apk/debug/app-debug.apk`. The
+page is not copied by hand: the build takes `fptg-client/web/` as it is.
+Tell Gradle where the SDK is in `fptg-android/local.properties`
+(`sdk.dir=...`, Android Studio writes it) or with `ANDROID_HOME`.
+
+A release build (`gradlew assembleRelease -PfptgVersion=1.0.0`) is signed
+with your own key: put its path and passwords in
+`fptg-android/keystore.properties` (`storeFile`, `storePassword`,
+`keyAlias`, `keyPassword`; git ignores that file). Keep the key safe: an
+update signed with another key does not install over the app.
 
 ### API keys
 
@@ -142,6 +167,9 @@ web\                   the interface the server serves to browsers
 
 **Client** (`fptg-client-<version>-win64.zip`): `fptg-client.exe`,
 `WebView2Loader.dll` and `web\`.
+
+**Android** (`fptg-android-<version>.apk`): open it on the phone and allow
+installing from that source when Android asks.
 
 Where the data lives:
 
@@ -233,6 +261,14 @@ encrypted; the server only forwards packets.
 
 In a browser, open `https://<address>:<port>/` and sign in the same way.
 
+On Android, the app asks for the same address, port, login and password.
+The server must be reachable from the phone: choose *the local network* or
+*the internet* on the server's first start, and use the address the server
+window shows (not `127.0.0.1`). To get messages while the phone sleeps,
+allow the app to run without battery optimization when it asks: a server of
+your own has no push service, so the app keeps its connection open and
+shows a quiet "fptg is connected" notification while it does.
+
 ## Repository layout
 
 ```
@@ -242,13 +278,14 @@ fptg-server/         the server: TDLib core (td*.pas), the page bridge (webapi.p
   shared/            units shared with the client
 fptg-client/         the client window: WebView2 host, tray, notifications, call pop-up
   web/               the interface itself (HTML, JS modules, SCSS)
+fptg-android/        the Android app: the same page in a WebView (Java, Gradle)
 tools/               release script and sandbox configuration
 docs/licenses/       full texts of third-party licenses
 ```
 
 ## Builds
 
-Windows releases are built from this repository by GitHub Actions
+Releases (Windows archives and the Android app) are built from this repository by GitHub Actions
 (`.github/workflows/release.yml`), not on a personal machine; every release
 is posted to the project's Telegram channel. The programs are not
 code-signed yet, so Windows SmartScreen may warn on the first start

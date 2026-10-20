@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The page draws everything; the window only needs to be dark until it
+         does (the default theme, Aurora, is dark) and without an action bar. -->
+    <style name="Theme.Fptg" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/fptg_bg</item>
+        <item name="android:statusBarColor">@color/fptg_bg</item>
+        <item name="android:navigationBarColor">@color/fptg_bg</item>
+    </style>
+</resources>

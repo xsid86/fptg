@@ -1,0 +1,85 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The version: -PfptgVersion=1.2.3 (the release build passes the tag),
+// otherwise the one below. The code grows with it: 1.2.3 -> 10203.
+def fptgVersion = (project.findProperty('fptgVersion') ?: '0.9.7').toString()
+def fptgCode = fptgVersion.tokenize('.').collect { it.toInteger() }
+    .inject(0) { acc, n -> acc * 100 + n }
+
+// The release signing key lives outside the repository. keystore.properties
+// next to this project (in .gitignore) or the FPTG_KEYSTORE* environment
+// variables (CI) say where it is; without them a release build stays unsigned.
+def keyProps = new Properties()
+def keyFile = rootProject.file('keystore.properties')
+if (keyFile.exists()) {
+    keyFile.withInputStream { keyProps.load(it) }
+}
+def keyValue = { String prop, String env -> keyProps.getProperty(prop) ?: System.getenv(env) }
+
+// The page: the same files the Windows window ships (fptg-client/web),
+// copied into the APK at build time — one source for both.
+def webSource = rootProject.file('../fptg-client/web')
+def webAssets = layout.buildDirectory.dir('generated/fptgWeb')
+def copyWeb = tasks.register('copyWeb', Copy) {
+    from(webSource) {
+        // As in the Windows archives (tools/build_release.py): only the
+        // compiled style.css is needed, not its sources.
+        exclude '**/*.scss', '**/*.map', '**/.idea/**'
+    }
+    into webAssets.map { it.dir('web') }
+}
+
+android {
+    namespace 'app.fptg.client'
+    compileSdk 35
+    buildToolsVersion '35.0.1'
+
+    defaultConfig {
+        applicationId 'app.fptg.client'
+        minSdk 29
+        targetSdk 35
+        versionCode fptgCode
+        versionName fptgVersion
+    }
+
+    signingConfigs {
+        release {
+            if (keyValue('storeFile', 'FPTG_KEYSTORE')) {
+                storeFile file(keyValue('storeFile', 'FPTG_KEYSTORE'))
+                storePassword keyValue('storePassword', 'FPTG_KEYSTORE_PASSWORD')
+                keyAlias keyValue('keyAlias', 'FPTG_KEY_ALIAS')
+                keyPassword keyValue('keyPassword', 'FPTG_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keyValue('storeFile', 'FPTG_KEYSTORE')) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    sourceSets {
+        main {
+            assets.srcDir(webAssets.get().asFile)
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn copyWeb
+}
