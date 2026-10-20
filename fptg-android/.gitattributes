@@ -1,0 +1,4 @@
+# gradlew is a shell script: with CRLF (a Windows checkout) it does not run.
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary
