@@ -119,6 +119,16 @@
   min-width: 0;
 }
 
+// "Aa": shows and hides the formatting rows — only on a phone
+// (layout/_phone), where they would take half the screen.
+.composer .composer__format-toggle {
+  display: none;
+
+  &.is-active {
+    color: var(--c-accent);
+  }
+}
+
 .composer__group--actions {
   flex: 0 0 auto;
   gap: $space-2;

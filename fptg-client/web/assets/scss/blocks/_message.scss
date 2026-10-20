@@ -275,12 +275,12 @@
 .history__column:not(.is-channel) {
   .message {
     margin-right: auto;
-    max-width: $message-side-max;
+    max-width: var(--message-side, #{$message-side-max});
     width: fit-content;
   }
 
   .message:has(.media, .album, .link-preview, .poll):not(:has(.media--sticker)):not(:has(.media--round)):not(:has(.media--gif):not(:has(b))) {
-    width: $message-side-max;
+    width: var(--message-side, #{$message-side-max});
   }
 
   .message--outgoing {

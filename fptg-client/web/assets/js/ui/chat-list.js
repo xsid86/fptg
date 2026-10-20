@@ -119,7 +119,12 @@ function chatItem(chat) {
     el('div', { class: 'chat-item__text' }, preview, meta),
   );
 
-  const open = () => setActiveChat(chat.id);
+  const open = () => {
+    setActiveChat(chat.id);
+    // On a narrow window: to the chat even when it is the one already
+    // active (main.js, wireResponsive).
+    emit('ui:chat-shown');
+  };
   return el('div', {
     class: [
       'chat-item',

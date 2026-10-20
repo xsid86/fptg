@@ -174,6 +174,19 @@ function build() {
       apply();
     },
   }, icon('bookmark', 'icon--sm'), topicLabel, icon('close', 'icon--sm'));
+  // The lens: on a phone the search and the filters are a second line
+  // that opens on demand (layout/_phone.scss); hidden on a wide window.
+  const searchToggle = el('button', {
+    class: 'btn btn--icon chat-header__search-toggle',
+    type: 'button',
+    title: 'Search and filters',
+    'aria-pressed': 'false',
+    onclick: () => {
+      toolsOpen = !toolsOpen;
+      syncTools();
+      if (toolsOpen) input.focus();
+    },
+  }, icon('search'), el('span', { class: 'u-sr-only', textContent: 'Search and filters' }));
   const strip = el('div', { class: 'chat-header__filters' });
   const filters = FILTERS.map(([name, label, type]) => {
     const node = el('button', {
@@ -193,6 +206,7 @@ function build() {
     el('div', { class: 'chat-header__identity' },
       el('div', { class: 'chat-header__title' }, titleIcon, titleText),
       subtitle),
+    searchToggle,
     el('div', { class: 'chat-header__tools' },
       topic,
       el('label', { class: 'field chat-header__search' },
@@ -200,7 +214,18 @@ function build() {
       strip),
   );
 
-  parts = { avatar, back, titleIcon, titleText, subtitle, input, count, filters, topic, topicLabel };
+  parts = { avatar, back, titleIcon, titleText, subtitle, input, count, filters, topic, topicLabel, searchToggle };
+}
+
+// The phone's second line of the header (the lens): open or not. It stays
+// as it is while the same chat is re-rendered and closes with another chat.
+let toolsOpen = false;
+
+function syncTools() {
+  if (!parts) return;
+  root.classList.toggle('is-tools-open', toolsOpen);
+  parts.searchToggle.classList.toggle('is-active', toolsOpen);
+  parts.searchToggle.setAttribute('aria-pressed', String(toolsOpen));
 }
 
 /** "no comments yet" / "1 comment" / "N comments". */
@@ -251,6 +276,7 @@ function render(chat) {
     // the model has already done it.
     activeFilter = '';
     savedTopic = null;
+    toolsOpen = false;
     parts.input.value = '';
     parts.count.hidden = true;
     syncFilters();
@@ -262,7 +288,6 @@ function render(chat) {
   // because the chat underneath is still the channel and nothing else
   // on screen would explain where these messages came from.
   const thread = openThread();
-  root.classList.toggle('chat-header--thread', !!thread);
   // On a narrow screen this is still "back to the chat list"; in a
   // thread on a wide one the way out is the floating button over the
   // history instead, so the bar keeps only its own job.
@@ -274,6 +299,9 @@ function render(chat) {
   // group's avatar confused. The group — in the subtitle, if its name differs.
   const face = chat;
   root.className = `chat-header accent-${face.color ?? chat.color}`;
+  // The state classes after className, which would wipe them.
+  root.classList.toggle('chat-header--thread', !!thread);
+  syncTools();
   // The same picture the row in the list shows - see util/avatar.js.
   fillAvatar(parts.avatar, face);
   const kind = icon(kindIcon(chat.kind), 'icon--sm');

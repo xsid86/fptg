@@ -38,9 +38,11 @@
   position: absolute;
 
   @include respond-to("sm") {
+    border: none;
+    border-radius: 0;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
-    inset: $space-4;
+    inset: 0;
   }
 }
 
@@ -58,6 +60,12 @@
     border-right: 0;
     overflow-x: auto;
     padding: $space-4;
+    // The tabs are swiped with a finger; the bar under them only took room.
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
 }
 
@@ -102,6 +110,10 @@
   @include flex(row, center, space-between, $space-4);
   flex: 0 0 auto;
   padding: $space-6 $space-7 $space-4;
+
+  @include respond-to("sm") {
+    padding: $space-5 $space-5 $space-3;
+  }
 }
 
 .settings__heading {
@@ -114,6 +126,10 @@
   @include scroll-area;
   flex: 1 1 auto;
   padding: 0 $space-7 $space-7;
+
+  @include respond-to("sm") {
+    padding: 0 $space-5 $space-6;
+  }
 }
 
 // One column the width of a group, centred in the panel: both the profile
@@ -156,15 +172,18 @@
   }
 
   @include respond-to("sm") {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: $space-3;
+    flex-wrap: wrap;
+    gap: $space-3 $space-4;
   }
 }
 
 .settings__text {
   @include flex(column, stretch, flex-start, $space-1);
   min-width: 0;
+
+  @include respond-to("sm") {
+    flex: 1 1 12rem;
+  }
 }
 
 .settings__label {
@@ -181,6 +200,13 @@
 .settings__control {
   @include flex(row, center, flex-end, $space-4);
   flex: 0 0 auto;
+
+  @include respond-to("sm") {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    gap: $space-3;
+    max-width: 100%;
+  }
 }
 
 // Input fields — the same .field as search, but with widths for the value.
@@ -190,6 +216,7 @@
 }
 
 .settings__field--wide {
+  max-width: 100%;
   width: 280px;
 }
 
@@ -525,6 +552,7 @@
 
 .settings__nav-icon { color: var(--c-text-dim); flex: 0 0 auto; }
 .settings__nav-row .settings__text { flex: 1 1 auto; }
+.settings__nav-row { flex-wrap: nowrap; }
 .settings__nav-value { color: var(--c-accent); flex: 0 0 auto; }
 .settings__chevron { color: var(--c-text-faint); flex: 0 0 auto; }
 

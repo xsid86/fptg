@@ -457,6 +457,14 @@ export function mountComposer(node) {
     input.focus();
   });
   banner = qs('.composer__banner', box);
+  // "Aa" on a phone: the formatting rows in and out of view.
+  const formatToggle = qs('.composer__format-toggle', box);
+  formatToggle?.addEventListener('click', () => {
+    const open = box.classList.toggle('composer--format');
+    formatToggle.classList.toggle('is-active', open);
+    formatToggle.setAttribute('aria-pressed', String(open));
+    input.focus();
+  });
 
   // The "@name" suggestion (ui/mentions.js). Before the Enter handler below
   // does not matter: it listens in the capture phase.

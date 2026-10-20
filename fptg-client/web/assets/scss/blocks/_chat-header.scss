@@ -75,6 +75,16 @@
   @include flex(column, flex-end, center, $space-3);
 }
 
+// The lens that opens the search and the filters as a second line — only
+// on a phone (layout/_phone), where they do not fit beside the name.
+.chat-header .chat-header__search-toggle {
+  display: none;
+
+  &.is-active {
+    color: var(--c-accent);
+  }
+}
+
 .chat-header__search {
   border: 1px solid var(--accent-color);
   width: 100%;

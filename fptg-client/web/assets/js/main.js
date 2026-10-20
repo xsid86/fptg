@@ -1,7 +1,7 @@
 import { qs, qsa } from './core/dom.js';
 import { on, emit } from './core/bus.js';
 import { connect, call } from './core/net.js';
-import { store, setChats, setArchived, setActiveChat, setMessages, onActiveChat, activeOffList } from './core/store.js';
+import { store, setChats, setArchived, setActiveChat, setMessages, activeOffList } from './core/store.js';
 import { setCustomEmoji } from './util/emoji.js';
 import { applyRoot } from './util/prefs.js';
 import { loadIcons, hydrateIcons } from './util/icons.js';
@@ -588,8 +588,16 @@ function wireSidebar() {
 
 function wireResponsive() {
   const app = qs('.app');
-  onActiveChat((chat) => {
-    app.dataset.view = chat ? 'chat' : 'list';
+  // Only a real switch (store:active), not every refresh of the open
+  // chat's row (onActiveChat): a list tab re-reads the chats, the active
+  // row comes again, and the narrow window jumped from the list to the
+  // last chat. By the id: a chat off the list has no row at the switch.
+  on('store:active', () => {
+    app.dataset.view = store.activeChatId !== null ? 'chat' : 'list';
+  });
+  // The same chat tapped again after Back: nothing switches, the view does.
+  on('ui:chat-shown', () => {
+    if (store.activeChatId !== null) app.dataset.view = 'chat';
   });
   document.addEventListener('click', (event) => {
     if (event.target.closest('.chat-header__back')) app.dataset.view = 'list';

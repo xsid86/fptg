@@ -423,6 +423,11 @@ const
   SERVER_NETWORK_LAN = 'lan';
   SERVER_NETWORK_INTERNET = 'internet';
   SERVER_BIND_ALL = '0.0.0.0';
+  { This machine's address for other computers (localserver.MachineAddress):
+    a UDP socket "connected" here picks the interface of the default route.
+    UDP connect sends nothing — the address is never contacted. }
+  ADDRESS_PROBE_IP = '8.8.8.8';
+  ADDRESS_PROBE_PORT = '53';
   { Windows Firewall rules (fwrule.pas): the name, the port appended. }
   FIREWALL_RULE_NAME = 'fptg server, port ';
 

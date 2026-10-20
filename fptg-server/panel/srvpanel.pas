@@ -275,7 +275,12 @@ begin
     if FHost = nil then begin
       lblStatus.Caption := 'Console server: ' + lblStatus.Caption;
     end;
-    edtAddress.Text := S.Get('address', '');
+    { What other computers connect to (this machine's network address),
+      not what the server listens on (0.0.0.0): that is what Copy is for. }
+    edtAddress.Text := S.Get('reach', '');
+    if edtAddress.Text = '' then begin
+      edtAddress.Text := S.Get('address', '');
+    end;
     { The port in the field — while the server runs (a stopped one's is edited). }
     if FRunning or (edtPort.Text = '') then begin
       edtPort.Text := IntToStr(S.Get('port', 0));

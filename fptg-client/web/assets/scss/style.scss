@@ -25,6 +25,7 @@
 @use "blocks";
 @use "pages";
 @use "themes";      // simple Dark/Light on top of everything above
+@use "layout/phone"; // the phone layout, over the themes too (its header says why)
 
 .pswp {
   backdrop-filter: blur(30px);

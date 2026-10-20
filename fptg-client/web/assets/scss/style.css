@@ -1855,12 +1855,13 @@ body {
   grid-template-rows: 1fr auto;
   grid-template-areas: "sidebar workspace" "status  status";
   height: 100vh;
+  height: 100dvh;
   gap: 4px;
   padding: 4px;
 }
 @media (max-width: 900px) {
   .app {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "sidebar" "status";
   }
   .app[data-view=chat] {
@@ -3365,6 +3366,13 @@ dialog[open].is-pop-up,
   align-items: flex-end;
   justify-content: center;
   gap: 6px;
+}
+
+.chat-header .chat-header__search-toggle {
+  display: none;
+}
+.chat-header .chat-header__search-toggle.is-active {
+  color: var(--c-accent);
 }
 
 .chat-header__search {
@@ -5038,11 +5046,11 @@ dialog[open].is-pop-up,
 
 .history__column:not(.is-channel) .message {
   margin-right: auto;
-  max-width: 78%;
+  max-width: var(--message-side, 78%);
   width: fit-content;
 }
 .history__column:not(.is-channel) .message:has(.media, .album, .link-preview, .poll):not(:has(.media--sticker)):not(:has(.media--round)):not(:has(.media--gif):not(:has(b))) {
-  width: 78%;
+  width: var(--message-side, 78%);
 }
 .history__column:not(.is-channel) .message--outgoing {
   margin-left: auto;
@@ -7597,6 +7605,13 @@ a.media--file:hover {
   min-width: 0;
 }
 
+.composer .composer__format-toggle {
+  display: none;
+}
+.composer .composer__format-toggle.is-active {
+  color: var(--c-accent);
+}
+
 .composer__group--actions {
   flex: 0 0 auto;
   gap: 4px;
@@ -8887,9 +8902,11 @@ span.picker__gif {
 }
 @media (max-width: 640px) {
   .settings__window {
+    border: none;
+    border-radius: 0;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
-    inset: 8px;
+    inset: 0;
   }
 }
 
@@ -8938,6 +8955,10 @@ span.picker__gif {
     border-right: 0;
     overflow-x: auto;
     padding: 8px;
+    scrollbar-width: none;
+  }
+  .settings__nav::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -8999,6 +9020,11 @@ span.picker__gif {
   flex: 0 0 auto;
   padding: 16px 24px 8px;
 }
+@media (max-width: 640px) {
+  .settings__head {
+    padding: 11px 11px 6px;
+  }
+}
 
 .settings__heading {
   font-size: 16px;
@@ -9033,6 +9059,11 @@ span.picker__gif {
 }
 .settings__body::-webkit-scrollbar-thumb:hover {
   background-color: var(--c-text-faint);
+}
+@media (max-width: 640px) {
+  .settings__body {
+    padding: 0 11px 16px;
+  }
 }
 
 .settings__content {
@@ -9082,9 +9113,8 @@ span.picker__gif {
 }
 @media (max-width: 640px) {
   .settings__row {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 6px;
+    flex-wrap: wrap;
+    gap: 6px 8px;
   }
 }
 
@@ -9095,6 +9125,11 @@ span.picker__gif {
   justify-content: flex-start;
   gap: 2px;
   min-width: 0;
+}
+@media (max-width: 640px) {
+  .settings__text {
+    flex: 1 1 12rem;
+  }
 }
 
 .settings__label {
@@ -9116,6 +9151,14 @@ span.picker__gif {
   gap: 8px;
   flex: 0 0 auto;
 }
+@media (max-width: 640px) {
+  .settings__control {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: 100%;
+  }
+}
 
 .settings__field {
   border-radius: 8px;
@@ -9123,6 +9166,7 @@ span.picker__gif {
 }
 
 .settings__field--wide {
+  max-width: 100%;
   width: 280px;
 }
 
@@ -9525,6 +9569,10 @@ span.picker__gif {
 
 .settings__nav-row .settings__text {
   flex: 1 1 auto;
+}
+
+.settings__nav-row {
+  flex-wrap: nowrap;
 }
 
 .settings__nav-value {
@@ -13960,6 +14008,185 @@ span.picker__gif {
 }
 :root[data-style=aurora] .composer__send:hover {
   background: linear-gradient(180deg, color-mix(in srgb, var(--c-accent-hover), white 30%), var(--c-accent-hover));
+}
+
+@media (max-width: 640px) {
+  :root[data-theme] .app {
+    gap: 0;
+    padding: 0;
+  }
+  :root[data-theme] .app[data-view=chat] {
+    grid-template-areas: "workspace";
+    grid-template-rows: minmax(0, 1fr);
+  }
+  :root[data-theme] .app[data-view=chat] .app__status {
+    display: none;
+  }
+  :root[data-theme] .sidebar,
+  :root[data-theme] .workspace,
+  :root[data-theme] .status-bar {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  :root[data-theme] .sidebar__head {
+    padding: 4px 6px;
+  }
+  :root[data-theme] .sidebar__search {
+    padding: 0 6px 4px;
+  }
+  :root[data-theme] .chat-list {
+    gap: 0;
+    padding: 0;
+  }
+  :root[data-theme] .chat-item {
+    backdrop-filter: none;
+    background: transparent;
+    border-color: color-mix(in srgb, var(--c-border) 25%, transparent);
+    border-radius: 0;
+    border-style: solid;
+    border-width: 0 0 1px;
+    box-shadow: none;
+    column-gap: 11px;
+    contain-intrinsic-size: auto 64px;
+    display: grid;
+    grid-template-areas: "avatar head" "avatar text";
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 8px 11px;
+    row-gap: 2px;
+  }
+  :root[data-theme] .chat-item:hover {
+    background: color-mix(in srgb, var(--chat-color) 8%, transparent);
+    border-color: color-mix(in srgb, var(--c-border) 25%, transparent);
+  }
+  :root[data-theme] .chat-item.is-active {
+    background: color-mix(in srgb, var(--chat-color) 22%, transparent);
+    border-color: color-mix(in srgb, var(--c-border) 25%, transparent);
+  }
+  :root[data-theme] .chat-item__head {
+    background: none;
+    grid-area: head;
+    padding: 0;
+  }
+  :root[data-theme] .chat-item__body {
+    display: contents;
+  }
+  :root[data-theme] .chat-item__body > :first-child {
+    align-self: center;
+    grid-area: avatar;
+  }
+  :root[data-theme] .chat-item__text {
+    align-items: center;
+    flex-direction: row;
+    gap: 6px;
+    grid-area: text;
+    min-height: 0;
+  }
+  :root[data-theme] .chat-item__preview {
+    flex: 1 1 auto;
+  }
+  :root[data-theme] .chat-item__meta {
+    flex: 0 0 auto;
+  }
+  :root[data-theme] .status-bar {
+    border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+    gap: 6px;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+  }
+  :root[data-theme] .status-bar__account-text,
+  :root[data-theme] .status-bar__traffic,
+  :root[data-theme] .status-bar__counts,
+  :root[data-theme] .status-bar__transport > .status-bar__item {
+    display: none;
+  }
+  :root[data-theme] .chat-header {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 6px;
+  }
+  :root[data-theme] .chat-header__avatar {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    flex: 0 0 auto;
+    font-size: 14px;
+  }
+  :root[data-theme] .chat-header__search-toggle {
+    display: flex;
+  }
+  :root[data-theme] .chat-header__tools {
+    display: none;
+  }
+  :root[data-theme] .chat-header.is-tools-open .chat-header__tools {
+    align-items: stretch;
+    display: flex;
+    flex: 1 0 100%;
+    gap: 4px;
+  }
+  :root[data-theme] .chat-header__filters {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    overflow-x: auto;
+  }
+  :root[data-theme] .chat-filter {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    flex: 0 0 auto;
+  }
+  :root[data-theme] .history {
+    padding: 8px 6px;
+  }
+  :root[data-theme] .history__column {
+    --message-side: 88%;
+  }
+  :root[data-theme] .message {
+    margin-bottom: 8px;
+  }
+  :root[data-theme] .message__head {
+    padding: 4px 8px;
+  }
+  :root[data-theme] .message__body {
+    padding: 6px 8px;
+  }
+  :root[data-theme] .message__reactions {
+    padding: 4px 8px;
+  }
+  :root[data-theme] .message__reply {
+    margin: 0 8px 4px;
+  }
+  :root[data-theme] .info-toggle,
+  :root[data-theme] .translate-toggle {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    right: 8px;
+  }
+  :root[data-theme] .info-toggle {
+    top: 8px;
+  }
+  :root[data-theme] .translate-toggle {
+    top: calc(8px + 32px + 6px);
+  }
+  :root[data-theme] .info-panel {
+    width: 100%;
+  }
+  :root[data-theme] .composer {
+    gap: 4px;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+  }
+  :root[data-theme] .composer:not(.composer--format) .composer__group--format {
+    display: none;
+  }
+  :root[data-theme] .composer__format-toggle {
+    display: flex;
+  }
+  :root[data-theme] .composer__group--actions {
+    justify-content: flex-start;
+  }
+  :root[data-theme] .composer__send {
+    margin-left: auto;
+  }
 }
 
 .pswp {

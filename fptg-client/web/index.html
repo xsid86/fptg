@@ -177,6 +177,13 @@
           </div>
 
           <div class="composer__group composer__group--actions">
+            <!-- Phone only (layout/_phone.scss): the formatting rows
+                 above are hidden until this is pressed. -->
+            <button class="btn btn--icon composer__format-toggle" type="button"
+                    title="Formatting" aria-pressed="false">
+              <span class="icon" data-icon="bold"></span>
+              <span class="u-sr-only">Formatting</span>
+            </button>
             <!-- Files to send. The input is the real picker and stays
                  hidden; the paperclip only opens it. See ui/attach.js. -->
             <button class="btn btn--icon composer__attach" id="composer-attach"

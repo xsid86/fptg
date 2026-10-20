@@ -11,11 +11,17 @@
     "sidebar workspace"
     "status  status";
   height: 100vh;
+  // On a phone 100vh reaches under the browser's own bars; dvh is the
+  // part actually seen.
+  height: 100dvh;
   gap: $space-2;
   padding: $space-2;
 
   @include respond-to("md") {
-    grid-template-columns: 1fr;
+    // minmax(0, ...): a bare 1fr does not shrink below its widest
+    // content, and on a 390px phone the page came out 477px wide, cut
+    // off on the right.
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "sidebar"
       "status";

@@ -98,6 +98,7 @@ type
     function  MapPath(out AFileName: string): boolean;
     procedure SendSimple(ACode: integer; const AReason, ABody: string;
       const AExtraHeaders: string = '');
+    procedure ServeHttpsRedirect;
     procedure ServeFile;
     procedure ServeMedia;
     procedure ServeUpload;
@@ -171,6 +172,12 @@ function LocalServerUrl: string;
 { The address to reach the server at from this machine: the bind address,
   and 127.0.0.1 for 0.0.0.0. }
 function LocalServerHost: string;
+
+{ This machine's IPv4 address for other computers to connect to, '' when
+  there is none: a private (local network) one, or with APublic a public
+  one. Behind NAT the public address is not on this machine and stays
+  unknown — no outside service is asked. }
+function MachineAddress(APublic: boolean): string;
 
 { The path of a file received through POST /upload by its id — or '' if
   the id is malformed or there is no such file. The page sends back only
@@ -975,6 +982,31 @@ begin
   FSock.SendString(H + CRLF + ABody);
 end;
 
+{ Plain HTTP on the TLS port: a browser given the address without
+  https:// tries http:// and would get an empty answer. It is sent to the
+  same host over https; nothing else is served without TLS. }
+procedure TServerConn.ServeHttpsRedirect;
+var
+  Host: string;
+  I: integer;
+begin
+  if not ReadRequest then begin
+    Exit;
+  end;
+  Host := HeaderValue('host');
+  { Only what a host and port consist of: the value goes into a header. }
+  for I := 1 to Length(Host) do begin
+    if not (Host[I] in ['0'..'9', 'A'..'Z', 'a'..'z', '.', '-', ':', '[', ']']) then begin
+      Host := '';
+      Break;
+    end;
+  end;
+  if Host = '' then begin
+    Host := LocalServerHost + ':' + IntToStr(FOwner.Port);
+  end;
+  SendSimple(301, 'Moved Permanently', 'https only', 'Location: https://' + Host + '/');
+end;
+
 { A file out of the web root — the pages, scripts and styles this
   project ships. }
 procedure TServerConn.ServeFile;
@@ -1370,20 +1402,24 @@ var
 begin
   try
     try
-      { The call relay shares this port (turnrelay.pas): a TURN client
-        starts with a STUN message, TLS with 0x16. }
-      if RelayEnabled then begin
-        First := PeekFirstByte(FSock);
-        if First < 0 then begin
-          Exit;
-        end;
-        if IsTurnFirstByte(byte(First)) then begin
-          ServeTurn(FSock);
-          Exit;
-        end;
+      { What came is told by the first byte: TLS starts with 0x16, plain
+        HTTP (http:// typed by hand) with the method's capital letter, a
+        TURN client of the call relay (turnrelay.pas, the same port) with
+        a STUN message. HTTP first: its letters fall in the ChannelData
+        range, but ChannelData never opens a connection. }
+      First := PeekFirstByte(FSock);
+      if First < 0 then begin
+        Exit;
       end;
-      { TLS — before the first byte of the request. A non-TLS client
-        (http:// on this port) does not get past here. }
+      if (First >= Ord('A')) and (First <= Ord('Z')) then begin
+        ServeHttpsRedirect;
+        Exit;
+      end;
+      if RelayEnabled and IsTurnFirstByte(byte(First)) then begin
+        ServeTurn(FSock);
+        Exit;
+      end;
+      { TLS — before the first byte of the request. }
       if FOwner.Tls.CertFile <> '' then begin
         FSock.SSL.CertificateFile := FOwner.Tls.CertFile;
         FSock.SSL.PrivateKeyFile := FOwner.Tls.KeyFile;
@@ -1692,6 +1728,90 @@ begin
     end;
   finally
     GConnsLock.Leave;
+  end;
+end;
+
+type
+  TIpv4Kind = (ikNone, ikPrivate, ikPublic);
+
+{ ikNone: not IPv4, or loopback, link-local, unspecified, shared (CGNAT,
+  VPN overlays) and multicast — addresses nobody else connects to. }
+function Ipv4Kind(const A: string): TIpv4Kind;
+var
+  B: array[0..3] of integer;
+  S: string;
+  I, N, From: integer;
+begin
+  Result := ikNone;
+  S := A + '.';
+  N := 0;
+  From := 1;
+  for I := 1 to Length(S) do begin
+    if S[I] = '.' then begin
+      if N > 3 then begin
+        Exit;
+      end;
+      B[N] := StrToIntDef(Copy(S, From, I - From), -1);
+      if (B[N] < 0) or (B[N] > 255) then begin
+        Exit;
+      end;
+      Inc(N);
+      From := I + 1;
+    end;
+  end;
+  if N <> 4 then begin
+    Exit;
+  end;
+  if (B[0] = 0) or (B[0] = 127) or (B[0] >= 224)
+    or ((B[0] = 169) and (B[1] = 254))
+    or ((B[0] = 100) and (B[1] >= 64) and (B[1] <= 127)) then begin
+    Exit;
+  end;
+  if (B[0] = 10) or ((B[0] = 172) and (B[1] >= 16) and (B[1] <= 31))
+    or ((B[0] = 192) and (B[1] = 168)) then begin
+    Result := ikPrivate;
+  end else begin
+    Result := ikPublic;
+  end;
+end;
+
+function MachineAddress(APublic: boolean): string;
+var
+  Wanted: TIpv4Kind;
+  Sock: TUDPBlockSocket;
+  List: TStringList;
+  Route, A: string;
+begin
+  Result := '';
+  if APublic then begin
+    Wanted := ikPublic;
+  end else begin
+    Wanted := ikPrivate;
+  end;
+  Route := '';
+  List := TStringList.Create;
+  Sock := TUDPBlockSocket.Create;
+  try
+    { The default route's interface first: with several adapters (Wi-Fi,
+      cable, VPN) it is the one the network is reached through. }
+    Sock.Connect(ADDRESS_PROBE_IP, ADDRESS_PROBE_PORT);
+    if Sock.LastError = 0 then begin
+      Route := Sock.GetLocalSinIP;
+    end;
+    if Ipv4Kind(Route) = Wanted then begin
+      Exit(Route);
+    end;
+    { No default route (a network without internet) — the addresses of
+      the machine's own name. }
+    Sock.ResolveNameToIP(Sock.LocalName, List);
+    for A in List do begin
+      if Ipv4Kind(A) = Wanted then begin
+        Exit(A);
+      end;
+    end;
+  finally
+    Sock.Free;
+    List.Free;
   end;
 end;
 

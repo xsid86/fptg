@@ -296,7 +296,7 @@ end;
 var
   Host: TServerHost;
   Notes: TConsoleNotes;
-  Err, Cmd: string;
+  Err, Cmd, Reach: string;
   Args: TJSONObject;
 
 begin
@@ -369,7 +369,13 @@ begin
     WriteLn('Call relay: off');
   end;
   if ConfiguredBindAddress <> LOCAL_SERVER_BIND then begin
-    WriteLn('Reachable from other computers (', ConfiguredBindAddress, ').');
+    Reach := ReachAddress;
+    if Reach <> '' then begin
+      WriteLn('Reachable from other computers at ', Reach, ' (listening on ',
+        ConfiguredBindAddress, ').');
+    end else begin
+      WriteLn('Reachable from other computers (listening on ', ConfiguredBindAddress, ').');
+    end;
   end else begin
     WriteLn('Reachable from this computer only.');
   end;

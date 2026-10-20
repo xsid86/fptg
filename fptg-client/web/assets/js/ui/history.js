@@ -44,6 +44,10 @@ let lastState = null;
 // items.length at which a fill request was last sent - see maybeFill.
 let fillAskedAt = -1;
 const pendingRead = new Set();
+// Ids already sent as viewed in this chat: each goes once per opening.
+// collectRead now also runs after every render (several a second while
+// media download), and would otherwise repeat the same viewMessages.
+const sentRead = new Set();
 const seenMedia = new Set();
 
 // ------------------------------------------------------ the window
@@ -359,6 +363,7 @@ function paint(state) {
     newest = 0;
     seenMedia.clear();
     pendingRead.clear();
+    sentRead.clear();
     clear(column);
     // A freshly opened chat starts where the native window starts it:
     // at the first unread message when there is one, at the bottom
@@ -554,6 +559,12 @@ function paint(state) {
   showWanted();
   requestVisibleMedia(items.slice(from, to));
   maybeFill(state);
+  // Not only on scroll: a chat opened at the bottom and never scrolled
+  // used to send no viewMessages at all, and TDLib keeps reactions and
+  // counters fresh only for messages it was told are on screen (in a
+  // supergroup the server does not push them) — a reaction seen in the
+  // official app never showed up here.
+  collectRead();
 }
 
 /**
@@ -1029,7 +1040,11 @@ function collectRead() {
   // newest id (a live case: 89 -> 0 on opening a channel, viewMessages with
   // the newest ids 1.3 s after openChat). Count the visible — only at the divider.
   if (wantScroll === 'pending') return;
-  if (wantScroll === 'settling' && !userMoved && !separators.get('unread')?.isConnected) return;
+  // ...unless the chat opened with nothing unread (unreadFrom 0): then
+  // there is nothing to mark wrongly, and what is on screen is simply on
+  // screen — TDLib needs to hear it (see the end of paint).
+  if (wantScroll === 'settling' && !userMoved && !separators.get('unread')?.isConnected
+      && lastState?.unreadFrom) return;
   const top = root.scrollTop;
   const bottom = top + root.clientHeight;
   // Whatever the map is keyed by, what goes out are the MESSAGE ids the
@@ -1045,9 +1060,11 @@ function collectRead() {
   }
   clearTimeout(readTimer);
   readTimer = setTimeout(() => {
-    if (!pendingRead.size) return;
-    emit('ui:mark-read', [...pendingRead]);
+    const ids = [...pendingRead].filter((id) => !sentRead.has(id));
     pendingRead.clear();
+    if (!ids.length) return;
+    for (const id of ids) sentRead.add(id);
+    emit('ui:mark-read', ids);
   }, READ_DEBOUNCE_MS);
 }
 

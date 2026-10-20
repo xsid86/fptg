@@ -1,0 +1,251 @@
+@use "../abstracts" as *;
+
+// THE PHONE LAYER: the window below the "sm" breakpoint laid out the way
+// the mobile apps are — one pane at a time edge to edge (the .app
+// [data-view] switch, layout/_app), compact chat rows, a one-line chat
+// header with the search behind a button, the formatting behind "Aa".
+//
+// One file loaded LAST (style.scss, after themes/) rather than a phone
+// block in every block file: the themes restyle the same panels, rows and
+// bubbles under :root[data-style=…], and a block's own rule would lose to
+// them. Here every rule sits under :root[data-theme] (the attribute is
+// always set, index.html): the same weight as a theme's, and later.
+:root[data-theme] {
+  @include respond-to("sm") {
+    // ------------------------------------------------------------ frame
+    .app {
+      gap: 0;
+      padding: 0;
+
+      // An open chat takes the whole height; the status strip stays
+      // with the chat list.
+      &[data-view="chat"] {
+        grid-template-areas: "workspace";
+        grid-template-rows: minmax(0, 1fr);
+
+        .app__status {
+          display: none;
+        }
+      }
+    }
+
+    .sidebar,
+    .workspace,
+    .status-bar {
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+    }
+
+    // ------------------------------------------------------ chat list
+    .sidebar__head {
+      padding: $space-2 $space-3;
+    }
+
+    .sidebar__search {
+      padding: 0 $space-3 $space-2;
+    }
+
+    .chat-list {
+      gap: 0;
+      padding: 0;
+    }
+
+    // A row as in the mobile apps: the avatar on the left across both
+    // lines; the name, the time and the row's buttons; under them the
+    // preview, the folder and the unread count. No card, a hairline
+    // between rows. The head stays one box (a grid area); the body
+    // dissolves (display: contents), so the avatar and the text become
+    // the row's own cells.
+    .chat-item {
+      backdrop-filter: none;
+      background: transparent;
+      border-color: color-mix(in srgb, var(--c-border) 25%, transparent);
+      border-radius: 0;
+      border-style: solid;
+      border-width: 0 0 1px;
+      box-shadow: none;
+      column-gap: $space-5;
+      contain-intrinsic-size: auto 64px;
+      display: grid;
+      grid-template-areas:
+        "avatar head"
+        "avatar text";
+      grid-template-columns: auto minmax(0, 1fr);
+      padding: $space-4 $space-5;
+      row-gap: $space-1;
+
+      &:hover {
+        background: color-mix(in srgb, var(--chat-color) 8%, transparent);
+        border-color: color-mix(in srgb, var(--c-border) 25%, transparent);
+      }
+
+      &.is-active {
+        background: color-mix(in srgb, var(--chat-color) 22%, transparent);
+        border-color: color-mix(in srgb, var(--c-border) 25%, transparent);
+      }
+    }
+
+    .chat-item__head {
+      background: none;
+      grid-area: head;
+      padding: 0;
+    }
+
+    .chat-item__body {
+      display: contents;
+    }
+
+    .chat-item__body > :first-child {
+      align-self: center;
+      grid-area: avatar;
+    }
+
+    .chat-item__text {
+      align-items: center;
+      flex-direction: row;
+      gap: $space-3;
+      grid-area: text;
+      min-height: 0;
+    }
+
+    .chat-item__preview {
+      flex: 1 1 auto;
+    }
+
+    .chat-item__meta {
+      flex: 0 0 auto;
+    }
+
+    // ----------------------------------------------------- status strip
+    // One line: settings, the account's avatar, presence, the connection
+    // state, the theme. The counters, the traffic and the account's name
+    // stay on the wide window.
+    .status-bar {
+      border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
+      gap: $space-3;
+      padding: $space-2 $space-3 calc(#{$space-2} + env(safe-area-inset-bottom));
+    }
+
+    .status-bar__account-text,
+    .status-bar__traffic,
+    .status-bar__counts,
+    .status-bar__transport > .status-bar__item {
+      display: none;
+    }
+
+    // ----------------------------------------------------- chat header
+    // One line: back, the avatar, the name; the search and the filters
+    // open as a second line under the lens (ui/chat-header.js).
+    .chat-header {
+      flex-wrap: wrap;
+      gap: $space-3;
+      padding: $space-2 $space-3;
+    }
+
+    .chat-header__avatar {
+      @include size(40px);
+      flex: 0 0 auto;
+      font-size: $fs-md;
+    }
+
+    .chat-header__search-toggle {
+      display: flex;
+    }
+
+    .chat-header__tools {
+      display: none;
+    }
+
+    .chat-header.is-tools-open .chat-header__tools {
+      align-items: stretch;
+      display: flex;
+      flex: 1 0 100%;
+      gap: $space-2;
+    }
+
+    // The filters in one row across the width; scrolled sideways if a
+    // phone is narrower still.
+    .chat-header__filters {
+      flex-wrap: nowrap;
+      justify-content: space-between;
+      overflow-x: auto;
+    }
+
+    .chat-filter {
+      @include size(28px);
+      flex: 0 0 auto;
+    }
+
+    // --------------------------------------------------------- history
+    .history {
+      padding: $space-4 $space-3;
+    }
+
+    .history__column {
+      --message-side: 88%;
+    }
+
+    .message {
+      margin-bottom: $space-4;
+    }
+
+    .message__head {
+      padding: $space-2 $space-4;
+    }
+
+    .message__body {
+      padding: $space-3 $space-4;
+    }
+
+    .message__reactions {
+      padding: $space-2 $space-4;
+    }
+
+    .message__reply {
+      margin: 0 $space-4 $space-2;
+    }
+
+    .info-toggle,
+    .translate-toggle {
+      @include size(32px);
+      right: $space-4;
+    }
+
+    .info-toggle {
+      top: $space-4;
+    }
+
+    .translate-toggle {
+      top: calc(#{$space-4} + 32px + #{$space-3});
+    }
+
+    .info-panel {
+      width: 100%;
+    }
+
+    // -------------------------------------------------------- composer
+    // The input with its buttons, under it one row of actions; the
+    // formatting rows only after "Aa" (ui/composer.js).
+    .composer {
+      gap: $space-2;
+      padding: $space-2 $space-3 calc(#{$space-2} + env(safe-area-inset-bottom));
+    }
+
+    .composer:not(.composer--format) .composer__group--format {
+      display: none;
+    }
+
+    .composer__format-toggle {
+      display: flex;
+    }
+
+    .composer__group--actions {
+      justify-content: flex-start;
+    }
+
+    .composer__send {
+      margin-left: auto;
+    }
+  }
+}

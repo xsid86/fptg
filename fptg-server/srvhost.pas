@@ -89,6 +89,11 @@ procedure SavePort(APort: word);
   start; a running server restarts to take it). }
 function NetworkChoice: string;
 procedure SaveNetworkChoice(const AChoice: string);
+{ The address other computers connect to (localserver.MachineAddress):
+  for a server listening on all interfaces — this machine's local network
+  address, or its public one when the choice is "internet"; for one bound
+  to an address — that address. '' when it is not known. }
+function ReachAddress: string;
 function ParamValue(const APrefix: string): string;
 
 implementation
@@ -259,6 +264,16 @@ begin
     Result := SERVER_BIND_ALL;
   end else begin
     Result := LOCAL_SERVER_BIND;
+  end;
+end;
+
+function ReachAddress: string;
+begin
+  Result := ConfiguredBindAddress;
+  if Result = SERVER_BIND_ALL then begin
+    Result := MachineAddress(NetworkChoice = SERVER_NETWORK_INTERNET);
+  end else if Result = LOCAL_SERVER_BIND then begin
+    Result := '';
   end;
 end;
 
@@ -503,6 +518,7 @@ begin
   Result.Add('running', Running);
   Result.Add('url', LocalServerUrl);
   Result.Add('address', ConfiguredBindAddress);
+  Result.Add('reach', ReachAddress);
   Result.Add('port', SavedPort);
   if FTlsOk then begin
     Result.Add('fingerprint', FTls.Fingerprint);
