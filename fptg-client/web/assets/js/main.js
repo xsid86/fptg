@@ -540,10 +540,44 @@ function setSidebarView(view) {
   if (store.archived !== archived) setArchived(archived);
 }
 
+// A phone: a sideways swipe over the list goes to the next tab (left) or
+// the previous one (right), as in the mobile apps. Only a clearly sideways
+// gesture counts — a vertical one is the list scrolling — and only on the
+// narrow layout (the phone width of scss/layout/_phone.scss).
+const SWIPE_VIEWS = ['chats', 'archive', 'contacts'];
+const SWIPE_MIN_PX = 60;
+const SWIPE_RATIO = 1.5;
+const SWIPE_MAX_MS = 600;
+const PHONE_QUERY = '(max-width: 640px)';
+
+function wireSwipeTabs(area) {
+  const phone = window.matchMedia(PHONE_QUERY);
+  let start = null;
+  area.addEventListener('touchstart', (event) => {
+    start = phone.matches && event.touches.length === 1
+      ? { x: event.touches[0].clientX, y: event.touches[0].clientY, t: Date.now() }
+      : null;
+  }, { passive: true });
+  area.addEventListener('touchend', (event) => {
+    if (!start) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const quick = Date.now() - start.t <= SWIPE_MAX_MS;
+    start = null;
+    if (!quick || Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * SWIPE_RATIO) return;
+    const current = qs('.sidebar__tab.is-active')?.dataset.view ?? 'chats';
+    const next = SWIPE_VIEWS[SWIPE_VIEWS.indexOf(current) + (dx < 0 ? 1 : -1)];
+    if (next) setSidebarView(next);
+  }, { passive: true });
+  area.addEventListener('touchcancel', () => { start = null; }, { passive: true });
+}
+
 function wireSidebar() {
   for (const tab of qsa('.sidebar__tab')) {
     tab.addEventListener('click', () => setSidebarView(tab.dataset.view));
   }
+  wireSwipeTabs(qs('.sidebar__body'));
   on('srv:chats', () => {
     if (!contactsOn) return;
     const now = Date.now();
