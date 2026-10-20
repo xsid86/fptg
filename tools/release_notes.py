@@ -7,10 +7,18 @@ or a Telegram post those breaks fall in the middle of sentences. The
 wrapped lines are joined back: a paragraph becomes one line, a "- " list
 item becomes one line, blank lines between paragraphs stay.
 
+An "@name" in a commit message is not a mention: GitHub links it in the
+release and lists that account under Contributors (it did: "chat_id=@channel"
+brought in a stranger called channel). A word joiner goes after every "@" —
+invisible on GitHub and in the Telegram post, and no longer a mention.
+
 The tag may not exist yet (a release built by hand): then HEAD is used.
 """
+import re
 import subprocess
 import sys
+
+WORD_JOINER = '\u2060'
 
 
 def git(*args):
@@ -38,6 +46,10 @@ def unwrap(text):
     return '\n'.join(out)
 
 
+def no_mentions(text):
+    return re.sub(r'@(?=[A-Za-z0-9])', '@' + WORD_JOINER, text)
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit('usage: release_notes.py <tag>')
@@ -49,7 +61,7 @@ def main():
     else:
         log = git('log', '--no-merges', '--format=%B', '-n', '1', ref)
     sys.stdout.reconfigure(encoding='utf-8')
-    print(unwrap(log or ''))
+    print(no_mentions(unwrap(log or '')))
 
 
 if __name__ == '__main__':
