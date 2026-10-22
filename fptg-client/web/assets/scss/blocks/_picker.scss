@@ -319,12 +319,13 @@
   width: 100%;
 }
 
-// A Lottie sticker is a box the player draws an <svg> into, so it has
-// no intrinsic size of its own to fall back on.
+// A Lottie sticker is a box the player draws an <svg> or a <canvas>
+// into, so it has no intrinsic size of its own to fall back on.
 .picker__sticker--lottie {
   display: block;
 
-  svg {
+  svg,
+  canvas {
     display: block;
     height: 100%;
     width: 100%;

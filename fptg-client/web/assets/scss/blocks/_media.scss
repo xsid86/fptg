@@ -450,13 +450,15 @@ a.media--file:hover {
 }
 
 // The lottie frame holds no content of its own - the player creates
-// the <svg> inside it - so unlike an <img> it has to be given a size.
+// an <svg> or a <canvas> inside it (ui/sticker.js, rendererFor) - so
+// unlike an <img> it has to be given a size.
 // Square at the native cap: a sticker's Lottie canvas is square
 // (512x512) and the player letterboxes anything that is not.
 .media__sticker--lottie {
   @include size(170px);
 
-  svg {
+  svg,
+  canvas {
     display: block;
     height: 100%;
     width: 100%;

@@ -1,6 +1,6 @@
 import { el, clear, qs, qsa } from '../core/dom.js';
 import { icon } from '../util/icons.js';
-import { playSticker, stillSticker, stillSvg, stopStickers } from './sticker.js';
+import { playSticker, stillSticker, stillPicture, stopStickers } from './sticker.js';
 import { sideScroll } from '../util/sidescroll.js';
 import { markPopDirection } from '../util/pop.js';
 import { holdVideo, forget } from '../util/offscreen.js';
@@ -621,8 +621,8 @@ function lazyObserver() {
 /**
  * The frame as a picture address, or null.
  *
- * A sticker in a tile — SVG (stillSvg): at this size the canvas renderer's
- * flaw with gradients shows. Emoji — the canvas renderer on a scratch
+ * A sticker in a tile — stillPicture (SVG or canvas by the file, see
+ * rendererFor in ui/sticker.js). Emoji — the canvas renderer on a scratch
  * canvas (stillSticker), webm — the video's first frame on a scratch
  * canvas. The canvas is converted to PNG at once and released.
  */
@@ -630,7 +630,9 @@ async function makeStill(item, kind) {
   const late = new Promise((_, reject) => {
     setTimeout(() => reject(new Error(`still timeout (${item.format})`)), STILL_TIMEOUT_MS);
   });
-  if (item.format === 'tgs' && kind === 'tile') return Promise.race([stillSvg(item.url), late]);
+  if (item.format === 'tgs' && kind === 'tile') {
+    return Promise.race([stillPicture(item.url, STILL_SIZE.tile * (window.devicePixelRatio || 1)), late]);
+  }
   const canvas = document.createElement('canvas');
   const ok = await Promise.race([
     item.format === 'webm' || item.format === 'mp4'

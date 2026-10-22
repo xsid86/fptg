@@ -37,6 +37,25 @@ import { on } from '../core/bus.js';
 const CACHE_LIMIT = 24;
 const parsed = new Map();
 
+// WHICH RENDERER DRAWS A FILE — decided per file, because each of
+// lottie-web's two renderers is wrong on a different kind of sticker,
+// both proved on real files against the native renderer (the Telegram X
+// rlottie fork):
+// - canvas loses GRADIENT fills: the screaming-face sticker (seven "gf"
+//   items) came out with an almost white face (log, 2026-09-23);
+// - SVG loses LAYERS: on the thumbs-up hamster (only plain fills and
+//   strokes, three precomps) the inner flames and the teeth were gone
+//   and a translucent slab lay over the face, while canvas drew it
+//   exactly like rlottie (log, 2026-10-22).
+// So a file with a gradient goes to SVG, everything else to canvas,
+// which is also the lighter of the two: one bitmap, not a DOM tree.
+const gradientFiles = new WeakSet();
+const GRADIENT_ITEM = /"ty"\s*:\s*"g[fs]"/;
+
+function rendererFor(data) {
+    return gradientFiles.has(data) ? 'svg' : 'canvas';
+}
+
 // container node -> the lottie animation drawing into it
 const live = new Map();
 // The nodes whose animation runs ONCE per appearance - stickers, as
@@ -96,6 +115,7 @@ async function animationData(url) {
     const text = await new Response(
         res.body.pipeThrough(new DecompressionStream('gzip'))).text();
     const data = JSON.parse(text);
+    if (GRADIENT_ITEM.test(text)) gradientFiles.add(data);
 
     parsed.set(url, data);
     if (parsed.size > CACHE_LIMIT) parsed.delete(parsed.keys().next().value);
@@ -189,20 +209,23 @@ export async function stillSticker(canvas, url, size) {
 }
 
 /**
- * One .tgs frame as a PICTURE: a data:image/svg+xml address for <img>, or
- * null. The player is destroyed at once — one picture remains of the sticker.
+ * One .tgs frame as a PICTURE: a data: address for <img>, or null. The
+ * player is destroyed at once — one picture remains of the sticker.
  *
- * For stickers, not emoji: at tile size the canvas renderer's flaw with
- * gradients shows (see playSticker), so the frame is built by the SVG
- * renderer — into a DETACHED container — and its <svg> is serialized.
- * Gradients, masks and clips refer to ids inside the same <svg>, so the
- * standalone document draws just like the live player. viewBoxOnly: neither
- * sizes nor inline styles are written into the root, and the picture fits
- * the tile by its viewBox.
+ * For stickers in the panel's tiles, by the same rule as the live player
+ * (rendererFor): a file with gradients — SVG, built into a DETACHED
+ * container and serialized (gradients, masks and clips refer to ids inside
+ * the same <svg>, so the standalone document draws like the live player;
+ * viewBoxOnly: the picture fits the tile by its viewBox); any other — the
+ * canvas renderer at `size` pixels, as PNG.
  */
-export async function stillSvg(url) {
+export async function stillPicture(url, size) {
     try {
         const [lottie, data] = await Promise.all([loadEngine(), animationData(url)]);
+        if (rendererFor(data) === 'canvas') {
+            const canvas = document.createElement('canvas');
+            return (await stillSticker(canvas, url, size)) ? canvas.toDataURL('image/png') : null;
+        }
         const box = document.createElement('div');
         const anim = lottie.loadAnimation({
             container: box,
@@ -317,7 +340,7 @@ export async function playSticker(node, url, opts = {}) {
             // most of what the frame above cost. The gradient flaw
             // that rules canvas out for a real sticker is invisible at
             // the size of a letter.
-            renderer: badge ? 'canvas' : 'svg',
+            renderer: badge ? 'canvas' : rendererFor(data),
             // A sticker is shown, not looped: it plays once when it
             // comes into view and then stands still. Only the things
             // that are meant to run forever keep looping.
