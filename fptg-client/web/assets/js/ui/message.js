@@ -17,6 +17,7 @@ import {translationFor, watchTranslation} from './translate.js';
 import {downloadUrl} from '../util/download.js';
 import {getPref} from '../util/prefs.js';
 import {on} from '../core/bus.js';
+import {store, openThread} from '../core/store.js';
 
 // The animation settings changed — GIFs and stickers already shown play by
 // the new rules at once, without redrawing the history.
@@ -224,7 +225,8 @@ export function renderAlbum(msgs) {
     // The strip belongs to whichever message in the run carries the
     // reactions or the comment count - Telegram hangs both on one
     // message of an album, not on every cell.
-    const footed = msgs.find((m) => m.reactions?.length || m.comments !== undefined);
+    const footed = msgs.find((m) => m.reactions?.length || m.comments > 0
+        || (m.comments !== undefined && inChannelFeed()));
     if (footed) {
         const strip = renderFooter(footed);
         if (strip) card.append(strip);
@@ -1323,10 +1325,13 @@ function renderPoll(msg) {
  */
 function renderFooter(msg, commentsMoved = false) {
     const hasReactions = !!msg.reactions?.length;
-    // Not "> 0": a post nobody has commented on still shows the
-    // button, and that button is the only way to leave the first one.
-    // Unless it has gone into the head instead - see renderMessage.
-    const hasComments = !commentsMoved && msg.comments !== undefined;
+    // A channel post: even at zero — nobody has commented yet, and the
+    // button is the only way to leave the first comment. Elsewhere (a
+    // group sends a reply count with every message) only when there are
+    // replies: a "0" under every message is noise. Unless the button has
+    // gone into the head instead - see renderMessage.
+    const hasComments = !commentsMoved && msg.comments !== undefined
+        && (msg.comments > 0 || inChannelFeed());
     if (!hasReactions && !hasComments) return null;
 
     const strip = el('footer', {class: 'message__reactions'});
@@ -1339,13 +1344,19 @@ function renderFooter(msg, commentsMoved = false) {
     return strip;
 }
 
+/** The open history is a channel's own feed (not a comment thread under a post). */
+function inChannelFeed() {
+    return store.activeChat?.kind === 'channel' && !openThread();
+}
+
 /**
  * "N comments", shaped like a reaction pill and sitting at the right
  * edge of the same strip.
  *
- * The count is message.interaction_info.reply_info.reply_count, which
- * TDLib fills only for channels that have a discussion supergroup - so
- * the pill appears exactly where comments exist.
+ * The count is message.interaction_info.reply_info.reply_count: the
+ * comments of a channel post with a discussion group, and in a
+ * supergroup the replies to any message (renderFooter shows those only
+ * when there are some).
  */
 function renderComments(msg) {
     const pill = el('button', {

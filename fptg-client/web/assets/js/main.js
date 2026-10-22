@@ -33,6 +33,7 @@ import { mountAuth, showAuth } from './ui/auth.js';
 import { mountStatusBar } from './ui/status-bar.js';
 import { mountToasts } from './ui/toasts.js';
 import { mountShell } from './ui/shell.js';
+import { mountSounds } from './util/sounds.js';
 import { mountThemeToggle } from './ui/theme.js';
 import { mountSettings } from './ui/settings.js';
 import { mountAttach } from './ui/attach.js';
@@ -677,6 +678,7 @@ async function boot() {
   // (ui/shell.js). A click on a card and links from a mini app come from
   // there too.
   mountShell({ call: (cmd, args) => call(cmd, args), openLink, report });
+  mountSounds();
   // This window's interface scale and animations (Chat settings, Battery
   // and animation) — root classes, before the first windows.
   applyRoot();

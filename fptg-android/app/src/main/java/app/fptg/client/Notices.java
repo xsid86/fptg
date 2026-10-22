@@ -11,6 +11,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.drawable.Icon;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
 import android.util.Base64;
 
 /**
@@ -26,9 +28,24 @@ final class Notices {
         NotificationChannel messages = new NotificationChannel(Consts.CHANNEL_MESSAGES, "Messages",
             NotificationManager.IMPORTANCE_HIGH);
         messages.setDescription("New messages in chats that are not muted.");
+        messages.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+            new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build());
+        messages.enableVibration(true);
+        // Calls ring with the phone's ringtone, as a call should.
         NotificationChannel calls = new NotificationChannel(Consts.CHANNEL_CALLS, "Calls",
             NotificationManager.IMPORTANCE_HIGH);
-        calls.setDescription("Incoming calls.");
+        calls.setDescription("Incoming calls, with the phone's ringtone.");
+        calls.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+            new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build());
+        calls.enableVibration(true);
+        calls.setVibrationPattern(new long[] {0, 1000, 1000});
+        nm.deleteNotificationChannel(Consts.CHANNEL_CALLS_OLD);
         NotificationChannel service = new NotificationChannel(Consts.CHANNEL_SERVICE, "Connection",
             NotificationManager.IMPORTANCE_MIN);
         service.setDescription("Shown while fptg stays connected to the server in the background.");
@@ -62,6 +79,9 @@ final class Notices {
         c.getSystemService(NotificationManager.class).notify(noteId(chatId), b.build());
     }
 
+    /** The page asks for it while a call rings and the app is out of sight
+     *  (ui/call.js, callpopup); it rings until the call is answered, declined
+     *  or the app comes to the front (insistent: the sound repeats). */
     static void call(Context c) {
         Notification n = new Notification.Builder(c, Consts.CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_stat)
@@ -71,6 +91,7 @@ final class Notices {
             .setOngoing(true)
             .setContentIntent(open(c, 0))
             .build();
+        n.flags |= Notification.FLAG_INSISTENT;
         c.getSystemService(NotificationManager.class).notify(Consts.NOTE_CALL, n);
     }
 

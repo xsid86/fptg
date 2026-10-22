@@ -20,7 +20,11 @@ final class Consts {
 
     /** Notification channels. */
     static final String CHANNEL_MESSAGES = "messages";
-    static final String CHANNEL_CALLS = "calls";
+    /** Incoming calls, with the phone's ringtone. A channel's sound cannot be
+     *  changed once it exists, so this replaced the first one (silent-ish
+     *  "calls"), which is deleted on start. */
+    static final String CHANNEL_CALLS = "ringing";
+    static final String CHANNEL_CALLS_OLD = "calls";
     static final String CHANNEL_SERVICE = "service";
     /** Fixed notification ids; messages use their chat's own. */
     static final int NOTE_SERVICE = 1;

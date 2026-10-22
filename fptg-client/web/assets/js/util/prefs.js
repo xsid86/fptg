@@ -20,6 +20,8 @@ const DEFAULTS = {
   folderTags: true,         // folder chips in the list rows (Folders)
   scale: 100,               // the interface scale, %
   callRelay: 'auto',        // calls through the server's relay: auto | on | off (calls/relay.js)
+  messageSound: true,       // a chime for a new message (util/sounds.js)
+  callRingtone: true,       // the ringtone of an incoming call (util/sounds.js)
 };
 
 // The scale ladder — the root classes .ui-scale-N (blocks/_settings.scss).

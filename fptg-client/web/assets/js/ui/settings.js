@@ -707,6 +707,8 @@ async function renderNotifications() {
   const limit = uid();
   const titleFont = uid();
   const textFont = uid();
+  const messageSound = uid();
+  const callRingtone = uid();
   const font = (id, key, value) => numberControl(id,
     { value, min: n.fontMin, max: n.fontMax, unit: 'px' },
     (v, input) => commit({ key: `notify.${key}`, value: v }, input,
@@ -732,6 +734,17 @@ async function renderNotifications() {
         numberControl(limit, { value: n.limit, min: n.limitMin, max: n.limitMax },
           (value, input) => commit({ key: 'notify.limit', value }, input,
             (node, d) => { node.value = String(d.notify.limit); })))),
+    group('Sounds',
+      row(messageSound, 'Message sound',
+        'A short chime for a new message in a chat that is not muted. '
+        + 'Not for the chat that is open while the window is in front. '
+        + 'This device only.',
+        switchControl(messageSound, getPref('messageSound'),
+          (checked) => setPref('messageSound', checked))),
+      row(callRingtone, 'Call ringtone',
+        'The ringtone of an incoming call. This device only.',
+        switchControl(callRingtone, getPref('callRingtone'),
+          (checked) => setPref('callRingtone', checked)))),
     group('Notification text',
       row(titleFont, 'Title size',
         `The chat name (${n.fontMin}–${n.fontMax}).`,

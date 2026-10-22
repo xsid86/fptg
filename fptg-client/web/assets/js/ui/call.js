@@ -5,6 +5,7 @@ import { fillAvatar } from '../util/avatar.js';
 import { CallSession } from '../calls/session.js';
 import { routeAudio, devicePanel, togglePanel } from '../calls/devices.js';
 import { store } from '../core/store.js';
+import { ringFor } from '../util/sounds.js';
 
 // The call window: incoming (accept / with video / decline), outgoing
 // ("Calling…", cancel), ongoing (time, key emoji, microphone, camera, hang
@@ -19,10 +20,6 @@ import { store } from '../core/store.js';
 
 const ENDED_SHOW_MS = 2500;
 const TICK_MS = 1000;
-// Ringing/the ring-back tone — synthesized, without files: the tone and rhythm of a phone.
-const RING_TONE_HZ = [440, 480];
-const RING_ON_MS = 1000;
-const RING_OFF_MS = 2000;
 
 let hooks = {};
 let root = null;
@@ -36,42 +33,9 @@ let endTimer = 0;
 let remoteMedia = { muted: false, video: false };
 
 // ------------------------------------------------------------ sound
-let ringCtx = null;
-let ringTimer = 0;
-
-function ringStop() {
-  clearTimeout(ringTimer);
-  ringTimer = 0;
-  if (ringCtx) {
-    ringCtx.close().catch(() => {});
-    ringCtx = null;
-  }
-}
-
-function ringStart() {
-  if (ringCtx) return;
-  try {
-    ringCtx = new AudioContext();
-  } catch {
-    return;
-  }
-  const burst = () => {
-    if (!ringCtx) return;
-    const gain = ringCtx.createGain();
-    gain.gain.value = 0.08;
-    gain.connect(ringCtx.destination);
-    const stopAt = ringCtx.currentTime + RING_ON_MS / 1000;
-    for (const hz of RING_TONE_HZ) {
-      const osc = ringCtx.createOscillator();
-      osc.frequency.value = hz;
-      osc.connect(gain);
-      osc.start();
-      osc.stop(stopAt);
-    }
-    ringTimer = setTimeout(burst, RING_ON_MS + RING_OFF_MS);
-  };
-  burst();
-}
+// The ringtone itself is util/sounds.js; it rings while an incoming call
+// waits here (see ringFor there for the Android app in the background).
+const ringStop = () => ringFor(false);
 
 // ------------------------------------------------------------ view
 const REASONS = {
@@ -391,8 +355,7 @@ function onCall(c) {
   clearTimeout(endTimer);
   current = c;
   const finished = c.state === 'discarded' || c.state === 'error' || c.state === 'hangingUp';
-  if (c.state === 'pending' && !c.outgoing && !owned.has(c.id)) ringStart();
-  else ringStop();
+  ringFor(ringingHere(c));
   if (c.state === 'ready') startSession(c);
   if (finished) {
     endSession();
@@ -419,6 +382,9 @@ export function mountCalls(options) {
   window.addEventListener('focus', syncPopup);
   window.addEventListener('blur', syncPopup);
   document.addEventListener('visibilitychange', syncPopup);
+  // Back on screen (or gone) in the Android app: the page's ring or the
+  // shell's takes over.
+  document.addEventListener('visibilitychange', () => ringFor(ringingHere(current)));
   host()?.addEventListener('message', (event) => onHostMessage(event.data));
 
   on('srv:call', (c) => { if (c) onCall(c); });
