@@ -3,6 +3,7 @@
 .sidebar {
   @include flex(column, stretch, flex-start);
   @include card($panel-radius);
+  @include glass-host;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -14,21 +15,25 @@
   border: none;
   padding: $space-3 $space-4;
 
-  .btn {
-    &.is-active {
-      color: var(--c-light);
-    }
-  }
 }
 
-// The list tabs: at the left edge; the current one is filled with the
-// accent, like a toggle that is on (.btn--toggle).
-.sidebar__tab {
-  &.is-active,
-  &.is-active:hover {
-    background: var(--c-accent);
-    color: var(--c-accent-text);
-  }
+// The menu button (ui/mainmenu.js) at the left of the header: the same
+// round glass button as "+" at its right (blocks/_tgbox.scss, .sidebar__new).
+.sidebar__menu {
+  @include scroll-jump;
+  flex: 0 0 auto;
+  position: static;
+}
+
+// Between them, the name of what the list shows: Chats, Archive, Contacts —
+// small, in the middle of the header.
+.sidebar__title {
+  @include ellipsis;
+  color: var(--c-text);
+  flex: 1 1 0;
+  font-size: $fs-md;
+  font-weight: $fw-medium;
+  text-align: center;
 }
 
 .sidebar__search {

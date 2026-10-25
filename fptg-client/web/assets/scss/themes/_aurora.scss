@@ -167,17 +167,6 @@
     border-color: var(--aurora-border);
   }
 
-  // The list tabs — "pills", the selected one highlighted, as in the mockup.
-  .sidebar__tab {
-    border-radius: a("tab-radius");
-
-    &.is-active,
-    &.is-active:hover {
-      background: var(--aurora-soft);
-      color: #ffffff;
-    }
-  }
-
   // Search — a dark pill.
   .sidebar__search .field,
   .chat-header__search {

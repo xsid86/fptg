@@ -1,4 +1,4 @@
-import { qs, qsa } from './core/dom.js';
+import { qs, el } from './core/dom.js';
 import { on, emit } from './core/bus.js';
 import { connect, call } from './core/net.js';
 import { store, setChats, setArchived, setActiveChat, setMessages, activeOffList } from './core/store.js';
@@ -8,7 +8,7 @@ import { loadIcons, hydrateIcons } from './util/icons.js';
 import { openMenu } from './util/menu.js';
 import {
   mountChatList, showListLoading, showListError, setChatFilter,
-  showContacts, hideContacts,
+  showContacts, hideContacts, setArchiveInfo,
 } from './ui/chat-list.js';
 import { mountChatHeader } from './ui/chat-header.js';
 import { mountHistory, invalidateHistory } from './ui/history.js';
@@ -18,7 +18,8 @@ import {
 } from './ui/composer.js';
 import { mountMessageMenu, openMessageMenu, toggleReaction } from './ui/msgmenu.js';
 import { mountSearch } from './ui/search.js';
-import { mountNewChat } from './ui/newchat.js';
+import { mountNewChat, newGroup, newChannel } from './ui/newchat.js';
+import { mountMainMenu } from './ui/mainmenu.js';
 import { mountRecorder, cancelRecording } from './ui/recorder.js';
 import { mountPayments } from './ui/payments.js';
 import { mountTranslate } from './ui/translate.js';
@@ -35,7 +36,7 @@ import { mountToasts } from './ui/toasts.js';
 import { mountShell } from './ui/shell.js';
 import { mountSounds } from './util/sounds.js';
 import { mountThemeToggle } from './ui/theme.js';
-import { mountSettings } from './ui/settings.js';
+import { mountSettings, openSettings, openSettingsList } from './ui/settings.js';
 import { mountAttach } from './ui/attach.js';
 import { mountPeople } from './ui/people.js';
 import { mountLinks, openLink } from './ui/links.js';
@@ -210,6 +211,7 @@ async function loadChats() {
   try {
     const result = await call('chats.list', { archived: store.archived });
     setCustomEmoji(result.customEmoji);
+    setArchiveInfo(result.archive);
     setChats(result.items);
     // Avatars only for what is on screen, the way the native list does
     // it - asking for a hundred downloads because the app started is
@@ -515,10 +517,18 @@ function setContactsMode(on) {
 }
 
 /**
- * The tab of the list on the left: 'chats', 'archive' or 'contacts'. The
- * active one is highlighted (is-active); archive and contacts — one of the two.
+ * What the list on the left shows: 'chats', 'archive' or 'contacts'. The
+ * archive is reached by its row at the top of the chats, contacts from the
+ * menu (ui/mainmenu.js), and both go back by the first row (ui/chat-list.js).
  */
+let listView = 'chats';
+// The list's name in its header, between the menu and "+".
+const LIST_TITLES = { chats: 'Chats', archive: 'Archive', contacts: 'Contacts' };
+let listTitle = null;
+
 function setSidebarView(view) {
+  listView = view;
+  if (listTitle) listTitle.textContent = LIST_TITLES[view] ?? '';
   // Another tab — search and the contact filter end.
   const box = qs('#chats-search');
   if (box.value) {
@@ -526,11 +536,6 @@ function setSidebarView(view) {
     setChatFilter('');
   }
   emit('ui:search-close');
-  for (const tab of qsa('.sidebar__tab')) {
-    const on = tab.dataset.view === view;
-    tab.classList.toggle('is-active', on);
-    tab.setAttribute('aria-selected', String(on));
-  }
   if (view === 'contacts') {
     if (store.archived) setArchived(false);
     if (!contactsOn) setContactsMode(true);
@@ -541,11 +546,11 @@ function setSidebarView(view) {
   if (store.archived !== archived) setArchived(archived);
 }
 
-// A phone: a sideways swipe over the list goes to the next tab (left) or
-// the previous one (right), as in the mobile apps. Only a clearly sideways
-// gesture counts — a vertical one is the list scrolling — and only on the
-// narrow layout (the phone width of scss/layout/_phone.scss).
-const SWIPE_VIEWS = ['chats', 'archive', 'contacts'];
+// A phone: in the archive or the contacts a swipe to the right goes back to
+// the chats, as the back gesture of the mobile apps (the tabs it used to
+// switch between are gone). Only a clearly sideways gesture counts — a
+// vertical one is the list scrolling — and only on the narrow layout (the
+// phone width of scss/layout/_phone.scss).
 const SWIPE_MIN_PX = 60;
 const SWIPE_RATIO = 1.5;
 const SWIPE_MAX_MS = 600;
@@ -567,17 +572,14 @@ function wireSwipeTabs(area) {
     const quick = Date.now() - start.t <= SWIPE_MAX_MS;
     start = null;
     if (!quick || Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * SWIPE_RATIO) return;
-    const current = qs('.sidebar__tab.is-active')?.dataset.view ?? 'chats';
-    const next = SWIPE_VIEWS[SWIPE_VIEWS.indexOf(current) + (dx < 0 ? 1 : -1)];
-    if (next) setSidebarView(next);
+    if (dx > 0 && listView !== 'chats') setSidebarView('chats');
   }, { passive: true });
   area.addEventListener('touchcancel', () => { start = null; }, { passive: true });
 }
 
 function wireSidebar() {
-  for (const tab of qsa('.sidebar__tab')) {
-    tab.addEventListener('click', () => setSidebarView(tab.dataset.view));
-  }
+  // The archive row and the "back to chats" row (ui/chat-list.js).
+  on('ui:list-view', (view) => setSidebarView(view));
   wireSwipeTabs(qs('.sidebar__body'));
   on('srv:chats', () => {
     if (!contactsOn) return;
@@ -616,6 +618,33 @@ function wireSidebar() {
   on('store:active', cancelRecording);
   // "+" to the right of the tabs: a new group or channel (ui/newchat.js).
   mountNewChat(qs('.sidebar__head'), { call: (cmd, args) => call(cmd, args) });
+  // The menu at the left of the header (ui/mainmenu.js); what its items do.
+  mountMainMenu(qs('.sidebar__head'), {
+    account: async () => {
+      const list = await call('accounts.list');
+      return list?.accounts?.find((a) => a.index === list.active) ?? null;
+    },
+    profile: () => openSettings('account'),
+    newGroup,
+    newChannel,
+    contacts: () => setSidebarView('contacts'),
+    // Saved messages: the account's own chat — from the list, or opened as
+    // the private chat with oneself.
+    saved: async () => {
+      const self = store.chats.find((c) => c.kind === 'self');
+      if (self) {
+        setSidebarView('chats');
+        setActiveChat(self.id);
+        return;
+      }
+      const list = await call('accounts.list').catch(() => null);
+      const me = list?.accounts?.find((a) => a.index === list.active);
+      if (me?.userId) emit('ui:open-contact', { userId: me.userId });
+    },
+    settings: openSettingsList,
+  });
+  listTitle = el('div', { class: 'sidebar__title', textContent: LIST_TITLES[listView] });
+  qs('.sidebar__menu')?.after(listTitle);
   qs('#chats-search').addEventListener('input', (event) => {
     if (contactsOn) setChatFilter(event.target.value);
   });
@@ -683,7 +712,7 @@ async function boot() {
   // and animation) — root classes, before the first windows.
   applyRoot();
   mountThemeToggle(qs('#theme-toggle'));
-  mountSettings(qs('#settings'), qs('#settings-open'), {
+  mountSettings(qs('#settings'), null, {
     load: (cmd, args) => call(cmd, args),
     report,
   });

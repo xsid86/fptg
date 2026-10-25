@@ -1,0 +1,124 @@
+@use "../abstracts" as *;
+
+// The app's menu (ui/mainmenu.js), as in Telegram Desktop: a panel sliding
+// in from the left over the dimmed window — the account on top, the items,
+// a line about the app at the bottom.
+.main-menu {
+  background: rgba(0, 0, 0, 0);
+  inset: 0;
+  position: fixed;
+  transition: background $dur-base $ease;
+  z-index: $z-overlay;
+
+  &[hidden] {
+    display: none;
+  }
+
+  &.is-open {
+    background: rgba(0, 0, 0, 0.45);
+  }
+}
+
+.main-menu__panel {
+  @include flex(column, stretch, flex-start, 0);
+  position: relative;
+  @include panel-glass;
+  background: color-mix(in srgb, var(--c-surface) 92%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--c-text) 12%, transparent);
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
+  height: 100%;
+  max-width: 85vw;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom);
+  transform: translateX(-100%);
+  transition: transform $dur-base $ease;
+  width: 300px;
+
+  .main-menu.is-open & {
+    transform: none;
+  }
+}
+
+// The title with Close and the sheet around the rest: a phone's only
+// (layout/_phone-menu), where the menu takes the whole width.
+.main-menu__head {
+  display: none;
+}
+
+.main-menu__sheet {
+  display: contents;
+}
+
+// The account: its avatar, name and id; a tap is My profile.
+.main-menu__account {
+  @include flex(column, flex-start, flex-start, $space-2);
+  @include focus-ring;
+  background: none;
+  border: 0;
+  color: var(--c-text);
+  cursor: pointer;
+  padding: $space-7 $space-7 $space-6;
+  text-align: left;
+}
+
+.main-menu__avatar {
+  --avatar-color: var(--accent-color);
+  @include size(64px);
+  font-size: 24px;
+  margin-bottom: $space-3;
+}
+
+.main-menu__name {
+  font-size: $fs-lg;
+  font-weight: $fw-bold;
+}
+
+.main-menu__sub {
+  color: var(--c-text-dim);
+  font-size: $fs-sm;
+}
+
+.main-menu__items {
+  @include flex(column, stretch, flex-start, $space-1);
+  padding: $space-4;
+}
+
+// The items look like the sections of the settings (.settings__tab,
+// blocks/_settings.scss): dim text and icon, a rounded hover.
+.main-menu__item {
+  @include flex(row, center, flex-start, $space-4);
+  @include focus-ring;
+  background: none;
+  border: 0;
+  border-radius: $radius-md;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: $fs-md;
+  padding: $space-3 $space-4;
+  text-align: left;
+  transition: background $dur-fast $ease, color $dur-fast $ease;
+  white-space: nowrap;
+  width: 100%;
+
+  > .icon {
+    flex: 0 0 auto;
+  }
+
+  &:hover {
+    background: var(--c-surface-hover);
+    color: var(--c-text);
+  }
+}
+
+.main-menu__label {
+  flex: 1 1 auto;
+}
+
+
+.main-menu__foot {
+  color: var(--c-text-faint);
+  font-size: $fs-sm;
+  margin: auto 0 0;
+  padding: $space-6 $space-7;
+}

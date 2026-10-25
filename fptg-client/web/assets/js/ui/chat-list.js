@@ -232,6 +232,82 @@ function restoreScroll(anchor) {
 // the archive is the one case where the old position means nothing.
 let lastArchived = null;
 
+// ------------------------------------------------------- the first row
+// In place of the Chats / Archive / Contacts tabs (2026-10-26): in the main
+// list the first row is the archive, as in Telegram Desktop — the names of
+// the chats in it and how many have something unread (chats.list sends the
+// summary); in the archive and in contacts it is the way back to the chats.
+let archiveInfo = null;
+let headNode = null;
+let headKey = '';
+
+/** The archive summary from chats.list ({count, unread, titles}). */
+export function setArchiveInfo(info) {
+  archiveInfo = info ?? null;
+}
+
+/** "Back to chats": one compact line, a small round arrow before the words. */
+function backRow() {
+  const back = () => emit('ui:list-view', 'chats');
+  return el('div', {
+    class: 'list-back',
+    role: 'button',
+    tabIndex: 0,
+    onclick: back,
+    onkeydown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        back();
+      }
+    },
+  }, el('span', { class: 'list-back__icon' }, icon('chevron-left')), 'Back to chats');
+}
+
+function navRow(iconName, title, preview, badge, onOpen) {
+  return el('div', {
+    class: 'chat-item chat-item--nav',
+    role: 'button',
+    tabIndex: 0,
+    onclick: onOpen,
+    onkeydown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        onOpen();
+      }
+    },
+  },
+  el('div', { class: 'chat-item__head' },
+    el('span', { class: 'chat-item__title', textContent: title })),
+  el('div', { class: 'chat-item__body' },
+    el('span', { class: 'avatar chat-item__avatar chat-item__avatar--icon' }, icon(iconName)),
+    el('div', { class: 'chat-item__text' },
+      el('div', { class: 'chat-item__preview', textContent: preview }),
+      el('div', { class: 'chat-item__meta' },
+        badge ? el('span', { class: 'badge badge--muted', textContent: countLabel(badge) }) : null))));
+}
+
+/** The first row for the current view, or null (none while filtering). */
+function headRow() {
+  if (needle) return null;
+  let key;
+  let make;
+  if (contactsMode || store.archived) {
+    key = 'back';
+    make = backRow;
+  } else if (archiveInfo?.count) {
+    key = `archive|${JSON.stringify(archiveInfo)}`;
+    make = () => navRow('archive', 'Archive', (archiveInfo.titles ?? []).join(', '),
+      archiveInfo.unread, () => emit('ui:list-view', 'archive'));
+  } else {
+    return null;
+  }
+  if (key !== headKey) {
+    headKey = key;
+    headNode = make();
+  }
+  return headNode;
+}
+
 // What the box above the list is filtering by, lower-cased and
 // trimmed, or '' for "show everything".
 //
@@ -414,13 +490,13 @@ function renderContacts() {
     return (a.title || '').localeCompare(b.title || '');
   });
   if (!list.length) {
-    clear(root).append(el('div', {
+    clear(root).append(...[headRow()].filter(Boolean), el('div', {
       class: 'chat-list__empty',
       textContent: needle ? `Nothing matches "${needle}"` : 'No contacts yet.',
     }));
     return;
   }
-  clear(root).append(...list.map((c) => {
+  clear(root).append(...[headRow()].filter(Boolean), ...list.map((c) => {
     const avatar = el('span', { class: `avatar avatar--md contact-row__avatar accent-${c.color}` });
     fillAvatar(avatar, { id: c.userId, title: c.title, avatar: c.avatar, avatarThumb: c.avatarThumb });
     // The private chat's folder chip — the same as a chat row's, and the
@@ -489,10 +565,11 @@ function render() {
   // just been thrown away is gone, a message's has not.
   closeMenuIfDetached();
   const chats = store.chats.filter(matches);
+  const head = headRow();
   if (!chats.length) {
     for (const { node } of rows.values()) seen?.unobserve(node);
     rows.clear();
-    clear(root).append(el('div', {
+    clear(root).append(...[head].filter(Boolean), el('div', {
       class: 'chat-list__empty',
       textContent: needle ? `Nothing matches "${needle}"` : 'No chats here yet.',
     }));
@@ -507,7 +584,7 @@ function render() {
   //
   // Same trick as the history's messageNode: the payload is its own
   // hash, so a row is rebuilt exactly when the chat it draws changed.
-  reconcile(root, chats.map(rowNode));
+  reconcile(root, [head, ...chats.map(rowNode)].filter(Boolean));
   // Rows for chats that have dropped off the list (a filter, a switch
   // to the archive) are of no further use.
   const listed = new Set(chats.map((c) => c.id));

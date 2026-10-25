@@ -1,0 +1,166 @@
+// SETTINGS ON A PHONE, the way the chat's info is shown (layout/_phone-chat):
+// a glass pill across the top with the title, and the content in a glass
+// sheet under it. One thing at a time (ui/settings.js, syncMode): first the
+// list of sections — a tap goes into one — then that section, whose header
+// has Back to the list.
+//
+// Written in the CSS-compatible part of SCSS, like layout/_phone-chat, so
+// it can be pushed into the live page as it is while being tuned.
+:root[data-theme] {
+  @media (max-width: 640px) {
+    .settings__window {
+      --glass: color-mix(in srgb, var(--c-surface) 70%, transparent);
+      --glass-line: color-mix(in srgb, var(--c-text) 12%, transparent);
+      --glass-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+      --header-item: 44px;
+      --header-gap: 8px;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+      display: flex;
+      flex-direction: column;
+      inset: 0;
+      padding: var(--header-gap) 10px 0;
+    }
+
+    // The list of sections, or the section: never both.
+    .settings__window--list .settings__pane,
+    .settings__window:not(.settings__window--list) .settings__nav {
+      display: none;
+    }
+
+    .settings__nav,
+    .settings__pane {
+      align-items: stretch;
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: var(--header-gap);
+      min-height: 0;
+    }
+
+    .settings__nav {
+      background: transparent;
+      border: none;
+      overflow: visible;
+      padding: 0;
+    }
+
+    // ------------------------------------------------- the glass header
+    .settings__nav-head,
+    .settings__head {
+      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      backdrop-filter: blur(18px) saturate(160%);
+      align-items: center;
+      background: var(--glass);
+      border: 1px solid var(--glass-line);
+      border-radius: calc(var(--header-item) / 2);
+      box-shadow: var(--glass-shadow);
+      display: flex;
+      flex: 0 0 auto;
+      gap: 4px;
+      height: var(--header-item);
+      padding: 0 4px 0 16px;
+    }
+
+    .settings__head {
+      padding-left: 4px;
+    }
+
+    .settings__title,
+    .settings__heading {
+      display: block;
+      flex: 1 1 auto;
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+      min-width: 0;
+      overflow: hidden;
+      padding: 0;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .settings__nav-close,
+    .settings__head-back {
+      border-radius: 50%;
+      display: flex;
+      flex: 0 0 auto;
+      height: 36px;
+      justify-content: center;
+      width: 36px;
+    }
+
+    // ---------------------------------------------------- the glass sheet
+    .settings__nav-list,
+    .settings__body {
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      backdrop-filter: blur(24px) saturate(160%);
+      background: var(--glass);
+      border: 1px solid var(--glass-line);
+      border-bottom: none;
+      border-radius: 18px 18px 0 0;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    .settings__nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
+    }
+
+    .settings__body {
+      padding: 4px 16px calc(16px + env(safe-area-inset-bottom));
+    }
+
+    // A section in the list: a row, as in the iOS settings — the icon, the
+    // name, a chevron at the end.
+    .settings__tab {
+      border-radius: 0;
+      color: var(--c-text);
+      font-size: 15px;
+      gap: 14px;
+      min-height: 48px;
+      padding: 0 18px;
+      width: 100%;
+
+      .icon {
+        color: var(--c-accent);
+        height: 20px;
+        width: 20px;
+      }
+
+      span {
+        flex: 1 1 auto;
+      }
+
+      &::after {
+        border-right: 2px solid var(--c-text-faint);
+        border-top: 2px solid var(--c-text-faint);
+        content: "";
+        flex: 0 0 auto;
+        height: 8px;
+        transform: rotate(45deg);
+        width: 8px;
+      }
+
+      &.is-active,
+      &.is-active:hover {
+        background: transparent;
+        color: var(--c-text);
+      }
+    }
+
+    .settings__sep {
+      border: none;
+      border-top: 1px solid var(--glass-line);
+      margin: 6px 18px;
+    }
+  }
+}

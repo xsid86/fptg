@@ -72,6 +72,8 @@ const SECTIONS = [
 const PAGES = SECTIONS.filter((x) => !x.sep);
 
 let dialog = null;
+// The window inside the dialog: the list/section switch is its class.
+let frame = null;
 let opener = null;
 let hooks = {};
 let nav = null;
@@ -910,15 +912,34 @@ function renderStorage() {
 }
 
 // -------------------------------------------------------------- frame
+// On a phone (layout/_phone-settings.scss) the window shows one thing at a
+// time, as in the mobile apps: the list of sections first, a tap goes into
+// one, Back (in its header) returns to the list. On a wider window both
+// stand side by side and this changes nothing.
+const PHONE = window.matchMedia('(max-width: 640px)');
+let listMode = false;
+
+function syncMode() {
+  frame?.classList.toggle('settings__window--list', listMode && PHONE.matches);
+}
+
 function renderNav() {
+  // The head and the list are wrappers of their own for the phone's layout;
+  // on a wide window they dissolve (display: contents) into the column.
   clear(nav).append(
-    el('h2', { class: 'settings__title' }, 'Settings'),
-    ...SECTIONS.map((s) => (s.sep ? el('hr', { class: 'settings__sep' }) : el('button', {
-      class: `settings__tab${s.id === current ? ' is-active' : ''}`,
-      type: 'button',
-      'aria-current': s.id === current ? 'page' : null,
-      onclick: () => select(s.id),
-    }, icon(s.icon, 'icon--sm'), el('span', {}, s.label)))));
+    el('div', { class: 'settings__nav-head' },
+      el('h2', { class: 'settings__title' }, 'Settings'),
+      el('button', {
+        class: 'btn btn--icon settings__nav-close', type: 'button', title: 'Close',
+        onclick: close,
+      }, icon('close'), el('span', { class: 'u-sr-only' }, 'Close'))),
+    el('div', { class: 'settings__nav-list' },
+      ...SECTIONS.map((s) => (s.sep ? el('hr', { class: 'settings__sep' }) : el('button', {
+        class: `settings__tab${s.id === current ? ' is-active' : ''}`,
+        type: 'button',
+        'aria-current': s.id === current ? 'page' : null,
+        onclick: () => select(s.id),
+      }, icon(s.icon, 'icon--sm'), el('span', {}, s.label))))));
 }
 
 /**
@@ -954,6 +975,14 @@ async function renderPane() {
 
 function paneHead(section) {
   return el('header', { class: 'settings__head' },
+    // Phone only: back to the list of sections (see syncMode).
+    el('button', {
+      class: 'btn btn--icon settings__head-back', type: 'button', title: 'All settings',
+      onclick: () => {
+        listMode = true;
+        syncMode();
+      },
+    }, icon('chevron-left'), el('span', { class: 'u-sr-only' }, 'All settings')),
     el('h2', { class: 'settings__heading' }, section.label),
     el('button', {
       class: 'btn btn--icon', type: 'button', title: 'Close',
@@ -970,12 +999,17 @@ function paneBody(nodes) {
 function select(id) {
   current = id;
   advancedView = null;
+  listMode = false;
+  syncMode();
   renderNav();
   renderPane();
 }
 
-async function open() {
+/** list: on a phone, start from the list of sections (see syncMode). */
+async function open(list = true) {
   if (dialog.open) return;
+  listMode = list;
+  syncMode();
   // The account changes from the phone too — it is asked anew on every open.
   account = null;
   accountView = 'main';
@@ -1006,6 +1040,11 @@ function close() {
   dialog.close();
 }
 
+/** Open on the list of sections (on a phone; the menu, ui/mainmenu.js). */
+export function openSettingsList() {
+  open(true);
+}
+
 /** Open right on a section (a click on "Online" in the status bar). */
 export function openSettings(id) {
   if (dialog.open) {
@@ -1013,7 +1052,7 @@ export function openSettings(id) {
     return;
   }
   if (PAGES.some((s) => s.id === id)) current = id;
-  open();
+  open(false);
 }
 
 /**
@@ -1035,9 +1074,13 @@ export function mountSettings(node, button, options) {
   });
   nav = el('nav', { class: 'settings__nav', 'aria-label': 'Settings sections' });
   pane = el('div', { class: 'settings__pane' });
-  dialog.append(el('div', { class: 'settings__window' }, nav, pane));
+  frame = el('div', { class: 'settings__window' }, nav, pane);
+  dialog.append(frame);
+  PHONE.addEventListener('change', syncMode);
 
-  opener.addEventListener('click', open);
+  // The button that opened the window gets the focus back — there is none
+  // now that the settings open from the menu.
+  opener?.addEventListener('click', () => open(true));
   // Esc with the viewer open (the avatar gallery lives inside this dialog)
   // closes only the viewer.
   dialog.addEventListener('cancel', (event) => {
@@ -1050,7 +1093,7 @@ export function mountSettings(node, button, options) {
   });
   dialog.addEventListener('close', () => {
     storageView = null;
-    opener.focus();
+    opener?.focus();
   });
 
   on('srv:settings', (payload) => {

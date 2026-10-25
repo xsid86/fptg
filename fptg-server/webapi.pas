@@ -3282,6 +3282,32 @@ begin
   end;
 end;
 
+{ The archive as one row at the top of the main list (ui/chat-list.js): how
+  many chats it holds, how many of them have something unread, and the
+  first few names for the preview line. }
+function ArchiveSummary(AChats: TTdChats): TJSONObject;
+var
+  Titles: TJSONArray;
+  CRow: TChatRow;
+  I, Unread: integer;
+begin
+  Unread := 0;
+  Titles := TJSONArray.Create;
+  for I := 0 to AChats.ArchiveCount - 1 do begin
+    CRow := AChats.ArchiveRows[I];
+    if (CRow.UnreadCount > 0) or CRow.IsMarkedAsUnread then begin
+      Inc(Unread);
+    end;
+    if Titles.Count < ARCHIVE_SUMMARY_TITLES then begin
+      Titles.Add(string(CRow.Title));
+    end;
+  end;
+  Result := TJSONObject.Create;
+  Result.Add('count', AChats.ArchiveCount);
+  Result.Add('unread', Unread);
+  Result.Add('titles', Titles);
+end;
+
 function TWebApi.CmdChatsList(AArgs: TJSONObject): TJSONData;
 var
   Chats: TTdChats;
@@ -3332,6 +3358,9 @@ begin
   Res.Add('loading', Chats.Loading);
   Res.Add('items', Arr);
   Res.Add('customEmoji', Emoji);
+  if not Archived then begin
+    Res.Add('archive', ArchiveSummary(Chats));
+  end;
   Result := Res;
 end;
 

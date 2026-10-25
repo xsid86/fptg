@@ -27,6 +27,7 @@
 }
 
 .settings__window {
+  @include panel-glass;
   background: var(--c-surface);
   border: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   border-radius: $radius-lg;
@@ -47,6 +48,19 @@
 }
 
 // ------------------------------------------------------------ sections
+// The nav's head (title, close) and list are wrappers for the phone's
+// list-then-section layout (layout/_phone-settings); here they dissolve
+// into the column, and the phone's own buttons are not shown.
+.settings__nav-head,
+.settings__nav-list {
+  display: contents;
+}
+
+.settings__nav-close,
+.settings__head-back {
+  display: none;
+}
+
 .settings__nav {
   @include flex(column, stretch, flex-start, $space-1);
   @include scroll-area;

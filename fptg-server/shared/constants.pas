@@ -422,6 +422,9 @@ const
   SERVER_NETWORK_LOCAL = 'local';
   SERVER_NETWORK_LAN = 'lan';
   SERVER_NETWORK_INTERNET = 'internet';
+  { The archive row at the top of the chat list (webapi.ArchiveSummary):
+    how many chat names its preview line carries. }
+  ARCHIVE_SUMMARY_TITLES = 5;
   SERVER_BIND_ALL = '0.0.0.0';
   { This machine's address for other computers (localserver.MachineAddress):
     a UDP socket "connected" here picks the interface of the default route.

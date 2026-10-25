@@ -1,0 +1,119 @@
+// THE MENU ON A PHONE (ui/mainmenu.js), the way the settings are shown there
+// (layout/_phone-settings): the whole width, a glass pill across the top
+// with the title and Close, the account and the items in a glass sheet
+// under it — rows as in the list of settings sections.
+//
+// Written in the CSS-compatible part of SCSS, like layout/_phone-chat, so
+// it can be pushed into the live page as it is while being tuned.
+:root[data-theme] {
+  @media (max-width: 640px) {
+    .main-menu__panel {
+      --glass: color-mix(in srgb, var(--c-surface) 70%, transparent);
+      --glass-line: color-mix(in srgb, var(--c-text) 12%, transparent);
+      --glass-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+      --header-item: 44px;
+      --header-gap: 8px;
+      // No blur of its own: it would be the backdrop root of the pill and
+      // the sheet, and theirs would show nothing (ARCHITECTURE, Grabli).
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      gap: var(--header-gap);
+      max-width: none;
+      overflow: visible;
+      padding: var(--header-gap) 10px 0;
+      width: 100%;
+    }
+
+    // ------------------------------------------------- the glass header
+    .main-menu__head {
+      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      backdrop-filter: blur(18px) saturate(160%);
+      align-items: center;
+      background: var(--glass);
+      border: 1px solid var(--glass-line);
+      border-radius: calc(var(--header-item) / 2);
+      box-shadow: var(--glass-shadow);
+      display: flex;
+      flex: 0 0 auto;
+      gap: 4px;
+      height: var(--header-item);
+      padding: 0 4px 0 16px;
+    }
+
+    .main-menu__title {
+      color: var(--c-text);
+      flex: 1 1 auto;
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .main-menu__close {
+      border-radius: 50%;
+      display: flex;
+      flex: 0 0 auto;
+      height: 36px;
+      justify-content: center;
+      width: 36px;
+    }
+
+    // ---------------------------------------------------- the glass sheet
+    .main-menu__sheet {
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      backdrop-filter: blur(24px) saturate(160%);
+      background: var(--glass);
+      border: 1px solid var(--glass-line);
+      border-bottom: none;
+      border-radius: 18px 18px 0 0;
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-height: 0;
+      overflow-y: auto;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .main-menu__account {
+      padding: 20px 18px 12px;
+    }
+
+    .main-menu__items {
+      gap: 0;
+      padding: 6px 0;
+    }
+
+    // An item: a row, as a section in the settings list — the icon in the
+    // accent, the name, a chevron at the end.
+    .main-menu__item {
+      border-radius: 0;
+      color: var(--c-text);
+      font-size: 15px;
+      gap: 14px;
+      min-height: 48px;
+      padding: 0 18px;
+
+      .icon {
+        color: var(--c-accent);
+        height: 20px;
+        width: 20px;
+      }
+
+      &::after {
+        border-right: 2px solid var(--c-text-faint);
+        border-top: 2px solid var(--c-text-faint);
+        content: "";
+        flex: 0 0 auto;
+        height: 8px;
+        transform: rotate(45deg);
+        width: 8px;
+      }
+    }
+
+    .main-menu__foot {
+      padding: 16px 18px;
+    }
+  }
+}

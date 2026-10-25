@@ -68,16 +68,9 @@
 
   <aside class="app__sidebar">
     <div class="sidebar">
-      <!-- The three list tabs on the left: chats, archive, contacts. Active is the
-           one we are on now (main.js, setSidebarView). -->
-      <div class="sidebar__head" role="tablist">
-        <button class="btn sidebar__tab is-active" type="button" role="tab"
-                data-view="chats">Chats</button>
-        <button class="btn sidebar__tab" type="button" role="tab"
-                data-view="archive">Archive</button>
-        <button class="btn sidebar__tab" type="button" role="tab"
-                data-view="contacts">Contacts</button>
-      </div>
+      <!-- The menu button (ui/mainmenu.js) and "+" (ui/newchat.js) go here.
+           The archive is the first row of the list, contacts are in the menu. -->
+      <div class="sidebar__head"></div>
 
       <div class="sidebar__search">
         <label class="field">
@@ -236,11 +229,6 @@
   <div class="attach-layer" id="attach" hidden></div>
 
   <footer class="app__status status-bar" id="status-bar">
-    <button class="status-bar__settings" type="button" id="settings-open"
-            title="Settings">
-      <span class="icon icon--sm" data-icon="settings"></span>
-      <span class="u-sr-only">Settings</span>
-    </button>
     <button class="status-bar__account" type="button" id="account" title="Accounts"></button>
     <div class="status-bar__presence-box">
       <button class="status-bar__presence" type="button" id="presence"></button>

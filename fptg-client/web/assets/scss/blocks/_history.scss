@@ -149,8 +149,7 @@
 // shape as the "jump to the newest" button below, opposite corner -
 // it is the same kind of thing: a way out of where you are.
 .history__to-post {
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
+  @include floating-glass;
   border-radius: 50%;
   @include flex(row, center, center);
   @include size(36px);
@@ -251,7 +250,10 @@
   @include flex(row, center, center);
   @include focus-ring;
   @include size(36px);
-  background: var(--c-accent);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  // The accent, a little see-through: frosted like the other floating buttons.
+  background: color-mix(in srgb, var(--c-accent) 85%, transparent);
   border-radius: $radius-pill;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   color: var(--c-light);
@@ -277,8 +279,8 @@
   @include flex(row, center, center);
   @include focus-ring;
   @include size(36px);
-  background: var(--c-surface);
-  border: 1px solid color-mix(in srgb, var(--c-accent) 60%, transparent);
+  @include floating-glass;
+  border-color: color-mix(in srgb, var(--c-accent) 60%, transparent);
   border-radius: $radius-pill;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   color: var(--c-accent);
@@ -322,6 +324,7 @@
 
 .info-panel {
   @include flex(column, stretch, flex-start);
+  @include panel-glass;
   background: var(--c-surface);
   border-left: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent);
   bottom: 0;

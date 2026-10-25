@@ -108,11 +108,9 @@
 
 // The theme switch. It sits at the right-hand end of the status bar,
 // which is where it belongs: a setting that is always reachable but
-// never in the way of the chat.
-// The settings button — the same icon without a label, only in the left
-// corner, before the connection indicator.
-.status-bar__theme,
-.status-bar__settings {
+// never in the way of the chat. (Settings open from the menu,
+// ui/mainmenu.js.)
+.status-bar__theme {
   @include flex(row, center, center, 0);
   padding: 0 $space-2;
   border: 0;

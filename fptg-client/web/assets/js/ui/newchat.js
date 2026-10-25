@@ -24,7 +24,7 @@ const photoStep = (chatId, uploadId) => ({
   params: { chat_id: chatId, photo: { '@type': 'inputChatPhotoStatic', photo: { '@type': 'inputFileUpload', id: uploadId } } },
 });
 
-function newGroup() {
+export function newGroup() {
   const box = openBox();
   let name = null;
   let photo = null;
@@ -80,7 +80,7 @@ function membersStep(box, title, photo) {
   };
 }
 
-function newChannel() {
+export function newChannel() {
   const box = openBox();
   let name = null;
   let about = null;

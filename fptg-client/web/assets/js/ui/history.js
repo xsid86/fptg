@@ -342,6 +342,9 @@ function paint(state) {
   // channel reached by a forward may not be in the list.
   const chat = state.chat ?? store.activeChat;
   column.classList.toggle('is-channel', chat?.kind === 'channel' && !state.thread);
+  // A conversation of two: the phone's bubbles (layout/_phone-chat) show no
+  // sender's name there.
+  column.classList.toggle('is-private', ['private', 'bot', 'secret', 'self'].includes(chat?.kind));
 
   if (state.chatId !== chatId) {
     chatId = state.chatId;
@@ -952,7 +955,10 @@ const FLOAT_DATE_TOP = 16;
 
 /** The floating date above the history — util/floatdate.js. */
 function updateFloatDate() {
-  updateFloatDateIn(root, column, floatDate, FLOAT_DATE_TOP);
+  // From the style when it says (the phone layout moves the date under its
+  // floating header), the constant otherwise.
+  const top = parseFloat(getComputedStyle(floatDate).top);
+  updateFloatDateIn(root, column, floatDate, Number.isFinite(top) ? top : FLOAT_DATE_TOP);
 }
 
 /**

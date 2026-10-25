@@ -2,8 +2,8 @@
 
 // THE PHONE LAYER: the window below the "sm" breakpoint laid out the way
 // the mobile apps are — one pane at a time edge to edge (the .app
-// [data-view] switch, layout/_app), compact chat rows, a one-line chat
-// header with the search behind a button, the formatting behind "Aa".
+// [data-view] switch, layout/_app), compact chat rows, the status strip
+// on one line. The chat screen has its own layer (layout/_phone-chat).
 //
 // One file loaded LAST (style.scss, after themes/) rather than a phone
 // block in every block file: the themes restyle the same panels, rows and
@@ -134,118 +134,6 @@
       display: none;
     }
 
-    // ----------------------------------------------------- chat header
-    // One line: back, the avatar, the name; the search and the filters
-    // open as a second line under the lens (ui/chat-header.js).
-    .chat-header {
-      flex-wrap: wrap;
-      gap: $space-3;
-      padding: $space-2 $space-3;
-    }
-
-    .chat-header__avatar {
-      @include size(40px);
-      flex: 0 0 auto;
-      font-size: $fs-md;
-    }
-
-    .chat-header__search-toggle {
-      display: flex;
-    }
-
-    .chat-header__tools {
-      display: none;
-    }
-
-    .chat-header.is-tools-open .chat-header__tools {
-      align-items: stretch;
-      display: flex;
-      flex: 1 0 100%;
-      gap: $space-2;
-    }
-
-    // The filters in one row across the width; scrolled sideways if a
-    // phone is narrower still.
-    .chat-header__filters {
-      flex-wrap: nowrap;
-      justify-content: space-between;
-      overflow-x: auto;
-    }
-
-    .chat-filter {
-      @include size(28px);
-      flex: 0 0 auto;
-    }
-
-    // --------------------------------------------------------- history
-    .history {
-      padding: $space-4 $space-3;
-    }
-
-    .history__column {
-      --message-side: 88%;
-    }
-
-    .message {
-      margin-bottom: $space-4;
-    }
-
-    .message__head {
-      padding: $space-2 $space-4;
-    }
-
-    .message__body {
-      padding: $space-3 $space-4;
-    }
-
-    .message__reactions {
-      padding: $space-2 $space-4;
-    }
-
-    .message__reply {
-      margin: 0 $space-4 $space-2;
-    }
-
-    .info-toggle,
-    .translate-toggle {
-      @include size(32px);
-      right: $space-4;
-    }
-
-    .info-toggle {
-      top: $space-4;
-    }
-
-    .translate-toggle {
-      top: calc(#{$space-4} + 32px + #{$space-3});
-    }
-
-    .info-panel {
-      width: 100%;
-    }
-
-    // -------------------------------------------------------- composer
-    // The input with its buttons, under it one row of actions; the
-    // formatting rows only after "Aa" (ui/composer.js).
-    .composer {
-      gap: $space-2;
-      padding: $space-2 $space-3 calc(#{$space-2} + env(safe-area-inset-bottom));
-    }
-
-    .composer:not(.composer--format) .composer__group--format {
-      display: none;
-    }
-
-    .composer__format-toggle {
-      display: flex;
-    }
-
-    .composer__group--actions {
-      justify-content: flex-start;
-    }
-
-    .composer__send {
-      margin-left: auto;
-    }
+    // The chat screen itself: layout/_phone-chat.
   }
 }

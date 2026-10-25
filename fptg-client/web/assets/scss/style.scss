@@ -26,6 +26,9 @@
 @use "pages";
 @use "themes";      // simple Dark/Light on top of everything above
 @use "layout/phone"; // the phone layout, over the themes too (its header says why)
+@use "layout/phone-chat"; // the chat screen on a phone, iOS-like
+@use "layout/phone-settings"; // settings on a phone: the list, then a section
+@use "layout/phone-menu"; // the menu on a phone, as the settings there
 
 .pswp {
   backdrop-filter: blur(30px);

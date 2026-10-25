@@ -203,7 +203,12 @@ function build() {
   root.append(
     back,
     avatar,
-    el('div', { class: 'chat-header__identity' },
+    el('div', {
+      class: 'chat-header__identity',
+      title: 'Chat info',
+      // The name opens the chat's info, as in the official apps.
+      onclick: () => emit('ui:info-open'),
+    },
       el('div', { class: 'chat-header__title' }, titleIcon, titleText),
       subtitle),
     searchToggle,

@@ -309,6 +309,44 @@ $-live-mask: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewB
   transform: scale(1.1);
 }
 
+// The archive row at the top of the list (ui/chat-list.js, navRow): an
+// icon in the place of the avatar.
+.chat-item__avatar--icon {
+  background: color-mix(in srgb, var(--c-text) 12%, transparent);
+  color: var(--c-text-dim);
+  display: grid;
+  place-items: center;
+
+  .icon {
+    @include size(24px);
+  }
+}
+
+// "Back to chats" at the top of the archive and the contacts
+// (ui/chat-list.js, backRow): one compact line, a small round arrow.
+.list-back {
+  @include flex(row, center, flex-start, $space-3);
+  @include focus-ring;
+  color: var(--c-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: $fs-md;
+  padding: $space-3 $space-4;
+}
+
+.list-back__icon {
+  @include size(18px);
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+
+  .icon {
+    @include size(12px);
+  }
+}
+
 .chat-item__avatar.is-deleted {
   background: var(--c-text-faint);
 }

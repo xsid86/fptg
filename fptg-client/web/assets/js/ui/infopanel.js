@@ -1329,6 +1329,8 @@ export function mountInfoPanel(box, options) {
   mediaFloat = el('div', { class: 'history__float-date info-panel__float-date', hidden: true }, el('span'));
   panel.append(mediaFloat);
   box.append(toggle, panel);
+  // A tap on the chat's name in the header (ui/chat-header.js).
+  on('ui:info-open', () => setOpen(true));
   // "Contact info" from the message menu: the private chat with the sender
   // (createPrivateChat — bot.userChat) and its info.
   on('ui:contact-info', async ({ userId }) => {

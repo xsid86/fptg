@@ -199,9 +199,53 @@
 // against its padding box and then scrolls away with the content. See
 // .workspace__history and .sidebar__body, which exist for exactly
 // that.
+// A round button floating over a scroller: frosted glass — what scrolls
+// under it stays visible, blurred. The fill is see-through on purpose;
+// the blur is what keeps the icon readable.
+@mixin floating-glass {
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  background: color-mix(in srgb, var(--c-surface) 65%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-text) 12%, transparent);
+}
+
+// A glass panel that HOLDS glass of its own (the workspace: the history's
+// floating buttons, the chat's info, the floating date; the sidebar: the
+// list rows, the "+" button). Its blur goes on a layer BEHIND its content
+// instead of on itself: an element with backdrop-filter is the backdrop
+// root of everything inside it, and their own backdrop-filter then draws
+// nothing — measured on the chat's info panel: its blur on and off gave
+// identical pixels until the workspace lost its own filter. The same rule
+// as on the project site (theme README, "Pitfalls").
+@mixin glass-host {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  isolation: isolate;
+  position: relative;
+
+  &::before {
+    -webkit-backdrop-filter: var(--card-blur, blur(15px));
+    backdrop-filter: var(--card-blur, blur(15px));
+    border-radius: inherit;
+    content: "";
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+    z-index: -1;
+  }
+}
+
+// A panel or a window over the app (the chat's info, dialogs, settings, the
+// call card): the theme's own fill, with what lies under it blurred — in
+// the themes where that fill is see-through, the history used to show
+// through readable. Stronger than on the small floating buttons.
+@mixin panel-glass {
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+
 @mixin scroll-jump {
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
+  @include floating-glass;
   border-radius: 50%;
   @include flex(row, center, center);
   @include size(36px);

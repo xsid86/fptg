@@ -1,0 +1,485 @@
+// THE CHAT SCREEN ON A PHONE, in the manner of Telegram for iOS: the
+// history runs edge to edge, and over it float three glass pieces — back,
+// the chat's name, its avatar — with the input below as a glass pill
+// between round buttons. Messages are bubbles: the sender's name on top
+// (groups only), the time and the ticks inside the bottom corner.
+//
+// Colours are the theme's (Aurora, Dark, Light, …): only the shapes and
+// the layout change here.
+//
+// Written in the part of SCSS that is also plain CSS — nesting, literal
+// values, no mixins — on purpose: the file can be pushed into the live
+// page as it is (comment lines stripped) while it is being tuned, without
+// a compile per try. Loaded after the themes and the phone layer
+// (style.scss), every rule under :root[data-theme] for the same reason as
+// there (layout/_phone).
+:root[data-theme] {
+  @media (max-width: 640px) {
+    .workspace {
+      --glass: color-mix(in srgb, var(--c-surface) 70%, transparent);
+      --glass-line: color-mix(in srgb, var(--c-text) 12%, transparent);
+      --glass-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+      --bubble-radius: 18px;
+      --bubble-tail: 6px;
+      // The header: 44px pieces with the same 8px gap above and below them;
+      // whatever starts under the header (the info panel, the stream bar,
+      // the floating date, the history's first line) starts at --header-room.
+      --header-item: 44px;
+      --header-gap: 8px;
+      --header-room: calc(var(--header-item) + 2 * var(--header-gap));
+      --live-bar-h: 52px;
+      // Where the history's first line starts: under the header, and under
+      // the stream bar too when there is one.
+      --history-top: var(--header-room);
+    }
+
+    // ------------------------------------------------------------ glass
+    .chat-header__back,
+    .chat-header__identity,
+    .chat-header__search-toggle,
+    .chat-header.is-tools-open .chat-header__tools,
+    .history__to-bottom,
+    .translate-toggle,
+    .composer__input,
+    .composer .btn--icon,
+    .composer__record,
+    .composer__format-toggle {
+      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      backdrop-filter: blur(18px) saturate(160%);
+      background: var(--glass);
+      border: 1px solid var(--glass-line);
+      box-shadow: var(--glass-shadow);
+    }
+
+    // ----------------------------------------------------------- header
+    // Not a bar: the pieces float over the history (absolute, inside the
+    // workspace), and the gaps between them let touches through to it.
+    .chat-header {
+      align-items: center;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: linear-gradient(to bottom, color-mix(in srgb, var(--c-bg) 75%, transparent), transparent);
+      border: none;
+      // The base header is a card with rounded top corners; here its
+      // gradient runs edge to edge.
+      border-radius: 0;
+      box-shadow: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--header-gap);
+      inset: 0 0 auto;
+      padding: var(--header-gap) 10px;
+      pointer-events: none;
+      position: absolute;
+
+      > * {
+        pointer-events: auto;
+      }
+    }
+
+    .chat-header__back {
+      border-radius: 50%;
+      color: var(--c-text);
+      display: flex;
+      flex: 0 0 auto;
+      height: var(--header-item);
+      justify-content: center;
+      order: 1;
+      width: var(--header-item);
+    }
+
+    // The name in the middle, as a pill of its own width; a tap opens the
+    // chat's info (ui/chat-header.js).
+    .chat-header__identity {
+      border-radius: calc(var(--header-item) / 2);
+      cursor: pointer;
+      display: flex;
+      flex: 0 1 auto;
+      flex-direction: column;
+      height: var(--header-item);
+      justify-content: center;
+      margin: 0 auto;
+      max-width: calc(100% - 170px);
+      order: 2;
+      padding: 0 16px;
+      text-align: center;
+    }
+
+    .chat-header__title {
+      color: var(--c-text);
+      font-size: 15px;
+      font-weight: 600;
+      justify-content: center;
+      line-height: 1.2;
+    }
+
+    .chat-header__subtitle {
+      font-size: 12px;
+      line-height: 1.2;
+    }
+
+    .chat-header__search-toggle {
+      border-radius: 50%;
+      color: var(--c-text);
+      display: flex;
+      flex: 0 0 auto;
+      height: var(--header-item);
+      justify-content: center;
+      order: 3;
+      width: var(--header-item);
+    }
+
+    .chat-header__avatar {
+      border: 1px solid var(--glass-line);
+      box-shadow: var(--glass-shadow);
+      flex: 0 0 auto;
+      font-size: 15px;
+      height: var(--header-item);
+      order: 4;
+      width: var(--header-item);
+    }
+
+    .chat-header__tools {
+      display: none;
+    }
+
+    .chat-header.is-tools-open .chat-header__tools {
+      align-items: stretch;
+      border-radius: 18px;
+      display: flex;
+      flex: 1 0 100%;
+      gap: 6px;
+      order: 5;
+      padding: 8px;
+    }
+
+    .chat-header__filters {
+      flex-wrap: nowrap;
+      justify-content: space-between;
+      overflow-x: auto;
+    }
+
+    .chat-filter {
+      flex: 0 0 auto;
+      height: 28px;
+      width: 28px;
+    }
+
+    // ---------------------------------------------------------- history
+    // Room at the top for the floating header.
+    .history {
+      padding: var(--history-top) 8px 8px;
+    }
+
+    .history__float-date {
+      top: var(--history-top);
+    }
+
+    // A running video chat or stream (ui/livebar.js): a glass pill floating
+    // under the header, the same gap below it as above; the history starts
+    // under both and scrolls beneath them, blurred, instead of being cut off
+    // at the pill's edge.
+    .live-bar:not([hidden]) {
+      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      backdrop-filter: blur(18px) saturate(160%);
+      background: var(--glass);
+      border: 1px solid var(--glass-line);
+      border-radius: 18px;
+      box-shadow: var(--glass-shadow);
+      box-sizing: border-box;
+      height: var(--live-bar-h);
+      left: 10px;
+      position: absolute;
+      right: 10px;
+      top: var(--header-room);
+      z-index: 999;
+    }
+
+    .workspace:has(> .live-bar:not([hidden])) {
+      --history-top: calc(var(--header-room) + var(--live-bar-h) + var(--header-gap));
+    }
+
+    .history__loader {
+      top: var(--history-top);
+    }
+
+    .history__to-bottom {
+      bottom: 12px;
+      color: var(--c-text);
+      height: 44px;
+      right: 12px;
+      width: 44px;
+    }
+
+    // The info opens from the name in the header; the round "i" over the
+    // history would sit under it.
+    .info-toggle {
+      display: none;
+    }
+
+    .translate-toggle {
+      bottom: 64px;
+      height: 44px;
+      right: 12px;
+      top: auto;
+      width: 44px;
+    }
+
+    // The chat's info starts under the floating header, not beneath it.
+    .info-panel {
+      border-left: none;
+      border-radius: 18px 18px 0 0;
+      border-top: 1px solid var(--glass-line);
+      top: var(--header-room);
+      transform: translateY(105%);
+      width: 100%;
+
+      // A sheet, as in iOS: it slides up from the bottom, not in from the side.
+      &.is-open {
+        transform: none;
+      }
+    }
+
+    // ---------------------------------------------------------- bubbles
+    .history__column {
+      --message-side: 85%;
+    }
+
+    .message {
+      border: none;
+      border-radius: var(--bubble-radius) var(--bubble-radius) var(--bubble-radius) var(--bubble-tail);
+      box-shadow: none;
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 6px;
+      position: relative;
+    }
+
+    .message--outgoing {
+      border-radius: var(--bubble-radius) var(--bubble-radius) var(--bubble-tail) var(--bubble-radius);
+    }
+
+    // The head strip dissolves: its pieces become the bubble's own.
+    .message__head {
+      display: contents;
+    }
+
+    .message__avatar {
+      display: none;
+    }
+
+    .message__sender {
+      color: var(--sender-color);
+      font-size: 14px;
+      font-weight: 600;
+      order: 1;
+      padding: 7px 12px 0;
+    }
+
+    // No name over one's own messages, in a private chat or a channel.
+    .message--outgoing .message__sender,
+    .history__column.is-private .message__sender,
+    .history__column.is-channel .message__sender {
+      display: none;
+    }
+
+    .message__forward {
+      order: 2;
+    }
+
+    .message__reply {
+      margin: 6px 8px 2px;
+      order: 3;
+    }
+
+    .message__body {
+      order: 4;
+      padding: 6px 12px 7px;
+    }
+
+    // The time sits in the bottom corner; an invisible run of space at the
+    // end of the text keeps the last line clear of it — or pushes it to a
+    // line of its own when there is no room, as Telegram does.
+    .message__body::after {
+      content: "";
+      display: inline-block;
+      height: 1px;
+      width: 46px;
+    }
+
+    .message--outgoing .message__body::after {
+      width: 66px;
+    }
+
+    .message:has(.message__reactions) .message__body::after,
+    .message__body:has(> .media__wrapper:last-child)::after {
+      display: none;
+    }
+
+    // Reactions and the comments pill from the left, as in iOS; the right
+    // end of the row is the time's.
+    .message__reactions {
+      background: none;
+      order: 5;
+      padding: 0 70px 8px 10px;
+    }
+
+    .message__reactions-gap {
+      display: none;
+    }
+
+    .message__time {
+      bottom: 6px;
+      color: color-mix(in srgb, var(--c-text) 60%, transparent);
+      font-size: 11px;
+      opacity: 1;
+      position: absolute;
+      right: 11px;
+    }
+
+    .message--outgoing .message__time {
+      right: 30px;
+    }
+
+    .message__receipt-hit {
+      bottom: 5px;
+      position: absolute;
+      right: 10px;
+    }
+
+    .message__state {
+      font-size: 11px;
+      order: 6;
+      padding: 0 12px 6px;
+    }
+
+    // Over a picture with no caption, and beside a sticker: on a dark pill.
+    .message:has(.message__body > .media__wrapper:last-child) .message__time,
+    .message--sticker .message__time {
+      background: rgba(0, 0, 0, 0.45);
+      border-radius: 10px;
+      color: #ffffff;
+      padding: 1px 6px;
+    }
+
+    // --------------------------------------------------------- composer
+    // One row: [Aa] [clip] (input) [emoji] [mic or send]; the formatting
+    // rows, Rich, Silent and scheduling only after "Aa" (ui/composer.js),
+    // under it. The rows and groups of the markup dissolve, so their
+    // buttons line up in one flex row by `order`.
+    .composer {
+      align-items: flex-end;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    }
+
+    .composer__row,
+    .composer__bar,
+    .composer__group--actions {
+      display: contents;
+    }
+
+    .composer__banner,
+    .composer__inline,
+    .composer__keyboard {
+      flex: 1 0 100%;
+      order: 0;
+    }
+
+    .composer .btn--icon,
+    .composer__format-toggle,
+    .composer__record {
+      border-radius: 50%;
+      color: var(--c-text);
+      flex: 0 0 auto;
+      height: 40px;
+      justify-content: center;
+      padding: 0;
+      width: 40px;
+    }
+
+    .composer__format-toggle {
+      display: flex;
+      order: 1;
+    }
+
+    .attach-menu__anchor,
+    .composer__kb-toggle,
+    .composer__menu {
+      order: 2;
+    }
+
+    .composer__input {
+      border-radius: 20px;
+      flex: 1 1 0;
+      max-height: 160px;
+      min-height: 40px;
+      min-width: 0;
+      order: 3;
+      padding: 9px 14px;
+    }
+
+    .composer__join,
+    .recorder {
+      flex: 1 1 0;
+      order: 3;
+    }
+
+    .composer__emoji {
+      order: 4;
+    }
+
+    .composer__record-box {
+      order: 5;
+    }
+
+    .composer__send {
+      border-radius: 50%;
+      height: 40px;
+      justify-content: center;
+      order: 5;
+      padding: 0;
+      width: 40px;
+
+      .u-sr-only {
+        display: none;
+      }
+
+      .icon {
+        height: 20px;
+        width: 20px;
+      }
+    }
+
+    // The microphone while the field is empty, the arrow once there is
+    // something to send.
+    .composer:has(.composer__input:empty) .composer__send,
+    .composer:not(:has(.composer__input:empty)) .composer__record-box {
+      display: none;
+    }
+
+    .composer__group--format {
+      flex: 1 0 100%;
+      order: 10;
+    }
+
+    .composer__schedule,
+    .composer__group--actions > .btn--toggle {
+      order: 11;
+    }
+
+    .composer:not(.composer--format) {
+      .composer__group--format,
+      .composer__schedule,
+      .composer__group--actions > .btn--toggle {
+        display: none;
+      }
+    }
+  }
+}
