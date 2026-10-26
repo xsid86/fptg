@@ -14571,18 +14571,27 @@ span.picker__gif {
     display: contents;
   }
   :root[data-theme] .message__avatar {
-    display: none;
+    font-size: 9px;
+    height: 20px;
+    left: 12px;
+    position: absolute;
+    top: 7px;
+    width: 20px;
   }
   :root[data-theme] .message__sender {
     color: var(--sender-color);
     font-size: 14px;
     font-weight: 600;
+    line-height: 20px;
     order: 1;
-    padding: 7px 12px 0;
+    padding: 7px 12px 0 38px;
   }
   :root[data-theme] .message--outgoing .message__sender,
   :root[data-theme] .history__column.is-private .message__sender,
-  :root[data-theme] .history__column.is-channel .message__sender {
+  :root[data-theme] .history__column.is-channel .message__sender,
+  :root[data-theme] .message--outgoing .message__avatar,
+  :root[data-theme] .history__column.is-private .message__avatar,
+  :root[data-theme] .history__column.is-channel .message__avatar {
     display: none;
   }
   :root[data-theme] .message__forward {

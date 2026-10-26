@@ -5,7 +5,8 @@ import { formDialog, field, checkRow, openPollDialog, openAttachBot, geoErrorTex
 
 // The paperclip menu — as in the native client: it appears on hovering the
 // attach button. A click on the paperclip itself still opens the file
-// choice (ui/attach.js).
+// choice (ui/composer.js). A touch screen has no hover: there a tap on the
+// paperclip opens and closes the menu, and the files come from its items.
 //
 // Items: photo or video (media), document, poll, checklist, article,
 // location, music — and the attachment menu bots (attach.bots, for example
@@ -15,6 +16,9 @@ import { formDialog, field, checkRow, openPollDialog, openAttachBot, geoErrorTex
 const SHOW_DELAY_MS = 150;
 const HIDE_DELAY_MS = 300;
 const CHECKLIST_TASKS_MAX = 30;   // getOption checklist_task_count_max (a live log)
+
+/** No hover (a touch screen): the paperclip works by taps (ui/composer.js too). */
+export const NO_HOVER = window.matchMedia('(hover: none)');
 
 let hooks = {};
 let menu = null;
@@ -252,9 +256,22 @@ export function mountAttachMenu(composerNode, options) {
   wrap.append(button, menu, picker);
 
   for (const node of [button, menu]) {
-    node.addEventListener('mouseenter', show);
-    node.addEventListener('mouseleave', hideSoon);
+    node.addEventListener('mouseenter', () => { if (!NO_HOVER.matches) show(); });
+    node.addEventListener('mouseleave', () => { if (!NO_HOVER.matches) hideSoon(); });
   }
+  button.addEventListener('click', () => {
+    if (!NO_HOVER.matches) return;
+    if (!menu.hidden) {
+      hideNow();
+    } else if (hooks.canCompose()) {
+      menu.hidden = false;
+      loadBots();
+    }
+  });
+  // A tap anywhere else closes it.
+  document.addEventListener('pointerdown', (event) => {
+    if (!menu.hidden && NO_HOVER.matches && !wrap.contains(event.target)) hideNow();
+  });
   menu.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') hideNow();
   });

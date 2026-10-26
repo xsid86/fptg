@@ -2,12 +2,11 @@ import { el } from '../core/dom.js';
 import { emit, on } from '../core/bus.js';
 import { store, setActiveChat } from '../core/store.js';
 import { icon } from '../util/icons.js';
-import { openMenu } from '../util/menu.js';
-import { openBox, textField, photoPicker, contactPicker, note } from './tgbox.js';
+import { openBox, textField, photoPicker, contactPicker, note, linkRow } from './tgbox.js';
 import { typePage, loadContext } from './manage.js';
 
-// "+" above the chat list: a new group or channel — steps as in Telegram
-// Desktop.
+// "+" above the chat list: a dialog with New group, New channel and New
+// bot; the choice goes on in the same dialog — steps as in Telegram Desktop.
 //   Group: "New group" (photo and title) -> "Add members" (contacts, a
 //   counter) -> Create.
 //   Channel: "New channel" (photo, title, description) -> Create -> "Channel
@@ -24,8 +23,7 @@ const photoStep = (chatId, uploadId) => ({
   params: { chat_id: chatId, photo: { '@type': 'inputChatPhotoStatic', photo: { '@type': 'inputFileUpload', id: uploadId } } },
 });
 
-export function newGroup() {
-  const box = openBox();
+export function newGroup(box = openBox()) {
   let name = null;
   let photo = null;
   box.push({
@@ -80,8 +78,7 @@ function membersStep(box, title, photo) {
   };
 }
 
-export function newChannel() {
-  const box = openBox();
+export function newChannel(box = openBox()) {
   let name = null;
   let about = null;
   let photo = null;
@@ -189,17 +186,33 @@ async function newBot() {
   }
 }
 
-/** The "+" button in the side panel's header (next to the tabs). */
+/** What "+" opens: the three kinds of a new chat. */
+function chooseNew() {
+  const box = openBox();
+  box.push({
+    title: 'New',
+    render: () => [
+      linkRow({ iconName: 'group', label: 'New group', onClick: () => newGroup(box) }),
+      linkRow({ iconName: 'channel', label: 'New channel', onClick: () => newChannel(box) }),
+      linkRow({
+        iconName: 'bot', label: 'New bot',
+        onClick: () => {
+          box.close();
+          newBot().catch(console.error);
+        },
+      }),
+    ],
+    buttons: [{ label: 'Cancel', run: () => box.close() }],
+  });
+}
+
+/** The "+" button in the side panel's header. */
 export function mountNewChat(headNode, options) {
   hooks = options;
   if (!hooks.report) hooks.report = (error) => emit('ui:error', error?.message || String(error));
   const btn = el('button', {
-    class: 'sidebar__new', type: 'button', title: 'New group or channel',
-    onclick: () => openMenu(btn, [
-      { label: 'New group', onSelect: newGroup },
-      { label: 'New channel', onSelect: newChannel },
-      { label: 'New bot', onSelect: () => { newBot().catch(console.error); } },
-    ]),
-  }, icon('plus'), el('span', { class: 'u-sr-only' }, 'New group or channel'));
+    class: 'sidebar__new', type: 'button', title: 'New group, channel or bot',
+    onclick: chooseNew,
+  }, icon('plus'), el('span', { class: 'u-sr-only' }, 'New group, channel or bot'));
   headNode.append(btn);
 }

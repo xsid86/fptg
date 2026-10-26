@@ -299,16 +299,20 @@ function render(chat) {
   parts.back.hidden = !thread;
   // Same palette class the list row carries, so the header and the row
   // for one chat can never disagree about its colour.
-  // In a thread the header is still the channel (the user's decision,
-  // 2026-10-10): people read the comments on ITS post, and the discussion
-  // group's avatar confused. The group — in the subtitle, if its name differs.
+  // In a thread the title is still the channel (the user's decision,
+  // 2026-10-10): people read the comments on ITS post. The picture is the
+  // discussion group's (2026-10-26): these are its messages. The group's
+  // name — in the subtitle, if it differs.
   const face = chat;
+  const picture = thread?.title
+    ? { title: thread.title, avatar: thread.avatar || '', color: thread.color }
+    : chat;
   root.className = `chat-header accent-${face.color ?? chat.color}`;
   // The state classes after className, which would wipe them.
   root.classList.toggle('chat-header--thread', !!thread);
   syncTools();
   // The same picture the row in the list shows - see util/avatar.js.
-  fillAvatar(parts.avatar, face);
+  fillAvatar(parts.avatar, picture);
   const kind = icon(kindIcon(chat.kind), 'icon--sm');
   parts.titleIcon.replaceWith(kind);
   parts.titleIcon = kind;

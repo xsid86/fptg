@@ -10,6 +10,7 @@ import { setCustomEmoji } from '../util/emoji.js';
 import { uploadRichFile } from './attach.js';
 import { getPref } from '../util/prefs.js';
 import { mountSchedule } from './schedule.js';
+import { NO_HOVER } from './attachmenu.js';
 
 // The message box and its formatting toolbar.
 //
@@ -437,8 +438,10 @@ export function mountComposer(node) {
   // default, as in the native client; this is switched in the dialog.
   const picker = qs('#composer-files', box);
   // A filter may have stayed from the Media button (only photos and videos).
+  // Without hover (a touch screen) the paperclip opens its menu instead
+  // (ui/attachmenu.js), and the files are chosen from its items.
   attachBtn?.addEventListener('click', () => {
-    if (!picker) return;
+    if (!picker || NO_HOVER.matches) return;
     picker.accept = '';
     picker.click();
   });

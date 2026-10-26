@@ -15,6 +15,7 @@ const DEFAULTS = {
   sendByCtrlEnter: false,   // Ctrl+Enter sends, Enter — a new line
   loopStickers: false,      // animated stickers — in a loop, not once
   autoplayGifs: true,       // GIFs play by themselves while on screen
+  autoplayVideos: false,    // videos too: muted, until clicked (ui/message.js)
   animatedStickers: true,   // stickers come alive at all (Battery and animation)
   interfaceAnimations: true,
   folderTags: true,         // folder chips in the list rows (Folders)

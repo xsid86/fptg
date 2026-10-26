@@ -524,6 +524,16 @@ export function mountAttach(layerNode, zoneNode, dropArea, options) {
   });
 
   mountDropzone(dropArea);
+  layer.addEventListener('dragover', (event) => {
+    if (!view || busy || !hasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  layer.addEventListener('drop', (event) => {
+    if (!view || busy || !hasFiles(event)) return;
+    event.preventDefault();
+    addFiles([...event.dataTransfer.files]);
+  });
 
   // The paperclip and pasting from the clipboard: pictures compressed by
   // default, as in the native client.

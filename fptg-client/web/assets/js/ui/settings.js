@@ -654,6 +654,7 @@ function renderAdvanced() {
     ];
   }
   const traffic = uid();
+  const autoplay = uid();
   const tray = uid();
   const device = uid();
   const server = uid();
@@ -666,7 +667,14 @@ function renderAdvanced() {
       navRow({ iconName: 'archive', label: 'Storage usage', hint: 'Media cache and its limits.',
         onClick: () => openAdvanced('storage') }),
       navRow({ iconName: 'pin', label: 'Location service', hint: 'Where a location from a message opens.',
-        onClick: () => openAdvanced('maps') })),
+        onClick: () => openAdvanced('maps') }),
+      // Both kinds at once; each on its own — in Battery and animation.
+      row(autoplay, 'Autoplay videos and GIFs',
+        'They play muted while on screen. A click on a video plays it from the start with sound.',
+        switchControl(autoplay, getPref('autoplayVideos') && getPref('autoplayGifs'), (checked) => {
+          setPref('autoplayVideos', checked);
+          setPref('autoplayGifs', checked);
+        }))),
     group('Network',
       navRow({ iconName: 'globe', label: 'Connection type', hint: 'Proxy for the server’s connection to Telegram.',
         onClick: openProxies })),

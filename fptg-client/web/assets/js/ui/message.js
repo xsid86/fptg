@@ -5,6 +5,7 @@ import {playSticker, restyleStickers} from './sticker.js';
 import {customEmojiNode} from '../util/emoji.js';
 import {renderRichText} from '../util/entities.js';
 import {holdImage, holdVideo, setVideoMode} from '../util/offscreen.js';
+import {smoothDownscale} from '../util/downscale.js';
 import {clockTime, fileSize, duration, signedDuration} from '../util/format.js';
 import {addRing, xferText, xferLeft} from '../util/xfer.js';
 import {peopleOnHover} from './people.js';
@@ -24,8 +25,12 @@ import {store, openThread} from '../core/store.js';
 function restyleMedia() {
     const loop = getPref('loopStickers');
     const still = !getPref('animatedStickers');
-    for (const v of document.querySelectorAll('video.media__video:not([controls])')) {
+    for (const v of document.querySelectorAll('video.media__video.is-gif')) {
         setVideoMode(v, getPref('autoplayGifs') ? 'loop' : false);
+    }
+    // Autoplay of videos turned off: the ones playing become ordinary players.
+    if (!getPref('autoplayVideos')) {
+        for (const v of document.querySelectorAll('video.media__video.is-auto')) takeOver(v, false);
     }
     for (const v of document.querySelectorAll('video.media__sticker')) {
         v.loop = loop && !still;
@@ -33,7 +38,9 @@ function restyleMedia() {
     }
     restyleStickers(document.body, {loop, still});
 }
-for (const key of ['autoplayGifs', 'loopStickers', 'animatedStickers']) on(`pref:${key}`, restyleMedia);
+for (const key of ['autoplayGifs', 'autoplayVideos', 'loopStickers', 'animatedStickers']) {
+    on(`pref:${key}`, restyleMedia);
+}
 
 // One message block, following framehistory.pas rather than inventing a
 // second visual language: a tinted header line (status mark, sender,
@@ -592,6 +599,9 @@ function renderPhoto(msg, m, group) {
     const box = el('div', {class: sizedBox('photo', m)});
     const img = el('img', {
         class: m.url ? 'media__img' : 'media__img is-placeholder',
+        // Before src: the file comes from the server, another origin, and
+        // without CORS the canvas of util/downscale.js could not be read.
+        crossOrigin: 'anonymous',
         src: m.url || m.thumb || '',
         alt: '',
         loading: 'lazy',
@@ -599,7 +609,10 @@ function renderPhoto(msg, m, group) {
     // Released again once it is far from the screen - see
     // util/offscreen.js. Only when the file is really here: one still
     // waiting for its download is already wearing the stamp.
-    if (m.url) holdImage(img, m.url, m.thumb);
+    if (m.url) {
+        holdImage(img, m.url, m.thumb);
+        smoothDownscale(img);
+    }
     box.append(img);
     if (m.url) {
         box.classList.add('is-clickable');
@@ -620,15 +633,22 @@ function renderVideo(msg, m) {
     const box = el('div', {class: sizedBox('video', m)});
     if (m.url) {
         const reused = takeVideo(m.url);
+        const auto = !reused && getPref('autoplayVideos');
         const player = reused ?? el('video', {
-            class: 'media__video',
+            class: auto ? 'media__video is-auto' : 'media__video',
             src: m.url,
             poster: m.thumbUrl || '',
-            controls: true,
+            controls: !auto,
+            muted: auto,
+            loop: auto,
+            playsInline: true,
             preload: 'metadata',
             dataset: {media: m.url},
         });
-        if (!reused) holdVideo(player, m.url);
+        if (!reused) {
+            holdVideo(player, m.url, auto ? 'loop' : false);
+            if (auto) autoVideo(player);
+        }
         box.append(player);
         if (m.xfer) box.append(xferOverlay(msg, m));
     } else {
@@ -650,6 +670,40 @@ function renderVideo(msg, m) {
     if (p) box.append(p);
     boxWrapper.append(box);
     return boxWrapper;
+}
+
+/**
+ * "Autoplay videos" (Advanced, Battery and animation): the video plays
+ * muted in a loop while it is on screen (util/offscreen.js), without
+ * controls; hovering shows them. The first click or tap is the reader's,
+ * as in the native client: the video starts over with sound and becomes an
+ * ordinary player.
+ */
+function autoVideo(player) {
+    player.addEventListener('mouseenter', () => {
+        if (player.classList.contains('is-auto')) player.controls = true;
+    });
+    player.addEventListener('mouseleave', () => {
+        if (player.classList.contains('is-auto')) player.controls = false;
+    });
+    player.addEventListener('click', () => {
+        if (!player.classList.contains('is-auto')) return;
+        player.classList.remove('is-auto');
+        // After the click's own action: a click on the controls toggles
+        // play or the sound first, and the outcome must not depend on
+        // where it landed.
+        setTimeout(() => takeOver(player, true), 0);
+    });
+}
+
+/** Out of autoplay: an ordinary player with sound, from the start. */
+function takeOver(player, play) {
+    player.classList.remove('is-auto');
+    setVideoMode(player, false);
+    player.muted = false;
+    player.controls = true;
+    player.currentTime = 0;
+    if (play) player.play().catch(() => {});
 }
 
 /**
@@ -796,7 +850,7 @@ function renderAnimation(msg, m) {
         // and not an <img> - same fact the native side relies on.
         const reused = takeVideo(m.url);
         const player = reused ?? el('video', {
-            class: 'media__video',
+            class: 'media__video is-gif',
             src: m.url,
             dataset: {media: m.url},
             // The blurred stamp, for the moments there is no frame to

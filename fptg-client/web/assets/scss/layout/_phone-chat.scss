@@ -264,22 +264,33 @@
       display: contents;
     }
 
+    // The sender's avatar, as on a wide screen: before the name, on its
+    // line (the head is dissolved, so it is placed over the bubble).
     .message__avatar {
-      display: none;
+      font-size: 9px;
+      height: 20px;
+      left: 12px;
+      position: absolute;
+      top: 7px;
+      width: 20px;
     }
 
     .message__sender {
       color: var(--sender-color);
       font-size: 14px;
       font-weight: 600;
+      line-height: 20px;
       order: 1;
-      padding: 7px 12px 0;
+      padding: 7px 12px 0 38px;
     }
 
     // No name over one's own messages, in a private chat or a channel.
     .message--outgoing .message__sender,
     .history__column.is-private .message__sender,
-    .history__column.is-channel .message__sender {
+    .history__column.is-channel .message__sender,
+    .message--outgoing .message__avatar,
+    .history__column.is-private .message__avatar,
+    .history__column.is-channel .message__avatar {
       display: none;
     }
 
