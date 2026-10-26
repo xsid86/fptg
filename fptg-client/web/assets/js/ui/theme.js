@@ -115,14 +115,18 @@ function tokenColor(name) {
 }
 
 // The window frame in the theme colour (winframe.pas): the caption — the
-// page background, the text and edging — their own tokens. In an ordinary
-// browser postShell is silent.
+// page background, the text and edging — their own tokens. The desktop
+// cards of new messages (desknotify.pas) take the theme too: the card is
+// the surface, its text the dim text. In an ordinary browser postShell is
+// silent.
 function paintFrame(scheme) {
   postShell({
     t: 'frame',
     caption: tokenColor('--c-bg'),
     text: tokenColor('--c-text'),
     border: tokenColor('--c-border'),
+    card: tokenColor('--c-surface'),
+    dim: tokenColor('--c-text-dim'),
     dark: scheme === 'dark',
   });
 }

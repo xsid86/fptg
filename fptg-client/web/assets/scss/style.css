@@ -3560,6 +3560,10 @@ dialog[open].is-pop-up,
   text-overflow: ellipsis;
 }
 
+.chat-header__search-close {
+  display: none;
+}
+
 .history {
   height: 100%;
   padding: 16px 8px;
@@ -5591,6 +5595,7 @@ button.message__forward:hover {
   flex-basis: 0;
   min-width: 0;
   overflow: hidden;
+  border-radius: 8px;
   position: relative;
   background: var(--c-surface-2);
 }
@@ -14481,11 +14486,34 @@ span.picker__gif {
   :root[data-theme] .chat-header.is-tools-open .chat-header__tools {
     align-items: stretch;
     border-radius: 18px;
+    box-sizing: border-box;
     display: flex;
     flex: 1 0 100%;
+    max-width: 100%;
+    min-width: 0;
     gap: 6px;
     order: 5;
     padding: 8px;
+  }
+  :root[data-theme] .chat-header__search {
+    min-width: 0;
+  }
+  :root[data-theme] .chat-header__search .field__input {
+    min-width: 0;
+  }
+  :root[data-theme] .chat-header__search-close {
+    align-items: center;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    color: var(--c-text-dim);
+    cursor: pointer;
+    display: flex;
+    flex: 0 0 auto;
+    height: 28px;
+    justify-content: center;
+    padding: 0;
+    width: 28px;
   }
   :root[data-theme] .chat-header__filters {
     flex-wrap: nowrap;
@@ -14530,6 +14558,12 @@ span.picker__gif {
     height: 44px;
     right: 12px;
     width: 44px;
+    z-index: 6;
+  }
+  :root[data-theme] .history__to-bottom-count {
+    bottom: calc(100% + 4px);
+    pointer-events: none;
+    translate: -50% 50%;
   }
   :root[data-theme] .info-toggle {
     display: none;
@@ -14548,6 +14582,7 @@ span.picker__gif {
     top: var(--header-room);
     transform: translateY(105%);
     width: 100%;
+    z-index: 1000;
   }
   :root[data-theme] .info-panel.is-open {
     transform: none;
@@ -14644,8 +14679,13 @@ span.picker__gif {
   }
   :root[data-theme] .message__state {
     font-size: 11px;
+    line-height: 16px;
     order: 6;
-    padding: 0 12px 6px;
+    padding: 0 52px 6px 12px;
+    text-align: right;
+  }
+  :root[data-theme] .message--outgoing .message__state {
+    padding-right: 71px;
   }
   :root[data-theme] .message:has(.message__body > .media__wrapper:last-child) .message__time,
   :root[data-theme] .message--sticker .message__time {

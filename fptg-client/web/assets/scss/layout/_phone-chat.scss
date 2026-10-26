@@ -146,11 +146,37 @@
     .chat-header.is-tools-open .chat-header__tools {
       align-items: stretch;
       border-radius: 18px;
+      box-sizing: border-box;
       display: flex;
       flex: 1 0 100%;
+      max-width: 100%;
+      min-width: 0;
       gap: 6px;
       order: 5;
       padding: 8px;
+    }
+
+    .chat-header__search {
+      min-width: 0;
+    }
+
+    .chat-header__search .field__input {
+      min-width: 0;
+    }
+
+    .chat-header__search-close {
+      align-items: center;
+      background: none;
+      border: none;
+      border-radius: 50%;
+      color: var(--c-text-dim);
+      cursor: pointer;
+      display: flex;
+      flex: 0 0 auto;
+      height: 28px;
+      justify-content: center;
+      padding: 0;
+      width: 28px;
     }
 
     .chat-header__filters {
@@ -209,6 +235,16 @@
       height: 44px;
       right: 12px;
       width: 44px;
+      // Over the translate button, for the count below to show.
+      z-index: 6;
+    }
+
+    // The unread count: in the middle of the 8px between "down" and the
+    // translate button above it, over both; taps go through to them.
+    .history__to-bottom-count {
+      bottom: calc(100% + 4px);
+      pointer-events: none;
+      translate: -50% 50%;
     }
 
     // The info opens from the name in the header; the round "i" over the
@@ -233,6 +269,8 @@
       top: var(--header-room);
       transform: translateY(105%);
       width: 100%;
+      // Over the stream bar (z-index 999 above), which it slides up across.
+      z-index: 1000;
 
       // A sheet, as in iOS: it slides up from the bottom, not in from the side.
       &.is-open {
@@ -358,10 +396,17 @@
       right: 10px;
     }
 
+    // "edited": on the time's line, to its left (the time is absolute).
     .message__state {
       font-size: 11px;
+      line-height: 16px;
       order: 6;
-      padding: 0 12px 6px;
+      padding: 0 52px 6px 12px;
+      text-align: right;
+    }
+
+    .message--outgoing .message__state {
+      padding-right: 71px;
     }
 
     // Over a picture with no caption, and beside a sticker: on a dark pill.

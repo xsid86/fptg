@@ -344,6 +344,16 @@ function wireActions() {
     call('messages.older').catch(report);
   }, 300));
 
+  // A history detached from the newest end (a jump into the past):
+  // newer pages at the bottom, and "down" back to the newest.
+  on('ui:load-newer', throttle(() => {
+    call('messages.newer').catch(report);
+  }, 300));
+
+  on('ui:latest', () => {
+    call('messages.latest').then(applyMessages).catch(report);
+  });
+
   on('ui:mark-read', (ids) => {
     call('messages.read', { ids }).catch(() => {});
   });

@@ -28,6 +28,10 @@ def copyWeb = tasks.register('copyWeb', Copy) {
         // compiled style.css is needed, not its sources.
         exclude '**/*.scss', '**/*.map', '**/.idea/**'
     }
+    // The version the page shows (the menu): this build's.
+    filesMatching('assets/js/version.js') {
+        filter { line -> line.replaceAll(/APP_VERSION = '[^']*'/, "APP_VERSION = '${fptgVersion}'") }
+    }
     into webAssets.map { it.dir('web') }
 }
 

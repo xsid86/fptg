@@ -79,6 +79,11 @@ final class Notices {
         c.getSystemService(NotificationManager.class).notify(noteId(chatId), b.build());
     }
 
+    /** The chat is read: its notification goes (the page's notifyClear). */
+    static void cancel(Context c, long chatId) {
+        if (chatId != 0) c.getSystemService(NotificationManager.class).cancel(noteId(chatId));
+    }
+
     /** The page asks for it while a call rings and the app is out of sight
      *  (ui/call.js, callpopup); it rings until the call is answered, declined
      *  or the app comes to the front (insistent: the sound repeats). */

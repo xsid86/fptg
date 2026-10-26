@@ -331,10 +331,15 @@ begin
     end;
   end else if T = 'frame' then begin
     FrameFromPage(O);
+    { The message cards in the theme's colours too. }
+    SetDeskNotifyColors(O.Get('card', ''), O.Get('border', ''),
+      O.Get('text', ''), O.Get('dim', ''));
   end else if T = 'notify' then begin
     ShowDeskNotify(O.Get('chatId', Int64(0)), utf8string(O.Get('title', '')),
       utf8string(O.Get('text', '')), DataUriBytes(O.Get('photo', '')),
       DataUriBytes(O.Get('thumb', '')));
+  end else if T = 'notifyClear' then begin
+    CloseDeskNotify(O.Get('chatId', Int64(0)));
   end else if T = 'notifySample' then begin
     ShowDeskNotifySamples(APP_TITLE, DESKNOTIFY_SAMPLE_TEXT);
   end else if T = 'miniapp' then begin

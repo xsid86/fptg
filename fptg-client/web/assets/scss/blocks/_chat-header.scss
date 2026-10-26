@@ -152,3 +152,9 @@
 .chat-header__topic-label {
   @include ellipsis;
 }
+
+// The cross inside the search field closes the search line - a phone's
+// only (layout/_phone-chat): on a wide window the field is always there.
+.chat-header__search-close {
+  display: none;
+}

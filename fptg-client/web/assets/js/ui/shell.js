@@ -15,12 +15,15 @@ import { signOut, signedOut } from '../core/session.js';
 //   notify {chatId, title, text, photo, thumb}  a desktop card (the photo
 //     is a data: URL: the files are on the server, not with the window);
 //   notifySample                  a sample of the cards (settings);
+//   notifyClear {chatId}          the chat is read: its card or notification
+//     goes (here, in another client or on the phone - the unread count);
 //   miniapp {url, title, bot, launch, buttonText, theme}  open a mini app
 //     (the webapp.open answer);
 //   miniappResp {id, ok, result, error}  the server's answer to miniappReq;
 //   callpopup — the call pop-up (ui/call.js);
-//   frame {caption, text, border, dark}  the window frame colours by theme,
-//     '#rrggbb' (ui/theme.js; the window — winframe.pas).
+//   frame {caption, text, border, card, dim, dark}  the window frame and
+//     the message cards in the theme's colours, '#rrggbb' (ui/theme.js; the
+//     window — winframe.pas, desknotify.pas).
 // Window -> page:
 //   signOut             tray → Sign out;
 //   certificate {origin, fingerprint, changed}  the server certificate is
@@ -81,10 +84,22 @@ async function asDataUrl(url) {
   }
 }
 
+// Chats with a card or notification out: it goes once the chat is read.
+const noticed = new Set();
+
+function readChats(chats) {
+  for (const chat of chats ?? []) {
+    if (!noticed.has(chat.id) || chat.unread > 0) continue;
+    noticed.delete(chat.id);
+    postShell({ t: 'notifyClear', chatId: chat.id });
+  }
+}
+
 async function arrived(data) {
   if (!host || !notifyOn || !data) return;
   // The window is in front of the eyes and this chat is open in it — nothing to report.
   if (!document.hidden && document.hasFocus() && data.chatId === store.activeChatId) return;
+  noticed.add(data.chatId);
   postShell({
     t: 'notify',
     chatId: data.chatId,
@@ -125,6 +140,7 @@ export function mountShell(options) {
   if (!host) return;
   host.addEventListener('message', (event) => onHostMessage(event.data));
   on('srv:arrival', (data) => { arrived(data).catch(() => {}); });
+  on('store:chats', readChats);
   on('srv:settings', shellSettings);
   // The settings — on every (re)connection: the window may have connected to
   // another server, or they changed while there was no connection.

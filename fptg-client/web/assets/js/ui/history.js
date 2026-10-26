@@ -33,6 +33,9 @@ let wantMessage = null;
 const nodes = new Map();
 let chatId = null;
 let atBottom = true;
+// "Down" was pressed in a detached history (a jump into the past, see
+// state.detached): the newest page is coming, and the view goes to its end.
+let wantLatest = false;
 let wantScroll = null;          // 'pending' | 'settling' | null
 // The reader has taken the scroller over, so the opening position is
 // no longer ours to choose. Set by the gestures that can only be a
@@ -129,6 +132,13 @@ export function mountHistory(node) {
     hidden: true,
     onclick: () => {
       takeOver();
+      // The end of what is loaded is not the end of the chat: the newest
+      // page is asked for, and the view follows it there (paint).
+      if (lastState?.detached) {
+        wantLatest = true;
+        emit('ui:latest');
+        return;
+      }
       scrollToBottom();
     },
   }, icon('chevron-down'), unreadChip);
@@ -334,6 +344,10 @@ function render(state) {
 
 function paint(state) {
   lastState = state;
+  if (wantLatest && !state.detached) {
+    wantLatest = false;
+    atBottom = true;
+  }
   if (threadBtn) threadBtn.hidden = !state.thread;
   // Own messages on the right, others' on the left (blocks/_message.scss) —
   // except a channel feed: there "own" are all the owner's posts, and
@@ -944,7 +958,10 @@ function scrollTo(top) {
 
 function noteScrollPosition() {
   const distance = root.scrollHeight - root.scrollTop - root.clientHeight;
-  atBottom = distance < 40;
+  // In a detached history the end of what is loaded is not the chat's:
+  // nothing follows it (newer pages arriving would drag the view on and
+  // on to today), and "down" stays on screen.
+  atBottom = distance < 40 && !lastState?.detached;
   if (scrollBtn) scrollBtn.hidden = atBottom;
   updateFloatDate();
 }
@@ -1027,6 +1044,11 @@ function onScroll() {
   // when it is already loading or the history is exhausted, so there is
   // no need to track either of those here.
   if (root.scrollTop < 400) emit('ui:load-older');
+  // And near the bottom of a detached history: the next newer page.
+  if (lastState?.detached
+      && root.scrollHeight - root.scrollTop - root.clientHeight < 400) {
+    emit('ui:load-newer');
+  }
 
   collectRead();
 }

@@ -169,7 +169,7 @@ def build_all(version):
             write_bytes(lpi, raw)
 
 
-def copy_web(dst):
+def copy_web(dst, version):
     src = os.path.join(CLIENT, 'web')
     for base, dirs, files in os.walk(src):
         dirs[:] = [d for d in dirs if d not in WEB_SKIP_DIRS]
@@ -181,6 +181,14 @@ def copy_web(dst):
             shutil.copy2(os.path.join(base, f), os.path.join(dst, rel, f))
     if not os.path.exists(os.path.join(dst, 'assets', 'scss', 'style.css')):
         fail('web/assets/scss/style.css is missing: compile the SCSS first')
+    # The version the page shows (the menu): this build's, not the
+    # repository's last release.
+    stamp = os.path.join(dst, 'assets', 'js', 'version.js')
+    text = open(stamp, encoding='utf-8').read()
+    stamped = re.sub(r"APP_VERSION = '[^']*'", f"APP_VERSION = '{version}'", text)
+    if stamped == text and f"'{version}'" not in text:
+        fail('assets/js/version.js has no APP_VERSION to stamp')
+    write_text(stamp, stamped)
 
 
 def copy_legal(dst):
@@ -241,7 +249,7 @@ def main():
     os.makedirs(srv)
     for f in SERVER_FILES:
         shutil.copy2(os.path.join(SERVER, f), srv)
-    copy_web(os.path.join(srv, 'web'))
+    copy_web(os.path.join(srv, 'web'), version)
     copy_legal(srv)
     write_text(os.path.join(srv, 'README.txt'), README_SERVER.format(version=version))
 
@@ -249,7 +257,7 @@ def main():
     os.makedirs(cli)
     for f in CLIENT_FILES:
         shutil.copy2(os.path.join(CLIENT, f), cli)
-    copy_web(os.path.join(cli, 'web'))
+    copy_web(os.path.join(cli, 'web'), version)
     copy_legal(cli)
     write_text(os.path.join(cli, 'README.txt'), README_CLIENT.format(version=version))
 

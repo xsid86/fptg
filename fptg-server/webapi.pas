@@ -385,6 +385,8 @@ type
     function  CmdChatFolderCreate(AArgs: TJSONObject): TJSONData;
     function  CmdMessagesList: TJSONData;
     function  CmdMessagesOlder: TJSONData;
+    function  CmdMessagesNewer: TJSONData;
+    function  CmdMessagesLatest: TJSONData;
     function  CmdMessagesTrim: TJSONData;
     function  CmdMessagesRead(AArgs: TJSONObject): TJSONData;
     function  CmdThreadOpen(AArgs: TJSONObject): TJSONData;
@@ -3811,6 +3813,9 @@ begin
   Res.Add('unreadCovered', Msgs.UnreadCovered);
   Res.Add('loadingOlder', Msgs.LoadingOlder);
   Res.Add('oldestLoaded', Msgs.OldestLoaded);
+  { The newest end is not loaded (a jump into the past): the page asks
+    for newer pages at the bottom, and "down" brings the newest back. }
+  Res.Add('detached', Msgs.Detached);
   Res.Add('searchActive', Msgs.SearchActive);
   Res.Add('searchFilter', string(Msgs.SearchFilter));
   Res.Add('searchQuery',  string(Msgs.SearchQuery));
@@ -3828,6 +3833,28 @@ begin
   Msgs := RequireMsgs;
   Msgs.LoadOlder;
   Result := nil;
+end;
+
+{ After a jump into the past (TTdMessages.Detached): the next newer page,
+  and the way back to the newest end. }
+function TWebApi.CmdMessagesNewer: TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  Msgs.LoadNewer;
+  Result := nil;
+end;
+
+function TWebApi.CmdMessagesLatest: TJSONData;
+var
+  Msgs: TTdMessages;
+begin
+  Msgs := RequireMsgs;
+  if Msgs.Detached then begin
+    Msgs.ReturnToLatest;
+  end;
+  Result := CmdMessagesList;
 end;
 
 { Open the comment thread of a post, and come back out of it.
@@ -11830,6 +11857,10 @@ begin
           (Args <> nil) and Args.Get('delta', False));
       end else if Cmd = 'messages.older' then begin
         Reply(AConnId, ReqId, CmdMessagesOlder);
+      end else if Cmd = 'messages.newer' then begin
+        Reply(AConnId, ReqId, CmdMessagesNewer);
+      end else if Cmd = 'messages.latest' then begin
+        Reply(AConnId, ReqId, CmdMessagesLatest);
       end else if Cmd = 'thread.open' then begin
         ReplyMessages(AConnId, ReqId, CmdThreadOpen(Args), False);
       end else if Cmd = 'thread.jump' then begin

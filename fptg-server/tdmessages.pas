@@ -616,6 +616,12 @@ type
     FChatId:  Int64;
     FLoadingOlder: boolean;
     FOldestLoaded: boolean;
+    { The loaded range does not reach the chat's newest message: a jump
+      went far into the past (JumpDone), and what lies between is loaded
+      by LoadNewer as the reader scrolls down. New messages are not
+      added meanwhile - they would sit right under an old day. }
+    FDetached: boolean;
+    FLoadingNewer: boolean;
     { The unread marker for the CURRENTLY open chat: the id of the last
       message that was already read at the moment the chat was opened.
       The divider goes before the first message newer than it.
@@ -918,6 +924,7 @@ type
     procedure ParseEntitiesDone(Sender: TObject; const AResp: TTdResponse);
     procedure ActionDone(Sender: TObject; const AResp: TTdResponse);
     procedure JumpDone(Sender: TObject; const AResp: TTdResponse);
+    procedure NewerDone(Sender: TObject; const AResp: TTdResponse);
     procedure RequestJump(AMessageId: Int64);
     function IsReplyPending(AId: Int64): boolean;
     procedure MarkReplyPending(AId: Int64);
@@ -989,6 +996,10 @@ type
     { Loads an older page of history — or, while a filter/search is
       active, an older page of MATCHES (see SetSearchFilter). }
     procedure LoadOlder;
+    { Detached only: the next page of newer messages. }
+    procedure LoadNewer;
+    { Back to the newest end: the history from the newest page again. }
+    procedure ReturnToLatest;
 
     { Switches the open chat between its ordinary history and a
       filtered/searched view of itself. AFilterType is a TDLib
@@ -1302,6 +1313,7 @@ type
     procedure TrimOlder(AKeep: integer);
     property LoadingOlder: boolean read FLoadingOlder;
     property OldestLoaded: boolean read FOldestLoaded;
+    property Detached: boolean read FDetached;
     { The frozen unread marker, 0 when this chat opened with nothing
       unread. See FUnreadFromId. }
     property UnreadFromId: Int64 read FUnreadFromId;
@@ -1791,6 +1803,8 @@ begin
   FSearchTotal := 0;
   FLoadingOlder := False;
   FOldestLoaded := False;
+  FDetached := False;
+  FLoadingNewer := False;
   FUnreadFromId := 0;
   FUnreadBackfill := 0;
   FUnreadReady := False;
@@ -5939,6 +5953,93 @@ begin
   RequestJump(AMessageId);
 end;
 
+procedure TTdMessages.LoadNewer;
+var
+  Anchor: Int64;
+  Window: utf8string;
+begin
+  if (not FDetached) or FLoadingNewer or (FReq = nil) or (FChatId = 0)
+     or (FAll.Count = 0) then begin
+    Exit;
+  end;
+  FLoadingNewer := True;
+  Anchor := FAll.Data[FAll.Count - 1].Id;
+  { offset -N: N messages NEWER than from_message_id, then the anchor
+    itself (limit has to exceed -offset) - the same rule as RequestJump.
+    Fewer than N newer ones exist near the end, and TDLib fills the rest
+    with older ones, which are already here. }
+  Window := ',"from_message_id":' + utf8string(IntToStr(Anchor)) +
+    ',"offset":' + utf8string(IntToStr(-FLoadLimit)) +
+    ',"limit":' + utf8string(IntToStr(FLoadLimit + 1));
+  if FThreadPostId <> 0 then begin
+    FReq.SendRequest('getMessageThreadHistory',
+      '"chat_id":' + utf8string(IntToStr(FThreadChatId)) +
+      ',"message_id":' + utf8string(IntToStr(FThreadPostId)) + Window,
+      @NewerDone, PtrInt(Anchor));
+    Exit;
+  end;
+  FReq.SendRequest('getChatHistory',
+    '"chat_id":' + utf8string(IntToStr(FChatId)) + Window +
+    ',"only_local":false', @NewerDone, PtrInt(Anchor));
+end;
+
+procedure TTdMessages.NewerDone(Sender: TObject; const AResp: TTdResponse);
+var
+  Arr: TJSONArray;
+  I, Newer: integer;
+  Anchor: Int64;
+begin
+  Anchor := Int64(AResp.Tag);
+  { Answers to a range that is gone (another chat, a jump, back to the
+    newest end) are dropped: the anchor is no longer the newest loaded. }
+  if (not FLoadingNewer) or (FAll.Count = 0)
+     or (FAll.Data[FAll.Count - 1].Id <> Anchor) then begin
+    Exit;
+  end;
+  FLoadingNewer := False;
+  if not AResp.Success then begin
+    Touch;
+    Exit;
+  end;
+  Newer := 0;
+  Arr := JGetArr(AResp.Obj, 'messages');
+  if Arr <> nil then begin
+    for I := Arr.Count - 1 downto 0 do begin
+      if Arr.Items[I].JSONType <> jtObject then begin
+        Continue;
+      end;
+      if JGetInt64(TJSONObject(Arr.Items[I]), 'id') > Anchor then begin
+        Inc(Newer);
+      end;
+      try
+        ApplyMessage(TJSONObject(Arr.Items[I]));
+      except
+        on E: Exception do begin
+          if Assigned(FOnActionError) then begin
+            FOnActionError(Self, 0, utf8string(E.Message), 'newer-parse');
+          end;
+        end;
+      end;
+    end;
+  end;
+  { Nothing newer: the range has reached the newest end, and new
+    messages go into it again. }
+  if Newer = 0 then begin
+    FDetached := False;
+  end;
+  Touch;
+end;
+
+procedure TTdMessages.ReturnToLatest;
+begin
+  if FChatId = 0 then begin
+    Exit;
+  end;
+  Clear;
+  NotifyChanged;
+  LoadOlder;
+end;
+
 procedure TTdMessages.RequestJump(AMessageId: Int64);
 begin
   { offset:-(N) means "N more messages NEWER than from_message_id"
@@ -5973,7 +6074,7 @@ procedure TTdMessages.JumpDone(Sender: TObject; const AResp: TTdResponse);
 var
   Arr: TJSONArray;
   I: integer;
-  TargetId: Int64;
+  TargetId, Newest, Id: Int64;
 begin
   TargetId := Int64(AResp.Tag);
   if not AResp.Success then begin
@@ -5984,6 +6085,27 @@ begin
   end;
 
   Arr := JGetArr(AResp.Obj, 'messages');
+  { The batch around the target does not reach what is loaded: added to
+    it, it would leave a hole of days or months between the two, the
+    old day right above today (live, 2026-10-26). The range becomes the
+    batch alone instead, detached from the newest end (FDetached). }
+  if (Arr <> nil) and (Arr.Count > 0) and (FAll.Count > 0) then begin
+    Newest := 0;
+    for I := 0 to Arr.Count - 1 do begin
+      if Arr.Items[I].JSONType = jtObject then begin
+        Id := JGetInt64(TJSONObject(Arr.Items[I]), 'id');
+        if Id > Newest then begin
+          Newest := Id;
+        end;
+      end;
+    end;
+    if (Newest <> 0) and (Newest < FAll.Data[0].Id) then begin
+      Clear;
+      FDetached := True;
+      { Clear dropped the unread hunt too: it was the newest end's. }
+      FUnreadReady := True;
+    end;
+  end;
   if Arr <> nil then begin
     { The same order as HistoryDone: getChatHistory returns newest to
       oldest, applied in reverse. }
@@ -7426,7 +7548,12 @@ begin
         once, while one post's thread is open. Membership — by topic_id
         (messageTopicThread.message_thread_id, per a live tdlib_raw.log);
         the thread's root (the post's copy) — by its own id. }
-      if not SearchActive and InOpenThread(JGetObj(Obj, 'message')) then begin
+      if FDetached then begin
+        if (JGetInt64(JGetObj(Obj, 'message'), 'chat_id') = FChatId)
+           and JGetBool(JGetObj(Obj, 'message'), 'is_outgoing') then begin
+          ReturnToLatest;
+        end;
+      end else if not SearchActive and InOpenThread(JGetObj(Obj, 'message')) then begin
         ApplyMessage(JGetObj(Obj, 'message'));
       end;
     end else if T = 'updateMessageContent' then begin

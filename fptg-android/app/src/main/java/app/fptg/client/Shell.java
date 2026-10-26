@@ -310,6 +310,10 @@ final class Shell {
                 Notices.message(app, o.optLong("chatId"), o.optString("title"), o.optString("text"),
                     o.optString("photo"));
                 break;
+            case "notifyClear":
+                // The chat is read (here, in another client): its notification goes.
+                Notices.cancel(app, o.optLong("chatId"));
+                break;
             case "notifySample":
                 Notices.message(app, 0, "fptg", "A sample notification.", "");
                 break;

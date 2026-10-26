@@ -1,6 +1,7 @@
 import { el, clear } from '../core/dom.js';
 import { icon } from '../util/icons.js';
 import { fillAvatar } from '../util/avatar.js';
+import { APP_VERSION } from '../version.js';
 
 // The app's menu (2026-10-26), as in Telegram Desktop: a button at the left
 // of the list's header opens a panel sliding in from the left — the account
@@ -99,6 +100,6 @@ function render(account) {
       item('phone', 'Contacts', hooks.contacts),
       item('bookmark', 'Saved messages', hooks.saved),
       item('settings', 'Settings', hooks.settings)),
-    el('p', { class: 'main-menu__foot' }, 'fptg — an unofficial Telegram client')),
+    el('p', { class: 'main-menu__foot' }, `fptg v${APP_VERSION} — an unofficial Telegram client`)),
   );
 }

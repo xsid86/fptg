@@ -122,6 +122,15 @@ function onSearchKey(e) {
   }
 }
 
+/** The phone's search line closed by its cross: no query, no line. */
+function closeSearch() {
+  const had = parts.input.value.trim() !== '';
+  parts.input.value = '';
+  toolsOpen = false;
+  syncTools();
+  if (had) apply();
+}
+
 function build() {
   // A click — the other side's avatar gallery; for a group and channel —
   // the info panel (ui/infopanel.js, ui:chat-photos).
@@ -215,7 +224,14 @@ function build() {
     el('div', { class: 'chat-header__tools' },
       topic,
       el('label', { class: 'field chat-header__search' },
-        icon('search', 'icon--sm'), input, count),
+        icon('search', 'icon--sm'), input, count,
+        el('button', {
+          class: 'chat-header__search-close', type: 'button', title: 'Close search',
+          onclick: (event) => {
+            event.preventDefault();
+            closeSearch();
+          },
+        }, icon('close', 'icon--sm'), el('span', { class: 'u-sr-only' }, 'Close search'))),
       strip),
   );
 

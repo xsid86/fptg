@@ -67,6 +67,8 @@ $album-row-max: 60;
   flex-basis: 0;
   min-width: 0;   // or a wide cell refuses to shrink
   overflow: hidden;
+  // The picture inside is rounded; a square cell showed its dark corners.
+  border-radius: $radius-md;
   position: relative;
   background: var(--c-surface-2);
 }

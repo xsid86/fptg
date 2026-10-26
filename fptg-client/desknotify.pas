@@ -40,6 +40,13 @@ procedure SetDeskNotifyLimit(ACount: integer);
 { Font size of the title and the text (at 96 dpi). Cards on screen are
   redrawn at once. }
 procedure SetDeskNotifyFonts(ATitle, AText: integer);
+{ The colours of the app's theme ('#rrggbb' each, the page's frame
+  message): the card, its edging, the title and the text. Cards on screen
+  are redrawn at once. Until the first call (or with a colour that is not
+  '#rrggbb') the cards follow the Windows light or dark theme. }
+procedure SetDeskNotifyColors(const ABg, ABorder, ATitle, AText: string);
+{ The chat is read: its card fades out (the page's notifyClear). }
+procedure CloseDeskNotify(AChatId: Int64);
 { A sample for the settings: as many cards as fit at once — both the
   corner and the stack height are visible right away. The previous sample
   goes at once, without fading. A click on a sample comes to
@@ -115,6 +122,9 @@ var
   GLimit: integer = DESKNOTIFY_LIMIT_DEFAULT;
   GTitleFont: integer = DESKNOTIFY_TITLE_FONT_DEFAULT;
   GTextFont: integer = DESKNOTIFY_TEXT_FONT_DEFAULT;
+  { The app's theme (SetDeskNotifyColors); GThemed false — the system's. }
+  GThemed: boolean = False;
+  GThemeBg, GThemeBorder, GThemeTitle, GThemeText: TColor;
   GCursor: TPoint;
   GCursorKnown: boolean = False;
 
@@ -226,7 +236,12 @@ var
   I: integer;
   A: byte;
 begin
-  if Dark then begin
+  if GThemed then begin
+    Bg := ColorToBGRA(GThemeBg);
+    Border := ColorToBGRA(GThemeBorder);
+    Fg := ColorToBGRA(GThemeTitle);
+    Sub := ColorToBGRA(GThemeText);
+  end else if Dark then begin
     Bg := ColorToBGRA(DESKNOTIFY_DARK_BG);
     Border := ColorToBGRA(DESKNOTIFY_DARK_BORDER);
     Fg := ColorToBGRA(DESKNOTIFY_DARK_TITLE);
@@ -710,6 +725,53 @@ begin
   end;
   TrimToLimit;
   StartTimer;
+end;
+
+{ '#rrggbb' -> TColor ($00BBGGRR). }
+function CssColor(const S: string; out AColor: TColor): boolean;
+var
+  V: integer;
+begin
+  Result := (Length(S) = 7) and (S[1] = '#') and TryStrToInt('$' + Copy(S, 2, 6), V);
+  if Result then begin
+    AColor := TColor(((V shr 16) and $FF) or (V and $FF00) or ((V and $FF) shl 16));
+  end;
+end;
+
+procedure CloseDeskNotify(AChatId: Int64);
+var
+  I: integer;
+begin
+  if (GCards = nil) or (AChatId = 0) then begin
+    Exit;
+  end;
+  for I := 0 to GCards.Count - 1 do begin
+    if (Card(I).ChatId = AChatId) and not Card(I).Sample then begin
+      Card(I).Closing := True;
+    end;
+  end;
+  StartTimer;
+end;
+
+procedure SetDeskNotifyColors(const ABg, ABorder, ATitle, AText: string);
+var
+  Bg, Border, Title, Text: TColor;
+  I: integer;
+begin
+  GThemed := CssColor(ABg, Bg) and CssColor(ABorder, Border)
+    and CssColor(ATitle, Title) and CssColor(AText, Text);
+  if GThemed then begin
+    GThemeBg := Bg;
+    GThemeBorder := Border;
+    GThemeTitle := Title;
+    GThemeText := Text;
+  end;
+  if GCards = nil then begin
+    Exit;
+  end;
+  for I := 0 to GCards.Count - 1 do begin
+    Card(I).Paint;
+  end;
 end;
 
 procedure SetDeskNotifyFonts(ATitle, AText: integer);
