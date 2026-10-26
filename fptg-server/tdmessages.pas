@@ -38,6 +38,8 @@ type
       fresh download have been done already. The same again — give up
       rather than go round in circles. }
     StaleRetried: boolean;
+    { GetTickCount64 of the last word about this file (see SlotWatchdog). }
+    LastHeard: QWord;
   end;
 
   { Telegram's three sticker formats — confirmed against the official
@@ -830,6 +832,8 @@ type
     { Issues the next byte window for one throttled download and moves
       the round-robin cursor on. }
     procedure ChunkTick(Sender: TObject);
+    procedure SlotWatchdog;
+    procedure SlotProbeDone(Sender: TObject; const AResp: TTdResponse);
     procedure GrantChunk(AIndex: integer);
     procedure UpdateChunkTimer;
     { Bytes the budget gains per tick — the configured rate spread over
@@ -3296,6 +3300,7 @@ begin
   FActiveDownloads[Idx].Unthrottled := DownloadSpeedLimit <= 0;
   FActiveDownloads[Idx].GaveUp := False;
   FActiveDownloads[Idx].StaleRetried := False;
+  FActiveDownloads[Idx].LastHeard := GetTickCount64;
   if FActiveDownloads[Idx].Unthrottled then begin
     FReq.SendRequest('downloadFile',
       '"file_id":' + utf8string(IntToStr(AFileId)) +
@@ -3352,6 +3357,7 @@ begin
     UpdateChunkTimer;
     Exit;
   end;
+  SlotWatchdog;
 
   if DownloadSpeedLimit <= 0 then begin
     for I := 0 to High(FActiveDownloads) do begin
@@ -3402,6 +3408,42 @@ begin
       Exit;
     end;
     Inc(Tries);
+  end;
+end;
+
+{ The safety valve for a slot whose ending never came: the file that has
+  been silent for DOWNLOAD_SLOT_SILENT_MS is asked about, and the answer
+  goes through NoteFileDownloadState like any updateFile - not downloading
+  and not paced, or completed, frees the slot. One that TDLib really is
+  still downloading stays. Live (2026-10-26): all slots held, no file in
+  TDLib's temp, nothing downloading for good. }
+procedure TTdMessages.SlotWatchdog;
+var
+  I: integer;
+  Now64: QWord;
+begin
+  if FReq = nil then begin
+    Exit;
+  end;
+  Now64 := GetTickCount64;
+  for I := 0 to High(FActiveDownloads) do begin
+    if Now64 - FActiveDownloads[I].LastHeard < DOWNLOAD_SLOT_SILENT_MS then begin
+      Continue;
+    end;
+    FActiveDownloads[I].LastHeard := Now64;
+    FReq.SendRequest('getFile',
+      '"file_id":' + utf8string(IntToStr(FActiveDownloads[I].FileId)),
+      @SlotProbeDone, FActiveDownloads[I].FileId);
+  end;
+end;
+
+procedure TTdMessages.SlotProbeDone(Sender: TObject; const AResp: TTdResponse);
+begin
+  if AResp.Success then begin
+    NoteFileDownloadState(AResp.Obj);
+  end else begin
+    { No such file any more: nothing can be downloading it. }
+    ReleaseDownloadSlot(integer(AResp.Tag));
   end;
 end;
 
@@ -3482,6 +3524,7 @@ begin
   if Idx < 0 then begin
     Exit;
   end;
+  FActiveDownloads[Idx].LastHeard := GetTickCount64;
   Local := JGetObj(AFile, 'local');
   if Local = nil then begin
     Exit;

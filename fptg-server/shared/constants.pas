@@ -86,6 +86,11 @@ const
   DOWNLOAD_SPEED_MIN_KB     = 0;
   DOWNLOAD_SPEED_MAX_KB     = 102400;
   DOWNLOAD_CHUNK_INTERVAL_MS = 250;
+  { A download slot with no word from TDLib for this long is asked about
+    (getFile): a slot whose ending was never reported would otherwise be
+    held for the rest of the session, and with all of them held nothing
+    downloads at all (live, 2026-10-26). }
+  DOWNLOAD_SLOT_SILENT_MS    = 20000;
   TD_DOWNLOAD_PART_BYTES     = 512 * 1024;
 
   { Cache cleanup (tdstorage.pas, the settings window's Storage
