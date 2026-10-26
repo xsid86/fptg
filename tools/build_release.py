@@ -16,7 +16,8 @@ afterwards.
    fptg-server-gui and fptg-client (the Release mode). The server window and
    the client window must be closed — otherwise the exe cannot be overwritten.
 2. dist/fptg-server-<version>-win64.zip — both servers, tdjson.dll and its
-   libraries, the page (web/ next to the exe — for browsers), licenses.
+   libraries, the Visual C++ runtime they need (taken from this machine's
+   System32), the page (web/ next to the exe — for browsers), licenses.
 3. dist/fptg-client-<version>-win64.zip — the window, WebView2Loader.dll,
    the page (web/), licenses.
 4. dist/SHA256SUMS.txt — the checksums of both archives.
@@ -48,6 +49,12 @@ PRODUCT_NAME = 'fptg'
 SERVER_FILES = ['fptg-server.exe', 'fptg-server-gui.exe', 'tdjson.dll',
                 'libssl-3-x64.dll', 'libcrypto-3-x64.dll', 'z.dll']
 CLIENT_FILES = ['fptg-client.exe', 'WebView2Loader.dll', 'WebView2Loader.LICENSE.txt']
+# tdjson.dll, OpenSSL and zlib are built with Visual C++ and load its
+# runtime; a clean Windows has none ("VCRUNTIME140.dll was not found",
+# 2026-10-26). The runtime goes next to them, as Microsoft allows for these
+# files (app-local deployment). The rest they import (api-ms-win-crt-*, the
+# Universal CRT) is part of Windows 10 and 11.
+VC_RUNTIME = ['vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll']
 WEB_SKIP_DIRS = {'.idea'}
 WEB_SKIP_EXT = {'.scss', '.map'}
 
@@ -249,6 +256,12 @@ def main():
     os.makedirs(srv)
     for f in SERVER_FILES:
         shutil.copy2(os.path.join(SERVER, f), srv)
+    system32 = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32')
+    for f in VC_RUNTIME:
+        src = os.path.join(system32, f)
+        if not os.path.exists(src):
+            fail(f'{src} is missing: install the Visual C++ Redistributable (x64)')
+        shutil.copy2(src, srv)
     copy_web(os.path.join(srv, 'web'), version)
     copy_legal(srv)
     write_text(os.path.join(srv, 'README.txt'), README_SERVER.format(version=version))

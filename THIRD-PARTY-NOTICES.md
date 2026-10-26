@@ -16,6 +16,7 @@ fptg uses the Telegram API and is not affiliated with or endorsed by Telegram.
 | [TDLib](https://github.com/tdlib/td) (`tdjson.dll`) | Telegram client library | Boost Software License 1.0 | `TDLib-BSL-1.0.txt` |
 | [OpenSSL](https://www.openssl.org/) 3 (`libssl-3-x64.dll`, `libcrypto-3-x64.dll`) | TLS for TDLib and for the server | Apache License 2.0 | `OpenSSL-Apache-2.0.txt` |
 | [zlib](https://zlib.net/) (`z.dll`) | compression for TDLib | zlib License | `zlib.txt` |
+| Microsoft Visual C++ runtime (`vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll`) | the runtime TDLib, OpenSSL and zlib are built against | redistributable files of the [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files) | — |
 
 ## Compiled into the programs
 
